@@ -10,5 +10,8 @@
     "@plot/shared": "workspace:*",
     "@effect/platform": "latest",
     "effect": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3"
   }
 }

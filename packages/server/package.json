@@ -18,5 +18,8 @@
     "@plot/shared": "workspace:*",
     "@plot/tracker": "workspace:*",
     "effect": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3"
   }
 }

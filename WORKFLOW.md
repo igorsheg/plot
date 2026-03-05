@@ -1,6 +1,6 @@
 ---
 tracker:
-  kind: local-fs
+  kind: github
   active_states:
     - Todo
     - In Progress

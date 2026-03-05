@@ -5,7 +5,7 @@ declare const Bun: {
 };
 
 declare const process: { exit: (code: number) => never };
-import { HttpRouter, HttpServerResponse } from "@effect/platform";
+import { FileSystem, HttpRouter, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { BunContext, BunHttpServer, BunRuntime } from "@effect/platform-bun";
 import { RpcSerialization, RpcServer } from "@effect/rpc";
 import { Effect, Layer, Logger, LogLevel, Schedule, Schema, Stream } from "effect";
@@ -14,6 +14,8 @@ import { Orchestrator } from "@plot/core";
 import { makeLocalFsTracker, makeGithubTracker } from "@plot/tracker";
 import { PiAgentLive } from "@plot/agent";
 import { RpcHandlersLive } from "./rpc-handlers.js";
+import { resolve, dirname, join, extname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // cli arg parsing
@@ -27,7 +29,6 @@ interface CliArgs {
   logLevel: string;
   trackerKind: string;
   githubRepo: string;
-  githubToken: string;
 }
 
 const parseCli = (): CliArgs => {
@@ -66,7 +67,6 @@ const parseCli = (): CliArgs => {
     logLevel: Bun.env["PLOT_LOG_LEVEL"] ?? "info",
     trackerKind: trackerFlag ?? Bun.env["PLOT_TRACKER_KIND"] ?? "local-fs",
     githubRepo: githubRepoFlag ?? Bun.env["PLOT_GITHUB_REPO"] ?? "",
-    githubToken: Bun.env["GITHUB_TOKEN"] ?? Bun.env["GH_TOKEN"] ?? "",
   };
 };
 
@@ -110,13 +110,8 @@ const LoggingLive = Layer.mergeAll(
 
 const TrackerLive = (() => {
   if (cli.trackerKind === "github") {
-    if (!cli.githubRepo) {
-      console.error("error: PLOT_GITHUB_REPO or --github-repo required for github tracker");
-      process.exit(1);
-    }
     return makeGithubTracker({
-      repo: cli.githubRepo,
-      token: cli.githubToken,
+      repo: cli.githubRepo || undefined,
     });
   }
   return makeLocalFsTracker(cli.issuesDir).pipe(Layer.provide(BunContext.layer));
@@ -180,10 +175,64 @@ const StartupLive = Layer.scopedDiscard(
   }),
 ).pipe(Layer.provide(OrchestratorLive));
 
+const __serverDir = dirname(fileURLToPath(import.meta.url));
+const webDistDir = resolve(__serverDir, "../../web/dist");
+
+const contentTypes: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "application/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
+
+const StaticLive = HttpRouter.Default.use((router) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+
+    yield* router.get(
+      "/*",
+      Effect.gen(function* () {
+        const req = yield* HttpServerRequest.HttpServerRequest;
+        const url = new URL(req.url, "http://localhost");
+        const pathname = url.pathname;
+
+        if (pathname.startsWith("/rpc")) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+
+        const filePath = join(webDistDir, pathname);
+        const exists = yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => false));
+        if (exists && pathname !== "/") {
+          const ext = extname(filePath);
+          const ct = contentTypes[ext] ?? "application/octet-stream";
+          const content = yield* fs.readFile(filePath);
+          return HttpServerResponse.uint8Array(content, { contentType: ct });
+        }
+
+        const indexPath = join(webDistDir, "index.html");
+        const indexExists = yield* fs.exists(indexPath).pipe(Effect.orElseSucceed(() => false));
+        if (indexExists) {
+          const content = yield* fs.readFile(indexPath);
+          return HttpServerResponse.uint8Array(content, { contentType: "text/html" });
+        }
+
+        return HttpServerResponse.empty({ status: 404 });
+      }),
+    );
+  }),
+).pipe(Layer.provide(BunContext.layer));
+
 const Main = HttpRouter.Default.serve().pipe(
   Layer.provide(RpcLayer),
   Layer.provide(HttpProtocol),
   Layer.provide(SseRouteLive),
+  Layer.provide(StaticLive),
   Layer.provide(BunHttpServer.layer({ port: cli.port, idleTimeout: 120 })),
   Layer.provide(StartupLive),
   Layer.provide(LoggingLive),
