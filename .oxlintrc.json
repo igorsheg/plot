@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicolo-ribaudo/oxlint-config-schema/refs/heads/main/schema.json",
+  "plugins": ["react", "import", "typescript", "react-perf", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "eqeqeq": ["error", "smart"],
+    "no-console": "off",
+    "no-unused-vars": "warn",
+
+    "react/react-in-jsx-scope": "off",
+    "react/exhaustive-deps": "warn",
+    "react/jsx-key": "error",
+    "react/rules-of-hooks": "error",
+    "react/jsx-no-duplicate-props": "error",
+    "react/jsx-no-undef": "error",
+    "react/no-children-prop": "error",
+    "react/self-closing-comp": "warn",
+    "react/jsx-no-useless-fragment": "warn",
+    "react/jsx-curly-brace-presence": "warn",
+    "react/forward-ref-uses-ref": "error",
+
+    "react-perf/jsx-no-new-object-as-prop": "warn",
+    "react-perf/jsx-no-new-array-as-prop": "warn",
+    "react-perf/jsx-no-jsx-as-prop": "warn",
+
+    "import/no-self-import": "error",
+    "import/no-named-as-default": "warn",
+    "import/no-unassigned-import": "off",
+
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-spread": "error",
+    "typescript/no-unnecessary-type-assertion": "warn",
+    "typescript/no-unsafe-type-assertion": "warn",
+    "typescript/no-extraneous-class": "off",
+
+    "promise/no-multiple-resolved": "error",
+
+    "unicorn/consistent-function-scoping": "warn"
+  },
+  "ignorePatterns": ["node_modules", "dist"]
+}

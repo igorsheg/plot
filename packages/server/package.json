@@ -1,0 +1,22 @@
+{
+  "name": "@plot/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/main.ts"
+  },
+  "dependencies": {
+    "@effect/platform": "latest",
+    "@effect/platform-bun": "latest",
+    "@effect/rpc": "latest",
+    "@plot/agent": "workspace:*",
+    "@plot/core": "workspace:*",
+    "@plot/shared": "workspace:*",
+    "@plot/tracker": "workspace:*",
+    "effect": "latest"
+  }
+}

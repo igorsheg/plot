@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/tracker" },
+    { "path": "packages/agent" },
+    { "path": "packages/core" },
+    { "path": "packages/server" },
+    { "path": "packages/web" }
+  ]
+}
