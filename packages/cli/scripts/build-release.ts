@@ -89,6 +89,11 @@ if (!existsSync(webDistDir)) {
 	throw new Error(`missing web build output at ${webDistDir}`);
 }
 
+const piSkillsDir = join(repoDir, "packages/pi-package/skills");
+if (!existsSync(piSkillsDir)) {
+	throw new Error(`missing pi skills at ${piSkillsDir}`);
+}
+
 const optionalDependencies = Object.fromEntries(
 	targets.map((target) => [target.packageName, version]),
 );
@@ -120,6 +125,9 @@ await Promise.all(
 		}
 
 		cpSync(webDistDir, join(packageDir, "web-dist"), { recursive: true });
+		cpSync(piSkillsDir, join(packageDir, "pi-resources", "skills"), {
+			recursive: true,
+		});
 
 		const manifest = {
 			name: target.packageName,
@@ -132,7 +140,7 @@ await Promise.all(
 			bugs: publicPackage.bugs,
 			os: target.os,
 			cpu: target.cpu,
-			files: ["bin", "web-dist", "package.json"],
+			files: ["bin", "web-dist", "pi-resources", "package.json"],
 		};
 
 		writeFileSync(

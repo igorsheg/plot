@@ -8,12 +8,34 @@ export function resolveBundledWebDistDir() {
 	return process.env["PLOT_WEB_DIST_DIR"] ?? join(cliDir, "../../../web/dist");
 }
 
-export function resolveSelfCommandArgs(command: string) {
-	const entry = process.argv[1];
-	if (entry && /\.(?:[cm]?js|ts|mts|cts)$/.test(entry)) {
-		return [process.execPath, entry, command];
+export function resolveBundledPiSkillsDir() {
+	return (
+		process.env["PLOT_PI_SKILLS_DIR"] ??
+		join(cliDir, "../../../pi-package/skills")
+	);
+}
+
+export function stripBundledEntryArg(argv: string[]) {
+	return argv[0]?.startsWith("/$bunfs/") ? argv.slice(1) : argv;
+}
+
+export function buildSelfCommandArgs(
+	execPath: string,
+	entry: string | undefined,
+	command: string,
+) {
+	if (
+		entry &&
+		/\.(?:[cm]?js|ts|mts|cts)$/.test(entry) &&
+		!entry.startsWith("/$bunfs/")
+	) {
+		return [execPath, entry, command];
 	}
-	return [process.execPath, command];
+	return [execPath, command];
+}
+
+export function resolveSelfCommandArgs(command: string) {
+	return buildSelfCommandArgs(process.execPath, process.argv[1], command);
 }
 
 export function toServerEnv(opts: ServerOptions): Record<string, string> {
@@ -27,5 +49,6 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
 		PLOT_LOG_FORMAT: opts.json ? "json" : opts["log-format"],
 		PLOT_LOG_LEVEL: opts["log-level"],
 		PLOT_WEB_DIST_DIR: resolveBundledWebDistDir(),
+		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),
 	};
 }

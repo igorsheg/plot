@@ -41,5 +41,6 @@ coverage/
 *.tgz
 .cache/
 .turbo/
+.*.bun-build
 
 .references

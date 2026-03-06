@@ -18,9 +18,10 @@ plot-ai uses lockstep semver across the public npm surface.
 1. choose a version
 2. run the full verification gates
 3. build release artifacts
-4. publish platform packages
-5. publish `plot-ai`
-6. create the github release for the same version tag
+4. verify bundled pi runtime resources are present in platform packages
+5. publish platform packages
+6. publish `plot-ai`
+7. create the github release for the same version tag
 
 ## commands
 

@@ -10,5 +10,8 @@
     "@effect/rpc": "latest",
     "effect": "latest",
     "@effect/platform": "latest"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
   }
 }

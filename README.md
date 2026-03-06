@@ -14,6 +14,7 @@ it polls for issues in active states, prepares an isolated workspace, renders a 
 - two dashboards: a tui and a web app
 - a cli that starts the server, tui, or web dashboard
 - a publishable `plot-ai` package in `packages/plot-ai`
+- a plot-owned pi resource package in `packages/pi-package`
 
 ## runtime shape
 
@@ -108,6 +109,8 @@ just plot serve --tracker github --github-repo owner/repo
 
 the yaml frontmatter defines tracker settings, polling, workspace hooks, agent limits, and server defaults. the markdown body is rendered into the prompt given to the agent for each issue.
 
+plot always loads its bundled runtime skills. it also loads repo-local skills from `.agent/skills` and `.claude/skills` when those directories exist in the target workspace. user-global pi skills are ignored.
+
 this repo's checked-in `WORKFLOW.md` is the best reference because it exercises most of the supported fields.
 
 ## repo layout
@@ -123,6 +126,7 @@ packages/
   tui/       terminal dashboard
   web/       browser dashboard
   plot-ai/   publishable package wrapper
+  pi-package/ plot-owned pi skills for embedded runs
 ```
 
 ## development

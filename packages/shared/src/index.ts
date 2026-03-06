@@ -7,3 +7,4 @@ export * from "./rpc.js";
 export * from "./client.js";
 export * from "./format.js";
 export * from "./sse.js";
+export * from "./plot-agent-config.js";

@@ -8,7 +8,10 @@
   },
   "dependencies": {
     "@plot/server": "workspace:*",
+    "@plot/shared": "workspace:*",
     "@plot/tui": "workspace:*",
+    "@mariozechner/pi-ai": "latest",
+    "@mariozechner/pi-coding-agent": "latest",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

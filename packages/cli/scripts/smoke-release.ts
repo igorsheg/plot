@@ -50,6 +50,24 @@ try {
 	await $`PLOT_SKIP_POSTINSTALL_CHECK=1 npm install ${umbrellaTarball}`.cwd(
 		tempDir,
 	);
+	if (!existsSync(join(tempDir, "node_modules", ".bin", "plot-ai"))) {
+		throw new Error("missing plot-ai bin after install");
+	}
+	const installedPlatformPackage = findInstalledPlatformPackage(tempDir);
+	if (
+		!existsSync(
+			join(
+				tempDir,
+				"node_modules",
+				"@plot",
+				installedPlatformPackage,
+				"pi-resources",
+				"skills",
+			),
+		)
+	) {
+		throw new Error("missing bundled pi skills in platform package");
+	}
 	await $`./node_modules/.bin/plot-ai --help`.cwd(tempDir);
 } finally {
 	rmSync(tempDir, { recursive: true, force: true });
@@ -59,4 +77,15 @@ function findTarball(dir: string) {
 	const file = readdirSync(dir).find((entry) => entry.endsWith(".tgz"));
 	if (!file) throw new Error(`no tarball found in ${dir}`);
 	return join(dir, file);
+}
+
+function findInstalledPlatformPackage(installDir: string) {
+	const plotDir = join(installDir, "node_modules", "@plot");
+	const packageDir = readdirSync(plotDir).find((entry) =>
+		entry.startsWith("cli-"),
+	);
+	if (!packageDir) {
+		throw new Error("missing installed @plot cli platform package");
+	}
+	return packageDir;
 }
