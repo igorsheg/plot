@@ -226,7 +226,7 @@ function Header() {
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </span>
           )}
-          {snapshot.counts.running} running · {snapshot.counts.retrying} retrying
+          {snapshot.counts.running} running · {snapshot.counts.retrying} retrying · up {formatDuration(snapshot.codexTotals.secondsRunning)}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger>
