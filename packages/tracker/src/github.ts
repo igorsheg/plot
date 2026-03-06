@@ -26,6 +26,9 @@ export const makeGithubTracker = (config: {
 	const allStates = config.allStates ?? [
 		"Todo",
 		"In Progress",
+		"Human Review",
+		"Rework",
+		"Merging",
 		"Done",
 		"Closed",
 		"Cancelled",
