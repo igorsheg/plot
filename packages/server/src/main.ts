@@ -175,6 +175,18 @@ const StartupLive = Layer.scopedDiscard(
   }),
 ).pipe(Layer.provide(OrchestratorLive));
 
+const startedAt = Date.now();
+
+const HealthzLive = HttpRouter.Default.use((router) =>
+  router.get(
+    "/healthz",
+    Effect.flatMap(
+      Effect.sync(() => ({ status: "ok" as const, uptime: Math.floor((Date.now() - startedAt) / 1000) })),
+      (body) => HttpServerResponse.json(body),
+    ),
+  ),
+);
+
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 const webDistDir = resolve(__serverDir, "../../web/dist");
 
@@ -232,6 +244,7 @@ const Main = HttpRouter.Default.serve().pipe(
   Layer.provide(RpcLayer),
   Layer.provide(HttpProtocol),
   Layer.provide(SseRouteLive),
+  Layer.provide(HealthzLive),
   Layer.provide(StaticLive),
   Layer.provide(BunHttpServer.layer({ port: cli.port, idleTimeout: 120 })),
   Layer.provide(StartupLive),
