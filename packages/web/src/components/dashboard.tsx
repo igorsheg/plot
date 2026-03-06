@@ -227,14 +227,15 @@ function Header() {
             </span>
           )}
           {snapshot.counts.running} running · {snapshot.counts.retrying} retrying
+          <span className="text-muted-foreground/60">
+            · up {formatDuration(snapshot.codexTotals.secondsRunning)}
+          </span>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger>
                 <span className={`inline-flex h-1.5 w-1.5 rounded-full ${getStatusDotClass()}`} />
               </TooltipTrigger>
-              <TooltipPopup>
-                {getStatusText()}
-              </TooltipPopup>
+              <TooltipPopup>{getStatusText()}</TooltipPopup>
             </Tooltip>
           </TooltipProvider>
         </p>
