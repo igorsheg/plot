@@ -10,6 +10,7 @@ const DialogCreateHandle = DialogPrimitive.createHandle;
 const Dialog = DialogPrimitive.Root;
 
 const DialogPortal = DialogPrimitive.Portal;
+const dialogCloseButton = <Button size="icon" variant="ghost" />;
 
 function DialogTrigger(props: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
@@ -87,7 +88,7 @@ function DialogPopup({
             <DialogPrimitive.Close
               aria-label="Close"
               className="absolute end-2 top-2"
-              render={<Button size="icon" variant="ghost" />}
+              render={dialogCloseButton}
               {...closeProps}
             >
               <XIcon />

@@ -20,9 +20,10 @@ function NumberField({
 }) {
   const generatedId = React.useId();
   const fieldId = id ?? generatedId;
+  const contextValue = React.useMemo(() => ({ fieldId }), [fieldId]);
 
   return (
-    <NumberFieldContext.Provider value={{ fieldId }}>
+    <NumberFieldContext.Provider value={contextValue}>
       <NumberFieldPrimitive.Root
         className={cn("flex w-full flex-col items-start gap-2", className)}
         data-size={size}

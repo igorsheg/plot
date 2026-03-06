@@ -4,3 +4,6 @@ export * from "./schemas/orchestrator.js";
 export * from "./schemas/events.js";
 export * from "./errors.js";
 export * from "./rpc.js";
+export * from "./client.js";
+export * from "./format.js";
+export * from "./sse.js";

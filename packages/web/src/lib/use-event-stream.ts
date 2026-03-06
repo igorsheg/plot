@@ -1,78 +1,73 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+	connectSse,
+	type AgentRuntimeEvent,
+	type SseStatus,
+} from "@plot/shared";
 
-type EventHandler = (event: unknown) => void;
-type ConnectionStatus = "connected" | "connecting" | "disconnected";
+type EventHandler = (event: AgentRuntimeEvent) => void;
 
 export function useEventStream() {
-  const queryClient = useQueryClient();
-  const handlersRef = useRef<Map<string, Set<EventHandler>>>(new Map());
-  const lastInvalidateRef = useRef(0);
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
+	const queryClient = useQueryClient();
+	const handlersRef = useRef<Map<string, Set<EventHandler>>>(new Map());
+	const lastInvalidateRef = useRef(0);
+	const [status, setStatus] = useState<SseStatus>("connecting");
 
-  useEffect(() => {
-    const source = new EventSource("/rpc/events");
-    const THROTTLE_MS = 500;
+	useEffect(() => {
+		const THROTTLE_MS = 500;
 
-    source.onopen = () => {
-      setStatus("connected");
-    };
+		const conn = connectSse(
+			"/rpc/events",
+			(event) => {
+				const issueId = event.issueId;
 
-    source.onmessage = (msg) => {
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(msg.data) as Record<string, unknown>;
-      } catch {
-        return;
-      }
+				if (issueId) {
+					const handlers = handlersRef.current.get(issueId);
+					if (handlers) {
+						for (const handler of handlers) handler(event);
+					}
+				}
 
-      const issueId = parsed["issueId"] as string | undefined;
+				const now = Date.now();
+				if (now - lastInvalidateRef.current >= THROTTLE_MS) {
+					lastInvalidateRef.current = now;
+					queryClient.invalidateQueries({ queryKey: ["state"] });
+					if (event.issueIdentifier) {
+						queryClient.invalidateQueries({
+							queryKey: ["issue", event.issueIdentifier],
+						});
+					}
+				}
+			},
+			(newStatus) => {
+				setStatus(newStatus);
+				if (newStatus === "connected") {
+					queryClient.invalidateQueries({ queryKey: ["state"] });
+				}
+			},
+		);
 
-      if (issueId) {
-        const handlers = handlersRef.current.get(issueId);
-        if (handlers) {
-          for (const handler of handlers) handler(parsed);
-        }
-      }
+		return () => {
+			conn.close();
+		};
+	}, [queryClient]);
 
-      const now = Date.now();
-      if (now - lastInvalidateRef.current >= THROTTLE_MS) {
-        lastInvalidateRef.current = now;
-        queryClient.invalidateQueries({ queryKey: ["state"] });
-        if (issueId) {
-          queryClient.invalidateQueries({
-            queryKey: ["issue"],
-            predicate: (query) => query.queryKey[0] === "issue" && query.queryKey.length > 1,
-          });
-        }
-      }
-    };
+	const subscribe = useCallback(
+		(issueId: string, handler: EventHandler): (() => void) => {
+			let handlers = handlersRef.current.get(issueId);
+			if (!handlers) {
+				handlers = new Set();
+				handlersRef.current.set(issueId, handlers);
+			}
+			handlers.add(handler);
+			return () => {
+				handlers.delete(handler);
+				if (handlers.size === 0) handlersRef.current.delete(issueId);
+			};
+		},
+		[],
+	);
 
-    source.onerror = () => {
-      // Only set disconnected if EventSource is actually closed
-      if (source.readyState === EventSource.CLOSED) {
-        setStatus("disconnected");
-      } else {
-        setStatus("connecting");
-      }
-    };
-
-    return () => {
-      source.close();
-    };
-  }, [queryClient]);
-
-  const subscribe = useCallback((issueId: string, handler: EventHandler): (() => void) => {
-    if (!handlersRef.current.has(issueId)) {
-      handlersRef.current.set(issueId, new Set());
-    }
-    handlersRef.current.get(issueId)!.add(handler);
-    return () => {
-      const set = handlersRef.current.get(issueId);
-      set?.delete(handler);
-      if (set?.size === 0) handlersRef.current.delete(issueId);
-    };
-  }, []);
-
-  return { subscribe, status };
+	return { subscribe, status };
 }

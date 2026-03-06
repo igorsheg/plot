@@ -9,7 +9,6 @@
   "dependencies": {
     "@effect/rpc": "latest",
     "effect": "latest",
-    "@effect/platform": "latest",
-    "@effect/schema": "latest"
+    "@effect/platform": "latest"
   }
 }

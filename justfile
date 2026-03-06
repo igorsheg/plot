@@ -56,6 +56,10 @@ build:
 ui-add component:
     bunx shadcn@latest add @coss/{{ component }} --cwd packages/web --yes
 
+# run plot CLI (default: TUI, or pass subcommand e.g. `just plot serve`)
+plot *args:
+    bun run packages/cli/src/index.ts {{ args }}
+
 # clean build artifacts and node_modules
 clean:
     rm -rf packages/*/dist packages/*/node_modules node_modules

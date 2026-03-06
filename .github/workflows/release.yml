@@ -1,0 +1,131 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: version to publish
+        required: true
+        type: string
+      channel:
+        description: npm dist-tag
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - beta
+      publish:
+        description: publish to npm
+        required: true
+        default: false
+        type: boolean
+
+concurrency: release-${{ github.ref }}-${{ inputs.version }}-${{ inputs.channel }}
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+        env:
+          PLOT_SKIP_POSTINSTALL_CHECK: "1"
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+      - run: bun run build
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact:
+          - release-bundle
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - run: bun install --frozen-lockfile
+        env:
+          PLOT_SKIP_POSTINSTALL_CHECK: "1"
+      - run: bun run release:build
+        env:
+          PLOT_VERSION: ${{ inputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/release
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+        env:
+          PLOT_SKIP_POSTINSTALL_CHECK: "1"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: dist/release
+      - run: bun run release:smoke
+      - run: bun run release:publish:dry-run
+        env:
+          PLOT_CHANNEL: ${{ inputs.channel }}
+
+  publish:
+    if: ${{ inputs.publish }}
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+        env:
+          PLOT_SKIP_POSTINSTALL_CHECK: "1"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: dist/release
+      - run: bun run release:publish
+        env:
+          CI: "true"
+          PLOT_VERSION: ${{ inputs.version }}
+          PLOT_CHANNEL: ${{ inputs.channel }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/release/**/*.tgz

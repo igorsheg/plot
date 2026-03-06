@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["bun-types"]
+  },
+  "include": ["src", "src/**/*.test.ts"],
+  "references": [
+    { "path": "../shared" }
+  ]
+}

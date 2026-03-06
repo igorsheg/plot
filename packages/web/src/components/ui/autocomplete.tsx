@@ -1,6 +1,7 @@
 
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { ChevronsUpDownIcon, XIcon } from "lucide-react";
+import * as React from "react";
 
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,10 @@ function AutocompleteInput({
   clearProps?: AutocompletePrimitive.Clear.Props;
 }) {
   const sizeValue = (size ?? "default") as "sm" | "default" | "lg" | number;
+  const inputRender = React.useMemo(
+    () => <Input nativeInput size={sizeValue} />,
+    [sizeValue],
+  );
 
   return (
     <div className="relative not-has-[>*.w-full]:w-fit w-full text-foreground has-disabled:opacity-64">
@@ -49,7 +54,7 @@ function AutocompleteInput({
           className,
         )}
         data-slot="autocomplete-input"
-        render={<Input nativeInput size={sizeValue} />}
+        render={inputRender}
         {...props}
       />
       {showTrigger && (

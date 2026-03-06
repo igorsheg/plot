@@ -43,135 +43,102 @@ You are working on issue **{{ issue.identifier }}: {{ issue.title }}** in the `i
 {% endif %}
 
 {% if attempt %}
-This is continuation attempt #{{ attempt }}. Review the previous work in the workspace and continue from where you left off. Do not repeat completed work.
+Continuation context:
+- This is retry attempt #{{ attempt }} because the issue is still in an active state.
+- Resume from the current workspace state instead of restarting from scratch.
+- Do not repeat already-completed investigation or validation unless needed for new code changes.
+- Do not end the turn while the issue remains in an active state unless you are blocked by missing required permissions/secrets.
 {% else %}
 Start fresh. Read the codebase, understand the context, then implement the changes.
 {% endif %}
 
+## Posture
+
+1. This is an unattended orchestration session. Never ask a human to perform follow-up actions.
+2. Only stop early for a true blocker (missing required auth/permissions/secrets). If blocked, record it in the workpad and move the issue according to workflow.
+3. Final message must report completed actions and blockers only. Do not include "next steps for user".
+4. Work only in the provided repository copy. Do not touch any other path.
+5. Reproduce first: confirm the current behavior before changing code.
+6. Spend extra effort up front on planning and verification design before implementation.
+
+## Skills
+
+Use these project skills during execution. Load each skill when you reach its step.
+
+- `plot-github-tracker` — issue state transitions via labels, workpad comment lifecycle
+- `plot-commit` — session-aware conventional commits
+- `plot-push-pr` — push branch and create/update PR with template compliance
+- `plot-pull-main` — sync branch with origin/main, conflict resolution
+- `plot-land` — merge approved PR, CI watching, review feedback handling
+- `plot-debug` — investigate stuck runs and orchestrator failures
+
 ## Status map
 
-Issue state is controlled via GitHub labels. The orchestrator reads labels to determine state.
-
-- `Todo` → queued for work. Immediately move to `In Progress` before starting.
-- `In Progress` → implementation actively underway.
-- `Human Review` → PR is open and validated; waiting on human approval.
-- `Rework` → reviewer requested changes; read feedback and address it.
-- `Merging` → human approved; merge the PR and close the issue.
-- `Done` / `Closed` → terminal; no further action.
-
-## State transitions via labels
-
-To change issue state, use `gh` CLI to swap labels:
-
-```bash
-# move to "In Progress"
-gh issue edit {{ issue.identifier }} --add-label "In Progress" --remove-label "Todo" --repo igorsheg/plot
-
-# move to "Human Review"
-gh issue edit {{ issue.identifier }} --add-label "Human Review" --remove-label "In Progress" --repo igorsheg/plot
-
-# move to "Done" (terminal)
-gh issue edit {{ issue.identifier }} --add-label "Done" --remove-label "Merging" --repo igorsheg/plot
-gh issue close {{ issue.identifier }} --repo igorsheg/plot
-```
+| state | agent action |
+|-------|-------------|
+| Todo | move to In Progress, then run implementation flow |
+| In Progress | continue implementation flow |
+| Human Review | do nothing — wait for human to change state |
+| Rework | run rework flow |
+| Merging | run `plot-land` skill |
+| Done / Closed | do nothing, shut down |
 
 ## Step 0: Route by current state
 
 1. Determine the current issue state from labels.
 2. Route to the matching flow:
-   - `Todo` → move to `In Progress`, then start Step 1.
-   - `In Progress` → continue Step 1 from current workspace state.
-   - `Human Review` → do nothing. The orchestrator will re-dispatch when a human changes the state.
-   - `Rework` → go to Step 3 (rework flow).
-   - `Merging` → go to Step 4 (merge flow).
-   - `Done` / `Closed` → do nothing, shut down.
+   - `Todo` → use `plot-github-tracker` to move to In Progress, then implementation flow
+   - `In Progress` → continue implementation flow
+   - `Human Review` → do nothing, stop
+   - `Rework` → rework flow
+   - `Merging` → load `plot-land` skill, execute merge flow
+   - `Done` / `Closed` → do nothing, stop
+3. Check whether a PR already exists for the current branch.
+   - If branch PR is `CLOSED` or `MERGED`, create a fresh branch from `origin/main` and restart.
 
-## Step 1: Implementation (Todo / In Progress)
+## Implementation flow (Todo / In Progress)
 
-1. Read the codebase and understand the context for the change.
-2. If arriving from `Todo`, move the issue to `In Progress`.
-3. Implement the changes. Keep diffs minimal and focused.
-4. Run verification: typecheck, lint, and tests must pass.
-5. Commit changes and push to a new branch:
-   ```bash
-   git checkout -b {{ issue.identifier | remove: "#" }}-<short-description>
-   git push origin HEAD
-   ```
-6. Create a pull request:
-   ```bash
-   gh pr create --title "{{ issue.identifier }}: {{ issue.title }}" --body "Resolves {{ issue.identifier }}" --repo igorsheg/plot
-   ```
-7. Move the issue to `Human Review`:
-   ```bash
-   gh issue edit {{ issue.identifier }} --add-label "Human Review" --remove-label "In Progress" --repo igorsheg/plot
-   ```
+1. Use `plot-github-tracker` to find or create the workpad comment.
+2. Write a hierarchical plan with acceptance criteria in the workpad.
+3. Use `plot-pull-main` to sync with `origin/main` before code edits.
+4. Implement the changes against the plan. Keep diffs minimal and focused.
+5. Run verification: `bun run typecheck && bun run lint`
+6. Use `plot-commit` to create well-formed commits.
+7. Use `plot-push-pr` to push and create/update the PR.
+8. Update workpad with final checklist status and validation notes.
+9. Use `plot-github-tracker` to move issue to `Human Review`.
 
-Do NOT close the issue. A human will review the PR and decide next steps.
+Do NOT close the issue. A human will review the PR.
 
-## Step 2: Human Review (waiting)
+## Rework flow (Rework)
 
-When the issue is in `Human Review`:
-- Do not make code changes.
-- Do not modify the issue.
-- The orchestrator will re-dispatch you when a human changes the state.
+1. Use `plot-github-tracker` to load the workpad.
+2. Read ALL PR feedback (load `plot-land` skill for the review sweep protocol):
+   - top-level PR comments
+   - inline review comments
+   - review summaries
+3. Address every actionable comment — implement fix or reply with justification.
+4. Run verification: `bun run typecheck && bun run lint`
+5. Use `plot-commit` to commit fixes.
+6. Use `plot-push-pr` to push updates.
+7. Update workpad with feedback resolution status.
+8. Use `plot-github-tracker` to move issue back to `Human Review`.
 
-## Step 3: Rework (addressing review feedback)
+## Completion bar (before Human Review)
 
-When the issue is in `Rework`, a human has requested changes on the PR.
+- Plan checklist is fully complete in workpad
+- Acceptance criteria satisfied
+- Verification passes (typecheck + lint green)
+- PR feedback sweep complete (no outstanding actionable comments)
+- PR is pushed and linked to issue
+- Workpad reflects current state accurately
 
-1. Find the open PR for this issue:
-   ```bash
-   gh pr list --head <branch-name> --repo igorsheg/plot --json number,url
-   ```
+## Guardrails
 
-2. Read ALL feedback from the PR:
-   ```bash
-   # top-level comments
-   gh pr view <pr-number> --repo igorsheg/plot --comments
-
-   # inline review comments (line-level feedback)
-   gh api repos/igorsheg/plot/pulls/<pr-number>/comments
-
-   # review summaries
-   gh pr view <pr-number> --repo igorsheg/plot --json reviews
-   ```
-
-3. Address every actionable comment — either:
-   - implement the requested change, or
-   - reply with a justified explanation of why you disagree.
-
-4. Run verification: typecheck, lint, and tests must pass.
-
-5. Push the fixes to the existing branch.
-
-6. Move the issue back to `Human Review`:
-   ```bash
-   gh issue edit {{ issue.identifier }} --add-label "Human Review" --remove-label "Rework" --repo igorsheg/plot
-   ```
-
-## Step 4: Merging (land the PR)
-
-When the issue is in `Merging`, a human has approved the PR.
-
-1. Find the approved PR:
-   ```bash
-   gh pr list --head <branch-name> --repo igorsheg/plot --json number,url
-   ```
-
-2. Merge the PR:
-   ```bash
-   gh pr merge <pr-number> --squash --repo igorsheg/plot
-   ```
-
-3. Move the issue to `Done` and close it:
-   ```bash
-   gh issue edit {{ issue.identifier }} --add-label "Done" --remove-label "Merging" --repo igorsheg/plot
-   gh issue close {{ issue.identifier }} --repo igorsheg/plot
-   ```
-
-## Guidelines
-
-- Make minimal, focused changes.
-- Run typecheck + lint before any state transition.
-- If blocked by missing permissions or unclear requirements, explain why in a comment on the issue and leave the state unchanged.
-- Never close an issue until the PR is merged (Step 4 only).
+- If branch PR is closed/merged, do not reuse — fresh branch from `origin/main`
+- Do not edit the issue body for planning — use workpad comment only
+- Exactly one workpad comment per issue (`## Plot Workpad`)
+- Do not move to `Human Review` unless completion bar is satisfied
+- In `Human Review`, do not make changes
+- If `Done`, do nothing and shut down
+- If out-of-scope improvements are discovered, file a separate issue instead of expanding scope

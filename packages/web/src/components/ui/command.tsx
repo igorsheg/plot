@@ -20,6 +20,7 @@ const CommandDialog = CommandDialogPrimitive.Root;
 const CommandDialogPortal = CommandDialogPrimitive.Portal;
 
 const CommandCreateHandle = CommandDialogPrimitive.createHandle;
+const commandSearchAddon = <SearchIcon />;
 
 function CommandDialogTrigger(props: CommandDialogPrimitive.Trigger.Props) {
   return (
@@ -117,7 +118,7 @@ function CommandInput({
         )}
         placeholder={placeholder}
         size="lg"
-        startAddon={<SearchIcon />}
+        startAddon={commandSearchAddon}
         {...props}
       />
     </div>

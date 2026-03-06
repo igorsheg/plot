@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const Sheet = SheetPrimitive.Root;
 
 const SheetPortal = SheetPrimitive.Portal;
+const sheetCloseButton = <Button size="icon" variant="ghost" />;
 
 function SheetTrigger(props: SheetPrimitive.Trigger.Props) {
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
@@ -96,7 +97,7 @@ function SheetPopup({
             <SheetPrimitive.Close
               aria-label="Close"
               className="absolute end-2 top-2"
-              render={<Button size="icon" variant="ghost" />}
+              render={sheetCloseButton}
               {...closeProps}
             >
               <XIcon />

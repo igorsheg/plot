@@ -22,6 +22,25 @@ const TOAST_ICONS = {
   warning: TriangleAlertIcon,
 } as const;
 
+type SwipeDirection = "left" | "right" | "up" | "down";
+
+const CENTER_TOP_DIRECTIONS: SwipeDirection[] = ["up"];
+const CENTER_BOTTOM_DIRECTIONS: SwipeDirection[] = ["down"];
+const LEFT_TOP_DIRECTIONS: SwipeDirection[] = ["left", "up"];
+const LEFT_BOTTOM_DIRECTIONS: SwipeDirection[] = ["left", "down"];
+const RIGHT_TOP_DIRECTIONS: SwipeDirection[] = ["right", "up"];
+const RIGHT_BOTTOM_DIRECTIONS: SwipeDirection[] = ["right", "down"];
+
+function getSwipeDirections(position: ToastPosition, isTop: boolean) {
+  if (position.includes("center")) {
+    return isTop ? CENTER_TOP_DIRECTIONS : CENTER_BOTTOM_DIRECTIONS;
+  }
+  if (position.includes("left")) {
+    return isTop ? LEFT_TOP_DIRECTIONS : LEFT_BOTTOM_DIRECTIONS;
+  }
+  return isTop ? RIGHT_TOP_DIRECTIONS : RIGHT_BOTTOM_DIRECTIONS;
+}
+
 type ToastPosition =
   | "top-left"
   | "top-center"
@@ -117,13 +136,7 @@ function Toasts({ position = "bottom-right" }: { position: ToastPosition }) {
               )}
               data-position={position}
               key={toast.id}
-              swipeDirection={
-                position.includes("center")
-                  ? [isTop ? "up" : "down"]
-                  : position.includes("left")
-                    ? ["left", isTop ? "up" : "down"]
-                    : ["right", isTop ? "up" : "down"]
-              }
+              swipeDirection={getSwipeDirections(position, isTop)}
               toast={toast}
             >
               <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm transition-opacity duration-250 data-behind:not-data-expanded:pointer-events-none data-behind:opacity-0 data-expanded:opacity-100">

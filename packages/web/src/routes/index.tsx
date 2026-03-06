@@ -8,10 +8,11 @@ export const Route = createRoute({
 	component: () => (
 		<Dashboard.Root>
 			<Dashboard.Header />
-			<Dashboard.Metrics />
-			<Dashboard.Sessions />
-			<Dashboard.Detail />
-			<Dashboard.RetryQueue />
+			<div className="max-w-5xl space-y-6 px-8 py-6">
+				<Dashboard.AgentGrid />
+				<Dashboard.AgentDetail />
+				<Dashboard.RetrySection />
+			</div>
 		</Dashboard.Root>
 	),
 });

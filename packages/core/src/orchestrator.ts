@@ -17,14 +17,13 @@ interface RunningEntry {
   readonly issue: Issue;
   readonly state: string;
   readonly startedAt: number;
-  readonly fiber: Fiber.RuntimeFiber<void, unknown>;
+  readonly fiber: Fiber.RuntimeFiber<void, unknown> | null;
   readonly turnCount: number;
   readonly lastEventAt: number;
   readonly sessionId: string | null;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
-  readonly retryAttempt: number | null;
   readonly workspacePath: string;
   readonly lastMessage: string | null;
   readonly eventTail: ReadonlyArray<AgentRuntimeEvent>;
@@ -42,7 +41,6 @@ interface OrchestratorState {
   readonly running: Map<string, RunningEntry>;
   readonly claimed: Set<string>;
   readonly retryAttempts: Map<string, RetryEntry>;
-  readonly completed: Set<string>;
   readonly totalInputTokens: number;
   readonly totalOutputTokens: number;
   readonly totalTokens: number;
@@ -53,7 +51,6 @@ const initialState: OrchestratorState = {
   running: new Map(),
   claimed: new Set(),
   retryAttempts: new Map(),
-  completed: new Set(),
   totalInputTokens: 0,
   totalOutputTokens: 0,
   totalTokens: 0,
@@ -265,7 +262,14 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
 
         const candidates = yield* tracker
           .fetchCandidateIssues(config.activeStates as string[])
-          .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<Issue>)));
+          .pipe(
+            Effect.tapError((e) =>
+              Effect.logWarning("tracker_fetch_failed").pipe(
+                Effect.annotateLogs({ operation: "retry_candidates", error: String(e) }),
+              ),
+            ),
+            Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<Issue>)),
+          );
 
         const issue = candidates.find((i) => i.id === issueId);
         if (!issue) {
@@ -392,9 +396,6 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
         yield* runAfterRunHook(config, wsPath);
 
         if (Exit.isSuccess(exit)) {
-          const completed = new Set((yield* Ref.get(stateRef)).completed);
-          completed.add(issueId);
-          yield* updateState((s) => ({ ...s, completed }));
           yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY_MS, null);
         } else if (Exit.isInterrupted(exit)) {
           yield* releaseClaim(issueId);
@@ -500,14 +501,13 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
             issue,
             state: issue.state,
             startedAt: now,
-            fiber: null as unknown as Fiber.RuntimeFiber<void, unknown>,
+            fiber: null,
             turnCount: 0,
             lastEventAt: now,
             sessionId: null,
             inputTokens: 0,
             outputTokens: 0,
             totalTokens: 0,
-            retryAttempt: attempt,
             workspacePath: ws.path,
             lastMessage: null,
             eventTail: [],
@@ -561,7 +561,14 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
 
         const stateEntries = yield* tracker
           .fetchIssueStatesByIds(runningIds)
-          .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+          .pipe(
+            Effect.tapError((e) =>
+              Effect.logWarning("tracker_fetch_failed").pipe(
+                Effect.annotateLogs({ operation: "reconcile_states", error: String(e) }),
+              ),
+            ),
+            Effect.catchAll(() => Effect.succeed([] as const)),
+          );
 
         const stateMap = new Map(stateEntries.map((e) => [e.id, e.state]));
 
@@ -570,13 +577,13 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
           const currentState = stateMap.get(issueId);
 
           if (currentState && isTerminal(currentState, config)) {
-            yield* Fiber.interrupt(entry.fiber);
+            if (entry.fiber) yield* Fiber.interrupt(entry.fiber);
             yield* workspaceManager
               .removeWorkspace(entry.issueIdentifier, config)
               .pipe(Effect.ignore);
             stoppedCount++;
           } else if (currentState && !isActive(currentState, config)) {
-            yield* Fiber.interrupt(entry.fiber);
+            if (entry.fiber) yield* Fiber.interrupt(entry.fiber);
             stoppedCount++;
           } else if (currentState) {
             yield* updateState((s) => {
@@ -597,7 +604,7 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
                   stalled_ms: String(elapsed),
                 }),
               );
-              yield* Fiber.interrupt(entry.fiber);
+              if (entry.fiber) yield* Fiber.interrupt(entry.fiber);
               stoppedCount++;
             }
           }
@@ -619,7 +626,14 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
       Effect.gen(function* () {
         const terminalIssues = yield* tracker
           .fetchIssuesByStates(config.terminalStates as string[])
-          .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<Issue>)));
+          .pipe(
+            Effect.tapError((e) =>
+              Effect.logWarning("tracker_fetch_failed").pipe(
+                Effect.annotateLogs({ operation: "startup_cleanup", error: String(e) }),
+              ),
+            ),
+            Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<Issue>)),
+          );
 
         let cleanedCount = 0;
         for (const issue of terminalIssues) {
@@ -736,7 +750,7 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
 
     const eventStream = Stream.fromPubSub(eventPubSub);
 
-    return { start, tick, getState, getConfig, eventStream, eventPubSub, stateRef };
+    return { start, tick, getState, getConfig, eventStream };
   }),
   dependencies: [WorkflowLoader.Default, WorkspaceManager.Default],
 }) {}

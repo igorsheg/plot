@@ -15,6 +15,16 @@
     "noPropertyAccessFromIndexSignature": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@plot/agent": ["packages/agent/src/index.ts"],
+      "@plot/cli": ["packages/cli/src/index.ts"],
+      "@plot/core": ["packages/core/src/index.ts"],
+      "@plot/server": ["packages/server/src/index.ts"],
+      "@plot/shared": ["packages/shared/src/index.ts"],
+      "@plot/tracker": ["packages/tracker/src/index.ts"],
+      "@plot/tui": ["packages/tui/src/index.ts"]
+    },
     "outDir": "dist",
     "rootDir": "src",
     "composite": true

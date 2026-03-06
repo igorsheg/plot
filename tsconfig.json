@@ -6,6 +6,8 @@
     { "path": "packages/agent" },
     { "path": "packages/core" },
     { "path": "packages/server" },
+    { "path": "packages/cli" },
+    { "path": "packages/tui" },
     { "path": "packages/web" }
   ]
 }

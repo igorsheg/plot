@@ -19,8 +19,12 @@ function Combobox<Value, Multiple extends boolean | undefined = false>(
   props: ComboboxPrimitive.Root.Props<Value, Multiple>,
 ) {
   const chipsRef = React.useRef<Element | null>(null);
+  const contextValue = React.useMemo(
+    () => ({ chipsRef, multiple: !!props.multiple }),
+    [props.multiple],
+  );
   return (
-    <ComboboxContext.Provider value={{ chipsRef, multiple: !!props.multiple }}>
+    <ComboboxContext.Provider value={contextValue}>
       <ComboboxPrimitive.Root {...props} />
     </ComboboxContext.Provider>
   );
@@ -70,6 +74,16 @@ function ComboboxInput({
   clearProps?: ComboboxPrimitive.Clear.Props;
 }) {
   const sizeValue = (size ?? "default") as "sm" | "default" | "lg" | number;
+  const inputRender = React.useMemo(
+    () => (
+      <Input
+        className="has-disabled:opacity-100"
+        nativeInput
+        size={sizeValue}
+      />
+    ),
+    [sizeValue],
+  );
 
   return (
     <div className="relative not-has-[>*.w-full]:w-fit w-full text-foreground has-disabled:opacity-64">
@@ -92,13 +106,7 @@ function ComboboxInput({
           className,
         )}
         data-slot="combobox-input"
-        render={
-          <Input
-            className="has-disabled:opacity-100"
-            nativeInput
-            size={sizeValue}
-          />
-        }
+        render={inputRender}
         {...props}
       />
       {showTrigger && (

@@ -10,7 +10,6 @@
     "@plot/shared": "workspace:*",
     "@mariozechner/pi-coding-agent": "latest",
     "@mariozechner/pi-ai": "latest",
-    "@effect/platform": "latest",
     "effect": "latest"
   }
 }
