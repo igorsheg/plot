@@ -3,10 +3,6 @@ import {
 	resolvePlatformPackageName,
 } from "./lib/platform.js";
 
-if (process.env.PLOT_SKIP_POSTINSTALL_CHECK === "1") {
-	process.exit(0);
-}
-
 try {
 	const resolved = resolveInstalledBinary();
 	if (!resolved) {

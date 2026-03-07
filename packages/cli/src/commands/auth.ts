@@ -1,44 +1,37 @@
-import type { CommandModule } from "yargs";
+import { Args, Command } from "@effect/cli";
+import { Effect, Option } from "effect";
 import {
 	loginWithPlotAuth,
 	logoutWithPlotAuth,
 	printPlotAuthStatus,
 } from "../shared/auth.js";
 
-type AuthAction = "status" | "login" | "logout";
-
-type AuthArgs = {
-	action?: AuthAction;
-	provider?: string;
-};
-
-export const AuthCommand: CommandModule<{}, AuthArgs> = {
-	command: "auth <action> [provider]",
-	describe: "manage plot auth",
-	builder: (yargs) =>
-		yargs
-			.positional("action", {
-				type: "string",
-				choices: ["status", "login", "logout"] as const,
-			})
-			.positional("provider", {
-				type: "string",
-				describe: "oauth provider id",
-			}),
-	handler: async (args) => {
-		if (!args.action) {
-			return;
-		}
-		switch (args.action) {
-			case "status":
-				printPlotAuthStatus();
-				break;
-			case "login":
-				await loginWithPlotAuth(args.provider);
-				break;
-			case "logout":
-				await logoutWithPlotAuth(args.provider);
-				break;
-		}
+export const AuthCommand = Command.make(
+	"auth",
+	{
+		action: Args.choice(
+			[
+				["status", "status"],
+				["login", "login"],
+				["logout", "logout"],
+			] as const,
+			{ name: "action" },
+		),
+		provider: Args.text({ name: "provider" }).pipe(Args.optional),
 	},
-};
+	({ action, provider }) =>
+		Effect.gen(function* () {
+			const providerId = Option.getOrUndefined(provider);
+			switch (action) {
+				case "status":
+					yield* Effect.sync(printPlotAuthStatus);
+					return;
+				case "login":
+					yield* Effect.promise(() => loginWithPlotAuth(providerId));
+					return;
+				case "logout":
+					yield* Effect.promise(() => logoutWithPlotAuth(providerId));
+					return;
+			}
+		}),
+).pipe(Command.withDescription("manage plot auth"));

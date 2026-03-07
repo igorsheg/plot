@@ -1,21 +1,23 @@
 {
-  "name": "@plot/cli",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "bin": {
-    "plot": "./src/index.ts"
-  },
-  "dependencies": {
-    "@plot/server": "workspace:*",
-    "@plot/shared": "workspace:*",
-    "@plot/tui": "workspace:*",
-    "@mariozechner/pi-ai": "latest",
-    "@mariozechner/pi-coding-agent": "latest",
-    "yargs": "^17.7.2"
-  },
-  "devDependencies": {
-    "@types/yargs": "^17.0.33",
-    "bun-types": "latest"
-  }
+	"name": "@plot/cli",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"plot": "./src/index.ts"
+	},
+	"dependencies": {
+		"@effect/cli": "latest",
+		"@effect/platform-bun": "latest",
+		"@effect/printer": "latest",
+		"@plot/server": "workspace:*",
+		"@plot/shared": "workspace:*",
+		"@plot/tui": "workspace:*",
+		"@mariozechner/pi-ai": "latest",
+		"@mariozechner/pi-coding-agent": "latest",
+		"effect": "latest"
+	},
+	"devDependencies": {
+		"bun-types": "latest"
+	}
 }

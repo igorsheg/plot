@@ -8,7 +8,7 @@ install:
 
 # start server and web dev in parallel
 dev:
-    bunx concurrently -n server,web -c blue,magenta "bun run dev:server" "bun run dev:web"
+    sh -c 'trap "kill 0" INT TERM EXIT; bun run dev:server & bun run dev:web & wait'
 
 # start only the backend server (watch mode)
 dev-server:

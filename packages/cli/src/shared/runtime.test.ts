@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import {
 	buildSelfCommandArgs,
+	normalizeCliProcessArgv,
 	resolveBundledPiSkillsDir,
+	resolveCliArgs,
 	stripBundledEntryArg,
 	toServerEnv,
 } from "./runtime.js";
@@ -83,4 +85,20 @@ test("buildSelfCommandArgs skips bunfs entrypoints in compiled builds", () => {
 			"__internal-server",
 		),
 	).toEqual(["/tmp/plot-ai", "__internal-server"]);
+});
+
+test("resolveCliArgs drops script entries but keeps standalone argv", () => {
+	expect(resolveCliArgs(["bun", "/tmp/index.ts", "serve"])).toEqual(["serve"]);
+	expect(resolveCliArgs(["/tmp/plot-ai", "serve", "--json"])).toEqual([
+		"serve",
+		"--json",
+	]);
+});
+
+test("normalizeCliProcessArgv gives effect cli a stable argv shape", () => {
+	expect(normalizeCliProcessArgv(["/tmp/plot-ai", "serve"])).toEqual([
+		"/tmp/plot-ai",
+		"/tmp/plot-ai",
+		"serve",
+	]);
 });

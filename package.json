@@ -18,13 +18,12 @@
 		"build": "bun run --filter '*' build",
 		"build:web": "bun run --filter @plot/web build",
 		"plot": "bun run packages/cli/src/index.ts",
-		"release:build": "bun run packages/cli/scripts/build-release.ts",
-		"release:publish": "bun run packages/cli/scripts/publish-release.ts",
-		"release:publish:dry-run": "bun run packages/cli/scripts/publish-release.ts --dry-run",
-		"release:smoke": "bun run packages/cli/scripts/smoke-release.ts"
+		"release:build": "bun run scripts/release/build.ts",
+		"release:publish": "bun run scripts/release/publish.ts",
+		"release:publish:dry-run": "bun run scripts/release/publish.ts --dry-run",
+		"release:smoke": "bun run scripts/release/smoke.ts"
 	},
 	"devDependencies": {
-		"concurrently": "^9.2.1",
 		"oxfmt": "latest",
 		"oxlint": "latest",
 		"typescript": "^5.8.2"

@@ -1,28 +1,38 @@
-import type { CommandModule } from "yargs";
+import { Command } from "@effect/cli";
+import { Effect, FiberRef } from "effect";
 import { createCliOutput } from "../shared/io.js";
-import {
-	withCliCommandOptions,
-	type ServerOptions,
-} from "../shared/options.js";
+import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer } from "../shared/server-process.js";
 
-export const ServeCommand: CommandModule<{}, ServerOptions> = {
-	command: "serve",
-	describe: "start the plot orchestrator server (headless)",
-	builder: (yargs) => withCliCommandOptions(yargs),
-	handler: async (args) => {
+export const ServeCommand = Command.make("serve", cliCommandOptions, (args) =>
+	Effect.gen(function* () {
 		const output = createCliOutput(args);
-		const handle = startServer(args);
+		const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
+		const handle = startServer(toServerOptions(args, logLevel));
 		output.ready({ command: "serve", url: handle.url, pid: handle.pid });
 
-		const shutdown = (signal: NodeJS.Signals) => {
+		yield* waitForShutdown((signal) => {
 			output.shutdown({ command: "serve", signal });
 			handle.stop();
-			process.exit(0);
-		};
-		process.on("SIGINT", () => shutdown("SIGINT"));
-		process.on("SIGTERM", () => shutdown("SIGTERM"));
+		});
+	}),
+).pipe(
+	Command.withDescription("start the plot orchestrator server (headless)"),
+);
 
-		await new Promise(() => {});
-	},
-};
+function waitForShutdown(onShutdown: (signal: NodeJS.Signals) => void) {
+	return Effect.async<void>((resume) => {
+		const shutdown = (signal: NodeJS.Signals) => {
+			onShutdown(signal);
+			resume(Effect.void);
+		};
+		const onSigint = () => shutdown("SIGINT");
+		const onSigterm = () => shutdown("SIGTERM");
+		process.on("SIGINT", onSigint);
+		process.on("SIGTERM", onSigterm);
+		return Effect.sync(() => {
+			process.off("SIGINT", onSigint);
+			process.off("SIGTERM", onSigterm);
+		});
+	});
+}

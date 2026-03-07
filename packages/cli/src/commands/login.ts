@@ -1,19 +1,12 @@
-import type { CommandModule } from "yargs";
+import { Args, Command } from "@effect/cli";
+import { Effect, Option } from "effect";
 import { loginWithPlotAuth } from "../shared/auth.js";
 
-type LoginArgs = {
-	provider?: string;
-};
-
-export const LoginCommand: CommandModule<{}, LoginArgs> = {
-	command: "login [provider]",
-	describe: "login to a model provider for plot",
-	builder: (yargs) =>
-		yargs.positional("provider", {
-			type: "string",
-			describe: "oauth provider id, for example anthropic",
-		}),
-	handler: async (args) => {
-		await loginWithPlotAuth(args.provider);
+export const LoginCommand = Command.make(
+	"login",
+	{
+		provider: Args.text({ name: "provider" }).pipe(Args.optional),
 	},
-};
+	({ provider }) =>
+		Effect.promise(() => loginWithPlotAuth(Option.getOrUndefined(provider))),
+).pipe(Command.withDescription("login to a model provider for plot"));

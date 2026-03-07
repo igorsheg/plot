@@ -40,8 +40,6 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
-        env:
-          PLOT_SKIP_POSTINSTALL_CHECK: "1"
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
@@ -61,8 +59,6 @@ jobs:
         with:
           bun-version: 1.3.5
       - run: bun install --frozen-lockfile
-        env:
-          PLOT_SKIP_POSTINSTALL_CHECK: "1"
       - run: bun run release:build
         env:
           PLOT_VERSION: ${{ inputs.version }}
@@ -84,8 +80,6 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
-        env:
-          PLOT_SKIP_POSTINSTALL_CHECK: "1"
       - uses: actions/download-artifact@v4
         with:
           name: release-bundle
@@ -109,8 +103,6 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
-        env:
-          PLOT_SKIP_POSTINSTALL_CHECK: "1"
       - uses: actions/download-artifact@v4
         with:
           name: release-bundle

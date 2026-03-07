@@ -10,10 +10,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { releaseDir } from "./shared.js";
 
-const repoDir = fileURLToPath(new URL("../../..", import.meta.url));
-const releaseDir = join(repoDir, "dist/release");
 const umbrellaDir = join(releaseDir, "plot-ai");
 const defaultPlatformDir = join(
 	releaseDir,
@@ -47,12 +45,12 @@ try {
 	);
 
 	await $`npm install ${platformTarball}`.cwd(tempDir);
-	await $`PLOT_SKIP_POSTINSTALL_CHECK=1 npm install ${umbrellaTarball}`.cwd(
-		tempDir,
-	);
+	await $`npm install ${umbrellaTarball}`.cwd(tempDir);
+
 	if (!existsSync(join(tempDir, "node_modules", ".bin", "plot-ai"))) {
 		throw new Error("missing plot-ai bin after install");
 	}
+
 	const installedPlatformPackage = findInstalledPlatformPackage(tempDir);
 	if (
 		!existsSync(
@@ -68,6 +66,7 @@ try {
 	) {
 		throw new Error("missing bundled pi skills in platform package");
 	}
+
 	await $`./node_modules/.bin/plot-ai --help`.cwd(tempDir);
 } finally {
 	rmSync(tempDir, { recursive: true, force: true });

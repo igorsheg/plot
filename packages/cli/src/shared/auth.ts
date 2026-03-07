@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import type { OAuthLoginCallbacks, OAuthProviderInterface } from "@mariozechner/pi-ai";
+import * as Doc from "@effect/printer/Doc";
+import type {
+	OAuthLoginCallbacks,
+	OAuthProviderInterface,
+} from "@mariozechner/pi-ai";
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
 import { getPlotAuthPath } from "@plot/shared";
 import { CliError } from "./io.js";
@@ -59,10 +63,12 @@ async function chooseProvider(
 		);
 	}
 
-	process.stderr.write("available providers:\n");
-	for (const [index, provider] of providers.entries()) {
-		process.stderr.write(`  ${index + 1}. ${provider.id} — ${provider.name}\n`);
-	}
+	writeBlock(
+		"available providers:",
+		providers.map(
+			(provider, index) => `${index + 1}. ${provider.id} — ${provider.name}`,
+		),
+	);
 
 	const answer = await promptLine("choose provider: ");
 	const selectedIndex = Number(answer) - 1;
@@ -84,7 +90,10 @@ export function createPlotAuthStorage() {
 
 export async function loginWithPlotAuth(providerId?: string) {
 	const authStorage = createPlotAuthStorage();
-	const provider = await chooseProvider(authStorage.getOAuthProviders(), providerId);
+	const provider = await chooseProvider(
+		authStorage.getOAuthProviders(),
+		providerId,
+	);
 
 	const callbacks: OAuthLoginCallbacks = {
 		onAuth: ({ url, instructions }: { url: string; instructions?: string }) => {
@@ -140,9 +149,28 @@ export async function logoutWithPlotAuth(providerId?: string) {
 export function printPlotAuthStatus() {
 	const authStorage = createPlotAuthStorage();
 	const providers = authStorage.getOAuthProviders();
-	process.stderr.write(`auth file: ${getPlotAuthPath()}\n`);
-	for (const provider of providers) {
-		const status = authStorage.has(provider.id) ? "logged in" : "logged out";
-		process.stderr.write(`${provider.id}: ${status}\n`);
-	}
+	writeBlock("auth status:", [
+		`file — ${getPlotAuthPath()}`,
+		...providers.map((provider) => {
+			const status = authStorage.has(provider.id) ? "logged in" : "logged out";
+			return `${provider.id} — ${status}`;
+		}),
+	]);
+}
+
+function writeBlock(title: string, lines: ReadonlyArray<string>) {
+	const doc = Doc.vsep([
+		Doc.text(title),
+		...lines.map((line) => Doc.text(`  ${line}`)),
+	]);
+	process.stderr.write(`${renderDoc(doc)}\n`);
+}
+
+function renderDoc(doc: Doc.Doc<never>) {
+	return Doc.render(doc, {
+		style: "pretty",
+		options: {
+			lineWidth: Math.min(100, process.stderr.columns ?? 80),
+		},
+	});
 }

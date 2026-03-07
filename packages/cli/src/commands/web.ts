@@ -1,32 +1,40 @@
-import type { CommandModule } from "yargs";
+import { Command } from "@effect/cli";
+import { Effect, FiberRef } from "effect";
 import { createCliOutput, ensureJsonSupported } from "../shared/io.js";
-import {
-	withCliCommandOptions,
-	type ServerOptions,
-} from "../shared/options.js";
+import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer, waitForServer } from "../shared/server-process.js";
 
-export const WebCommand: CommandModule<{}, ServerOptions> = {
-	command: "web",
-	describe: "start server and serve the web dashboard",
-	builder: (yargs) => withCliCommandOptions(yargs),
-	handler: async (args) => {
+export const WebCommand = Command.make("web", cliCommandOptions, (args) =>
+	Effect.gen(function* () {
 		ensureJsonSupported(args.json, "web");
 		const output = createCliOutput(args);
-		const handle = startServer({ ...args, web: true });
+		const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
+		const handle = startServer(toServerOptions(args, logLevel, { web: true }));
 
-		const shutdown = (signal: NodeJS.Signals) => {
-			output.shutdown({ command: "web", signal });
-			handle.stop();
-			process.exit(0);
-		};
-		process.on("SIGINT", () => shutdown("SIGINT"));
-		process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-		await waitForServer(handle.url);
+		yield* Effect.promise(() => waitForServer(handle.url));
 		output.ready({ command: "web", url: handle.url, pid: handle.pid });
 		output.info(`open ${handle.url} in your browser`);
 
-		await new Promise(() => {});
-	},
-};
+		yield* waitForShutdown((signal) => {
+			output.shutdown({ command: "web", signal });
+			handle.stop();
+		});
+	}),
+).pipe(Command.withDescription("start server and serve the web dashboard"));
+
+function waitForShutdown(onShutdown: (signal: NodeJS.Signals) => void) {
+	return Effect.async<void>((resume) => {
+		const shutdown = (signal: NodeJS.Signals) => {
+			onShutdown(signal);
+			resume(Effect.void);
+		};
+		const onSigint = () => shutdown("SIGINT");
+		const onSigterm = () => shutdown("SIGTERM");
+		process.on("SIGINT", onSigint);
+		process.on("SIGTERM", onSigterm);
+		return Effect.sync(() => {
+			process.off("SIGINT", onSigint);
+			process.off("SIGTERM", onSigterm);
+		});
+	});
+}

@@ -1,5 +1,6 @@
 {
-	"name": "plot-ai",
+	"name": "@plot/plot-ai-template",
+	"private": true,
 	"version": "0.0.1",
 	"type": "module",
 	"license": "UNLICENSED",
@@ -15,16 +16,6 @@
 	"engines": {
 		"node": ">=18"
 	},
-	"bin": "./bin/plot-ai",
-	"files": [
-		"bin",
-		"lib",
-		"postinstall.mjs",
-		"README.md"
-	],
-	"scripts": {
-		"postinstall": "node ./postinstall.mjs"
-	},
 	"keywords": [
 		"ai",
 		"cli",
@@ -32,5 +23,7 @@
 		"orchestrator",
 		"github"
 	],
-	"optionalDependencies": {}
+	"publishConfig": {
+		"access": "public"
+	}
 }

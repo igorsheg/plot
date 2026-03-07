@@ -19,6 +19,25 @@ export function stripBundledEntryArg(argv: string[]) {
 	return argv[0]?.startsWith("/$bunfs/") ? argv.slice(1) : argv;
 }
 
+export function resolveCliArgs(argv: string[]) {
+	const [, entry, ...rest] = argv;
+	if (entry && isScriptEntry(entry)) {
+		return rest;
+	}
+	return argv.slice(1);
+}
+
+export function normalizeCliProcessArgv(argv: string[]) {
+	const executable = argv[0] ?? process.execPath;
+	return [executable, executable, ...resolveCliArgs(argv)];
+}
+
+function isScriptEntry(entry: string) {
+	return (
+		/\.(?:[cm]?js|ts|mts|cts)$/.test(entry) || entry.startsWith("/$bunfs/")
+	);
+}
+
 export function buildSelfCommandArgs(
 	execPath: string,
 	entry: string | undefined,

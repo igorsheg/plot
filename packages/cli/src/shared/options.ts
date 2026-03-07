@@ -1,88 +1,93 @@
-import type { Argv } from "yargs";
+import { Options } from "@effect/cli";
+import { LogLevel, Option } from "effect";
 
-const globalOptions = {
-	json: {
-		type: "boolean" as const,
-		describe: "emit machine-readable ndjson on stdout",
-		default: false,
-	},
-	quiet: {
-		type: "boolean" as const,
-		describe: "suppress non-error human output",
-		default: false,
-	},
-};
-
-const serverOptions = {
-	port: {
-		type: "number" as const,
-		describe: "server port",
-		default: 3000,
-	},
-	workflow: {
-		type: "string" as const,
-		describe: "path to WORKFLOW.md",
-		default: "./WORKFLOW.md",
-	},
-	tracker: {
-		type: "string" as const,
-		describe: "tracker kind (local-fs or github)",
-		default: "local-fs",
-	},
-	"github-repo": {
-		type: "string" as const,
-		describe: "github repo (owner/repo) for github tracker",
-	},
-	"issues-dir": {
-		type: "string" as const,
-		describe: "local issues directory",
-		default: "./issues",
-	},
-	"log-format": {
-		type: "string" as const,
-		describe: "server log format",
-		choices: ["pretty", "json"] as const,
-		default: "pretty",
-	},
-	"log-level": {
-		type: "string" as const,
-		describe: "log level",
-		choices: ["debug", "info", "warning", "error", "none"] as const,
-		default: "info",
-	},
-};
-
-export function withGlobalOptions<T>(
-	yargs: Argv<T>,
-): Argv<T & Pick<ServerOptions, "json" | "quiet">> {
-	return yargs.options(globalOptions) as Argv<
-		T & Pick<ServerOptions, "json" | "quiet">
-	>;
-}
-
-export function withServerOptions<T>(
-	yargs: Argv<T>,
-): Argv<T & Omit<ServerOptions, "json" | "quiet">> {
-	return yargs.options(serverOptions) as Argv<
-		T & Omit<ServerOptions, "json" | "quiet">
-	>;
-}
-
-export function withCliCommandOptions<T>(
-	yargs: Argv<T>,
-): Argv<T & ServerOptions> {
-	return withGlobalOptions(withServerOptions(yargs)) as Argv<T & ServerOptions>;
-}
+export const cliCommandOptions = {
+	json: Options.boolean("json").pipe(
+		Options.withDescription("emit machine-readable ndjson on stdout"),
+	),
+	quiet: Options.boolean("quiet").pipe(
+		Options.withDescription("suppress non-error human output"),
+	),
+	port: Options.integer("port").pipe(
+		Options.withDescription("server port"),
+		Options.withDefault(3000),
+	),
+	workflow: Options.text("workflow").pipe(
+		Options.withDescription("path to WORKFLOW.md"),
+		Options.withDefault("./WORKFLOW.md"),
+	),
+	tracker: Options.choice("tracker", ["local-fs", "github"] as const).pipe(
+		Options.withDescription("tracker kind (local-fs or github)"),
+		Options.withDefault("local-fs"),
+	),
+	"github-repo": Options.text("github-repo").pipe(
+		Options.withDescription("github repo (owner/repo) for github tracker"),
+		Options.optional,
+	),
+	"issues-dir": Options.text("issues-dir").pipe(
+		Options.withDescription("local issues directory"),
+		Options.withDefault("./issues"),
+	),
+	"log-format": Options.choice("log-format", ["pretty", "json"] as const).pipe(
+		Options.withDescription("server log format"),
+		Options.withDefault("pretty"),
+	),
+} as const;
 
 export type ServerOptions = {
 	json: boolean;
 	quiet: boolean;
 	port: number;
 	workflow: string;
-	tracker: string;
+	tracker: "local-fs" | "github";
 	"github-repo"?: string;
 	"issues-dir": string;
 	"log-format": "pretty" | "json";
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
 	web?: boolean;
 };
+
+type ParsedCliCommandOptions = {
+	readonly [Key in keyof typeof cliCommandOptions]: Key extends "github-repo"
+		? Option.Option<string>
+		: ServerOptions[Key];
+};
+
+export function toServerOptions(
+	options: ParsedCliCommandOptions,
+	logLevel: LogLevel.LogLevel,
+	overrides?: Pick<ServerOptions, "web">,
+): ServerOptions {
+	return {
+		json: options.json,
+		quiet: options.quiet,
+		port: options.port,
+		workflow: options.workflow,
+		tracker: options.tracker,
+		"github-repo": Option.getOrUndefined(options["github-repo"]),
+		"issues-dir": options["issues-dir"],
+		"log-format": options["log-format"],
+		"log-level": toServerLogLevel(logLevel),
+		...overrides,
+	};
+}
+
+function toServerLogLevel(
+	logLevel: LogLevel.LogLevel,
+): ServerOptions["log-level"] {
+	switch (logLevel._tag) {
+		case "All":
+		case "Trace":
+		case "Debug":
+			return "debug";
+		case "Info":
+			return "info";
+		case "Warning":
+			return "warning";
+		case "Error":
+		case "Fatal":
+			return "error";
+		case "None":
+			return "none";
+	}
+}

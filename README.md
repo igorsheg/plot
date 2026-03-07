@@ -13,7 +13,7 @@ it polls for issues in active states, prepares an isolated workspace, renders a 
 - a server that exposes runtime state
 - two dashboards: a tui and a web app
 - a cli that starts the server, tui, or web dashboard
-- a publishable `plot-ai` package in `packages/plot-ai`
+- release template assets for the publishable `plot-ai` package in `packages/plot-ai`
 - a plot-owned pi resource package in `packages/pi-package`
 
 ## runtime shape
