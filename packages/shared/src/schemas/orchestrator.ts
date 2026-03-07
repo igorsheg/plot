@@ -39,6 +39,30 @@ export class TokenTotals extends Schema.Class<TokenTotals>("TokenTotals")({
 	secondsRunning: Schema.Number,
 }) {}
 
+export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
+	"RuntimeObservability",
+)({
+	commandQueueDepth: Schema.Number,
+	commandQueuePeak: Schema.Number,
+	commandQueuePressureCount: Schema.Number,
+	staleRetryDropCount: Schema.Number,
+	retriesScheduledByReason: Schema.Struct({
+		continuation: Schema.Number,
+		failure: Schema.Number,
+		backpressure: Schema.Number,
+	}),
+	workerStopsByReason: Schema.Struct({
+		terminal: Schema.Number,
+		inactive: Schema.Number,
+		stalled: Schema.Number,
+	}),
+	workerExitsByReason: Schema.Struct({
+		success: Schema.Number,
+		interrupted: Schema.Number,
+		failure: Schema.Number,
+	}),
+}) {}
+
 export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>(
 	"RuntimeSnapshot",
 )({
@@ -50,6 +74,7 @@ export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>(
 	running: Schema.Array(RunningEntry),
 	retrying: Schema.Array(RetryEntry),
 	codexTotals: TokenTotals,
+	observability: RuntimeObservability,
 	rateLimits: Schema.NullOr(Schema.Unknown),
 }) {}
 

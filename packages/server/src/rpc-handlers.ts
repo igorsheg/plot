@@ -8,6 +8,7 @@ import {
 	RetryEntry,
 	LiveSession,
 	TokenTotals,
+	RuntimeObservability,
 } from "@plot/shared";
 import { Orchestrator } from "@plot/core";
 
@@ -100,6 +101,15 @@ export const RpcHandlersLive = PlotRpcs.toLayer(
 							outputTokens: state.totalOutputTokens,
 							totalTokens: state.totalTokens,
 							secondsRunning: state.endedSessionSeconds + activeSeconds,
+						}),
+						observability: new RuntimeObservability({
+							commandQueueDepth: state.commandQueueDepth,
+							commandQueuePeak: state.commandQueuePeak,
+							commandQueuePressureCount: state.commandQueuePressureCount,
+							staleRetryDropCount: state.staleRetryDropCount,
+							retriesScheduledByReason: state.retriesScheduledByReason,
+							workerStopsByReason: state.workerStopsByReason,
+							workerExitsByReason: state.workerExitsByReason,
 						}),
 						rateLimits: null,
 					});

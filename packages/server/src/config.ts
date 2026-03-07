@@ -3,6 +3,7 @@ export interface ServerConfig {
 	port: number;
 	issuesDir: string;
 	webDistDir: string;
+	webEnabled: boolean;
 	logFormat: "pretty" | "json";
 	logLevel: "debug" | "info" | "warning" | "error" | "none";
 	trackerKind: "local-fs" | "github";
@@ -29,6 +30,11 @@ function parseEnum<T extends string>(
 	return fallback;
 }
 
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+	if (value === undefined) return fallback;
+	return value === "1" || value.toLowerCase() === "true";
+}
+
 export function readConfigFromEnv(
 	env: Record<string, string | undefined>,
 ): ServerConfig {
@@ -42,6 +48,7 @@ export function readConfigFromEnv(
 		port,
 		issuesDir: env["PLOT_ISSUES_DIR"] ?? "./issues",
 		webDistDir: env["PLOT_WEB_DIST_DIR"] ?? "",
+		webEnabled: parseBoolean(env["PLOT_WEB_ENABLED"], false),
 		logFormat: parseEnum(env["PLOT_LOG_FORMAT"], LOG_FORMATS, "pretty"),
 		logLevel: parseEnum(env["PLOT_LOG_LEVEL"], LOG_LEVELS, "info"),
 		trackerKind: parseEnum(env["PLOT_TRACKER_KIND"], TRACKER_KINDS, "local-fs"),

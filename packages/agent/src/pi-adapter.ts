@@ -43,10 +43,7 @@ const createEventStream = (
 	Stream.asyncScoped<AgentRuntimeEvent, AgentRunnerError>((emit) =>
 		Effect.gen(function* () {
 			const authStorage = AuthStorage.create(getPlotAuthPath());
-			const modelRegistry = new ModelRegistry(
-				authStorage,
-				getPlotModelsPath(),
-			);
+			const modelRegistry = new ModelRegistry(authStorage, getPlotModelsPath());
 			const available = modelRegistry.getAvailable();
 			const preferred =
 				available.find((m) => m.id === "claude-opus-4-6") ??
@@ -169,10 +166,16 @@ const createEventStream = (
 						if (turnCount >= config.maxTurns) {
 							abortSession(`max_turns reached (${config.maxTurns})`);
 						} else if (config.shouldContinue) {
-							void config.shouldContinue().then((cont) => {
-								if (!cont) abortSession("issue no longer active");
-								return cont;
-							});
+							Effect.runFork(
+								config.shouldContinue().pipe(
+									Effect.map((cont) => {
+										if (!cont) abortSession("issue no longer active");
+									}),
+									Effect.catchAll(() =>
+										Effect.sync(() => abortSession("issue state check failed")),
+									),
+								),
+							);
 						}
 						break;
 					}
@@ -213,7 +216,16 @@ const createEventStream = (
 						code: "agent_prompt_failed",
 						message: `Agent prompt failed: ${e}`,
 					}),
-			});
+			}).pipe(
+				Effect.timeoutFail({
+					duration: `${config.turnTimeoutMs} millis`,
+					onTimeout: () =>
+						new AgentRunnerError({
+							code: "agent_turn_timeout",
+							message: `Agent turn timed out after ${config.turnTimeoutMs}ms`,
+						}),
+				}),
+			);
 		}),
 	);
 

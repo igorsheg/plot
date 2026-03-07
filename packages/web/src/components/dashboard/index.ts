@@ -3,6 +3,7 @@ import { Header } from "./header";
 import { AgentGrid } from "./agent-grid";
 import { AgentDetail } from "./agent-detail";
 import { RetrySection } from "./retry-section";
+import { ObservabilitySection } from "./observability-section";
 import { StatusDot } from "./status-dot";
 
 export const Dashboard = {
@@ -11,5 +12,6 @@ export const Dashboard = {
 	AgentGrid,
 	AgentDetail,
 	RetrySection,
+	ObservabilitySection,
 	StatusDot,
 };

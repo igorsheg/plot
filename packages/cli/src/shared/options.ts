@@ -84,4 +84,5 @@ export type ServerOptions = {
 	"issues-dir": string;
 	"log-format": "pretty" | "json";
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
+	web?: boolean;
 };

@@ -9,6 +9,7 @@ export const Route = createRoute({
 		<Dashboard.Root>
 			<Dashboard.Header />
 			<div className="max-w-5xl space-y-6 px-8 py-6">
+				<Dashboard.ObservabilitySection />
 				<Dashboard.AgentGrid />
 				<Dashboard.AgentDetail />
 				<Dashboard.RetrySection />

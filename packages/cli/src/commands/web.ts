@@ -1,35 +1,19 @@
 import type { CommandModule } from "yargs";
-import {
-	CliError,
-	createCliOutput,
-	ensureJsonSupported,
-} from "../shared/io.js";
+import { createCliOutput, ensureJsonSupported } from "../shared/io.js";
 import {
 	withCliCommandOptions,
 	type ServerOptions,
 } from "../shared/options.js";
 import { startServer, waitForServer } from "../shared/server-process.js";
 
-function openBrowser(url: string) {
-	const { platform } = process;
-	const cmd =
-		platform === "darwin"
-			? "open"
-			: platform === "win32"
-				? "start"
-				: "xdg-open";
-	const proc = Bun.spawn([cmd, url], { stdio: ["ignore", "ignore", "ignore"] });
-	proc.exited.catch(() => undefined);
-}
-
 export const WebCommand: CommandModule<{}, ServerOptions> = {
 	command: "web",
-	describe: "start server and open web dashboard",
+	describe: "start server and serve the web dashboard",
 	builder: (yargs) => withCliCommandOptions(yargs),
 	handler: async (args) => {
 		ensureJsonSupported(args.json, "web");
 		const output = createCliOutput(args);
-		const handle = startServer(args);
+		const handle = startServer({ ...args, web: true });
 
 		const shutdown = (signal: NodeJS.Signals) => {
 			output.shutdown({ command: "web", signal });
@@ -41,16 +25,7 @@ export const WebCommand: CommandModule<{}, ServerOptions> = {
 
 		await waitForServer(handle.url);
 		output.ready({ command: "web", url: handle.url, pid: handle.pid });
-
-		try {
-			openBrowser(handle.url);
-		} catch {
-			throw new CliError(
-				"runtime",
-				`failed to open browser for ${handle.url}`,
-				1,
-			);
-		}
+		output.info(`open ${handle.url} in your browser`);
 
 		await new Promise(() => {});
 	},

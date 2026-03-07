@@ -48,6 +48,7 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
 		PLOT_ISSUES_DIR: opts["issues-dir"],
 		PLOT_LOG_FORMAT: opts.json ? "json" : opts["log-format"],
 		PLOT_LOG_LEVEL: opts["log-level"],
+		PLOT_WEB_ENABLED: opts.web ? "1" : "0",
 		PLOT_WEB_DIST_DIR: resolveBundledWebDistDir(),
 		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),
 	};

@@ -189,14 +189,19 @@ export function makeServer(config: ServerConfig) {
 		}),
 	).pipe(Layer.provide(BunContext.layer));
 
-	return HttpRouter.Default.serve().pipe(
+	let app = HttpRouter.Default.serve().pipe(
 		Layer.provide(RpcLayer),
 		Layer.provide(HttpProtocol),
 		Layer.provide(SseRouteLive),
 		Layer.provide(HealthzLive),
-		Layer.provide(StaticLive),
 		Layer.provide(BunHttpServer.layer({ port: config.port, idleTimeout: 120 })),
 		Layer.provide(StartupLive),
 		Layer.provide(LoggingLive),
 	);
+
+	if (config.webEnabled) {
+		app = app.pipe(Layer.provide(StaticLive));
+	}
+
+	return app;
 }

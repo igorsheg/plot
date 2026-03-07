@@ -32,10 +32,11 @@ const C = {
 };
 
 let renderer: CliRenderer;
-let headerText: TextRenderable;
-let runningTable: TextTableRenderable;
-let retryText: TextRenderable;
-let detailText: TextRenderable;
+let headerText!: TextRenderable;
+let runningTable!: TextTableRenderable;
+let observabilityText!: TextRenderable;
+let retryText!: TextRenderable;
+let detailText!: TextRenderable;
 let selectedIndex = 0;
 let currentState: RuntimeSnapshot | null = null;
 let sseStatus = "connecting";
@@ -48,11 +49,19 @@ function cell(text: string): TextChunk[] {
 	return [{ __isChunk: true as const, text }];
 }
 
+function summarizeReasonCounts(reasons: Record<string, number>): string {
+	const parts = Object.entries(reasons)
+		.filter(([, count]) => count > 0)
+		.sort((a, b) => b[1] - a[1])
+		.map(([reason, count]) => `${reason} ${count}`);
+	return parts.length > 0 ? parts.join(" · ") : "none";
+}
+
 function updateHeader() {
 	if (!currentState) return;
 	const s = currentState;
 	const dot = sseStatus === "connected" ? fg(C.green)("●") : fg(C.red)("●");
-	headerText.content = t`${bold("plot")} ${dot} ${fg(C.muted)(sseStatus)} │ ${bold(String(s.counts.running))} running ${bold(String(s.counts.retrying))} retrying │ tokens ${fg(C.yellow)(formatTokens(s.codexTotals.totalTokens))} │ up ${fg(C.magenta)(formatDuration(s.codexTotals.secondsRunning))}`;
+	headerText.content = t`${bold("plot")} ${dot} ${fg(C.muted)(sseStatus)} │ ${bold(String(s.counts.running))} running ${bold(String(s.counts.retrying))} retrying │ queue ${fg(C.cyan)(`${s.observability.commandQueueDepth}/${s.observability.commandQueuePeak}`)} │ pressure ${fg(C.yellow)(String(s.observability.commandQueuePressureCount))} │ tokens ${fg(C.yellow)(formatTokens(s.codexTotals.totalTokens))} │ up ${fg(C.magenta)(formatDuration(s.codexTotals.secondsRunning))}`;
 }
 
 function updateRunningTable() {
@@ -99,6 +108,21 @@ function updateRunningTable() {
 	}
 }
 
+function updateObservability() {
+	if (!currentState) return;
+	const o = currentState.observability;
+	observabilityText.content = t`${bold("queue")}
+${fg(C.muted)("depth")} ${bold(String(o.commandQueueDepth))} │ ${fg(C.muted)("peak")} ${bold(String(o.commandQueuePeak))} │ ${fg(C.muted)("pressure")} ${bold(String(o.commandQueuePressureCount))}
+
+${bold("retries")}
+${fg(C.muted)("queued")} ${bold(String(currentState.counts.retrying))} │ ${fg(C.muted)("stale drops")} ${bold(String(o.staleRetryDropCount))}
+${fg(C.muted)("mix")} ${summarizeReasonCounts(o.retriesScheduledByReason)}
+
+${bold("workers")}
+${fg(C.muted)("stops")} ${summarizeReasonCounts(o.workerStopsByReason)}
+${fg(C.muted)("exits")} ${summarizeReasonCounts(o.workerExitsByReason)}`;
+}
+
 function updateRetryQueue() {
 	if (!currentState) return;
 	if (currentState.retrying.length === 0) {
@@ -137,6 +161,7 @@ ${r.session.lastMessage ?? "—"}`;
 function updateAll() {
 	updateHeader();
 	updateRunningTable();
+	updateObservability();
 	updateRetryQueue();
 	updateDetail();
 }
@@ -259,10 +284,32 @@ export async function runTui() {
 	runningBox.add(runningTable);
 	leftCol.add(runningBox);
 
+	const observabilityBox = new BoxRenderable(renderer, {
+		id: "observability-box",
+		width: "100%",
+		height: 9,
+		backgroundColor: C.panel,
+		borderStyle: "rounded",
+		borderColor: C.border,
+		border: true,
+		title: "Runtime Observability",
+		titleAlignment: "left",
+		paddingLeft: 1,
+	});
+	observabilityText = new TextRenderable(renderer, {
+		id: "observability-text",
+		content: t`${fg(C.muted)("Waiting for runtime snapshot")}`,
+		fg: C.text,
+		width: "100%",
+		wrapMode: "word",
+	});
+	observabilityBox.add(observabilityText);
+	leftCol.add(observabilityBox);
+
 	const retryBox = new BoxRenderable(renderer, {
 		id: "retry-box",
 		width: "100%",
-		height: 6,
+		height: 7,
 		backgroundColor: C.panel,
 		borderStyle: "rounded",
 		borderColor: C.border,
