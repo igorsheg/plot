@@ -33,6 +33,14 @@ server ──> rpc + sse ──> tui
                   └───> web dashboard
 ```
 
+## runtime observability
+
+both dashboards surface live runtime diagnostics.
+
+**web dashboard** — the runtime panel shows queue depth, peak depth, and backpressure status. it also displays retry reason mix (why runs were retried) and worker stop/exit reasons so you can see at a glance what is failing and why.
+
+**tui** — the terminal dashboard includes a runtime observability summary with the same key metrics: queue pressure, retry reasons, and worker lifecycle events.
+
 ## requirements
 
 - bun 1.3.5
