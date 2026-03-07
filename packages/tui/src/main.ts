@@ -13,8 +13,8 @@ import {
 	type TextTableContent,
 } from "@opentui/core";
 import { DateTime } from "effect";
-import type { RuntimeSnapshot } from "@plot/sdk";
-import { getState, connectSse, triggerRefresh } from "./api.js";
+import type { RuntimeSnapshot, SseStatus } from "@plot/sdk";
+import { createHttpRuntimeApi, type RuntimeApi } from "./api.js";
 import { formatTokens, formatDuration, timeAgo, truncate } from "@plot/sdk";
 
 const C = {
@@ -166,9 +166,9 @@ function updateAll() {
 	updateDetail();
 }
 
-async function refresh() {
+async function refresh(api: RuntimeApi) {
 	try {
-		currentState = await getState();
+		currentState = await api.getState();
 		updateAll();
 	} catch {}
 }
@@ -178,7 +178,7 @@ let refreshPending = false;
 let refreshInFlight = false;
 const THROTTLE_MS = 1000;
 
-async function throttledRefresh() {
+async function throttledRefresh(api: RuntimeApi) {
 	if (refreshInFlight) {
 		refreshPending = true;
 		return;
@@ -188,7 +188,9 @@ async function throttledRefresh() {
 	if (elapsed < THROTTLE_MS) {
 		if (!refreshPending) {
 			refreshPending = true;
-			setTimeout(throttledRefresh, THROTTLE_MS - elapsed);
+			setTimeout(() => {
+				void throttledRefresh(api);
+			}, THROTTLE_MS - elapsed);
 		}
 		return;
 	}
@@ -196,222 +198,241 @@ async function throttledRefresh() {
 	refreshPending = false;
 	lastRefreshAt = Date.now();
 	try {
-		currentState = await getState();
+		currentState = await api.getState();
 		updateAll();
 	} catch {}
 	refreshInFlight = false;
 	if (refreshPending) {
 		refreshPending = false;
-		setTimeout(throttledRefresh, THROTTLE_MS);
+		setTimeout(() => {
+			void throttledRefresh(api);
+		}, THROTTLE_MS);
 	}
 }
 
-export async function runTui() {
-	renderer = await createCliRenderer({
-		targetFps: 30,
-		backgroundColor: C.bg,
-		exitOnCtrlC: false,
+export async function runTui(options?: { api?: RuntimeApi }) {
+	const api = options?.api ?? createHttpRuntimeApi();
+	selectedIndex = 0;
+	currentState = null;
+	sseStatus = "connecting";
+	let disconnect = () => {};
+	const done = new Promise<void>((resolve, reject) => {
+		const finish = () => {
+			disconnect();
+			resolve();
+		};
+
+		void (async () => {
+			renderer = await createCliRenderer({
+				targetFps: 30,
+				backgroundColor: C.bg,
+				exitOnCtrlC: false,
+				onDestroy: finish,
+			});
+			renderer.disableStdoutInterception();
+
+			const root = renderer.root;
+
+			const headerBox = new BoxRenderable(renderer, {
+				id: "header",
+				width: "100%",
+				height: 3,
+				backgroundColor: C.panel,
+				borderStyle: "rounded",
+				borderColor: C.border,
+				border: true,
+				paddingLeft: 1,
+			});
+			headerText = new TextRenderable(renderer, {
+				id: "header-text",
+				content: t`${bold("plot")} ${fg(C.muted)("connecting…")}`,
+				fg: C.text,
+				width: "100%",
+			});
+			headerBox.add(headerText);
+			root.add(headerBox);
+
+			const body = new BoxRenderable(renderer, {
+				id: "body",
+				flexDirection: "row",
+				width: "100%",
+				flexGrow: 1,
+				shouldFill: false,
+			});
+			root.add(body);
+
+			const leftCol = new BoxRenderable(renderer, {
+				id: "left-col",
+				flexDirection: "column",
+				width: "60%",
+				height: "100%",
+				shouldFill: false,
+			});
+			body.add(leftCol);
+
+			const runningBox = new BoxRenderable(renderer, {
+				id: "running-box",
+				width: "100%",
+				flexGrow: 1,
+				backgroundColor: C.panel,
+				borderStyle: "rounded",
+				borderColor: C.border,
+				border: true,
+				title: "Running Sessions",
+				titleAlignment: "left",
+				paddingLeft: 1,
+			});
+			runningTable = new TextTableRenderable(renderer, {
+				id: "running-table",
+				width: "100%",
+				height: "100%",
+				content: [
+					[
+						[bold("ID")],
+						[bold("State")],
+						[bold("Age")],
+						[bold("Turns")],
+						[bold("Tokens")],
+						[bold("Message")],
+					],
+				],
+				border: false,
+				fg: C.text,
+			});
+			runningBox.add(runningTable);
+			leftCol.add(runningBox);
+
+			const observabilityBox = new BoxRenderable(renderer, {
+				id: "observability-box",
+				width: "100%",
+				height: 9,
+				backgroundColor: C.panel,
+				borderStyle: "rounded",
+				borderColor: C.border,
+				border: true,
+				title: "Runtime Observability",
+				titleAlignment: "left",
+				paddingLeft: 1,
+			});
+			observabilityText = new TextRenderable(renderer, {
+				id: "observability-text",
+				content: t`${fg(C.muted)("Waiting for runtime snapshot")}`,
+				fg: C.text,
+				width: "100%",
+				wrapMode: "word",
+			});
+			observabilityBox.add(observabilityText);
+			leftCol.add(observabilityBox);
+
+			const retryBox = new BoxRenderable(renderer, {
+				id: "retry-box",
+				width: "100%",
+				height: 7,
+				backgroundColor: C.panel,
+				borderStyle: "rounded",
+				borderColor: C.border,
+				border: true,
+				title: "Retry Queue",
+				titleAlignment: "left",
+				paddingLeft: 1,
+			});
+			retryText = new TextRenderable(renderer, {
+				id: "retry-text",
+				content: t`${fg(C.muted)("No queued retries")}`,
+				fg: C.text,
+				width: "100%",
+			});
+			retryBox.add(retryText);
+			leftCol.add(retryBox);
+
+			const detailBox = new BoxRenderable(renderer, {
+				id: "detail-box",
+				width: "40%",
+				height: "100%",
+				backgroundColor: C.panel,
+				borderStyle: "rounded",
+				borderColor: C.border,
+				border: true,
+				title: "Detail",
+				titleAlignment: "left",
+				paddingLeft: 1,
+			});
+			const detailScroll = new ScrollBoxRenderable(renderer, {
+				id: "detail-scroll",
+				width: "100%",
+				height: "100%",
+				scrollY: true,
+				scrollX: false,
+			});
+			detailText = new TextRenderable(renderer, {
+				id: "detail-text",
+				content: t`${fg(C.muted)("Select a session to view details")}`,
+				fg: C.text,
+				width: "100%",
+				wrapMode: "word",
+			});
+			detailScroll.add(detailText);
+			detailBox.add(detailScroll);
+			body.add(detailBox);
+
+			const footerBox = new BoxRenderable(renderer, {
+				id: "footer",
+				width: "100%",
+				height: 1,
+				shouldFill: false,
+				paddingLeft: 1,
+			});
+			const footerText = new TextRenderable(renderer, {
+				id: "footer-text",
+				content: t`${fg(C.muted)("j/k navigate │ r refresh │ q quit")}`,
+				width: "100%",
+				height: 1,
+			});
+			footerBox.add(footerText);
+			root.add(footerBox);
+
+			renderer.keyInput.on("keypress", async (key: KeyEvent) => {
+				if (key.name === "q" || (key.ctrl && key.name === "c")) {
+					renderer.destroy();
+					return;
+				}
+				if (key.name === "j" || key.name === "down") {
+					if (currentState && selectedIndex < currentState.running.length - 1) {
+						selectedIndex++;
+						updateAll();
+					}
+				}
+				if (key.name === "k" || key.name === "up") {
+					if (selectedIndex > 0) {
+						selectedIndex--;
+						updateAll();
+					}
+				}
+				if (key.name === "r") {
+					await api.triggerRefresh();
+					await refresh(api);
+				}
+			});
+
+			disconnect = api.connectEvents(
+				() => {
+					void throttledRefresh(api);
+				},
+				(status: SseStatus) => {
+					sseStatus = status;
+					updateHeader();
+					if (status === "connected") {
+						void throttledRefresh(api);
+					}
+				},
+			);
+
+			await refresh(api);
+			renderer.start();
+		})().catch(reject);
 	});
 
-	const root = renderer.root;
-
-	const headerBox = new BoxRenderable(renderer, {
-		id: "header",
-		width: "100%",
-		height: 3,
-		backgroundColor: C.panel,
-		borderStyle: "rounded",
-		borderColor: C.border,
-		border: true,
-		paddingLeft: 1,
-	});
-	headerText = new TextRenderable(renderer, {
-		id: "header-text",
-		content: t`${bold("plot")} ${fg(C.muted)("connecting…")}`,
-		fg: C.text,
-		width: "100%",
-	});
-	headerBox.add(headerText);
-	root.add(headerBox);
-
-	const body = new BoxRenderable(renderer, {
-		id: "body",
-		flexDirection: "row",
-		width: "100%",
-		flexGrow: 1,
-		shouldFill: false,
-	});
-	root.add(body);
-
-	const leftCol = new BoxRenderable(renderer, {
-		id: "left-col",
-		flexDirection: "column",
-		width: "60%",
-		height: "100%",
-		shouldFill: false,
-	});
-	body.add(leftCol);
-
-	const runningBox = new BoxRenderable(renderer, {
-		id: "running-box",
-		width: "100%",
-		flexGrow: 1,
-		backgroundColor: C.panel,
-		borderStyle: "rounded",
-		borderColor: C.border,
-		border: true,
-		title: "Running Sessions",
-		titleAlignment: "left",
-		paddingLeft: 1,
-	});
-	runningTable = new TextTableRenderable(renderer, {
-		id: "running-table",
-		width: "100%",
-		height: "100%",
-		content: [
-			[
-				[bold("ID")],
-				[bold("State")],
-				[bold("Age")],
-				[bold("Turns")],
-				[bold("Tokens")],
-				[bold("Message")],
-			],
-		],
-		border: false,
-		fg: C.text,
-	});
-	runningBox.add(runningTable);
-	leftCol.add(runningBox);
-
-	const observabilityBox = new BoxRenderable(renderer, {
-		id: "observability-box",
-		width: "100%",
-		height: 9,
-		backgroundColor: C.panel,
-		borderStyle: "rounded",
-		borderColor: C.border,
-		border: true,
-		title: "Runtime Observability",
-		titleAlignment: "left",
-		paddingLeft: 1,
-	});
-	observabilityText = new TextRenderable(renderer, {
-		id: "observability-text",
-		content: t`${fg(C.muted)("Waiting for runtime snapshot")}`,
-		fg: C.text,
-		width: "100%",
-		wrapMode: "word",
-	});
-	observabilityBox.add(observabilityText);
-	leftCol.add(observabilityBox);
-
-	const retryBox = new BoxRenderable(renderer, {
-		id: "retry-box",
-		width: "100%",
-		height: 7,
-		backgroundColor: C.panel,
-		borderStyle: "rounded",
-		borderColor: C.border,
-		border: true,
-		title: "Retry Queue",
-		titleAlignment: "left",
-		paddingLeft: 1,
-	});
-	retryText = new TextRenderable(renderer, {
-		id: "retry-text",
-		content: t`${fg(C.muted)("No queued retries")}`,
-		fg: C.text,
-		width: "100%",
-	});
-	retryBox.add(retryText);
-	leftCol.add(retryBox);
-
-	const detailBox = new BoxRenderable(renderer, {
-		id: "detail-box",
-		width: "40%",
-		height: "100%",
-		backgroundColor: C.panel,
-		borderStyle: "rounded",
-		borderColor: C.border,
-		border: true,
-		title: "Detail",
-		titleAlignment: "left",
-		paddingLeft: 1,
-	});
-	const detailScroll = new ScrollBoxRenderable(renderer, {
-		id: "detail-scroll",
-		width: "100%",
-		height: "100%",
-		scrollY: true,
-		scrollX: false,
-	});
-	detailText = new TextRenderable(renderer, {
-		id: "detail-text",
-		content: t`${fg(C.muted)("Select a session to view details")}`,
-		fg: C.text,
-		width: "100%",
-		wrapMode: "word",
-	});
-	detailScroll.add(detailText);
-	detailBox.add(detailScroll);
-	body.add(detailBox);
-
-	const footerBox = new BoxRenderable(renderer, {
-		id: "footer",
-		width: "100%",
-		height: 1,
-		shouldFill: false,
-		paddingLeft: 1,
-	});
-	const footerText = new TextRenderable(renderer, {
-		id: "footer-text",
-		content: t`${fg(C.muted)("j/k navigate │ r refresh │ q quit")}`,
-		width: "100%",
-		height: 1,
-	});
-	footerBox.add(footerText);
-	root.add(footerBox);
-
-	renderer.keyInput.on("keypress", async (key: KeyEvent) => {
-		if (key.name === "q" || (key.ctrl && key.name === "c")) {
-			renderer.destroy();
-			process.exit(0);
-		}
-		if (key.name === "j" || key.name === "down") {
-			if (currentState && selectedIndex < currentState.running.length - 1) {
-				selectedIndex++;
-				updateAll();
-			}
-		}
-		if (key.name === "k" || key.name === "up") {
-			if (selectedIndex > 0) {
-				selectedIndex--;
-				updateAll();
-			}
-		}
-		if (key.name === "r") {
-			await triggerRefresh();
-			await refresh();
-		}
-	});
-
-	connectSse(
-		() => {
-			throttledRefresh();
-		},
-		(status) => {
-			sseStatus = status;
-			updateHeader();
-			if (status === "connected") {
-				throttledRefresh();
-			}
-		},
-	);
-
-	await refresh();
-
-	renderer.start();
+	return done;
 }
 
 export function isTuiEntryCommand(command?: string): boolean {

@@ -1,9 +1,9 @@
 import { Command } from "@effect/cli";
 import { Effect, FiberRef } from "effect";
+import { runTui } from "@plot/tui";
 import { ensureJsonSupported, ensureTuiSupported } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
-import { startServer, waitForServer } from "../shared/server-process.js";
-import { resolveSelfCommandArgs } from "../shared/runtime.js";
+import { createTuiRuntimeHandle } from "../shared/tui-runtime.js";
 
 export function createTuiCommand(name: string) {
 	return Command.make(name, cliCommandOptions, (args) =>
@@ -11,20 +11,27 @@ export function createTuiCommand(name: string) {
 			ensureJsonSupported(args.json, "tui");
 			ensureTuiSupported();
 			const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
-			const handle = startServer(toServerOptions(args, logLevel));
-			yield* Effect.promise(() => waitForServer(handle.url));
+			const runtime = yield* Effect.promise(() =>
+				createTuiRuntimeHandle(toServerOptions(args, logLevel)),
+			).pipe(
+				Effect.mapError(
+					(error) =>
+						new Error(
+							"failed to start tui runtime; logs: ~/.plot/logs/tui-server.log",
+							{
+								cause: error,
+							},
+						),
+				),
+			);
 
-			const tui = Bun.spawn(resolveSelfCommandArgs("__internal-tui"), {
-				stdio: ["inherit", "inherit", "inherit"],
-				env: {
-					...process.env,
-					PLOT_URL: `http://localhost:${args.port}`,
-				},
-			});
-
-			const exitCode = yield* Effect.promise(() => tui.exited);
-			handle.stop();
-			process.exit(exitCode);
+			yield* Effect.promise(() => runTui({ api: runtime.api })).pipe(
+				Effect.ensuring(
+					Effect.sync(() => {
+						runtime.close();
+					}),
+				),
+			);
 		}),
 	).pipe(Command.withDescription("start server and launch TUI dashboard"));
 }

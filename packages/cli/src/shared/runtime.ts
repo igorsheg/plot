@@ -1,4 +1,5 @@
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { ServerOptions } from "./options.js";
 
@@ -57,6 +58,14 @@ export function resolveSelfCommandArgs(command: string) {
 	return buildSelfCommandArgs(process.execPath, process.argv[1], command);
 }
 
+export function resolveTuiServerWorkerPath() {
+	return new URL("../../../server/src/tui-worker.ts", import.meta.url);
+}
+
+export function resolveTuiServerLogPath() {
+	return join(homedir(), ".plot", "logs", "tui-server.log");
+}
+
 export function toServerEnv(opts: ServerOptions): Record<string, string> {
 	return {
 		...process.env,
@@ -70,5 +79,14 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
 		PLOT_WEB_ENABLED: opts.web ? "1" : "0",
 		PLOT_WEB_DIST_DIR: resolveBundledWebDistDir(),
 		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),
+	};
+}
+
+export function toTuiServerEnv(opts: ServerOptions): Record<string, string> {
+	return {
+		...toServerEnv(opts),
+		PLOT_LOG_FORMAT: "json",
+		PLOT_LOG_LEVEL: "none",
+		PLOT_TUI_SERVER_LOG_PATH: resolveTuiServerLogPath(),
 	};
 }

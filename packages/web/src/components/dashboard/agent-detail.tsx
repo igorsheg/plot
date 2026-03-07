@@ -21,7 +21,7 @@ function formatTimeAgo(dt: DateTime.Utc | string): string {
 	return sharedTimeAgo(DateTime.toEpochMillis(dt));
 }
 
-export function AgentDetail() {
+export function WorkDetailSheet() {
 	const {
 		state: { focusedIssueId },
 		actions,

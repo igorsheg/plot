@@ -14,9 +14,9 @@ function DashboardPage() {
 		<Dashboard.Root>
 			<Dashboard.Header />
 			<div className="view-shell">
-				<Dashboard.AgentGrid />
+				<Dashboard.WorkQueue />
 			</div>
-			<Dashboard.AgentDetail />
+			<Dashboard.WorkDetailSheet />
 		</Dashboard.Root>
 	);
 }

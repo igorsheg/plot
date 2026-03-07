@@ -7,7 +7,7 @@ import { timeAgo as sharedTimeAgo } from "@plot/sdk";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-interface AgentCardProps {
+interface WorkRowProps {
 	entry: RunningEntry;
 	isSelected: boolean;
 }
@@ -17,7 +17,7 @@ function formatTimeAgo(dt: DateTime.Utc | string): string {
 	return sharedTimeAgo(DateTime.toEpochMillis(dt));
 }
 
-export function AgentCard({ entry, isSelected }: AgentCardProps) {
+export function WorkRow({ entry, isSelected }: WorkRowProps) {
 	const { actions } = useDashboard();
 	const { session } = entry;
 	const active = isActiveState(entry.state);

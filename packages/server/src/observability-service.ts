@@ -133,17 +133,25 @@ const mapRuntimeSnapshot = (state: {
 	});
 };
 
-export class ObservabilityApi extends Effect.Service<ObservabilityApi>()(
-	"ObservabilityApi",
-	{
-		effect: Effect.gen(function* () {
-			const orchestrator = yield* Orchestrator;
-			const stateStream = orchestrator.stateStream.pipe(
-				Stream.map(mapRuntimeSnapshot),
-			);
+export const makeObservabilityApi = Effect.gen(function* () {
+	const orchestrator = yield* Orchestrator;
+	const stateStream = orchestrator.stateStream.pipe(
+		Stream.map(mapRuntimeSnapshot),
+	);
 
-			const getState = orchestrator.getState.pipe(
-				Effect.map(mapRuntimeSnapshot),
+	const getState = orchestrator.getState.pipe(
+		Effect.map(mapRuntimeSnapshot),
+		Effect.mapError(
+			() =>
+				new OrchestratorUnavailable({
+					message: "Orchestrator state is unavailable",
+				}),
+		),
+	);
+
+	const getIssue = (identifier: string) =>
+		Effect.gen(function* () {
+			const state = yield* orchestrator.getState.pipe(
 				Effect.mapError(
 					() =>
 						new OrchestratorUnavailable({
@@ -151,70 +159,64 @@ export class ObservabilityApi extends Effect.Service<ObservabilityApi>()(
 						}),
 				),
 			);
+			const running = [...state.running.values()].find(
+				(r) => r.issueIdentifier === identifier,
+			);
+			const retry = [...state.retryAttempts.values()].find(
+				(r) => r.identifier === identifier,
+			);
 
-			const getIssue = (identifier: string) =>
-				Effect.gen(function* () {
-					const state = yield* orchestrator.getState.pipe(
-						Effect.mapError(
-							() =>
-								new OrchestratorUnavailable({
-									message: "Orchestrator state is unavailable",
-								}),
-						),
-					);
-					const running = [...state.running.values()].find(
-						(r) => r.issueIdentifier === identifier,
-					);
-					const retry = [...state.retryAttempts.values()].find(
-						(r) => r.identifier === identifier,
-					);
-
-					if (!running && !retry) {
-						return yield* Effect.fail(
-							new IssueNotFound({
-								identifier,
-								message: `Issue not found: ${identifier}`,
-							}),
-						);
-					}
-
-					return new IssueDetail({
-						issueIdentifier: identifier,
-						issueId: running?.issueId ?? retry?.issueId ?? "",
-						status: running ? "running" : "retrying",
-						workspacePath: running?.workspacePath ?? null,
-						running: running ? mapRunningEntry(running) : null,
-						retry: retry ? mapRetryEntry(retry) : null,
-						lastError: retry?.error ?? null,
-						eventTail: running?.eventTail ?? [],
-					});
-				});
-
-			const triggerRefresh = Effect.gen(function* () {
-				yield* orchestrator.tick.pipe(
-					Effect.mapError(
-						() =>
-							new OrchestratorUnavailable({
-								message: "Orchestrator is unavailable",
-							}),
-					),
+			if (!running && !retry) {
+				return yield* Effect.fail(
+					new IssueNotFound({
+						identifier,
+						message: `Issue not found: ${identifier}`,
+					}),
 				);
-				return new RefreshResult({
-					queued: true,
-					coalesced: false,
-					requestedAt: DateTime.unsafeNow(),
-					operations: ["poll", "reconcile"],
-				});
-			});
+			}
 
-			return {
-				getState,
-				getIssue,
-				triggerRefresh,
-				eventStream: orchestrator.eventStream,
-				stateStream,
-			};
-		}),
+			return new IssueDetail({
+				issueIdentifier: identifier,
+				issueId: running?.issueId ?? retry?.issueId ?? "",
+				status: running ? "running" : "retrying",
+				workspacePath: running?.workspacePath ?? null,
+				running: running ? mapRunningEntry(running) : null,
+				retry: retry ? mapRetryEntry(retry) : null,
+				lastError: retry?.error ?? null,
+				eventTail: running?.eventTail ?? [],
+			});
+		});
+
+	const triggerRefresh = Effect.gen(function* () {
+		yield* orchestrator.tick.pipe(
+			Effect.mapError(
+				() =>
+					new OrchestratorUnavailable({
+						message: "Orchestrator is unavailable",
+					}),
+			),
+		);
+		return new RefreshResult({
+			queued: true,
+			coalesced: false,
+			requestedAt: DateTime.unsafeNow(),
+			operations: ["poll", "reconcile"],
+		});
+	});
+
+	return {
+		getState,
+		getIssue,
+		triggerRefresh,
+		eventStream: orchestrator.eventStream,
+		stateStream,
+	};
+});
+
+export class ObservabilityApi extends Effect.Service<ObservabilityApi>()(
+	"ObservabilityApi",
+	{
+		effect: makeObservabilityApi,
 		dependencies: [Orchestrator.Default],
 	},
 ) {}

@@ -6,69 +6,29 @@ import {
 } from "@effect/platform";
 import { BunContext, BunHttpServer } from "@effect/platform-bun";
 import { RpcSerialization, RpcServer } from "@effect/rpc";
-import {
-	Effect,
-	Layer,
-	Logger,
-	LogLevel,
-	Schedule,
-	Schema,
-	Stream,
-} from "effect";
+import { Effect, Layer, Schedule, Schema, Stream } from "effect";
 import {
 	AgentRuntimeEvent,
 	IssueNotFound,
 	OrchestratorUnavailable,
 	PlotRpcs,
 } from "@plot/contracts";
-import { Orchestrator } from "@plot/core";
-import { makeLocalFsTracker, makeGithubTracker } from "@plot/tracker";
-import { PiAgentLive } from "@plot/agent";
 import { ObservabilityApi } from "./observability-service.js";
 import { RpcHandlersLive } from "./rpc-handlers.js";
 import { join, extname } from "node:path";
 import type { ServerConfig } from "./config.js";
-
-const parseLogLevel = (s: string): LogLevel.LogLevel => {
-	switch (s.toLowerCase()) {
-		case "debug":
-			return LogLevel.Debug;
-		case "info":
-			return LogLevel.Info;
-		case "warning":
-			return LogLevel.Warning;
-		case "error":
-			return LogLevel.Error;
-		case "none":
-			return LogLevel.None;
-		default:
-			return LogLevel.Info;
-	}
-};
+import {
+	makeAppLayer,
+	makeLoggingLayer,
+	makeObservabilityLayer,
+	makeStartupLayer,
+} from "./runtime-builder.js";
 
 export function makeServer(config: ServerConfig) {
-	const LoggingLive = Layer.mergeAll(
-		config.logFormat === "json" ? Logger.json : Logger.pretty,
-		Logger.minimumLogLevel(parseLogLevel(config.logLevel)),
-	);
-
-	const TrackerLive = (() => {
-		if (config.trackerKind === "github") {
-			return makeGithubTracker({
-				repo: config.githubRepo || undefined,
-			});
-		}
-		return makeLocalFsTracker(config.issuesDir).pipe(
-			Layer.provide(BunContext.layer),
-		);
-	})();
-
-	const AppLayer = Layer.mergeAll(TrackerLive, PiAgentLive, BunContext.layer);
-	const OrchestratorLive = Orchestrator.Default.pipe(Layer.provide(AppLayer));
-
-	const ObservabilityLive = ObservabilityApi.Default.pipe(
-		Layer.provide(OrchestratorLive),
-	);
+	const LoggingLive = makeLoggingLayer(config);
+	const AppLayer = makeAppLayer(config);
+	const ObservabilityLive = makeObservabilityLayer(config);
+	const StartupLive = makeStartupLayer(config);
 
 	const RpcLayer = RpcServer.layer(PlotRpcs).pipe(
 		Layer.provide(RpcHandlersLive),
@@ -130,21 +90,6 @@ export function makeServer(config: ServerConfig) {
 			);
 		}),
 	).pipe(Layer.provide(ObservabilityLive));
-
-	const StartupLive = Layer.scopedDiscard(
-		Effect.gen(function* () {
-			const orchestrator = yield* Orchestrator;
-			yield* orchestrator.start(config.workflowPath);
-			yield* Effect.logInfo("server started").pipe(
-				Effect.annotateLogs({
-					component: "server",
-					port: String(config.port),
-					issues_dir: config.issuesDir,
-					workflow: config.workflowPath,
-				}),
-			);
-		}),
-	).pipe(Layer.provide(OrchestratorLive));
 
 	const startedAt = Date.now();
 

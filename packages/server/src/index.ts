@@ -5,6 +5,20 @@ import { readConfigFromEnv } from "./config.js";
 
 export { makeServer } from "./server.js";
 export { readConfigFromEnv, type ServerConfig } from "./config.js";
+export {
+	ObservabilityApi,
+	makeObservabilityApi,
+} from "./observability-service.js";
+export {
+	makeAppLayer,
+	makeLoggingLayer,
+	makeObservabilityLayer,
+	makeObservabilityRuntime,
+	makeOrchestratorLayer,
+	makeStartupLayer,
+	makeTrackerLayer,
+	parseServerLogLevel,
+} from "./runtime-builder.js";
 export { RpcHandlersLive } from "./rpc-handlers.js";
 
 export async function runServerMain(

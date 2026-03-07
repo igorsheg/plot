@@ -27,7 +27,7 @@ export function Header() {
 					<h1 className="type-title">plot</h1>
 					<p className="type-meta">
 						{counts
-							? `${counts.running} active${counts.retrying > 0 ? ` · ${counts.retrying} retrying` : ""}`
+							? `${counts.running} active${counts.retrying > 0 ? ` · ${counts.retrying} needs attention` : ""}`
 							: "loading status"}
 					</p>
 				</div>

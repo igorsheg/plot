@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { DateTime } from "effect";
 import { useDashboard } from "./root";
-import { AgentCard } from "./agent-card";
+import { WorkRow } from "./agent-card";
 import { useRuntimeState } from "@/lib/hooks";
 import {
 	Empty,
@@ -10,7 +10,7 @@ import {
 	EmptyDescription,
 } from "@/components/ui/empty";
 
-export function AgentGrid() {
+export function WorkQueue() {
 	const {
 		state: { focusedIssueId },
 		actions,
@@ -44,9 +44,9 @@ export function AgentGrid() {
 		return (
 			<Empty>
 				<EmptyHeader>
-					<EmptyTitle>no active agents</EmptyTitle>
+					<EmptyTitle>no active work</EmptyTitle>
 					<EmptyDescription>
-						agents will appear here when issues are dispatched
+						new work will appear here when issues are dispatched
 					</EmptyDescription>
 				</EmptyHeader>
 			</Empty>
@@ -56,11 +56,11 @@ export function AgentGrid() {
 	return (
 		<section className="section-shell">
 			<div>
-				<h2 className="type-meta">active agents</h2>
+				<h2 className="type-meta">work queue</h2>
 			</div>
 			<div className="panel-shell">
 				{running.map((entry) => (
-					<AgentCard
+					<WorkRow
 						key={entry.issueId}
 						entry={entry}
 						isSelected={entry.issueId === focusedIssueId}

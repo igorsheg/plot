@@ -4,8 +4,11 @@ import {
 	normalizeCliProcessArgv,
 	resolveBundledPiSkillsDir,
 	resolveCliArgs,
+	resolveTuiServerLogPath,
+	resolveTuiServerWorkerPath,
 	stripBundledEntryArg,
 	toServerEnv,
+	toTuiServerEnv,
 } from "./runtime.js";
 
 const originalPiSkillsDir = process.env["PLOT_PI_SKILLS_DIR"];
@@ -87,6 +90,29 @@ test("toServerEnv enables static web hosting only when requested", () => {
 	});
 
 	expect(env["PLOT_WEB_ENABLED"]).toBe("1");
+});
+
+test("toTuiServerEnv disables terminal logs and adds a log file", () => {
+	const env = toTuiServerEnv({
+		json: false,
+		quiet: false,
+		port: 3000,
+		workflow: "./WORKFLOW.md",
+		tracker: "local-fs",
+		"issues-dir": "./issues",
+		"log-format": "pretty",
+		"log-level": "debug",
+	});
+
+	expect(env["PLOT_LOG_FORMAT"]).toBe("json");
+	expect(env["PLOT_LOG_LEVEL"]).toBe("none");
+	expect(env["PLOT_TUI_SERVER_LOG_PATH"]).toBe(resolveTuiServerLogPath());
+});
+
+test("resolveTuiServerWorkerPath points at the worker entry", () => {
+	expect(resolveTuiServerWorkerPath().pathname).toEndWith(
+		"/packages/server/src/tui-worker.ts",
+	);
 });
 
 test("stripBundledEntryArg drops bunfs argv entries", () => {
