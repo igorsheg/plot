@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import { FileSystem } from "@effect/platform";
-import { Issue, IssueStateEntry, BlockerRef, TrackerError } from "@plot/shared";
+import { Issue, IssueStateEntry, BlockerRef, TrackerError } from "@plot/contracts";
 import { TrackerClient } from "./tracker-client.js";
 
 const parseYamlFrontmatter = (

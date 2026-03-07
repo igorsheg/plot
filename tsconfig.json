@@ -1,7 +1,8 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/shared" },
+    { "path": "packages/contracts" },
+    { "path": "packages/sdk" },
     { "path": "packages/tracker" },
     { "path": "packages/agent" },
     { "path": "packages/core" },

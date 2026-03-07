@@ -1,4 +1,4 @@
-import { makePlotClient } from "@plot/shared";
+import { makePlotClient } from "@plot/sdk";
 
 const client = makePlotClient("/rpc");
 

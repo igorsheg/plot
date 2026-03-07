@@ -7,7 +7,7 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../shared" },
+    { "path": "../sdk" },
     { "path": "../server" },
     { "path": "../tui" }
   ]

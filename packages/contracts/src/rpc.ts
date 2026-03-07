@@ -1,5 +1,6 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import { Schema } from "effect";
+import { PlotApiError } from "./errors.js";
 import { IssueDetail, RuntimeSnapshot } from "./schemas/orchestrator.js";
 
 export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")(
@@ -14,15 +15,15 @@ export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")(
 export class PlotRpcs extends RpcGroup.make(
 	Rpc.make("GetState", {
 		success: RuntimeSnapshot,
-		error: Schema.String,
+		error: PlotApiError,
 	}),
 	Rpc.make("GetIssue", {
 		success: IssueDetail,
-		error: Schema.String,
+		error: PlotApiError,
 		payload: { identifier: Schema.String },
 	}),
 	Rpc.make("TriggerRefresh", {
 		success: RefreshResult,
-		error: Schema.String,
+		error: PlotApiError,
 	}),
 ) {}

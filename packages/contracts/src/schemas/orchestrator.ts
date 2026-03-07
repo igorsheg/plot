@@ -63,6 +63,9 @@ export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
 	}),
 }) {}
 
+export const IssueStatus = Schema.Literal("running", "retrying");
+export type IssueStatus = typeof IssueStatus.Type;
+
 export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>(
 	"RuntimeSnapshot",
 )({
@@ -75,13 +78,13 @@ export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>(
 	retrying: Schema.Array(RetryEntry),
 	codexTotals: TokenTotals,
 	observability: RuntimeObservability,
-	rateLimits: Schema.NullOr(Schema.Unknown),
+	rateLimits: Schema.Null,
 }) {}
 
 export class IssueDetail extends Schema.Class<IssueDetail>("IssueDetail")({
 	issueIdentifier: Schema.String,
 	issueId: Schema.String,
-	status: Schema.String,
+	status: IssueStatus,
 	workspacePath: Schema.NullOr(Schema.String),
 	running: Schema.NullOr(RunningEntry),
 	retry: Schema.NullOr(RetryEntry),

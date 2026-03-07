@@ -1,13 +1,14 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src"
-  },
-  "include": ["src"],
-  "references": [
-    { "path": "../shared" },
-    { "path": "../tracker" },
-    { "path": "../agent" }
-  ]
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "dist",
+		"rootDir": "src",
+		"types": ["bun-types"]
+	},
+	"include": ["src"],
+	"references": [
+		{ "path": "../contracts" },
+		{ "path": "../tracker" },
+		{ "path": "../agent" }
+	]
 }

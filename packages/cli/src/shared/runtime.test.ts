@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import {
 	buildSelfCommandArgs,
 	normalizeCliProcessArgv,
@@ -7,6 +7,16 @@ import {
 	stripBundledEntryArg,
 	toServerEnv,
 } from "./runtime.js";
+
+const originalPiSkillsDir = process.env["PLOT_PI_SKILLS_DIR"];
+
+afterEach(() => {
+	if (originalPiSkillsDir === undefined) {
+		delete process.env["PLOT_PI_SKILLS_DIR"];
+		return;
+	}
+	process.env["PLOT_PI_SKILLS_DIR"] = originalPiSkillsDir;
+});
 
 test("toServerEnv prefers json logs for machine mode", () => {
 	const env = toServerEnv({
@@ -40,7 +50,9 @@ test("toServerEnv keeps explicit log format for human mode", () => {
 	expect(env["PLOT_LOG_LEVEL"]).toBe("none");
 });
 
-test("toServerEnv passes the bundled pi skills dir", () => {
+test("toServerEnv passes through a pi skills dir override", () => {
+	process.env["PLOT_PI_SKILLS_DIR"] = "/tmp/custom-skills";
+
 	const env = toServerEnv({
 		json: false,
 		quiet: false,
@@ -52,7 +64,13 @@ test("toServerEnv passes the bundled pi skills dir", () => {
 		"log-level": "info",
 	});
 
-	expect(env["PLOT_PI_SKILLS_DIR"]).toBe(resolveBundledPiSkillsDir());
+	expect(env["PLOT_PI_SKILLS_DIR"]).toBe("/tmp/custom-skills");
+});
+
+test("resolveBundledPiSkillsDir falls back to the bundled skills path", () => {
+	delete process.env["PLOT_PI_SKILLS_DIR"];
+
+	expect(resolveBundledPiSkillsDir()).toEndWith("/pi-package/skills");
 });
 
 test("toServerEnv enables static web hosting only when requested", () => {

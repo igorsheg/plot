@@ -7,7 +7,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@plot/shared": "workspace:*",
+    "@plot/contracts": "workspace:*",
+    "@plot/sdk": "workspace:*",
     "@mariozechner/pi-coding-agent": "latest",
     "@mariozechner/pi-ai": "latest",
     "effect": "latest"

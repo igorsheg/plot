@@ -1,18 +1,21 @@
 {
-  "name": "@plot/core",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "dependencies": {
-    "@plot/shared": "workspace:*",
-    "@plot/tracker": "workspace:*",
-    "@plot/agent": "workspace:*",
-    "@effect/platform": "latest",
-    "effect": "latest",
-    "liquidjs": "latest",
-    "yaml": "latest"
-  }
+	"name": "@plot/core",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@plot/contracts": "workspace:*",
+		"@plot/tracker": "workspace:*",
+		"@plot/agent": "workspace:*",
+		"@effect/platform": "latest",
+		"effect": "latest",
+		"liquidjs": "latest",
+		"yaml": "latest"
+	},
+	"devDependencies": {
+		"bun-types": "latest"
+	}
 }

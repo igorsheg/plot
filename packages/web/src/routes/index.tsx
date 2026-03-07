@@ -2,18 +2,27 @@ import { createRoute } from "@tanstack/react-router";
 import { Route as rootRoute } from "./__root";
 import { Dashboard } from "@/components/dashboard";
 
+/**
+ * keeps the default dashboard honest: orientation first, inspection second.
+ *
+ * this route should answer only three questions at a glance — is work happening,
+ * does anything need attention, and what deserves a closer look. per-item detail
+ * lives in the sheet so debug surfaces do not sprawl back into the page.
+ */
+function DashboardPage() {
+	return (
+		<Dashboard.Root>
+			<Dashboard.Header />
+			<div className="view-shell">
+				<Dashboard.AgentGrid />
+			</div>
+			<Dashboard.AgentDetail />
+		</Dashboard.Root>
+	);
+}
+
 export const Route = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/",
-	component: () => (
-		<Dashboard.Root>
-			<Dashboard.Header />
-			<div className="max-w-5xl space-y-6 px-8 py-6">
-				<Dashboard.ObservabilitySection />
-				<Dashboard.AgentGrid />
-				<Dashboard.AgentDetail />
-				<Dashboard.RetrySection />
-			</div>
-		</Dashboard.Root>
-	),
+	component: DashboardPage,
 });

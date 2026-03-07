@@ -1,5 +1,5 @@
 import { DateTime, Effect, Layer } from "effect";
-import { Issue, IssueStateEntry, TrackerError } from "@plot/shared";
+import { Issue, IssueStateEntry, TrackerError } from "@plot/contracts";
 import { TrackerClient } from "./tracker-client.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

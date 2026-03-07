@@ -2,7 +2,7 @@ import { useState } from "react";
 import { DateTime } from "effect";
 import { motion, AnimatePresence } from "motion/react";
 import { TriangleAlertIcon, ChevronRightIcon } from "lucide-react";
-import { useDashboard } from "./root";
+import { useRuntimeState } from "@/lib/hooks";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -27,8 +27,8 @@ function formatDueIn(dueAt: DateTime.Utc): string {
 }
 
 export function RetrySection() {
-	const { state } = useDashboard();
-	const { retrying } = state.snapshot;
+	const { data: snapshot } = useRuntimeState();
+	const retrying = snapshot?.retrying ?? [];
 	const [open, setOpen] = useState(false);
 
 	if (retrying.length === 0) return null;

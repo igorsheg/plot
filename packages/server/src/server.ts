@@ -15,10 +15,16 @@ import {
 	Schema,
 	Stream,
 } from "effect";
-import { AgentRuntimeEvent, PlotRpcs } from "@plot/shared";
+import {
+	AgentRuntimeEvent,
+	IssueNotFound,
+	OrchestratorUnavailable,
+	PlotRpcs,
+} from "@plot/contracts";
 import { Orchestrator } from "@plot/core";
 import { makeLocalFsTracker, makeGithubTracker } from "@plot/tracker";
 import { PiAgentLive } from "@plot/agent";
+import { ObservabilityApi } from "./observability-service.js";
 import { RpcHandlersLive } from "./rpc-handlers.js";
 import { join, extname } from "node:path";
 import type { ServerConfig } from "./config.js";
@@ -60,9 +66,13 @@ export function makeServer(config: ServerConfig) {
 	const AppLayer = Layer.mergeAll(TrackerLive, PiAgentLive, BunContext.layer);
 	const OrchestratorLive = Orchestrator.Default.pipe(Layer.provide(AppLayer));
 
+	const ObservabilityLive = ObservabilityApi.Default.pipe(
+		Layer.provide(OrchestratorLive),
+	);
+
 	const RpcLayer = RpcServer.layer(PlotRpcs).pipe(
 		Layer.provide(RpcHandlersLive),
-		Layer.provide(OrchestratorLive),
+		Layer.provide(ObservabilityLive),
 	);
 
 	const HttpProtocol = RpcServer.layerProtocolHttp({ path: "/rpc" }).pipe(
@@ -72,34 +82,54 @@ export function makeServer(config: ServerConfig) {
 	const encoder = new TextEncoder();
 	const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
 
+	const eventStreamResponse = (api: ObservabilityApi) => {
+		const events = api.eventStream.pipe(
+			Stream.map((event) => {
+				const json = JSON.stringify(encodeEvent(event));
+				return encoder.encode(`data: ${json}\n\n`);
+			}),
+		);
+		const heartbeat = Stream.repeat(
+			Effect.succeed(encoder.encode(": heartbeat\n\n")),
+			Schedule.fixed("5 seconds"),
+		);
+		return HttpServerResponse.stream(Stream.merge(events, heartbeat), {
+			contentType: "text/event-stream",
+			headers: {
+				"Cache-Control": "no-cache",
+				"X-Accel-Buffering": "no",
+				Connection: "keep-alive",
+			},
+		});
+	};
+
+	const apiErrorResponse = (error: IssueNotFound | OrchestratorUnavailable) => {
+		if (error._tag === "IssueNotFound") {
+			return HttpServerResponse.json(
+				{ error: { code: "issue_not_found", message: error.message } },
+				{ status: 404 },
+			);
+		}
+
+		return HttpServerResponse.json(
+			{ error: { code: "orchestrator_unavailable", message: error.message } },
+			{ status: 503 },
+		);
+	};
+
 	const SseRouteLive = HttpRouter.Default.use((router) =>
 		Effect.gen(function* () {
-			const orchestrator = yield* Orchestrator;
+			const api = yield* ObservabilityApi;
 			yield* router.get(
 				"/rpc/events",
-				Effect.sync(() => {
-					const events = orchestrator.eventStream.pipe(
-						Stream.map((event) => {
-							const json = JSON.stringify(encodeEvent(event));
-							return encoder.encode(`data: ${json}\n\n`);
-						}),
-					);
-					const heartbeat = Stream.repeat(
-						Effect.succeed(encoder.encode(": heartbeat\n\n")),
-						Schedule.fixed("5 seconds"),
-					);
-					return HttpServerResponse.stream(Stream.merge(events, heartbeat), {
-						contentType: "text/event-stream",
-						headers: {
-							"Cache-Control": "no-cache",
-							"X-Accel-Buffering": "no",
-							Connection: "keep-alive",
-						},
-					});
-				}),
+				Effect.sync(() => eventStreamResponse(api)),
+			);
+			yield* router.get(
+				"/api/v1/events",
+				Effect.sync(() => eventStreamResponse(api)),
 			);
 		}),
-	).pipe(Layer.provide(OrchestratorLive));
+	).pipe(Layer.provide(ObservabilityLive));
 
 	const StartupLive = Layer.scopedDiscard(
 		Effect.gen(function* () {
@@ -131,6 +161,54 @@ export function makeServer(config: ServerConfig) {
 		),
 	);
 
+	const ApiRoutesLive = HttpRouter.Default.use((router) =>
+		Effect.gen(function* () {
+			const api = yield* ObservabilityApi;
+
+			yield* router.get(
+				"/api/v1/health",
+				HttpServerResponse.json({
+					status: "ok",
+					uptime: Math.floor((Date.now() - startedAt) / 1000),
+				}),
+			);
+
+			yield* router.get(
+				"/api/v1/state",
+				api.getState.pipe(
+					Effect.flatMap((body) => HttpServerResponse.json(body)),
+					Effect.catchTag("OrchestratorUnavailable", apiErrorResponse),
+				),
+			);
+
+			yield* router.post(
+				"/api/v1/refresh",
+				api.triggerRefresh.pipe(
+					Effect.flatMap((body) =>
+						HttpServerResponse.json(body, { status: 202 }),
+					),
+					Effect.catchTag("OrchestratorUnavailable", apiErrorResponse),
+				),
+			);
+
+			yield* router.get(
+				"/api/v1/issues/*",
+				Effect.gen(function* () {
+					const req = yield* HttpServerRequest.HttpServerRequest;
+					const url = new URL(req.url, "http://localhost");
+					const identifier = decodeURIComponent(
+						url.pathname.replace("/api/v1/issues/", ""),
+					);
+					return yield* api.getIssue(identifier).pipe(
+						Effect.flatMap((body) => HttpServerResponse.json(body)),
+						Effect.catchTag("IssueNotFound", apiErrorResponse),
+						Effect.catchTag("OrchestratorUnavailable", apiErrorResponse),
+					);
+				}),
+			);
+		}),
+	).pipe(Layer.provide(ObservabilityLive));
+
 	const webDistDir = config.webDistDir;
 
 	const contentTypes: Record<string, string> = {
@@ -157,7 +235,7 @@ export function makeServer(config: ServerConfig) {
 					const url = new URL(req.url, "http://localhost");
 					const pathname = url.pathname;
 
-					if (pathname.startsWith("/rpc")) {
+					if (pathname.startsWith("/rpc") || pathname.startsWith("/api/")) {
 						return HttpServerResponse.empty({ status: 404 });
 					}
 
@@ -193,10 +271,12 @@ export function makeServer(config: ServerConfig) {
 		Layer.provide(RpcLayer),
 		Layer.provide(HttpProtocol),
 		Layer.provide(SseRouteLive),
+		Layer.provide(ApiRoutesLive),
 		Layer.provide(HealthzLive),
 		Layer.provide(BunHttpServer.layer({ port: config.port, idleTimeout: 120 })),
 		Layer.provide(StartupLive),
 		Layer.provide(LoggingLive),
+		Layer.provide(AppLayer),
 	);
 
 	if (config.webEnabled) {

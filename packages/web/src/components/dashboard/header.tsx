@@ -1,6 +1,8 @@
+import { useCallback } from "react";
 import { RefreshCwIcon } from "lucide-react";
-import { useDashboard } from "./root";
 import { StatusDot } from "./status-dot";
+import { useRuntimeState, useTriggerRefresh } from "@/lib/hooks";
+import { useEventStream } from "@/lib/use-event-stream";
 import { Button } from "@/components/ui/button";
 import {
 	Tooltip,
@@ -10,41 +12,39 @@ import {
 } from "@/components/ui/tooltip";
 
 export function Header() {
-	const { state, actions, meta } = useDashboard();
-	const { snapshot, sseStatus } = state;
-	const { counts, codexTotals, observability } = snapshot;
-
-	const parts = [
-		`${counts.running} agent${counts.running !== 1 ? "s" : ""} working`,
-		`${meta.formatTokens(codexTotals.totalTokens)} tokens`,
-		`${meta.formatDuration(codexTotals.secondsRunning)} uptime`,
-		`queue ${observability.commandQueueDepth}/${observability.commandQueuePeak}`,
-	];
-	if (counts.retrying > 0) parts.push(`${counts.retrying} retrying`);
-	if (observability.commandQueuePressureCount > 0) {
-		parts.push(`${observability.commandQueuePressureCount} pressure`);
-	}
+	const { data: snapshot } = useRuntimeState();
+	const refresh = useTriggerRefresh();
+	const { status: sseStatus } = useEventStream();
+	const counts = snapshot?.counts;
+	const handleRefresh = useCallback(() => {
+		refresh.mutate();
+	}, [refresh]);
 
 	return (
-		<header className="sticky top-0 z-50 flex items-center justify-between border-b border-border bg-background px-8 py-3">
-			<div className="flex items-center gap-4">
-				<h1 className="text-sm font-semibold tracking-tight">plot</h1>
-				<span className="text-xs text-muted-foreground">
-					{parts.join(" · ")}
-				</span>
-			</div>
-			<div className="flex items-center gap-3">
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger className="flex items-center">
-							<StatusDot status={sseStatus} />
-						</TooltipTrigger>
-						<TooltipPopup>{sseStatus}</TooltipPopup>
-					</Tooltip>
-				</TooltipProvider>
-				<Button variant="ghost" size="icon-xs" onClick={actions.triggerRefresh}>
-					<RefreshCwIcon />
-				</Button>
+		<header className="header-surface">
+			<div className="header-shell">
+				<div className="min-w-0">
+					<h1 className="type-title">plot</h1>
+					<p className="type-meta">
+						{counts
+							? `${counts.running} active${counts.retrying > 0 ? ` · ${counts.retrying} retrying` : ""}`
+							: "loading status"}
+					</p>
+				</div>
+				<div className="cluster-shell-lg">
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger className="type-meta cluster-shell">
+								<StatusDot status={sseStatus} className="size-2" />
+								<span className="capitalize">{sseStatus}</span>
+							</TooltipTrigger>
+							<TooltipPopup>stream {sseStatus}</TooltipPopup>
+						</Tooltip>
+					</TooltipProvider>
+					<Button variant="ghost" size="icon-xs" onClick={handleRefresh}>
+						<RefreshCwIcon />
+					</Button>
+				</div>
 			</div>
 		</header>
 	);

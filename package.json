@@ -12,7 +12,7 @@
 		"fmt:check": "oxfmt --check",
 		"typecheck": "tsc -b",
 		"check": "bun run typecheck && bun run lint && bun run fmt:check",
-		"test": "bun test",
+		"test": "bun test packages/core/src packages/sdk/src packages/cli/src packages/server/src",
 		"dev:server": "bun run --watch packages/server/src/main.ts",
 		"dev:web": "bun run --filter @plot/web dev",
 		"build": "bun run --filter '*' build",

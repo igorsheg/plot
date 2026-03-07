@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import type { WorkflowConfig } from "@plot/shared";
-import { ConfigValidationError } from "@plot/shared";
+import type { WorkflowConfig } from "@plot/contracts";
+import { ConfigValidationError } from "@plot/contracts";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 

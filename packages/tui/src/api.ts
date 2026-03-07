@@ -1,4 +1,4 @@
-import { makePlotClient, connectSse as sharedConnectSse, type RuntimeSnapshot, type SseStatus, type AgentRuntimeEvent } from "@plot/shared";
+import { makePlotClient, connectSse as sharedConnectSse, type RuntimeSnapshot, type SseStatus, type AgentRuntimeEvent } from "@plot/sdk";
 
 export type { RuntimeSnapshot };
 

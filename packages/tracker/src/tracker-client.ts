@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
-import type { Issue, IssueStateEntry } from "@plot/shared";
-import type { TrackerError } from "@plot/shared";
+import type { Issue, IssueStateEntry } from "@plot/contracts";
+import type { TrackerError } from "@plot/contracts";
 
 export interface TrackerClientShape {
 	readonly fetchCandidateIssues: (

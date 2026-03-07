@@ -3,12 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect, Layer, Stream } from "effect";
 import { DateTime } from "effect";
-import {
-	AgentRuntimeEvent,
-	AgentRunnerError,
-	getPlotAuthPath,
-	getPlotModelsPath,
-} from "@plot/shared";
+import { AgentRuntimeEvent, AgentRunnerError } from "@plot/contracts";
+import { getPlotAuthPath, getPlotModelsPath } from "@plot/sdk";
 import {
 	createAgentSession,
 	AuthStorage,

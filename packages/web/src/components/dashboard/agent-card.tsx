@@ -1,66 +1,51 @@
-import { motion } from "motion/react";
 import * as React from "react";
-import type { RunningEntry } from "@plot/shared";
+import { DateTime } from "effect";
+import type { RunningEntry } from "@plot/sdk";
 import { useDashboard } from "./root";
 import { statusLabel, statusVariant, isActiveState } from "./status";
+import { timeAgo as sharedTimeAgo } from "@plot/sdk";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-const springTransition = {
-  type: "spring" as const,
-  stiffness: 400,
-  damping: 30,
-};
-
 interface AgentCardProps {
-  entry: RunningEntry;
-  isExpanded: boolean;
+	entry: RunningEntry;
+	isSelected: boolean;
 }
 
-export function AgentCard({ entry, isExpanded }: AgentCardProps) {
-  const { actions, meta } = useDashboard();
-  const { session } = entry;
-  const active = isActiveState(entry.state);
-  const handleClick = React.useCallback(() => {
-    actions.focusIssue(entry.issueId);
-  }, [actions, entry.issueId]);
+function formatTimeAgo(dt: DateTime.Utc | string): string {
+	if (typeof dt === "string") return sharedTimeAgo(new Date(dt).getTime());
+	return sharedTimeAgo(DateTime.toEpochMillis(dt));
+}
 
-  return (
-    <motion.div
-      layout="position"
-      layoutId={entry.issueId}
-      transition={springTransition}
-      className={cn(
-        "cursor-pointer border-b border-border px-1 py-3 transition-colors hover:bg-accent/50",
-        active && "border-l-2 border-l-success/50 pl-3",
-      )}
-      onClick={handleClick}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium">{entry.issueIdentifier}</span>
-        <Badge variant={statusVariant(entry.state)} size="sm">
-          {statusLabel(entry.state)}
-        </Badge>
-        {session.lastEventAt && (
-          <span className="ml-auto text-xs text-muted-foreground">
-            {meta.timeAgo(session.lastEventAt)}
-          </span>
-        )}
-      </div>
+export function AgentCard({ entry, isSelected }: AgentCardProps) {
+	const { actions } = useDashboard();
+	const { session } = entry;
+	const active = isActiveState(entry.state);
+	const handleClick = React.useCallback(() => {
+		actions.focusIssue(entry.issueId);
+	}, [actions, entry.issueId]);
 
-      {session.lastMessage && (
-        <p className={cn("mt-1 text-xs text-muted-foreground", !isExpanded && "truncate")}>
-          {session.lastMessage}
-        </p>
-      )}
-
-      <div className="mt-1 text-xs text-muted-foreground/50">
-        {session.turnCount} turns · {meta.formatTokens(session.totalTokens)} tokens
-      </div>
-
-      {isExpanded && entry.workspacePath && (
-        <p className="mt-1 text-xs text-muted-foreground/50">{entry.workspacePath}</p>
-      )}
-    </motion.div>
-  );
+	return (
+		<button
+			type="button"
+			className={cn(
+				"row-shell",
+				active && "row-shell-active",
+				isSelected && "row-shell-selected",
+			)}
+			onClick={handleClick}
+		>
+			<div className="min-w-0 flex-1">
+				<div className="cluster-shell">
+					<span className="type-title truncate">{entry.issueIdentifier}</span>
+					<Badge variant={statusVariant(entry.state)} size="sm">
+						{statusLabel(entry.state)}
+					</Badge>
+				</div>
+			</div>
+			<div className="type-meta shrink-0">
+				{session.lastEventAt ? formatTimeAgo(session.lastEventAt) : "idle"}
+			</div>
+		</button>
+	);
 }

@@ -1,6 +1,6 @@
 import { DateTime, Effect } from "effect";
-import { TemplateRenderError } from "@plot/shared";
-import type { Issue } from "@plot/shared";
+import { TemplateRenderError } from "@plot/contracts";
+import type { Issue } from "@plot/contracts";
 import { Liquid } from "liquidjs";
 
 const engine = new Liquid({ strictVariables: true, strictFilters: true });

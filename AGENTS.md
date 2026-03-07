@@ -18,7 +18,8 @@ just ui-add NAME  # add coss ui component to web
 
 ```
 packages/
-  shared/    — schemas, rpc groups, contracts
+  contracts/ — schemas, rpc groups, api contracts
+  sdk/       — client helpers, sse client, shared consumer utilities
   tracker/   — tracker abstraction + adapters
   agent/     — pi SDK adapter
   core/      — orchestrator, workflow loader, workspace manager
@@ -39,7 +40,7 @@ packages/
 - no `any`, no linter suppressions
 - effect services use `Effect.Service` pattern
 - errors are `Schema.TaggedError`
-- rpc schemas live in @plot/shared, shared across server + client
+- api contracts live in `@plot/contracts`; consumer helpers live in `@plot/sdk`
 - ui: compound components with context (`state`/`actions`/`meta`), `use()` for context (react 19)
 - ui: monochrome + selective color, system dark/light mode
 - ui: coss token system (`--background`, `--foreground`, `--card`, `--muted`, `--border`, etc.)

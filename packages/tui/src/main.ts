@@ -13,9 +13,9 @@ import {
 	type TextTableContent,
 } from "@opentui/core";
 import { DateTime } from "effect";
-import type { RuntimeSnapshot } from "@plot/shared";
+import type { RuntimeSnapshot } from "@plot/sdk";
 import { getState, connectSse, triggerRefresh } from "./api.js";
-import { formatTokens, formatDuration, timeAgo, truncate } from "@plot/shared";
+import { formatTokens, formatDuration, timeAgo, truncate } from "@plot/sdk";
 
 const C = {
 	bg: "#0d0d0d",

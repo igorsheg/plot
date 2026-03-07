@@ -4,7 +4,7 @@ import {
 	connectSse,
 	type AgentRuntimeEvent,
 	type SseStatus,
-} from "@plot/shared";
+} from "@plot/sdk";
 
 type EventHandler = (event: AgentRuntimeEvent) => void;
 

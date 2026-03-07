@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@plot/shared": "workspace:*",
+    "@plot/contracts": "workspace:*",
     "@effect/platform": "latest",
     "effect": "latest"
   },

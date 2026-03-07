@@ -15,8 +15,8 @@
     "@effect/platform-bun": "latest",
     "@effect/rpc": "latest",
     "@plot/agent": "workspace:*",
+    "@plot/contracts": "workspace:*",
     "@plot/core": "workspace:*",
-    "@plot/shared": "workspace:*",
     "@plot/tracker": "workspace:*",
     "effect": "latest"
   },

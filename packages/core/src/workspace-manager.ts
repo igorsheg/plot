@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { FileSystem, Command, CommandExecutor } from "@effect/platform"
-import { WorkspaceError } from "@plot/shared"
+import { WorkspaceError } from "@plot/contracts"
 import type { ResolvedConfig } from "./config-service.js"
 import { resolve } from "node:path"
 

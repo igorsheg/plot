@@ -1,6 +1,5 @@
 import { Context, Effect, type Stream } from "effect";
-import type { AgentRuntimeEvent } from "@plot/shared";
-import type { AgentRunnerError } from "@plot/shared";
+import type { AgentRuntimeEvent, AgentRunnerError } from "@plot/contracts";
 
 export interface AgentRunConfig {
 	readonly systemPrompt: string;

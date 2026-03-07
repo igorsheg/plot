@@ -1,5 +1,5 @@
 {
-  "name": "@plot/shared",
+  "name": "@plot/contracts",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -8,8 +8,7 @@
   },
   "dependencies": {
     "@effect/rpc": "latest",
-    "effect": "latest",
-    "@effect/platform": "latest"
+    "effect": "latest"
   },
   "devDependencies": {
     "bun-types": "latest"

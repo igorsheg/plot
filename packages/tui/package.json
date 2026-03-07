@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@opentui/core": "latest",
-    "@plot/shared": "workspace:*",
+    "@plot/sdk": "workspace:*",
     "effect": "latest"
   },
   "devDependencies": {

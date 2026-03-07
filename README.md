@@ -117,15 +117,16 @@ this repo's checked-in `WORKFLOW.md` is the best reference because it exercises 
 
 ```text
 packages/
-  agent/     pi agent adapter
-  cli/       command-line entrypoints
-  core/      orchestrator, workflow loader, workspace manager
-  server/    bun server, rpc, sse
-  shared/    schemas, rpc contracts, shared formatting
-  tracker/   local-fs and github tracker backends
-  tui/       terminal dashboard
-  web/       browser dashboard
-  plot-ai/   publishable package wrapper
+  agent/      pi agent adapter
+  cli/        command-line entrypoints
+  contracts/  schemas, rpc contracts, api errors
+  core/       orchestrator, workflow loader, workspace manager
+  sdk/        typed client helpers, sse client, shared consumer utilities
+  server/     bun server, rpc, sse, operator http api
+  tracker/    local-fs and github tracker backends
+  tui/        terminal dashboard
+  web/        browser dashboard
+  plot-ai/    publishable package wrapper
   pi-package/ plot-owned pi skills for embedded runs
 ```
 

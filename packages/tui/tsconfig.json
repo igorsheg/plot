@@ -7,6 +7,6 @@
   },
   "include": ["src", "src/**/*.test.ts"],
   "references": [
-    { "path": "../shared" }
+    { "path": "../sdk" }
   ]
 }

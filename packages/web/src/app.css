@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Fragment+Mono:ital@0;1&display=swap");
 @import "tailwindcss";
 @source "../../node_modules/streamdown/dist/*.js";
 @source "../../node_modules/@streamdown/code/dist/*.js";
@@ -6,9 +7,9 @@
 
 @theme inline {
   --animate-skeleton: skeleton 2s -1s infinite linear;
-  --font-heading: "JetBrains Mono", ui-monospace, monospace;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --font-sans: "JetBrains Mono", ui-monospace, monospace;
+  --font-heading: "Fragment Mono", ui-monospace, monospace;
+  --font-mono: "Fragment Mono", ui-monospace, monospace;
+  --font-sans: "Fragment Mono", ui-monospace, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -153,12 +154,68 @@
   --sidebar-ring: var(--color-neutral-400);
 }
 
+@utility view-shell {
+  @apply mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-6 sm:px-8;
+}
+
+@utility panel-shell {
+  @apply overflow-hidden rounded-xl border border-border bg-card;
+}
+
+@utility header-surface {
+  @apply sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm;
+}
+
+@utility header-shell {
+  @apply flex w-full items-center justify-between px-6 py-3 sm:px-8;
+}
+
+@utility section-shell {
+  @apply space-y-3;
+}
+
+@utility cluster-shell {
+  @apply flex items-center gap-2;
+}
+
+@utility cluster-shell-lg {
+  @apply flex items-center gap-3;
+}
+
+@utility row-shell {
+  @apply flex w-full items-center gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-accent/40;
+}
+
+@utility row-shell-active {
+  @apply border-l-2 border-l-success/50 pl-[14px];
+}
+
+@utility row-shell-selected {
+  @apply bg-accent/60;
+}
+
+@utility inset-shell {
+  @apply panel-shell p-4;
+}
+
+@utility type-title {
+  @apply text-sm font-semibold tracking-tight text-foreground;
+}
+
+@utility type-meta {
+  @apply text-xs text-muted-foreground;
+}
+
+@utility type-body {
+  @apply text-sm leading-6 text-foreground;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background font-sans text-foreground;
   }
   code,
   kbd,

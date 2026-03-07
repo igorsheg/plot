@@ -7,7 +7,7 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../shared" },
+    { "path": "../contracts" },
     { "path": "../core" },
     { "path": "../tracker" },
     { "path": "../agent" }

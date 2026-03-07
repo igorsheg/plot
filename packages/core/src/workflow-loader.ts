@@ -5,7 +5,7 @@ import {
   WorkflowConfig,
   WorkflowFileNotFound,
   WorkflowParseError,
-} from "@plot/shared";
+} from "@plot/contracts";
 import { parse as parseYaml } from "yaml";
 
 const snakeToCamel = (s: string): string => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());

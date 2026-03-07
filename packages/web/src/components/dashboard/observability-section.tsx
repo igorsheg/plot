@@ -1,4 +1,4 @@
-import { useDashboard } from "./root";
+import { useRuntimeState } from "@/lib/hooks";
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
@@ -115,8 +115,9 @@ function Stat({
 }
 
 export function ObservabilitySection() {
-	const { state } = useDashboard();
-	const { counts, observability } = state.snapshot;
+	const { data: snapshot } = useRuntimeState();
+	if (!snapshot) return null;
+	const { counts, observability } = snapshot;
 
 	return (
 		<section className="space-y-3">

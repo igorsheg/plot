@@ -3,7 +3,8 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json bun.lock ./
-COPY packages/shared/package.json packages/shared/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/tracker/package.json packages/tracker/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/core/package.json packages/core/package.json
