@@ -13,8 +13,8 @@ import { join } from "node:path";
 import {
 	getOptionalDependencies,
 	piSkillsDir,
-	plotAiTemplate,
-	plotAiTemplateDir,
+	plotPackage,
+	plotPackageDir,
 	releaseDir,
 	releaseTargets,
 	repoDir,
@@ -48,7 +48,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 	mkdirSync(binDir, { recursive: true });
 
 	const result = await Bun.build({
-		entrypoints: [join(repoDir, "packages/cli/src/index.ts")],
+		entrypoints: [join(repoDir, "packages/plot/src/cli/index.ts")],
 		sourcemap: "external",
 		target: "bun",
 		compile: {
@@ -56,7 +56,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 			outfile: join(binDir, target.binName),
 			windows: {},
 		},
-		tsconfig: join(repoDir, "packages/cli/tsconfig.json"),
+		tsconfig: join(repoDir, "packages/plot/tsconfig.json"),
 	});
 
 	if (!result.success) {
@@ -76,11 +76,11 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 		name: target.packageName,
 		version,
 		type: "module",
-		license: plotAiTemplate.license,
-		description: plotAiTemplate.description,
-		repository: plotAiTemplate.repository,
-		homepage: plotAiTemplate.homepage,
-		bugs: plotAiTemplate.bugs,
+		license: plotPackage.license,
+		description: plotPackage.description,
+		repository: plotPackage.repository,
+		homepage: plotPackage.homepage,
+		bugs: plotPackage.bugs,
 		os: target.os,
 		cpu: target.cpu,
 		files: ["bin", "web-dist", "pi-resources", "package.json"],
@@ -97,7 +97,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 
 	writeFileSync(
 		join(binDir, "README.md"),
-		await Bun.file(join(plotAiTemplateDir, "README.md")).text(),
+		await Bun.file(join(plotPackageDir, "README.md")).text(),
 	);
 	writeFileSync(
 		join(binDir, "CHANGELOG.md"),
@@ -112,17 +112,17 @@ async function buildUmbrellaPackage() {
 	mkdirSync(join(packageDir, "bin"), { recursive: true });
 	mkdirSync(join(packageDir, "lib"), { recursive: true });
 
-	cpSync(join(plotAiTemplateDir, "README.md"), join(packageDir, "README.md"));
+	cpSync(join(plotPackageDir, "README.md"), join(packageDir, "README.md"));
 	cpSync(
-		join(plotAiTemplateDir, "bin", "plot-ai"),
+		join(plotPackageDir, "bin", "plot-ai"),
 		join(packageDir, "bin", "plot-ai"),
 	);
 	cpSync(
-		join(plotAiTemplateDir, "lib", "platform.js"),
+		join(plotPackageDir, "lib", "platform.js"),
 		join(packageDir, "lib", "platform.js"),
 	);
 	cpSync(
-		join(plotAiTemplateDir, "postinstall.mjs"),
+		join(plotPackageDir, "postinstall.mjs"),
 		join(packageDir, "postinstall.mjs"),
 	);
 
@@ -130,14 +130,14 @@ async function buildUmbrellaPackage() {
 		name: "plot-ai",
 		version,
 		type: "module",
-		license: plotAiTemplate.license,
-		description: plotAiTemplate.description,
-		repository: plotAiTemplate.repository,
-		homepage: plotAiTemplate.homepage,
-		bugs: plotAiTemplate.bugs,
-		engines: plotAiTemplate.engines,
-		keywords: plotAiTemplate.keywords,
-		publishConfig: plotAiTemplate.publishConfig,
+		license: plotPackage.license,
+		description: plotPackage.description,
+		repository: plotPackage.repository,
+		homepage: plotPackage.homepage,
+		bugs: plotPackage.bugs,
+		engines: plotPackage.engines,
+		keywords: plotPackage.keywords,
+		publishConfig: plotPackage.publishConfig,
 		bin: {
 			"plot-ai": "bin/plot-ai",
 		},

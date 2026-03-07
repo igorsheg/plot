@@ -1,8 +1,8 @@
 import { FetchHttpClient } from "@effect/platform";
 import { RpcClient, RpcSerialization } from "@effect/rpc";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import type { IssueDetail, RuntimeSnapshot } from "@plot/contracts";
-import { PlotRpcs, type RefreshResult } from "@plot/contracts";
+import type { IssueDetail, RuntimeSnapshot } from "./schemas/orchestrator.js";
+import { PlotRpcs, type RefreshResult } from "./rpc.js";
 
 export const makePlotClient = (baseUrl: string) => {
 	const ProtocolLive = RpcClient.layerProtocolHttp({ url: baseUrl }).pipe(

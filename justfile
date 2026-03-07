@@ -58,7 +58,7 @@ ui-add component:
 
 # run plot CLI (default: TUI, or pass subcommand e.g. `just plot serve`)
 plot *args:
-    bun run packages/cli/src/index.ts {{ args }}
+    bun run packages/plot/src/cli/index.ts {{ args }}
 
 # clean build artifacts and node_modules
 clean:

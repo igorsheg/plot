@@ -1,0 +1,56 @@
+{
+  "name": "@plot/plot",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "description": "orchestrate coding agents against an issue tracker",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorsheg/plot.git"
+  },
+  "homepage": "https://github.com/igorsheg/plot",
+  "bugs": {
+    "url": "https://github.com/igorsheg/plot/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai",
+    "cli",
+    "agents",
+    "orchestrator",
+    "github"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "plot-ai": "./src/cli/index.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/main.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@effect/cli": "latest",
+    "@effect/platform": "latest",
+    "@effect/platform-bun": "latest",
+    "@effect/printer": "latest",
+    "@effect/rpc": "latest",
+    "@mariozechner/pi-ai": "latest",
+    "@mariozechner/pi-coding-agent": "latest",
+    "@plot/sdk": "workspace:*",
+    "@plot/tui": "workspace:*",
+    "effect": "latest",
+    "liquidjs": "latest",
+    "yaml": "latest"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}

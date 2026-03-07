@@ -12,9 +12,8 @@ it polls for issues in active states, prepares an isolated workspace, renders a 
 - an orchestrator that loads workflow config, schedules runs, manages retries, and creates workspaces
 - a server that exposes runtime state
 - two dashboards: a tui and a web app
-- a cli that starts the server, tui, or web dashboard
-- release template assets for the publishable `plot-ai` package in `packages/plot-ai`
-- a plot-owned pi resource package in `packages/pi-package`
+- a product package that contains the runtime, cli, and publish launcher assets
+- embedded plot agent resources in `packages/plot/resources`
 
 ## runtime shape
 
@@ -117,17 +116,11 @@ this repo's checked-in `WORKFLOW.md` is the best reference because it exercises 
 
 ```text
 packages/
-  agent/      pi agent adapter
-  cli/        command-line entrypoints
-  contracts/  schemas, rpc contracts, api errors
-  core/       orchestrator, workflow loader, workspace manager
-  sdk/        typed client helpers, sse client, shared consumer utilities
-  server/     bun server, rpc, sse, operator http api
-  tracker/    local-fs and github tracker backends
+  plot/       runtime, cli, publish launcher, tracker adapters, orchestrator
+  sdk/        typed client helpers, schemas, rpc, shared consumer utilities
   tui/        terminal dashboard
   web/        browser dashboard
-  plot-ai/    publishable package wrapper
-  pi-package/ plot-owned pi skills for embedded runs
+  plot/resources/ embedded plot skills for bundled runs
 ```
 
 ## development
@@ -155,7 +148,7 @@ just dev-server
 
 ## notes
 
-- the cli entrypoint is `packages/cli`
+- the cli entrypoint is `packages/plot/src/cli`
 - the default command launches the server and tui together
 - `serve` runs headless
 - `web` starts the server and opens the browser dashboard

@@ -13,57 +13,22 @@
         "typescript": "^5.8.2",
       },
     },
-    "packages/agent": {
-      "name": "@plot/agent",
-      "version": "0.0.1",
-      "dependencies": {
-        "@mariozechner/pi-ai": "latest",
-        "@mariozechner/pi-coding-agent": "latest",
-        "@plot/contracts": "workspace:*",
-        "@plot/sdk": "workspace:*",
-        "effect": "latest",
-      },
-    },
-    "packages/cli": {
-      "name": "@plot/cli",
+    "packages/plot": {
+      "name": "@plot/plot",
       "version": "0.0.1",
       "bin": {
-        "plot": "./src/index.ts",
+        "plot-ai": "./src/cli/index.ts",
       },
       "dependencies": {
         "@effect/cli": "latest",
+        "@effect/platform": "latest",
         "@effect/platform-bun": "latest",
         "@effect/printer": "latest",
+        "@effect/rpc": "latest",
         "@mariozechner/pi-ai": "latest",
         "@mariozechner/pi-coding-agent": "latest",
         "@plot/sdk": "workspace:*",
-        "@plot/server": "workspace:*",
         "@plot/tui": "workspace:*",
-        "effect": "latest",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-      },
-    },
-    "packages/contracts": {
-      "name": "@plot/contracts",
-      "version": "0.0.1",
-      "dependencies": {
-        "@effect/rpc": "latest",
-        "effect": "latest",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-      },
-    },
-    "packages/core": {
-      "name": "@plot/core",
-      "version": "0.0.1",
-      "dependencies": {
-        "@effect/platform": "latest",
-        "@plot/agent": "workspace:*",
-        "@plot/contracts": "workspace:*",
-        "@plot/tracker": "workspace:*",
         "effect": "latest",
         "liquidjs": "latest",
         "yaml": "latest",
@@ -72,54 +37,16 @@
         "bun-types": "latest",
       },
     },
-    "packages/pi-package": {
-      "name": "@plot/pi-package",
-      "version": "0.0.1",
-    },
-    "packages/plot-ai": {
-      "name": "@plot/plot-ai-template",
-      "version": "0.0.1",
-    },
     "packages/sdk": {
       "name": "@plot/sdk",
       "version": "0.0.1",
       "dependencies": {
         "@effect/platform": "latest",
         "@effect/rpc": "latest",
-        "@plot/contracts": "workspace:*",
         "effect": "latest",
       },
       "devDependencies": {
         "bun-types": "latest",
-      },
-    },
-    "packages/server": {
-      "name": "@plot/server",
-      "version": "0.0.1",
-      "dependencies": {
-        "@effect/platform": "latest",
-        "@effect/platform-bun": "latest",
-        "@effect/rpc": "latest",
-        "@plot/agent": "workspace:*",
-        "@plot/contracts": "workspace:*",
-        "@plot/core": "workspace:*",
-        "@plot/tracker": "workspace:*",
-        "effect": "latest",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-      },
-    },
-    "packages/tracker": {
-      "name": "@plot/tracker",
-      "version": "0.0.1",
-      "dependencies": {
-        "@effect/platform": "latest",
-        "@plot/contracts": "workspace:*",
-        "effect": "latest",
-      },
-      "devDependencies": {
-        "@types/node": "^25.3.3",
       },
     },
     "packages/tui": {
@@ -565,23 +492,9 @@
 
     "@pkgjs/parseargs": ["@pkgjs/parseargs@0.11.0", "", {}, "sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg=="],
 
-    "@plot/agent": ["@plot/agent@workspace:packages/agent"],
-
-    "@plot/cli": ["@plot/cli@workspace:packages/cli"],
-
-    "@plot/contracts": ["@plot/contracts@workspace:packages/contracts"],
-
-    "@plot/core": ["@plot/core@workspace:packages/core"],
-
-    "@plot/pi-package": ["@plot/pi-package@workspace:packages/pi-package"],
-
-    "@plot/plot-ai-template": ["@plot/plot-ai-template@workspace:packages/plot-ai"],
+    "@plot/plot": ["@plot/plot@workspace:packages/plot"],
 
     "@plot/sdk": ["@plot/sdk@workspace:packages/sdk"],
-
-    "@plot/server": ["@plot/server@workspace:packages/server"],
-
-    "@plot/tracker": ["@plot/tracker@workspace:packages/tracker"],
 
     "@plot/tui": ["@plot/tui@workspace:packages/tui"],
 
@@ -1161,7 +1074,7 @@
 
     "lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.31.1", "", { "os": "win32", "cpu": "x64" }, "sha512-I9aiFrbd7oYHwlnQDqr1Roz+fTz61oDDJX7n9tYF9FJymH1cIN1DtKw3iYt6b8WZgEjoNwVSncwF4wx/ZedMhw=="],
 
-    "liquidjs": ["liquidjs@10.24.0", "", { "dependencies": { "commander": "^10.0.0" }, "bin": { "liquidjs": "bin/liquid.js", "liquid": "bin/liquid.js" } }, "sha512-TAUNAdgwaAXjjcUFuYVJm9kOVH7zc0mTKxsG9t9Lu4qdWjB2BEblyVIYpjWcmJLMGgiYqnGNJjpNMHx0gp/46A=="],
+    "liquidjs": ["liquidjs@10.25.0", "", { "dependencies": { "commander": "^10.0.0" }, "bin": { "liquidjs": "bin/liquid.js", "liquid": "bin/liquid.js" } }, "sha512-XpO7AiGULTG4xcTlwkcTI5JreFG7b6esLCLp+aUSh7YuQErJZEoUXre9u9rbdb0057pfWG4l0VursvLd5Q/eAw=="],
 
     "long": ["long@5.3.2", "", {}, "sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA=="],
 

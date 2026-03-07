@@ -3,12 +3,8 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json bun.lock ./
-COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
-COPY packages/tracker/package.json packages/tracker/package.json
-COPY packages/agent/package.json packages/agent/package.json
-COPY packages/core/package.json packages/core/package.json
-COPY packages/server/package.json packages/server/package.json
+COPY packages/service/package.json packages/service/package.json
 COPY packages/web/package.json packages/web/package.json
 RUN bun install --frozen-lockfile
 
@@ -24,4 +20,4 @@ COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/packages packages
 COPY --from=build /app/package.json package.json
 EXPOSE 3000
-CMD ["bun", "run", "packages/server/src/main.ts"]
+CMD ["bun", "run", "packages/service/src/main.ts"]

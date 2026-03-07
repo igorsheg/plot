@@ -9,7 +9,6 @@
   "dependencies": {
     "@effect/platform": "latest",
     "@effect/rpc": "latest",
-    "@plot/contracts": "workspace:*",
     "effect": "latest"
   },
   "devDependencies": {

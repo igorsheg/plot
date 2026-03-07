@@ -16,8 +16,8 @@ const umbrellaDir = join(releaseDir, "plot-ai");
 const defaultPlatformDir = join(
 	releaseDir,
 	process.platform === "darwin"
-		? "plot-cli-darwin-arm64"
-		: "plot-cli-linux-x64-gnu",
+		? "plot-ai-darwin-arm64"
+		: "plot-ai-linux-x64-gnu",
 );
 
 const platformTarball =
@@ -81,10 +81,10 @@ function findTarball(dir: string) {
 function findInstalledPlatformPackage(installDir: string) {
 	const plotDir = join(installDir, "node_modules", "@plot");
 	const packageDir = readdirSync(plotDir).find((entry) =>
-		entry.startsWith("cli-"),
+		entry.startsWith("plot-ai-"),
 	);
 	if (!packageDir) {
-		throw new Error("missing installed @plot cli platform package");
+		throw new Error("missing installed @plot plot-ai platform package");
 	}
 	return packageDir;
 }

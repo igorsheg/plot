@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { AgentRuntimeEvent } from "@plot/contracts";
+import { AgentRuntimeEvent } from "./schemas/events.js";
 
 export type SseStatus =
 	| "connected"
