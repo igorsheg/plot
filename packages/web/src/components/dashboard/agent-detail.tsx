@@ -42,7 +42,11 @@ export function WorkDetailSheet() {
 	);
 	const { data: detail } = useIssueDetail(entry?.issueIdentifier ?? "");
 	const lastMessage =
-		detail?.running?.session.lastMessage ?? entry?.session.lastMessage;
+		detail?.running?.session.lastAssistantMessage ??
+		entry?.session.lastAssistantMessage ??
+		detail?.running?.session.lastMessage ??
+		entry?.session.lastMessage;
+	const activeTools = entry?.session.activeTools ?? [];
 	const lastUpdated = entry?.session.lastEventAt
 		? formatTimeAgo(entry.session.lastEventAt)
 		: null;
@@ -60,6 +64,11 @@ export function WorkDetailSheet() {
 								<Badge variant={statusVariant(entry.state)} size="sm">
 									{statusLabel(entry.state)}
 								</Badge>
+								{entry.session.phase !== "idle" && (
+									<Badge variant="outline" size="sm">
+										{entry.session.phase}
+									</Badge>
+								)}
 							</div>
 							<SheetDescription className="type-meta">
 								{lastUpdated
@@ -68,6 +77,18 @@ export function WorkDetailSheet() {
 							</SheetDescription>
 						</SheetHeader>
 						<SheetPanel className="pt-0">
+							{activeTools.length > 0 && (
+								<div className="section-shell">
+									<p className="type-meta">active tools</p>
+									<div className="cluster-shell flex-wrap">
+										{activeTools.map((tool) => (
+											<Badge key={tool} variant="outline" size="sm">
+												{tool}
+											</Badge>
+										))}
+									</div>
+								</div>
+							)}
 							<div className="section-shell">
 								<p className="type-meta">latest output</p>
 								{lastMessage ? (

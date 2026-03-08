@@ -41,6 +41,11 @@ export function WorkRow({ entry, isSelected }: WorkRowProps) {
 					<Badge variant={statusVariant(entry.state)} size="sm">
 						{statusLabel(entry.state)}
 					</Badge>
+					{session.phase !== "idle" && (
+						<Badge variant="outline" size="sm">
+							{session.phase}
+						</Badge>
+					)}
 				</div>
 			</div>
 			<div className="type-meta shrink-0">

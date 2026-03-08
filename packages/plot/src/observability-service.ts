@@ -1,5 +1,6 @@
 import { Effect, DateTime, Stream } from "effect";
 import {
+	type AgentPhase,
 	IssueDetail,
 	IssueNotFound,
 	LiveSession,
@@ -58,7 +59,7 @@ const mapRunningEntry = (r: {
 			outputTokens: r.outputTokens,
 			totalTokens: r.totalTokens,
 			turnCount: r.turnCount,
-			phase: r.phase ?? "idle",
+			phase: (r.phase ?? "idle") as AgentPhase,
 			activeTools: r.activeTools ?? [],
 			lastAssistantMessage: r.lastAssistantMessage ?? null,
 		}),

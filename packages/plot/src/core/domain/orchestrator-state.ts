@@ -237,7 +237,7 @@ export const consumeRuntimeEvent = (
 	const activeTools =
 		event.activeTools !== undefined ? event.activeTools : entry.activeTools;
 	const lastAssistantMessage =
-		"lastAssistantMessage" in event
+		"lastAssistantMessage" in event && event.lastAssistantMessage !== undefined
 			? event.lastAssistantMessage
 			: entry.lastAssistantMessage;
 
