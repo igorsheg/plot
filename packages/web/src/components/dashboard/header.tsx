@@ -1,21 +1,16 @@
 import { useCallback } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { ActivityIcon, RefreshCwIcon } from "lucide-react";
 import { StatusDot } from "./status-dot";
-import { useRuntimeState, useTriggerRefresh } from "@/lib/hooks";
-import { useEventStream } from "@/lib/use-event-stream";
+import { useDashboard } from "./root";
+import { useStreamStatus, useTriggerRefresh } from "@/lib/runtime";
 import { Button } from "@/components/ui/button";
-import {
-	Tooltip,
-	TooltipTrigger,
-	TooltipPopup,
-	TooltipProvider,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipTrigger, TooltipPopup, TooltipProvider } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export function Header() {
-	const { data: snapshot } = useRuntimeState();
+	const { meta, state, actions } = useDashboard();
 	const refresh = useTriggerRefresh();
-	const { status: sseStatus } = useEventStream();
-	const counts = snapshot?.counts;
+	const sseStatus = useStreamStatus();
 	const handleRefresh = useCallback(() => {
 		refresh.mutate();
 	}, [refresh]);
@@ -23,25 +18,35 @@ export function Header() {
 	return (
 		<header className="header-surface">
 			<div className="header-shell">
-				<div className="min-w-0">
-					<h1 className="type-title">plot</h1>
-					<p className="type-meta">
-						{counts
-							? `${counts.running} active${counts.retrying > 0 ? ` · ${counts.retrying} needs attention` : ""}`
-							: "loading status"}
-					</p>
-				</div>
+				<h1 className="type-title">
+					plot{" "}
+					<span className="type-meta">
+						· {meta.runningCount} active
+						{meta.retryingCount > 0 ? ` · ${meta.retryingCount} retrying` : ""}
+					</span>
+				</h1>
 				<div className="cluster-shell-lg">
 					<TooltipProvider>
 						<Tooltip>
-							<TooltipTrigger className="type-meta cluster-shell">
+							<TooltipTrigger className="flex items-center">
 								<StatusDot status={sseStatus} className="size-2" />
-								<span className="capitalize">{sseStatus}</span>
+								{sseStatus !== "connected" && (
+									<span className="type-meta ml-2 capitalize">{sseStatus}</span>
+								)}
 							</TooltipTrigger>
 							<TooltipPopup>stream {sseStatus}</TooltipPopup>
 						</Tooltip>
 					</TooltipProvider>
-					<Button variant="ghost" size="icon-xs" onClick={handleRefresh}>
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						onClick={actions.toggleOps}
+						className={cn(state.opsOpen && "bg-accent")}
+						aria-label="toggle ops"
+					>
+						<ActivityIcon />
+					</Button>
+					<Button variant="ghost" size="icon-xs" onClick={handleRefresh} aria-label="refresh">
 						<RefreshCwIcon />
 					</Button>
 				</div>

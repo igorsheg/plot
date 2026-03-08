@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 import { FileSystem } from "@effect/platform";
-import { Issue, IssueStateEntry, BlockerRef, TrackerError } from "@plot/sdk";
+import { Issue, IssueStateEntry, BlockerRef } from "../schemas/issue.js";
+import { TrackerError } from "../schemas/errors.js";
 import { TrackerClient } from "./tracker-client.js";
 
 const parseYamlFrontmatter = (
@@ -51,16 +52,20 @@ const parseIssueFile = (filename: string, content: string): Issue | null => {
 	const identifier = String(meta["identifier"] ?? id);
 	const title = String(meta["title"] ?? "Untitled");
 	const state = String(meta["state"] ?? "Todo");
-	const priority = typeof meta["priority"] === "number" ? meta["priority"] : null;
+	const priority =
+		typeof meta["priority"] === "number" ? meta["priority"] : null;
 	const labels = Array.isArray(meta["labels"])
-		? (meta["labels"] as Array<string>).map((l: string) => String(l).toLowerCase())
+		? (meta["labels"] as Array<string>).map((l: string) =>
+				String(l).toLowerCase(),
+			)
 		: [];
 	const blockedBy = Array.isArray(meta["blockedBy"])
 		? (meta["blockedBy"] as Array<Record<string, unknown>>).map(
 				(b) =>
 					new BlockerRef({
 						id: b["id"] != null ? String(b["id"]) : null,
-						identifier: b["identifier"] != null ? String(b["identifier"]) : null,
+						identifier:
+							b["identifier"] != null ? String(b["identifier"]) : null,
 						state: b["state"] != null ? String(b["state"]) : null,
 					}),
 			)

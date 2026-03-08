@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
-import type { Issue, IssueStateEntry } from "@plot/sdk";
-import type { TrackerError } from "@plot/sdk";
+import type { Issue, IssueStateEntry } from "../schemas/issue.js";
+import type { TrackerError } from "../schemas/errors.js";
 
 export interface TrackerClientShape {
 	readonly fetchCandidateIssues: (

@@ -8,7 +8,8 @@ import {
 	Scope,
 	Stream,
 } from "effect";
-import type { AgentRuntimeEvent, Issue } from "@plot/sdk";
+import type { AgentRuntimeEvent } from "@plot/sdk";
+import type { Issue } from "../../schemas/issue.js";
 import { renderPrompt } from "../prompt-renderer.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../ports.js";
@@ -22,6 +23,7 @@ import {
 } from "./orchestrator-command.js";
 import {
 	availableSlots,
+	clearEventLog,
 	clearRetryAttemptFromState,
 	createRunningEntry,
 	isDispatchable,
@@ -212,6 +214,9 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					.pipe(Effect.ignore);
 			}
 			yield* clearRetryAttempt(entry.issueId);
+			if (options.reason === "terminal") {
+				yield* deps.updateState((s) => clearEventLog(s, entry.issueId));
+			}
 			yield* deps.updateState((s) => ({
 				...s,
 				workerStopsByReason: {

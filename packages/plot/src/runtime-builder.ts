@@ -4,6 +4,7 @@ import { Orchestrator } from "./core/index.js";
 import { makeLocalFsTracker, makeGithubTracker } from "./tracker/index.js";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
+import { type ResolvedConfig } from "./core/config-service.js";
 import { ObservabilityApi } from "./observability-service.js";
 
 export function parseServerLogLevel(s: string): LogLevel.LogLevel {
@@ -30,36 +31,36 @@ export function makeLoggingLayer(config: ServerConfig) {
 	);
 }
 
-export function makeTrackerLayer(config: ServerConfig) {
-	if (config.trackerKind === "github") {
+export function makeTrackerLayer(resolved: ResolvedConfig) {
+	if (resolved.trackerKind === "github") {
 		return makeGithubTracker({
-			repo: config.githubRepo || undefined,
+			repo: resolved.githubRepo || undefined,
 		});
 	}
-	return makeLocalFsTracker(config.issuesDir).pipe(
+	return makeLocalFsTracker(resolved.issuesDir).pipe(
 		Layer.provide(BunContext.layer),
 	);
 }
 
-export function makeAppLayer(config: ServerConfig) {
+export function makeAppLayer(resolved: ResolvedConfig) {
 	return Layer.mergeAll(
-		makeTrackerLayer(config),
+		makeTrackerLayer(resolved),
 		PiAgentLive,
 		BunContext.layer,
 	);
 }
 
-export function makeOrchestratorLayer(config: ServerConfig) {
-	return Orchestrator.Default.pipe(Layer.provide(makeAppLayer(config)));
+export function makeOrchestratorLayer(resolved: ResolvedConfig) {
+	return Orchestrator.Default.pipe(Layer.provide(makeAppLayer(resolved)));
 }
 
-export function makeObservabilityLayer(config: ServerConfig) {
+export function makeObservabilityLayer(resolved: ResolvedConfig) {
 	return ObservabilityApi.Default.pipe(
-		Layer.provide(makeOrchestratorLayer(config)),
+		Layer.provide(makeOrchestratorLayer(resolved)),
 	);
 }
 
-export function makeStartupLayer(config: ServerConfig) {
+export function makeStartupLayer(config: ServerConfig, resolved: ResolvedConfig) {
 	return Layer.scopedDiscard(
 		Effect.gen(function* () {
 			const orchestrator = yield* Orchestrator;
@@ -68,19 +69,19 @@ export function makeStartupLayer(config: ServerConfig) {
 				Effect.annotateLogs({
 					component: "server",
 					port: String(config.port),
-					issues_dir: config.issuesDir,
+					issues_dir: resolved.issuesDir,
 					workflow: config.workflowPath,
 				}),
 			);
 		}),
-	).pipe(Layer.provide(makeOrchestratorLayer(config)));
+	).pipe(Layer.provide(makeOrchestratorLayer(resolved)));
 }
 
-export function makeObservabilityRuntime(config: ServerConfig) {
+export function makeObservabilityRuntime(config: ServerConfig, resolved: ResolvedConfig) {
 	return ManagedRuntime.make(
 		Layer.mergeAll(
-			makeObservabilityLayer(config),
-			makeStartupLayer(config),
+			makeObservabilityLayer(resolved),
+			makeStartupLayer(config, resolved),
 			makeLoggingLayer(config),
 		) as Layer.Layer<ObservabilityApi, never, never>,
 	);

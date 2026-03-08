@@ -1,5 +1,6 @@
 import { DateTime, Effect, Layer } from "effect";
-import { Issue, IssueStateEntry, TrackerError } from "@plot/sdk";
+import { Issue, IssueStateEntry } from "../schemas/issue.js";
+import { TrackerError } from "../schemas/errors.js";
 import { TrackerClient } from "./tracker-client.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -148,9 +149,7 @@ export const makeGithubTracker = (config: {
 					const ghIssues = yield* listIssues("all");
 					const issues = ghIssues.map(mapIssue);
 					const normalized = new Set(states.map(normalizeState));
-					return issues.filter((i) =>
-						normalized.has(normalizeState(i.state)),
-					);
+					return issues.filter((i) => normalized.has(normalizeState(i.state)));
 				}),
 
 			fetchIssueStatesByIds: (ids) =>

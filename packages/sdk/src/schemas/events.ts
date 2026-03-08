@@ -1,18 +1,24 @@
 import { Schema } from "effect";
 
 export const AgentEventType = Schema.Literal(
-  "session_started",
-  "startup_failed",
-  "turn_completed",
-  "turn_failed",
-  "turn_cancelled",
-  "turn_ended_with_error",
-  "turn_input_required",
-  "approval_auto_approved",
-  "unsupported_tool_call",
+  // pi-mono core lifecycle (AgentEvent.type)
+  "agent_start",
+  "agent_end",
+  "turn_start",
+  "turn_end",
+  "message_start",
+  "message_update",
+  "message_end",
+  "tool_execution_start",
+  "tool_execution_update",
+  "tool_execution_end",
+  // pi-mono session lifecycle (AgentSessionEvent.type)
+  "auto_compaction_start",
+  "auto_compaction_end",
+  "auto_retry_start",
+  "auto_retry_end",
+  // plot transport
   "notification",
-  "other_message",
-  "malformed",
 );
 export type AgentEventType = typeof AgentEventType.Type;
 
@@ -31,4 +37,8 @@ export class AgentRuntimeEvent extends Schema.Class<AgentRuntimeEvent>("AgentRun
       totalTokens: Schema.Number,
     }),
   ),
+  // tool lifecycle (present on tool_execution_* events)
+  toolCallId: Schema.optional(Schema.String),
+  toolName: Schema.optional(Schema.String),
+  isError: Schema.optional(Schema.Boolean),
 }) {}

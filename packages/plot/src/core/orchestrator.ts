@@ -1,263 +1,265 @@
 import {
-	Effect,
-	Ref,
-	Stream,
-	PubSub,
-	Queue,
-	SubscriptionRef,
-	Fiber,
+  Config,
+  Effect,
+  Fiber,
+  Option,
+  PubSub,
+  Queue,
+  Ref,
+  Schema,
+  Stream,
+  SubscriptionRef,
 } from "effect";
 import type { AgentRuntimeEvent } from "@plot/sdk";
 import { ResolvedConfig } from "./config-service.js";
+import { AgentService, TrackerClient, WorkflowLoader, WorkspaceManager } from "./ports.js";
 import {
-	AgentService,
-	TrackerClient,
-	WorkflowLoader,
-	WorkspaceManager,
-} from "./ports.js";
-import {
-	COMMAND_QUEUE_CAPACITY,
-	COMMAND_QUEUE_PRESSURE_WARN_AT,
-	type OrchestratorCommand,
+  COMMAND_QUEUE_CAPACITY,
+  COMMAND_QUEUE_PRESSURE_WARN_AT,
+  type OrchestratorCommand,
 } from "./application/orchestrator-command.js";
 import { makeDispatchRuntime } from "./application/dispatch.js";
 import { makeTickRuntime } from "./application/reconcile.js";
 import {
-	incrementCommandQueuePressureInState,
-	initialState,
-	consumeRuntimeEvent,
-	noteCommandQueueSizeInState,
-	type OrchestratorState,
+  incrementCommandQueuePressureInState,
+  initialState,
+  consumeRuntimeEvent,
+  noteCommandQueueSizeInState,
+  type OrchestratorState,
 } from "./domain/orchestrator-state.js";
 
 // ---------------------------------------------------------------------------
 // orchestrator service
 // ---------------------------------------------------------------------------
 
-export class Orchestrator extends Effect.Service<Orchestrator>()(
-	"Orchestrator",
-	{
-		effect: Effect.gen(function* () {
-			const stateRef =
-				yield* SubscriptionRef.make<OrchestratorState>(initialState);
-			const pendingPollTickRef = yield* Ref.make(false);
-			const retryTimerFibersRef = yield* Ref.make(
-				new Map<string, Fiber.RuntimeFiber<void, never>>(),
-			);
-			const workflowLoader = yield* WorkflowLoader;
-			const tracker = yield* TrackerClient;
-			const agentService = yield* AgentService;
-			const workspaceManager = yield* WorkspaceManager;
-			const eventPubSub = yield* PubSub.bounded<AgentRuntimeEvent>(512);
-			const commandQueue = yield* Queue.bounded<OrchestratorCommand>(
-				COMMAND_QUEUE_CAPACITY,
-			);
+export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator", {
+  effect: Effect.gen(function* () {
+    const stateRef = yield* SubscriptionRef.make<OrchestratorState>(initialState);
+    const pendingPollTickRef = yield* Ref.make(false);
+    const retryTimerFibersRef = yield* Ref.make(new Map<string, Fiber.RuntimeFiber<void, never>>());
+    const workflowLoader = yield* WorkflowLoader;
+    const tracker = yield* TrackerClient;
+    const agentService = yield* AgentService;
+    const workspaceManager = yield* WorkspaceManager;
+    const eventPubSub = yield* PubSub.bounded<AgentRuntimeEvent>(512);
+    const commandQueue = yield* Queue.bounded<OrchestratorCommand>(COMMAND_QUEUE_CAPACITY);
 
-			// -----------------------------------------------------------------------
-			// state access
-			// -----------------------------------------------------------------------
+    const TrackerKind = Schema.Literal("local-fs", "github");
+    const trackerKindOpt = yield* Schema.Config("TRACKER_KIND", TrackerKind).pipe(
+      Config.option,
+      Config.nested("PLOT"),
+    );
+    const githubRepoOpt = yield* Config.string("GITHUB_REPO").pipe(
+      Config.option,
+      Config.nested("PLOT"),
+    );
+    const issuesDirOpt = yield* Config.string("ISSUES_DIR").pipe(
+      Config.option,
+      Config.nested("PLOT"),
+    );
+    const overrides = {
+      trackerKind: Option.getOrUndefined(trackerKindOpt),
+      githubRepo: Option.getOrUndefined(githubRepoOpt),
+      issuesDir: Option.getOrUndefined(issuesDirOpt),
+    };
 
-			const getState = Ref.get(stateRef);
+    // -----------------------------------------------------------------------
+    // state access
+    // -----------------------------------------------------------------------
 
-			const getConfig = Effect.gen(function* () {
-				const wf = yield* workflowLoader.getCurrent;
-				if (!wf) return null;
-				return new ResolvedConfig(wf.config);
-			});
+    const getState = Ref.get(stateRef);
 
-			const updateState = (fn: (s: OrchestratorState) => OrchestratorState) =>
-				Ref.update(stateRef, fn);
+    const getConfig = Effect.gen(function* () {
+      const wf = yield* workflowLoader.getCurrent;
+      if (!wf) return null;
+      return new ResolvedConfig(wf.config, overrides);
+    });
 
-			const incrementCommandQueuePressure = (queueSize: number) =>
-				updateState((s) => incrementCommandQueuePressureInState(s, queueSize));
+    const updateState = (fn: (s: OrchestratorState) => OrchestratorState) =>
+      Ref.update(stateRef, fn);
 
-			const noteCommandQueueSize = (queueSize: number) =>
-				updateState((s) => noteCommandQueueSizeInState(s, queueSize));
+    const incrementCommandQueuePressure = (queueSize: number) =>
+      updateState((s) => incrementCommandQueuePressureInState(s, queueSize));
 
-			const enqueueCommand = (command: OrchestratorCommand) =>
-				Effect.gen(function* () {
-					const queueSize = yield* Queue.size(commandQueue);
-					yield* noteCommandQueueSize(queueSize);
-					if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
-						yield* incrementCommandQueuePressure(queueSize);
-						yield* Effect.logWarning("command_queue_pressure").pipe(
-							Effect.annotateLogs({
-								queue_size: String(queueSize),
-								queue_capacity: String(COMMAND_QUEUE_CAPACITY),
-								command_type: command._tag,
-							}),
-						);
-					}
-					yield* Queue.offer(commandQueue, command);
-				}).pipe(Effect.asVoid);
+    const noteCommandQueueSize = (queueSize: number) =>
+      updateState((s) => noteCommandQueueSizeInState(s, queueSize));
 
-			const requestTick = (
-				reason: string,
-				options?: { readonly coalesce?: boolean },
-			) =>
-				Effect.gen(function* () {
-					if (options?.coalesce) {
-						const shouldEnqueue = yield* Ref.modify(
-							pendingPollTickRef,
-							(pending) => (pending ? [false, pending] : [true, true]),
-						);
-						if (!shouldEnqueue) return;
-					}
-					yield* enqueueCommand({
-						_tag: "tick",
-						reason,
-						coalesced: options?.coalesce ?? false,
-					});
-				});
+    const enqueueCommand = (command: OrchestratorCommand) =>
+      Effect.gen(function* () {
+        const queueSize = yield* Queue.size(commandQueue);
+        yield* noteCommandQueueSize(queueSize);
+        if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
+          yield* incrementCommandQueuePressure(queueSize);
+          yield* Effect.logWarning("command_queue_pressure").pipe(
+            Effect.annotateLogs({
+              queue_size: String(queueSize),
+              queue_capacity: String(COMMAND_QUEUE_CAPACITY),
+              command_type: command._tag,
+            }),
+          );
+        }
+        yield* Queue.offer(commandQueue, command);
+      }).pipe(Effect.asVoid);
 
-			const getCommandQueueDepth = Queue.size(commandQueue);
+    const requestTick = (reason: string, options?: { readonly coalesce?: boolean }) =>
+      Effect.gen(function* () {
+        if (options?.coalesce) {
+          const shouldEnqueue = yield* Ref.modify(pendingPollTickRef, (pending) =>
+            pending ? [false, pending] : [true, true],
+          );
+          if (!shouldEnqueue) return;
+        }
+        yield* enqueueCommand({
+          _tag: "tick",
+          reason,
+          coalesced: options?.coalesce ?? false,
+        });
+      });
 
-			// -----------------------------------------------------------------------
-			// event consumption — updates running entry from agent events
-			// -----------------------------------------------------------------------
+    const getCommandQueueDepth = Queue.size(commandQueue);
 
-			const consumeEvent = (event: AgentRuntimeEvent) =>
-				updateState((s) => consumeRuntimeEvent(s, event));
+    // -----------------------------------------------------------------------
+    // event consumption — updates running entry from agent events
+    // -----------------------------------------------------------------------
 
-			// -----------------------------------------------------------------------
-			// retry scheduling — single scheduler fiber, wake-on-insert
-			// -----------------------------------------------------------------------
+    const consumeEvent = (event: AgentRuntimeEvent) =>
+      updateState((s) => consumeRuntimeEvent(s, event));
 
-			const dispatchRuntime = makeDispatchRuntime({
-				stateRef,
-				retryTimerFibersRef,
-				workflowLoader,
-				tracker,
-				agentService,
-				workspaceManager,
-				eventPubSub,
-				enqueueCommand,
-				getConfig,
-				updateState,
-			});
+    // -----------------------------------------------------------------------
+    // retry scheduling — single scheduler fiber, wake-on-insert
+    // -----------------------------------------------------------------------
 
-			const tickRuntime = makeTickRuntime({
-				stateRef,
-				tracker,
-				removeWorkspace: (identifier, config) =>
-					workspaceManager.removeWorkspace(identifier, config),
-				getConfig,
-				updateState,
-				stopRunningIssue: dispatchRuntime.stopRunningIssue,
-				processRetry: dispatchRuntime.processRetry,
-				dispatchIssue: dispatchRuntime.dispatchIssue,
-			});
+    const dispatchRuntime = makeDispatchRuntime({
+      stateRef,
+      retryTimerFibersRef,
+      workflowLoader,
+      tracker,
+      agentService,
+      workspaceManager,
+      eventPubSub,
+      enqueueCommand,
+      getConfig,
+      updateState,
+    });
 
-			const commandLoop = Effect.gen(function* () {
-				while (true) {
-					const command = yield* Queue.take(commandQueue);
-					const queueSize = yield* Queue.size(commandQueue);
-					yield* noteCommandQueueSize(queueSize);
-					if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
-						yield* Effect.logWarning("command_queue_backlog").pipe(
-							Effect.annotateLogs({
-								queue_size: String(queueSize),
-								queue_capacity: String(COMMAND_QUEUE_CAPACITY),
-								command_type: command._tag,
-							}),
-						);
-					}
+    const tickRuntime = makeTickRuntime({
+      stateRef,
+      tracker,
+      removeWorkspace: (identifier, config) => workspaceManager.removeWorkspace(identifier, config),
+      getConfig,
+      updateState,
+      stopRunningIssue: dispatchRuntime.stopRunningIssue,
+      processRetry: dispatchRuntime.processRetry,
+      dispatchIssue: dispatchRuntime.dispatchIssue,
+    });
 
-					if (command._tag === "tick") {
-						if (command.coalesced) {
-							yield* Ref.set(pendingPollTickRef, false);
-						}
-						yield* tickRuntime.runTick.pipe(
-							Effect.catchAll((e) =>
-								Effect.logError("tick_failed").pipe(
-									Effect.annotateLogs({
-										reason: command.reason,
-										error: String(e),
-									}),
-								),
-							),
-						);
-						continue;
-					}
+    const commandLoop = Effect.gen(function* () {
+      while (true) {
+        const command = yield* Queue.take(commandQueue);
+        const queueSize = yield* Queue.size(commandQueue);
+        yield* noteCommandQueueSize(queueSize);
+        if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
+          yield* Effect.logWarning("command_queue_backlog").pipe(
+            Effect.annotateLogs({
+              queue_size: String(queueSize),
+              queue_capacity: String(COMMAND_QUEUE_CAPACITY),
+              command_type: command._tag,
+            }),
+          );
+        }
 
-					if (command._tag === "runtime_event") {
-						yield* consumeEvent(command.event);
-						continue;
-					}
+        if (command._tag === "tick") {
+          if (command.coalesced) {
+            yield* Ref.set(pendingPollTickRef, false);
+          }
+          yield* tickRuntime.runTick.pipe(
+            Effect.catchAll((e) =>
+              Effect.logError("tick_failed").pipe(
+                Effect.annotateLogs({
+                  reason: command.reason,
+                  error: String(e),
+                }),
+              ),
+            ),
+          );
+          continue;
+        }
 
-					if (command._tag === "retry_due") {
-						yield* tickRuntime.handleRetryDue(command);
-						continue;
-					}
+        if (command._tag === "runtime_event") {
+          yield* consumeEvent(command.event);
+          continue;
+        }
 
-					yield* dispatchRuntime.handleWorkerExit(command).pipe(
-						Effect.catchAll((e) =>
-							Effect.logError("worker_exit_failed").pipe(
-								Effect.annotateLogs({
-									issue_id: command.issueId,
-									error: String(e),
-								}),
-							),
-						),
-					);
-				}
-			});
+        if (command._tag === "retry_due") {
+          yield* tickRuntime.handleRetryDue(command);
+          continue;
+        }
 
-			// -----------------------------------------------------------------------
-			// poll loop
-			// -----------------------------------------------------------------------
+        yield* dispatchRuntime.handleWorkerExit(command).pipe(
+          Effect.catchAll((e) =>
+            Effect.logError("worker_exit_failed").pipe(
+              Effect.annotateLogs({
+                issue_id: command.issueId,
+                error: String(e),
+              }),
+            ),
+          ),
+        );
+      }
+    });
 
-			const pollLoop: Effect.Effect<never> = Effect.gen(function* () {
-				while (true) {
-					const config = yield* getConfig;
-					const interval = config?.pollIntervalMs ?? 30_000;
-					yield* Effect.sleep(`${interval} millis`);
-					yield* requestTick("poll", { coalesce: true });
-				}
-			});
+    // -----------------------------------------------------------------------
+    // poll loop
+    // -----------------------------------------------------------------------
 
-			// -----------------------------------------------------------------------
-			// start
-			// -----------------------------------------------------------------------
+    const pollLoop: Effect.Effect<never> = Effect.gen(function* () {
+      while (true) {
+        const config = yield* getConfig;
+        const interval = config?.pollIntervalMs ?? 30_000;
+        yield* Effect.sleep(`${interval} millis`);
+        yield* requestTick("poll", { coalesce: true });
+      }
+    });
 
-			const start = (workflowPath: string) =>
-				Effect.gen(function* () {
-					yield* workflowLoader
-						.load(workflowPath)
-						.pipe(Effect.catchAll((e) => Effect.die(e)));
+    // -----------------------------------------------------------------------
+    // start
+    // -----------------------------------------------------------------------
 
-					const config = yield* getConfig;
+    const start = (workflowPath: string) =>
+      Effect.gen(function* () {
+        yield* workflowLoader.load(workflowPath).pipe(Effect.catchAll((e) => Effect.die(e)));
 
-					yield* Effect.logInfo("orchestrator_started").pipe(
-						Effect.annotateLogs({ workflow: workflowPath }),
-					);
+        const config = yield* getConfig;
 
-					if (config) {
-						yield* tickRuntime.startupTerminalCleanup(config);
-					}
+        yield* Effect.logInfo("orchestrator_started").pipe(
+          Effect.annotateLogs({ workflow: workflowPath }),
+        );
 
-					yield* workflowLoader.startWatching(workflowPath);
+        if (config) {
+          yield* tickRuntime.startupTerminalCleanup(config);
+        }
 
-					yield* Effect.forkScoped(commandLoop);
-					yield* Effect.forkScoped(pollLoop);
-					yield* requestTick("startup");
-				});
+        yield* workflowLoader.startWatching(workflowPath);
 
-			const tick = requestTick("manual");
+        yield* Effect.forkScoped(commandLoop);
+        yield* Effect.forkScoped(pollLoop);
+        yield* requestTick("startup");
+      });
 
-			const eventStream = Stream.fromPubSub(eventPubSub);
-			const stateStream = stateRef.changes;
+    const tick = requestTick("manual");
 
-			return {
-				start,
-				tick,
-				getState,
-				getConfig,
-				getCommandQueueDepth,
-				eventStream,
-				stateStream,
-			};
-		}),
-		dependencies: [WorkflowLoader.Default, WorkspaceManager.Default],
-	},
-) {}
+    const eventStream = Stream.fromPubSub(eventPubSub);
+    const stateStream = stateRef.changes;
+
+    return {
+      start,
+      tick,
+      getState,
+      getConfig,
+      getCommandQueueDepth,
+      eventStream,
+      stateStream,
+    };
+  }),
+  dependencies: [WorkflowLoader.Default, WorkspaceManager.Default],
+}) {}

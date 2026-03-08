@@ -27,7 +27,7 @@ agent:
 codex:
   command: pi
   turn_timeout_ms: 1800000
-  stall_timeout_ms: 120000
+  stall_timeout_ms: 300000
 server:
   port: 3000
 ---

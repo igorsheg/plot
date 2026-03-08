@@ -17,8 +17,8 @@ export const cliCommandOptions = {
 		Options.withDefault("./WORKFLOW.md"),
 	),
 	tracker: Options.choice("tracker", ["local-fs", "github"] as const).pipe(
-		Options.withDescription("tracker kind (local-fs or github)"),
-		Options.withDefault("local-fs"),
+		Options.withDescription("tracker kind (overrides WORKFLOW.md)"),
+		Options.optional,
 	),
 	"github-repo": Options.text("github-repo").pipe(
 		Options.withDescription("github repo (owner/repo) for github tracker"),
@@ -26,7 +26,7 @@ export const cliCommandOptions = {
 	),
 	"issues-dir": Options.text("issues-dir").pipe(
 		Options.withDescription("local issues directory"),
-		Options.withDefault("./issues"),
+		Options.optional,
 	),
 	"log-format": Options.choice("log-format", ["pretty", "json"] as const).pipe(
 		Options.withDescription("server log format"),
@@ -39,17 +39,22 @@ export type ServerOptions = {
 	quiet: boolean;
 	port: number;
 	workflow: string;
-	tracker: "local-fs" | "github";
+	tracker?: "local-fs" | "github";
 	"github-repo"?: string;
-	"issues-dir": string;
+	"issues-dir"?: string;
 	"log-format": "pretty" | "json";
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
 	web?: boolean;
 };
 
 type ParsedCliCommandOptions = {
-	readonly [Key in keyof typeof cliCommandOptions]: Key extends "github-repo"
-		? Option.Option<string>
+	readonly [Key in keyof typeof cliCommandOptions]: Key extends
+		| "github-repo"
+		| "tracker"
+		| "issues-dir"
+		? Option.Option<
+				Key extends "tracker" ? "local-fs" | "github" : string
+			>
 		: ServerOptions[Key];
 };
 
@@ -63,9 +68,9 @@ export function toServerOptions(
 		quiet: options.quiet,
 		port: options.port,
 		workflow: options.workflow,
-		tracker: options.tracker,
+		tracker: Option.getOrUndefined(options.tracker),
 		"github-repo": Option.getOrUndefined(options["github-repo"]),
-		"issues-dir": options["issues-dir"],
+		"issues-dir": Option.getOrUndefined(options["issues-dir"]),
 		"log-format": options["log-format"],
 		"log-level": toServerLogLevel(logLevel),
 		...overrides,

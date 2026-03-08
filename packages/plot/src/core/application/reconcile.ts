@@ -1,7 +1,8 @@
 import { Effect, Ref, type Scope } from "effect";
-import type { Issue } from "@plot/sdk";
+import type { Issue } from "../../schemas/issue.js";
 import { validateForDispatch, type ResolvedConfig } from "../config-service.js";
 import {
+	clearEventLog,
 	incrementStaleRetryDropCount,
 	isDispatchable,
 	isEligible,
@@ -106,7 +107,9 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 						releaseClaim: true,
 						log: {
 							issue_state: currentState,
-							state_class: isParked(currentState, config) ? "parked" : "inactive",
+							state_class: isParked(currentState, config)
+								? "parked"
+								: "inactive",
 						},
 					});
 					stoppedCount++;
@@ -173,6 +176,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 				yield* deps
 					.removeWorkspace(issue.identifier, config)
 					.pipe(Effect.ignore);
+				yield* deps.updateState((s) => clearEventLog(s, issue.id));
 				cleanedCount++;
 			}
 

@@ -6,7 +6,6 @@ import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import * as ValidationError from "@effect/cli/ValidationError";
 import { runServerMain } from "../index.js";
-import { runTui } from "@plot/tui";
 import {
 	CliError,
 	createCliOutput,
@@ -29,8 +28,6 @@ const [internalCommand] = argv;
 if (internalCommand === "__internal-server") {
 	await runServerMain(process.env as Record<string, string | undefined>);
 	await new Promise(() => {});
-} else if (internalCommand === "__internal-tui") {
-	await runTui();
 } else {
 	const cli = createTuiCommand(CLI_NAME).pipe(
 		Command.withSubcommands([

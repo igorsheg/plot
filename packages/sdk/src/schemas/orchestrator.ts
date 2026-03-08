@@ -1,6 +1,22 @@
 import { Schema } from "effect";
 import { AgentRuntimeEvent } from "./events.js";
 
+export class ToolExecution extends Schema.Class<ToolExecution>("ToolExecution")(
+	{
+		toolCallId: Schema.String,
+		toolName: Schema.String,
+	},
+) {}
+
+export const AgentPhase = Schema.Literal(
+	"idle",
+	"thinking",
+	"tool_execution",
+	"compacting",
+	"retrying",
+);
+export type AgentPhase = typeof AgentPhase.Type;
+
 export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
 	sessionId: Schema.String,
 	threadId: Schema.String,
@@ -13,6 +29,9 @@ export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
 	outputTokens: Schema.Number,
 	totalTokens: Schema.Number,
 	turnCount: Schema.Number,
+	phase: AgentPhase,
+	activeTools: Schema.Array(ToolExecution),
+	lastAssistantMessage: Schema.NullOr(Schema.String),
 }) {}
 
 export class RunningEntry extends Schema.Class<RunningEntry>("RunningEntry")({
@@ -91,3 +110,11 @@ export class IssueDetail extends Schema.Class<IssueDetail>("IssueDetail")({
 	lastError: Schema.NullOr(Schema.String),
 	eventTail: Schema.Array(AgentRuntimeEvent),
 }) {}
+
+export class IssueEventLog extends Schema.Class<IssueEventLog>("IssueEventLog")(
+	{
+		issueId: Schema.String,
+		issueIdentifier: Schema.String,
+		events: Schema.Array(AgentRuntimeEvent),
+	},
+) {}

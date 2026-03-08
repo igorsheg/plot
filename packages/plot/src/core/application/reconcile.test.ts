@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
 	AgentConfig,
 	AgentRuntimeConfig,
-	Issue,
 	TrackerConfig,
 	WorkflowConfig,
-} from "@plot/sdk";
+} from "../../schemas/workflow.js";
+import { Issue } from "../../schemas/issue.js";
 import { Effect, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
@@ -160,7 +160,12 @@ describe("makeTickRuntime", () => {
 		const config = makeConfig({ stallTimeoutMs: 1_000 });
 		const issue = makeIssue({ state: "In Progress" });
 		const entry = createRunningEntry(issue, "/tmp/plot-1", Date.now());
-		const stopCalls: Array<{ reason: string; removeWorkspace: boolean; releaseClaim: boolean; stateClass?: string }> = [];
+		const stopCalls: Array<{
+			reason: string;
+			removeWorkspace: boolean;
+			releaseClaim: boolean;
+			stateClass?: string;
+		}> = [];
 		const { runtime } = await makeDeps(
 			{
 				...initialState,

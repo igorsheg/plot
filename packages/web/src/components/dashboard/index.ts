@@ -1,17 +1,17 @@
 import { Root } from "./root";
 import { Header } from "./header";
-import { WorkQueue } from "./agent-grid";
-import { WorkDetailSheet } from "./agent-detail";
-import { RetrySection } from "./retry-section";
+import { WorkRail } from "./work-rail";
+import { AgentWorkspace } from "./agent-workspace";
 import { ObservabilitySection } from "./observability-section";
+import { OpsPanel } from "./ops-panel";
 import { StatusDot } from "./status-dot";
 
 export const Dashboard = {
 	Root,
 	Header,
-	WorkQueue,
-	WorkDetailSheet,
-	RetrySection,
+	WorkRail,
+	AgentWorkspace,
 	ObservabilitySection,
+	OpsPanel,
 	StatusDot,
 };

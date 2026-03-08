@@ -1,18 +1,18 @@
 import { DateTime, Effect } from "effect";
-import { TemplateRenderError } from "@plot/sdk";
-import type { Issue } from "@plot/sdk";
-import { Liquid } from "liquidjs";
+import { Eta } from "eta";
+import { TemplateRenderError } from "../schemas/errors.js";
+import type { Issue } from "../schemas/issue.js";
 
-const engine = new Liquid({ strictVariables: true, strictFilters: true });
+const eta = new Eta({ useWith: true });
 
 export const renderPrompt = (
   template: string,
   issue: Issue,
   attempt: number | null,
 ): Effect.Effect<string, TemplateRenderError> =>
-  Effect.tryPromise({
+  Effect.try({
     try: () =>
-      engine.parseAndRender(template, {
+      eta.renderString(template, {
         issue: {
           id: issue.id,
           identifier: issue.identifier,

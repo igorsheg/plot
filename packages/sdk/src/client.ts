@@ -1,7 +1,11 @@
 import { FetchHttpClient } from "@effect/platform";
 import { RpcClient, RpcSerialization } from "@effect/rpc";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import type { IssueDetail, RuntimeSnapshot } from "./schemas/orchestrator.js";
+import type {
+	IssueDetail,
+	IssueEventLog,
+	RuntimeSnapshot,
+} from "./schemas/orchestrator.js";
 import { PlotRpcs, type RefreshResult } from "./rpc.js";
 
 export const makePlotClient = (baseUrl: string) => {
@@ -29,6 +33,14 @@ export const makePlotClient = (baseUrl: string) => {
 				Effect.scoped(
 					Effect.flatMap(clientEffect, (client) =>
 						client.GetIssue({ identifier }),
+					),
+				),
+			),
+		getEventLog: (identifier: string): Promise<IssueEventLog> =>
+			run(
+				Effect.scoped(
+					Effect.flatMap(clientEffect, (client) =>
+						client.GetEventLog({ identifier }),
 					),
 				),
 			),

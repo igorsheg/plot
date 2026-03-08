@@ -6,7 +6,7 @@ import type {
 	OAuthProviderInterface,
 } from "@mariozechner/pi-ai";
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
-import { getPlotAuthPath } from "@plot/sdk";
+import { getPlotAuthPath } from "../../schemas/plot-agent-config.js";
 import { CliError } from "./io.js";
 
 function openBrowser(url: string) {

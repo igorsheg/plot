@@ -1,6 +1,7 @@
 import { Effect, DateTime, Stream } from "effect";
 import {
 	IssueDetail,
+	IssueEventLog,
 	IssueNotFound,
 	LiveSession,
 	OrchestratorUnavailable,
@@ -8,6 +9,7 @@ import {
 	RetryEntry,
 	RunningEntry,
 	RuntimeObservability,
+	ToolExecution,
 	RuntimeSnapshot,
 	TokenTotals,
 } from "@plot/sdk";
@@ -33,6 +35,9 @@ const mapRunningEntry = (r: {
 	outputTokens: number;
 	totalTokens: number;
 	turnCount: number;
+	phase?: "idle" | "thinking" | "tool_execution" | "compacting" | "retrying";
+	activeTools?: ReadonlyArray<{ toolCallId: string; toolName: string }>;
+	lastAssistantMessage?: string | null;
 }) => {
 	const { threadId, turnId } = parseSessionId(r.sessionId);
 	return new RunningEntry({
@@ -55,6 +60,9 @@ const mapRunningEntry = (r: {
 			outputTokens: r.outputTokens,
 			totalTokens: r.totalTokens,
 			turnCount: r.turnCount,
+			phase: r.phase ?? "idle",
+			activeTools: (r.activeTools ?? []).map((t) => new ToolExecution(t)),
+			lastAssistantMessage: r.lastAssistantMessage ?? null,
 		}),
 	});
 };
@@ -187,6 +195,34 @@ export const makeObservabilityApi = Effect.gen(function* () {
 			});
 		});
 
+	const getEventLog = (identifier: string) =>
+		Effect.gen(function* () {
+			const state = yield* orchestrator.getState.pipe(
+				Effect.mapError(
+					() =>
+						new OrchestratorUnavailable({
+							message: "Orchestrator state is unavailable",
+						}),
+				),
+			);
+			const log = [...state.eventLogs.values()].find(
+				(l) => l.issueIdentifier === identifier,
+			);
+			if (!log) {
+				return yield* Effect.fail(
+					new IssueNotFound({
+						identifier,
+						message: `Event log not found: ${identifier}`,
+					}),
+				);
+			}
+			return new IssueEventLog({
+				issueId: log.issueId,
+				issueIdentifier: log.issueIdentifier,
+				events: [...log.events],
+			});
+		});
+
 	const triggerRefresh = Effect.gen(function* () {
 		yield* orchestrator.tick.pipe(
 			Effect.mapError(
@@ -207,6 +243,7 @@ export const makeObservabilityApi = Effect.gen(function* () {
 	return {
 		getState,
 		getIssue,
+		getEventLog,
 		triggerRefresh,
 		eventStream: orchestrator.eventStream,
 		stateStream,

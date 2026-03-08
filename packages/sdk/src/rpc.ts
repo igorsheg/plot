@@ -1,7 +1,11 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import { Schema } from "effect";
 import { PlotApiError } from "./errors.js";
-import { IssueDetail, RuntimeSnapshot } from "./schemas/orchestrator.js";
+import {
+	IssueDetail,
+	IssueEventLog,
+	RuntimeSnapshot,
+} from "./schemas/orchestrator.js";
 
 export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")(
 	{
@@ -25,5 +29,10 @@ export class PlotRpcs extends RpcGroup.make(
 	Rpc.make("TriggerRefresh", {
 		success: RefreshResult,
 		error: PlotApiError,
+	}),
+	Rpc.make("GetEventLog", {
+		success: IssueEventLog,
+		error: PlotApiError,
+		payload: { identifier: Schema.String },
 	}),
 ) {}

@@ -67,19 +67,28 @@ export function resolveTuiServerLogPath() {
 }
 
 export function toServerEnv(opts: ServerOptions): Record<string, string> {
-	return {
-		...process.env,
+	const env: Record<string, string> = {
+		...(process.env as Record<string, string>),
 		PLOT_WORKFLOW: opts.workflow,
 		PLOT_PORT: String(opts.port),
-		PLOT_TRACKER_KIND: opts.tracker,
-		PLOT_GITHUB_REPO: opts["github-repo"] ?? "",
-		PLOT_ISSUES_DIR: opts["issues-dir"],
 		PLOT_LOG_FORMAT: opts.json ? "json" : opts["log-format"],
 		PLOT_LOG_LEVEL: opts["log-level"],
 		PLOT_WEB_ENABLED: opts.web ? "1" : "0",
 		PLOT_WEB_DIST_DIR: resolveBundledWebDistDir(),
 		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),
 	};
+
+	if (opts.tracker) {
+		env["PLOT_TRACKER_KIND"] = opts.tracker;
+	}
+	if (opts["github-repo"]) {
+		env["PLOT_GITHUB_REPO"] = opts["github-repo"];
+	}
+	if (opts["issues-dir"]) {
+		env["PLOT_ISSUES_DIR"] = opts["issues-dir"];
+	}
+
+	return env;
 }
 
 export function toTuiServerEnv(opts: ServerOptions): Record<string, string> {

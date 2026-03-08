@@ -1,5 +1,6 @@
 import { Context, Effect, type Stream } from "effect";
-import type { AgentRuntimeEvent, AgentRunnerError } from "@plot/sdk";
+import type { AgentRuntimeEvent } from "@plot/sdk";
+import type { AgentRunnerError } from "../schemas/errors.js";
 
 export interface AgentRunConfig {
 	readonly systemPrompt: string;

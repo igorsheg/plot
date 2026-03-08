@@ -49,7 +49,7 @@
     "@plot/sdk": "workspace:*",
     "@plot/tui": "workspace:*",
     "effect": "latest",
-    "liquidjs": "latest",
+    "eta": "^4.5.1",
     "yaml": "latest"
   },
   "devDependencies": {

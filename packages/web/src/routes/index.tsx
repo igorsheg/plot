@@ -1,22 +1,26 @@
 import { createRoute } from "@tanstack/react-router";
 import { Route as rootRoute } from "./__root";
 import { Dashboard } from "@/components/dashboard";
+import { useDashboard } from "@/components/dashboard/root";
 
-/**
- * keeps the default dashboard honest: orientation first, inspection second.
- *
- * this route should answer only three questions at a glance — is work happening,
- * does anything need attention, and what deserves a closer look. per-item detail
- * lives in the sheet so debug surfaces do not sprawl back into the page.
- */
+function DashboardLayout() {
+	const { state } = useDashboard();
+	return (
+		<div className="view-shell">
+			<div className={state.opsOpen ? "workspace-grid-with-detail" : "workspace-grid"}>
+				<Dashboard.WorkRail />
+				<Dashboard.AgentWorkspace />
+				{state.opsOpen && <Dashboard.OpsPanel />}
+			</div>
+		</div>
+	);
+}
+
 function DashboardPage() {
 	return (
 		<Dashboard.Root>
 			<Dashboard.Header />
-			<div className="view-shell">
-				<Dashboard.WorkQueue />
-			</div>
-			<Dashboard.WorkDetailSheet />
+			<DashboardLayout />
 		</Dashboard.Root>
 	);
 }

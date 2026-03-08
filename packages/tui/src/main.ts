@@ -13,9 +13,22 @@ import {
 	type TextTableContent,
 } from "@opentui/core";
 import { DateTime } from "effect";
-import type { RuntimeSnapshot, SseStatus } from "@plot/sdk";
-import { createHttpRuntimeApi, type RuntimeApi } from "./api.js";
+import type {
+	RuntimeSnapshot,
+	SseStatus,
+	AgentRuntimeEvent,
+	RefreshResult,
+} from "@plot/sdk";
 import { formatTokens, formatDuration, timeAgo, truncate } from "@plot/sdk";
+
+interface RuntimeApi {
+	getState: () => Promise<RuntimeSnapshot>;
+	triggerRefresh: () => Promise<RefreshResult>;
+	connectEvents: (
+		onEvent: (event: AgentRuntimeEvent) => void,
+		onStatus: (status: SseStatus) => void,
+	) => () => void;
+}
 
 const C = {
 	bg: "#0d0d0d",
@@ -57,6 +70,37 @@ function summarizeReasonCounts(reasons: Record<string, number>): string {
 	return parts.length > 0 ? parts.join(" · ") : "none";
 }
 
+
+function phaseCell(session: { phase: string; activeTools: ReadonlyArray<{ toolName: string }> }): TextChunk[] {
+	switch (session.phase) {
+		case "thinking":
+			return [fg(C.yellow)("thinking")];
+		case "tool_execution": {
+			const tool = session.activeTools[session.activeTools.length - 1];
+			const name = tool?.toolName ?? "exec";
+			return [fg(C.cyan)(name)];
+		}
+		case "compacting":
+			return [fg(C.magenta)("compacting")];
+		case "retrying":
+			return [fg(C.red)("retrying")];
+		default:
+			return [fg(C.muted)("idle")];
+	}
+}
+
+function activityCell(session: {
+	phase: string;
+	activeTools: ReadonlyArray<{ toolName: string }>;
+	lastMessage: string | null;
+}): TextChunk[] {
+	if (session.phase === "tool_execution" && session.activeTools.length > 0) {
+		const names = session.activeTools.map(t => t.toolName).join(", ");
+		return [fg(C.cyan)(truncate(names, 40))];
+	}
+	return [fg(C.muted)(truncate(session.lastMessage ?? "—", 40))];
+}
+
 function updateHeader() {
 	if (!currentState) return;
 	const s = currentState;
@@ -69,14 +113,14 @@ function updateRunningTable() {
 	const header: TextTableContent[number] = [
 		[bold("ID")],
 		[bold("State")],
+		[bold("Phase")],
 		[bold("Age")],
 		[bold("Turns")],
 		[bold("Tokens")],
-		[bold("Message")],
+		[bold("Activity")],
 	];
 	const rows: TextTableContent = currentState.running.map((r, i) => {
 		const age = timeAgo(toEpochMs(r.startedAt));
-		const msg = truncate(r.session.lastMessage ?? "—", 40);
 		const isSelected = i === selectedIndex;
 		const idCell: TextChunk[] = isSelected
 			? [fg(C.cyan)(bold(r.issueIdentifier))]
@@ -84,10 +128,11 @@ function updateRunningTable() {
 		return [
 			idCell,
 			cell(r.state),
+			phaseCell(r.session),
 			cell(age),
 			cell(String(r.session.turnCount)),
 			cell(formatTokens(r.session.totalTokens)),
-			[fg(C.muted)(msg)],
+			activityCell(r.session),
 		];
 	});
 
@@ -98,6 +143,7 @@ function updateRunningTable() {
 			header,
 			[
 				cell("No active sessions"),
+				cell(""),
 				cell(""),
 				cell(""),
 				cell(""),
@@ -147,15 +193,28 @@ function updateDetail() {
 	const r = currentState.running[idx];
 	if (!r) return;
 
-	detailText.content = t`${bold(r.issueIdentifier)} ${fg(C.blue)(r.state)}
+	const s = r.session;
+	const phaseColor = s.phase === "thinking" ? C.yellow
+		: s.phase === "tool_execution" ? C.cyan
+		: s.phase === "compacting" ? C.magenta
+		: s.phase === "retrying" ? C.red
+		: C.muted;
+	const toolNames = s.activeTools.length > 0
+		? s.activeTools.map(at => at.toolName).join(", ")
+		: "—";
+	const message = s.lastAssistantMessage ?? s.lastMessage ?? "—";
+
+	detailText.content = t`${bold(r.issueIdentifier)} ${fg(C.blue)(r.state)} ${fg(phaseColor)(s.phase)}
 
 ${fg(C.muted)("workspace")} ${r.workspacePath ?? "—"}
-${fg(C.muted)("session")}  ${r.session.sessionId.slice(0, 12)}…
-${fg(C.muted)("turns")}    ${bold(String(r.session.turnCount))}
-${fg(C.muted)("tokens")}   in ${fg(C.yellow)(formatTokens(r.session.inputTokens))} out ${fg(C.yellow)(formatTokens(r.session.outputTokens))} total ${fg(C.yellow)(formatTokens(r.session.totalTokens))}
+${fg(C.muted)("session")}  ${s.sessionId.slice(0, 12)}…
+${fg(C.muted)("phase")}    ${fg(phaseColor)(s.phase)}
+${fg(C.muted)("turns")}    ${bold(String(s.turnCount))}
+${fg(C.muted)("tokens")}   in ${fg(C.yellow)(formatTokens(s.inputTokens))} out ${fg(C.yellow)(formatTokens(s.outputTokens))} total ${fg(C.yellow)(formatTokens(s.totalTokens))}
+${fg(C.muted)("tools")}    ${fg(C.cyan)(toolNames)}
 
-${bold("last message")}
-${r.session.lastMessage ?? "—"}`;
+${bold("last response")}
+${message}`;
 }
 
 function updateAll() {
@@ -210,8 +269,8 @@ async function throttledRefresh(api: RuntimeApi) {
 	}
 }
 
-export async function runTui(options?: { api?: RuntimeApi }) {
-	const api = options?.api ?? createHttpRuntimeApi();
+export async function runTui(options: { api: RuntimeApi }) {
+	const api = options.api;
 	selectedIndex = 0;
 	currentState = null;
 	sseStatus = "connecting";
@@ -290,10 +349,11 @@ export async function runTui(options?: { api?: RuntimeApi }) {
 					[
 						[bold("ID")],
 						[bold("State")],
+						[bold("Phase")],
 						[bold("Age")],
 						[bold("Turns")],
 						[bold("Tokens")],
-						[bold("Message")],
+						[bold("Activity")],
 					],
 				],
 				border: false,
@@ -437,11 +497,4 @@ export async function runTui(options?: { api?: RuntimeApi }) {
 
 export function isTuiEntryCommand(command?: string): boolean {
 	return command === "__internal-tui";
-}
-
-if (import.meta.main) {
-	runTui().catch((err: unknown) => {
-		console.error(err);
-		process.exit(1);
-	});
 }
