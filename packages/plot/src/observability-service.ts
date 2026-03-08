@@ -33,6 +33,9 @@ const mapRunningEntry = (r: {
 	outputTokens: number;
 	totalTokens: number;
 	turnCount: number;
+	phase: string;
+	activeTools: ReadonlyArray<string>;
+	lastAssistantMessage: string | null;
 }) => {
 	const { threadId, turnId } = parseSessionId(r.sessionId);
 	return new RunningEntry({
@@ -55,6 +58,9 @@ const mapRunningEntry = (r: {
 			outputTokens: r.outputTokens,
 			totalTokens: r.totalTokens,
 			turnCount: r.turnCount,
+			phase: r.phase ?? "idle",
+			activeTools: r.activeTools ?? [],
+			lastAssistantMessage: r.lastAssistantMessage ?? null,
 		}),
 	});
 };

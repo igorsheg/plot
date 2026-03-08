@@ -1,6 +1,14 @@
 import { Schema } from "effect";
 import { AgentRuntimeEvent } from "./events.js";
 
+export const AgentPhase = Schema.Literal(
+	"idle",
+	"thinking",
+	"tool_use",
+	"streaming",
+);
+export type AgentPhase = typeof AgentPhase.Type;
+
 export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
 	sessionId: Schema.String,
 	threadId: Schema.String,
@@ -13,6 +21,9 @@ export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
 	outputTokens: Schema.Number,
 	totalTokens: Schema.Number,
 	turnCount: Schema.Number,
+	phase: AgentPhase,
+	activeTools: Schema.Array(Schema.String),
+	lastAssistantMessage: Schema.NullOr(Schema.String),
 }) {}
 
 export class RunningEntry extends Schema.Class<RunningEntry>("RunningEntry")({

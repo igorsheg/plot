@@ -97,6 +97,7 @@ const createEventStream = (
 			let turnCount = 0;
 			let sessionId: string | null = null;
 			let aborting = false;
+			let lastAssistantMessage: string | null = null;
 			const threadId = crypto.randomUUID();
 
 			const abortSession = (reason: string) => {

@@ -31,4 +31,7 @@ export class AgentRuntimeEvent extends Schema.Class<AgentRuntimeEvent>("AgentRun
       totalTokens: Schema.Number,
     }),
   ),
+  phase: Schema.optional(Schema.String),
+  activeTools: Schema.optional(Schema.Array(Schema.String)),
+  lastAssistantMessage: Schema.optional(Schema.NullOr(Schema.String)),
 }) {}

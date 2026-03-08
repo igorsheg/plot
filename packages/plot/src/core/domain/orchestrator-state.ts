@@ -18,6 +18,9 @@ export interface RunningEntry {
 	readonly workspacePath: string;
 	readonly lastMessage: string | null;
 	readonly eventTail: ReadonlyArray<AgentRuntimeEvent>;
+	readonly phase: string;
+	readonly activeTools: ReadonlyArray<string>;
+	readonly lastAssistantMessage: string | null;
 }
 
 export type RetryReason = "continuation" | "failure" | "backpressure";
@@ -87,8 +90,7 @@ export const normalizeState = (s: string) => s.trim().toLowerCase();
 
 export const isDispatchable = (state: string, config: ResolvedConfig) =>
 	config.dispatchStates.some(
-		(dispatchState) =>
-			normalizeState(dispatchState) === normalizeState(state),
+		(dispatchState) => normalizeState(dispatchState) === normalizeState(state),
 	);
 
 export const isParked = (state: string, config: ResolvedConfig) =>
@@ -186,6 +188,9 @@ export const createRunningEntry = (
 	workspacePath,
 	lastMessage: null,
 	eventTail: [],
+	phase: "idle",
+	activeTools: [],
+	lastAssistantMessage: null,
 });
 
 export const consumeRuntimeEvent = (
@@ -228,6 +233,14 @@ export const consumeRuntimeEvent = (
 			? [...entry.eventTail.slice(-(maxEventTail - 1)), event]
 			: [...entry.eventTail, event];
 
+	const phase = event.phase !== undefined ? event.phase : entry.phase;
+	const activeTools =
+		event.activeTools !== undefined ? event.activeTools : entry.activeTools;
+	const lastAssistantMessage =
+		"lastAssistantMessage" in event
+			? event.lastAssistantMessage
+			: entry.lastAssistantMessage;
+
 	running.set(event.issueId, {
 		...entry,
 		lastEventAt: Date.now(),
@@ -238,6 +251,9 @@ export const consumeRuntimeEvent = (
 		totalTokens,
 		lastMessage,
 		eventTail,
+		phase,
+		activeTools,
+		lastAssistantMessage,
 	});
 
 	return {
