@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 const styles: Record<string, string> = {
 	connected: "bg-success",
 	connecting: "bg-warning animate-pulse",
+	reconnecting: "bg-warning animate-pulse",
 	disconnected: "bg-destructive",
 };
 

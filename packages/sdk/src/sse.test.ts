@@ -114,6 +114,50 @@ describe("connectSse", () => {
 		expect(timers).toHaveLength(1);
 	});
 
+	test("reconnect timer fires and triggers a new connection", async () => {
+		let fetchCount = 0;
+		const timers: TimerHandler[] = [];
+		globalThis.setTimeout = ((handler: TimerHandler) => {
+			timers.push(handler);
+			return timers.length as unknown as ReturnType<typeof setTimeout>;
+		}) as typeof setTimeout;
+		globalThis.clearTimeout = ((_timer) => undefined) as typeof clearTimeout;
+		console.warn = () => {};
+		globalThis.fetch = (async (..._args: Parameters<typeof fetch>) => {
+			fetchCount += 1;
+			return makeResponse([]);
+		}) as typeof fetch;
+
+		const statuses: SseStatus[] = [];
+		const connection = connectSse(
+			"http://example.test/events",
+			() => {},
+			(status) => {
+				statuses.push(status);
+			},
+		);
+
+		await Bun.sleep(25);
+		expect(fetchCount).toBe(1);
+
+		timers[0]!();
+		await Bun.sleep(25);
+		expect(fetchCount).toBe(2);
+
+		connection.close();
+		expect(statuses).toEqual([
+			"connecting",
+			"connected",
+			"disconnected",
+			"reconnecting",
+			"connecting",
+			"connected",
+			"disconnected",
+			"reconnecting",
+			"disconnected",
+		]);
+	});
+
 	test("close clears a pending reconnect and prevents another fetch", async () => {
 		const timers: TimerHandler[] = [];
 		const cleared: Array<ReturnType<typeof setTimeout>> = [];
