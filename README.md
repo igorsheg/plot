@@ -2,20 +2,17 @@
 
 plot orchestrates coding agents against an issue tracker.
 
-it polls for issues in active states, prepares an isolated workspace (via git worktrees), renders a task prompt from `WORKFLOW.md`, and runs an agent command. runtime state is exposed through a terminal dashboard (tui) or a web dashboard.
-
-## runtime shape
+it polls for issues in active states, prepares an isolated workspace (via git worktree), renders a task prompt from `WORKFLOW.md`, and runs an agent command. runtime state is exposed through a TUI or web dashboard.
 
 ```text
 issues ──> tracker ──> orchestrator ──> workspace manager ──> agent command
-                │              │                 │                    │
-                │              │                 │                    │
-                │              │                 └──── renders prompt from
-                │              │                       WORKFLOW.md
+                │              │                 │
+                │              │                 └── renders prompt from
+                │              │                     WORKFLOW.md
                 │              │
-                │              └──── retries, concurrency, timeouts
+                │              └── retries, concurrency, timeouts
                 │
-                └──── local-fs or github
+                └── local-fs or github
 
 server ──> rpc + sse ──> tui
                   └───> web dashboard
@@ -25,16 +22,16 @@ server ──> rpc + sse ──> tui
 
 ```text
 packages/
-  plot/       runtime, cli, tracker adapters, orchestrator, bundled agent skills
-  sdk/        typed schemas, rpc groups, client helpers, sse utilities
-  tui/        terminal dashboard (@opentui/core)
-  web/        browser dashboard (react 19, tanstack router, vite, tailwind v4)
+  plot/      runtime, cli, tracker adapters, orchestrator, bundled agent skills
+  sdk/       typed schemas, rpc groups, client helpers, sse utilities
+  tui/       terminal dashboard (@opentui)
+  web/       browser dashboard (react 19, tanstack router, vite)
 ```
 
 ## requirements
 
 - bun >= 1.3.5
-- a runnable agent command — default is `pi`, configured in `WORKFLOW.md`
+- a runnable agent command (default: `pi`, configured in `WORKFLOW.md`)
 - for github tracking: `gh` cli authenticated for the target repository
 
 ## quick start
@@ -43,7 +40,7 @@ packages/
 bun install
 ```
 
-launch the tui (starts server + terminal dashboard):
+launch the TUI dashboard (default command — starts server + tui):
 
 ```bash
 just plot
@@ -55,7 +52,7 @@ start the server headless:
 just plot serve
 ```
 
-start the server with the web dashboard:
+start the server and serve the web dashboard:
 
 ```bash
 just plot web
@@ -63,56 +60,43 @@ just plot web
 
 ## cli
 
-the cli binary is `plot-ai`. during development, run it through the justfile:
+the cli binary is `plot-ai`. during development, run it via `just plot` or directly:
 
 ```bash
-just plot [subcommand] [options]
+bun run packages/plot/src/cli/index.ts
 ```
 
 ### subcommands
 
 | command | description |
 |---------|-------------|
-| *(default)* | start server and launch tui dashboard |
+| *(default)* | start server and launch TUI dashboard |
 | `serve` | start the orchestrator server headless |
 | `web` | start server and serve the web dashboard |
 | `login [provider]` | login to a model provider |
 | `logout [provider]` | logout from a model provider |
-| `auth <status\|login\|logout> [provider]` | manage auth |
+| `auth <status\|login\|logout> [provider]` | manage auth credentials |
 
-### common options
+### common flags
 
-all subcommands accept:
+all server-backed commands accept:
 
 ```
---port <number>           server port (default: 3000)
---workflow <path>         path to WORKFLOW.md (default: ./WORKFLOW.md)
+--port <number>          server port (default: 3000)
+--workflow <path>        path to WORKFLOW.md (default: ./WORKFLOW.md)
 --tracker <local-fs|github>  tracker kind (default: local-fs)
 --github-repo <owner/repo>   github repo for github tracker
---issues-dir <path>       local issues directory (default: ./issues)
+--issues-dir <path>      local issues directory (default: ./issues)
 --log-format <pretty|json>   server log format (default: pretty)
---json                    emit machine-readable ndjson on stdout
---quiet                   suppress non-error human output
-```
-
-### examples
-
-```bash
-# tui with github tracker
-just plot --tracker github --github-repo owner/repo
-
-# headless server on custom port
-just plot serve --port 4000 --workflow ./WORKFLOW.md
-
-# web dashboard against local issues
-just plot web --tracker local-fs --issues-dir ./issues
+--json                   emit machine-readable ndjson on stdout
+--quiet                  suppress non-error human output
 ```
 
 ## tracker modes
 
 ### local files
 
-use markdown files in a directory (default `./issues`). a minimal issue file:
+use markdown files in a directory (default `./issues`):
 
 ```md
 ---
@@ -126,9 +110,13 @@ labels: [backend]
 implement exponential backoff for failed runs.
 ```
 
+```bash
+just plot serve --tracker local-fs --issues-dir ./issues
+```
+
 ### github
 
-reads issues through the `gh` cli and maps labels to workflow states.
+reads issues through the `gh` cli and maps labels to workflow states:
 
 ```bash
 just plot serve --tracker github --github-repo owner/repo
@@ -142,47 +130,40 @@ the yaml frontmatter defines tracker settings, polling intervals, workspace hook
 
 plot loads its bundled runtime skills from `packages/plot/resources/skills`. it also loads repo-local skills from `.agent/skills` and `.claude/skills` when those directories exist in the target workspace.
 
-the checked-in `WORKFLOW.md` in this repo is the best reference for supported fields.
-
-## development
-
-common commands via justfile:
-
-```bash
-just dev          # server + web in parallel (watch mode)
-just dev-server   # backend only (bun --watch)
-just dev-web      # web only (vite dev)
-just check        # typecheck + lint + format check
-just test         # bun test
-just build        # build all packages
-just ui-add NAME  # add a coss ui component to web
-just clean        # remove build artifacts and node_modules
-```
-
-equivalent bun scripts:
-
-```bash
-bun run dev:server    # watch mode backend
-bun run dev:web       # vite dev
-bun run typecheck     # tsc -b
-bun run lint          # oxlint
-bun run fmt           # oxfmt
-bun run check         # typecheck + lint + fmt:check
-bun run test          # bun test
-bun run build         # build all packages
-```
+the checked-in `WORKFLOW.md` in this repo exercises most supported fields.
 
 ## environment variables
 
-server config can also be set via env vars (see `.env.example`):
+settings can also be provided through env vars (see `.env.example`):
 
-| variable | default | description |
-|----------|---------|-------------|
-| `PLOT_PORT` | `3000` | server port |
-| `PLOT_WORKFLOW` | `./WORKFLOW.md` | workflow file path |
-| `PLOT_TRACKER_KIND` | `local-fs` | tracker kind (`local-fs` or `github`) |
-| `PLOT_ISSUES_DIR` | `./issues` | local issues directory |
-| `PLOT_GITHUB_REPO` | — | github repo (`owner/repo`) |
-| `PLOT_LOG_FORMAT` | `pretty` | log format (`pretty` or `json`) |
-| `PLOT_LOG_LEVEL` | `info` | log level |
-| `PLOT_WEB_DIST_DIR` | — | override packaged web assets path |
+| variable | description | default |
+|----------|-------------|---------|
+| `PLOT_PORT` | server port | `3000` |
+| `PLOT_WORKFLOW` | workflow file path | `./WORKFLOW.md` |
+| `PLOT_TRACKER_KIND` | `local-fs` or `github` | `local-fs` |
+| `PLOT_ISSUES_DIR` | local issues directory | `./issues` |
+| `PLOT_GITHUB_REPO` | github repo (`owner/repo`) | — |
+| `PLOT_LOG_FORMAT` | `pretty` or `json` | `pretty` |
+| `PLOT_LOG_LEVEL` | `debug`, `info`, `warning`, `error`, `none` | `info` |
+| `PLOT_WEB_DIST_DIR` | packaged web assets override | — |
+
+## development
+
+```bash
+just dev           # server + web in parallel
+just dev-server    # backend only (watch mode)
+just dev-web       # vite frontend only
+just check         # typecheck + lint + format check
+just test          # bun test
+just build         # build all packages
+just ui-add NAME   # add a coss ui component to web
+just clean         # remove build artifacts and node_modules
+```
+
+## stack
+
+- **runtime**: bun, typescript strict, effect ts
+- **backend**: @effect/rpc, @effect/platform-bun, liquidjs templates
+- **frontend**: react 19, tanstack router, tanstack query, vite, tailwind v4
+- **ui**: coss ui components, @opentui for tui
+- **quality**: oxlint, oxfmt
