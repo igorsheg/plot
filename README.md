@@ -49,19 +49,19 @@ bun install
 start the default dashboard:
 
 ```bash
-just plot
+bun run plot
 ```
 
 start the server without a dashboard:
 
 ```bash
-just plot serve
+bun run plot serve
 ```
 
 open the web dashboard:
 
 ```bash
-just plot web
+bun run plot web
 ```
 
 by default the cli reads `./WORKFLOW.md`, uses port `3000`, and uses the `local-fs` tracker unless told otherwise.
@@ -89,7 +89,7 @@ implement exponential backoff for failed runs.
 run against local issues:
 
 ```bash
-just plot serve --tracker local-fs --issues-dir ./issues
+bun run plot serve --tracker local-fs --issues-dir ./issues
 ```
 
 ### github
@@ -99,7 +99,7 @@ github mode reads issues through the `gh` cli and maps labels to workflow states
 run against a repository:
 
 ```bash
-just plot serve --tracker github --github-repo owner/repo
+bun run plot serve --tracker github --github-repo owner/repo
 ```
 
 ## workflow configuration
@@ -125,25 +125,31 @@ packages/
 
 ## development
 
+this is a bun workspace monorepo. root scripts live in `package.json`; a `justfile` provides short aliases for the same commands.
+
 common commands:
 
 ```bash
-just dev         # server + web
-just check       # typecheck + lint + format check
-just test        # bun test
-just build       # build all packages
+bun run dev:server          # backend in watch mode
+bun run dev:web             # web frontend via vite
+bun run check               # typecheck + lint + format check
+bun run test                # run workspace tests
+bun run build               # build all packages (bun --filter '*')
+bun run build:web           # build web only
 ```
 
-if you want the web app only:
+run both server and web in parallel with the justfile:
 
 ```bash
-just dev-web
+just dev                    # dev:server + dev:web in parallel
 ```
 
-if you want the backend only:
+quality checks individually:
 
 ```bash
-just dev-server
+bun run typecheck           # tsc -b
+bun run lint                # oxlint
+bun run fmt:check           # oxfmt --check
 ```
 
 ## notes
