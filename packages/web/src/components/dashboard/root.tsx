@@ -1,11 +1,20 @@
-import { use, createContext, useMemo, useState, type ReactNode } from "react";
+import {
+	use,
+	createContext,
+	useCallback,
+	useMemo,
+	useState,
+	type ReactNode,
+} from "react";
 
 export interface DashboardState {
 	focusedIssueId: string | null;
+	opsOpen: boolean;
 }
 
 export interface DashboardActions {
 	focusIssue: (id: string | null) => void;
+	toggleOps: () => void;
 }
 
 export interface DashboardContextValue {
@@ -26,13 +35,16 @@ export function useDashboard(): DashboardContextValue {
 
 export function Root({ children }: { children: ReactNode }) {
 	const [focusedIssueId, setFocusedIssueId] = useState<string | null>(null);
+	const [opsOpen, setOpsOpen] = useState(false);
+
+	const toggleOps = useCallback(() => setOpsOpen((prev) => !prev), []);
 
 	const value = useMemo(
 		() => ({
-			state: { focusedIssueId },
-			actions: { focusIssue: setFocusedIssueId },
+			state: { focusedIssueId, opsOpen },
+			actions: { focusIssue: setFocusedIssueId, toggleOps },
 		}),
-		[focusedIssueId],
+		[focusedIssueId, opsOpen, toggleOps],
 	);
 
 	return (

@@ -1,6 +1,7 @@
 import { createRoute } from "@tanstack/react-router";
 import { Route as rootRoute } from "./__root";
 import { Dashboard } from "@/components/dashboard";
+import { OpsPanel } from "@/components/dashboard/ops-panel";
 
 /**
  * keeps the default dashboard honest: orientation first, inspection second.
@@ -13,6 +14,7 @@ function DashboardPage() {
 	return (
 		<Dashboard.Root>
 			<Dashboard.Header />
+			<OpsPanel />
 			<div className="view-shell">
 				<Dashboard.WorkQueue />
 			</div>
