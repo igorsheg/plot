@@ -63,14 +63,6 @@ packages/
   web/    browser dashboard (tanstack spa)
 ```
 
-## stack
-
-- **runtime**: bun, typescript strict, effect ts (services, layers, fibers, refs, schedules)
-- **backend**: @effect/rpc, @effect/platform-bun
-- **frontend**: react 19, tanstack router + query, vite
-- **ui**: coss ui (tailwind v4), compound components, system dark/light mode
-- **quality**: oxlint, oxfmt
-
 ## development
 
 ```bash
