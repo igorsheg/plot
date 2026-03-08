@@ -41,7 +41,7 @@ export function Header() {
 							<TooltipPopup>stream {sseStatus}</TooltipPopup>
 						</Tooltip>
 					</TooltipProvider>
-					<Button variant="ghost" size="icon-xs" onClick={handleRefresh}>
+					<Button variant="ghost" size="icon-xs" aria-label="refresh" onClick={handleRefresh}>
 						<RefreshCwIcon />
 					</Button>
 				</div>
