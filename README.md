@@ -2,18 +2,7 @@
 
 plot orchestrates coding agents against an issue tracker.
 
-it is informed by openai's [symphony](https://github.com/openai/symphony/tree/main) spec and repo, but implemented here against this codebase's own runtime, workflow file, and dashboards.
-
-it polls for issues in active states, prepares an isolated workspace, renders a task prompt from `WORKFLOW.md`, runs an agent command, and exposes the runtime through a terminal or web dashboard.
-
-## what is in this repo
-
-- a tracker layer with two backends: local files and github
-- an orchestrator that loads workflow config, schedules runs, manages retries, and creates workspaces
-- a server that exposes runtime state
-- two dashboards: a tui and a web app
-- a product package that contains the runtime, cli, and publish launcher assets
-- embedded plot agent resources in `packages/plot/resources`
+it polls for issues in active states, prepares an isolated workspace (via git worktrees), renders a task prompt from `WORKFLOW.md`, and runs an agent command. runtime state is exposed through a terminal dashboard (tui) or a web dashboard.
 
 ## runtime shape
 
@@ -32,47 +21,98 @@ server ──> rpc + sse ──> tui
                   └───> web dashboard
 ```
 
+## repo layout
+
+```text
+packages/
+  plot/       runtime, cli, tracker adapters, orchestrator, bundled agent skills
+  sdk/        typed schemas, rpc groups, client helpers, sse utilities
+  tui/        terminal dashboard (@opentui/core)
+  web/        browser dashboard (react 19, tanstack router, vite, tailwind v4)
+```
+
 ## requirements
 
-- bun 1.3.5
-- a runnable agent command. the default is `pi`, configured through `WORKFLOW.md`
-- for github tracking: `gh` authenticated for the target repository
+- bun >= 1.3.5
+- a runnable agent command — default is `pi`, configured in `WORKFLOW.md`
+- for github tracking: `gh` cli authenticated for the target repository
 
 ## quick start
-
-install dependencies:
 
 ```bash
 bun install
 ```
 
-start the default dashboard:
+launch the tui (starts server + terminal dashboard):
 
 ```bash
 just plot
 ```
 
-start the server without a dashboard:
+start the server headless:
 
 ```bash
 just plot serve
 ```
 
-open the web dashboard:
+start the server with the web dashboard:
 
 ```bash
 just plot web
 ```
 
-by default the cli reads `./WORKFLOW.md`, uses port `3000`, and uses the `local-fs` tracker unless told otherwise.
+## cli
+
+the cli binary is `plot-ai`. during development, run it through the justfile:
+
+```bash
+just plot [subcommand] [options]
+```
+
+### subcommands
+
+| command | description |
+|---------|-------------|
+| *(default)* | start server and launch tui dashboard |
+| `serve` | start the orchestrator server headless |
+| `web` | start server and serve the web dashboard |
+| `login [provider]` | login to a model provider |
+| `logout [provider]` | logout from a model provider |
+| `auth <status\|login\|logout> [provider]` | manage auth |
+
+### common options
+
+all subcommands accept:
+
+```
+--port <number>           server port (default: 3000)
+--workflow <path>         path to WORKFLOW.md (default: ./WORKFLOW.md)
+--tracker <local-fs|github>  tracker kind (default: local-fs)
+--github-repo <owner/repo>   github repo for github tracker
+--issues-dir <path>       local issues directory (default: ./issues)
+--log-format <pretty|json>   server log format (default: pretty)
+--json                    emit machine-readable ndjson on stdout
+--quiet                   suppress non-error human output
+```
+
+### examples
+
+```bash
+# tui with github tracker
+just plot --tracker github --github-repo owner/repo
+
+# headless server on custom port
+just plot serve --port 4000 --workflow ./WORKFLOW.md
+
+# web dashboard against local issues
+just plot web --tracker local-fs --issues-dir ./issues
+```
 
 ## tracker modes
 
 ### local files
 
-use markdown files in a directory, default `./issues`.
-
-a minimal issue file looks like this:
+use markdown files in a directory (default `./issues`). a minimal issue file:
 
 ```md
 ---
@@ -86,17 +126,9 @@ labels: [backend]
 implement exponential backoff for failed runs.
 ```
 
-run against local issues:
-
-```bash
-just plot serve --tracker local-fs --issues-dir ./issues
-```
-
 ### github
 
-github mode reads issues through the `gh` cli and maps labels to workflow states.
-
-run against a repository:
+reads issues through the `gh` cli and maps labels to workflow states.
 
 ```bash
 just plot serve --tracker github --github-repo owner/repo
@@ -106,50 +138,51 @@ just plot serve --tracker github --github-repo owner/repo
 
 `WORKFLOW.md` is both config and prompt template.
 
-the yaml frontmatter defines tracker settings, polling, workspace hooks, agent limits, and server defaults. the markdown body is rendered into the prompt given to the agent for each issue.
+the yaml frontmatter defines tracker settings, polling intervals, workspace hooks, agent limits, and server defaults. the markdown body is a liquid template rendered into the prompt given to the agent for each issue.
 
-plot always loads its bundled runtime skills. it also loads repo-local skills from `.agent/skills` and `.claude/skills` when those directories exist in the target workspace. user-global pi skills are ignored.
+plot loads its bundled runtime skills from `packages/plot/resources/skills`. it also loads repo-local skills from `.agent/skills` and `.claude/skills` when those directories exist in the target workspace.
 
-this repo's checked-in `WORKFLOW.md` is the best reference because it exercises most of the supported fields.
-
-## repo layout
-
-```text
-packages/
-  plot/       runtime, cli, publish launcher, tracker adapters, orchestrator
-  sdk/        typed client helpers, schemas, rpc, shared consumer utilities
-  tui/        terminal dashboard
-  web/        browser dashboard
-  plot/resources/ embedded plot skills for bundled runs
-```
+the checked-in `WORKFLOW.md` in this repo is the best reference for supported fields.
 
 ## development
 
-common commands:
+common commands via justfile:
 
 ```bash
-just dev         # server + web
-just check       # typecheck + lint + format check
-just test        # bun test
-just build       # build all packages
+just dev          # server + web in parallel (watch mode)
+just dev-server   # backend only (bun --watch)
+just dev-web      # web only (vite dev)
+just check        # typecheck + lint + format check
+just test         # bun test
+just build        # build all packages
+just ui-add NAME  # add a coss ui component to web
+just clean        # remove build artifacts and node_modules
 ```
 
-if you want the web app only:
+equivalent bun scripts:
 
 ```bash
-just dev-web
+bun run dev:server    # watch mode backend
+bun run dev:web       # vite dev
+bun run typecheck     # tsc -b
+bun run lint          # oxlint
+bun run fmt           # oxfmt
+bun run check         # typecheck + lint + fmt:check
+bun run test          # bun test
+bun run build         # build all packages
 ```
 
-if you want the backend only:
+## environment variables
 
-```bash
-just dev-server
-```
+server config can also be set via env vars (see `.env.example`):
 
-## notes
-
-- the cli entrypoint is `packages/plot/src/cli`
-- the default command launches the server and tui together
-- `serve` runs headless
-- `web` starts the server and opens the browser dashboard
-- server config can also be provided through env vars such as `PLOT_PORT`, `PLOT_WORKFLOW`, `PLOT_TRACKER_KIND`, and `PLOT_GITHUB_REPO`
+| variable | default | description |
+|----------|---------|-------------|
+| `PLOT_PORT` | `3000` | server port |
+| `PLOT_WORKFLOW` | `./WORKFLOW.md` | workflow file path |
+| `PLOT_TRACKER_KIND` | `local-fs` | tracker kind (`local-fs` or `github`) |
+| `PLOT_ISSUES_DIR` | `./issues` | local issues directory |
+| `PLOT_GITHUB_REPO` | — | github repo (`owner/repo`) |
+| `PLOT_LOG_FORMAT` | `pretty` | log format (`pretty` or `json`) |
+| `PLOT_LOG_LEVEL` | `info` | log level |
+| `PLOT_WEB_DIST_DIR` | — | override packaged web assets path |
