@@ -15,6 +15,7 @@ export function StatusDot({ status, className }: StatusDotProps) {
 	return (
 		<span
 			className={cn("size-1.5 rounded-full", styles[status], className)}
+			title={status}
 			aria-label={status}
 		/>
 	);
