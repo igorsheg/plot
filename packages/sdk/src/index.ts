@@ -3,3 +3,4 @@ export * from "./sse.js";
 export * from "./format.js";
 export * from "./plot-agent-config.js";
 export * from "./contracts-index.js";
+export * from "./trace-grouping.js";
