@@ -6,6 +6,7 @@ import { statusLabel, statusVariant, isActiveState } from "./status";
 import { timeAgo as sharedTimeAgo } from "@plot/sdk";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { PhaseLabel } from "./phase-label";
 
 interface WorkRowProps {
 	entry: RunningEntry;
@@ -39,7 +40,7 @@ export function WorkRow({ entry, isSelected }: WorkRowProps) {
 				<div className="cluster-shell">
 					<span className="type-title truncate">{entry.issueIdentifier}</span>
 					<Badge variant={statusVariant(entry.state)} size="sm">
-						{statusLabel(entry.state)}
+						<PhaseLabel label={statusLabel(entry.state)} />
 					</Badge>
 				</div>
 			</div>
