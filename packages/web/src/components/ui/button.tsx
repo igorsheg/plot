@@ -1,4 +1,3 @@
-
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -35,8 +34,7 @@ const buttonVariants = cva(
           "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-destructive bg-destructive text-white shadow-destructive/24 shadow-xs hover:bg-destructive/90 data-pressed:bg-destructive/90 [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
         "destructive-outline":
           "border-input bg-popover not-dark:bg-clip-padding text-destructive-foreground shadow-xs/5 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:border-destructive/32 hover:bg-destructive/4 data-pressed:border-destructive/32 data-pressed:bg-destructive/4 dark:bg-input/32 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)] [:disabled,:active,[data-pressed]]:shadow-none",
-        ghost:
-          "border-transparent text-foreground hover:bg-accent data-pressed:bg-accent",
+        ghost: "border-transparent text-foreground hover:bg-accent data-pressed:bg-accent",
         link: "border-transparent underline-offset-4 hover:underline data-pressed:underline",
         outline:
           "border-input bg-popover not-dark:bg-clip-padding text-foreground shadow-xs/5 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:bg-accent/50 data-pressed:bg-accent/50 dark:bg-input/32 dark:data-pressed:bg-input/64 dark:hover:bg-input/64 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)] [:disabled,:active,[data-pressed]]:shadow-none",
@@ -53,8 +51,9 @@ interface ButtonProps extends useRender.ComponentProps<"button"> {
 }
 
 function Button({ className, variant, size, render, ...props }: ButtonProps) {
-  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] =
-    render ? undefined : "button";
+  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] = render
+    ? undefined
+    : "button";
 
   const defaultProps = {
     className: cn(buttonVariants({ className, size, variant })),

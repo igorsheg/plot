@@ -28,14 +28,14 @@ always remove the previous state label when adding the new one.
 
 ## available states
 
-| label | meaning | agent action |
-|-------|---------|-------------|
-| Todo | queued for work | move to In Progress, start execution |
-| In Progress | implementation underway | implement, verify, open PR, move to Human Review |
-| Human Review | PR open, waiting on human | do nothing, wait |
-| Rework | reviewer requested changes | read feedback, fix, move to Human Review |
-| Merging | human approved | merge PR, move to Done |
-| Done | terminal | stop |
+| label        | meaning                    | agent action                                     |
+| ------------ | -------------------------- | ------------------------------------------------ |
+| Todo         | queued for work            | move to In Progress, start execution             |
+| In Progress  | implementation underway    | implement, verify, open PR, move to Human Review |
+| Human Review | PR open, waiting on human  | do nothing, wait                                 |
+| Rework       | reviewer requested changes | read feedback, fix, move to Human Review         |
+| Merging      | human approved             | merge PR, move to Done                           |
+| Done         | terminal                   | stop                                             |
 
 ## workpad comment
 
@@ -87,12 +87,13 @@ gh api repos/igorsheg/plot/issues/comments/<comment-id> \
 
 ## workpad template
 
-```markdown
+````markdown
 ## Plot Workpad
 
 ```text
 <hostname>:<abs-workdir>@<short-sha>
 ```
+````
 
 ### Plan
 
@@ -112,7 +113,8 @@ gh api repos/igorsheg/plot/issues/comments/<comment-id> \
 ### Notes
 
 - <short progress note>
-```
+
+````
 
 ## issue queries
 
@@ -122,7 +124,7 @@ gh issue view <number> --repo igorsheg/plot --json title,body,state,labels,comme
 
 # list open issues by label
 gh issue list --repo igorsheg/plot --label "In Progress" --state open
-```
+````
 
 ## PR linkage
 

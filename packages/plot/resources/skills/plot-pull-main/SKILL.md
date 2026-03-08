@@ -14,33 +14,40 @@ description: "sync current branch with origin/main using merge and zdiff3 confli
 ## steps
 
 1. ensure working tree is clean:
+
    ```bash
    git status
    ```
+
    if dirty, commit or stash changes first.
 
 2. enable rerere for learned conflict resolution:
+
    ```bash
    git config rerere.enabled true
    git config rerere.autoupdate true
    ```
 
 3. fetch latest refs:
+
    ```bash
    git fetch origin
    ```
 
 4. sync remote feature branch first (catches remote auto-commits):
+
    ```bash
    git pull --ff-only origin $(git branch --show-current) || true
    ```
 
 5. merge origin/main with zdiff3 for clearer conflict context:
+
    ```bash
    git -c merge.conflictstyle=zdiff3 merge origin/main
    ```
 
 6. if conflicts appear, resolve them following the protocol below, then:
+
    ```bash
    git add <resolved-files>
    git merge --continue
@@ -55,6 +62,7 @@ description: "sync current branch with origin/main using merge and zdiff3 confli
 ## conflict resolution protocol
 
 - inspect before editing:
+
   ```bash
   git status                                    # list conflicted files
   git diff                                      # see conflict hunks

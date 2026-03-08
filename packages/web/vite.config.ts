@@ -1,6 +1,6 @@
-import { defineConfig } from "vite"
-import tailwindcss from "@tailwindcss/vite"
-import { fileURLToPath, URL } from "node:url"
+import { defineConfig } from "vite";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
   plugins: [tailwindcss()],
@@ -18,9 +18,9 @@ export default defineConfig({
     outDir: "dist",
     rollupOptions: {
       onwarn(warning, warn) {
-        if (warning.code === "MODULE_LEVEL_DIRECTIVE") return
-        warn(warning)
+        if (warning.code === "MODULE_LEVEL_DIRECTIVE") return;
+        warn(warning);
       },
     },
   },
-})
+});

@@ -1,148 +1,137 @@
 import { afterEach, expect, test } from "bun:test";
 import {
-	buildSelfCommandArgs,
-	normalizeCliProcessArgv,
-	resolveBundledPiSkillsDir,
-	resolveCliArgs,
-	resolveTuiServerLogPath,
-	resolveTuiServerWorkerPath,
-	stripBundledEntryArg,
-	toServerEnv,
-	toTuiServerEnv,
+  buildSelfCommandArgs,
+  normalizeCliProcessArgv,
+  resolveBundledPiSkillsDir,
+  resolveCliArgs,
+  resolveTuiServerLogPath,
+  resolveTuiServerWorkerPath,
+  stripBundledEntryArg,
+  toServerEnv,
+  toTuiServerEnv,
 } from "./runtime.js";
 
 const originalPiSkillsDir = process.env["PLOT_PI_SKILLS_DIR"];
 
 afterEach(() => {
-	if (originalPiSkillsDir === undefined) {
-		delete process.env["PLOT_PI_SKILLS_DIR"];
-		return;
-	}
-	process.env["PLOT_PI_SKILLS_DIR"] = originalPiSkillsDir;
+  if (originalPiSkillsDir === undefined) {
+    delete process.env["PLOT_PI_SKILLS_DIR"];
+    return;
+  }
+  process.env["PLOT_PI_SKILLS_DIR"] = originalPiSkillsDir;
 });
 
 test("toServerEnv prefers json logs for machine mode", () => {
-	const env = toServerEnv({
-		json: true,
-		quiet: false,
-		port: 3000,
-		workflow: "./WORKFLOW.md",
-		tracker: "local-fs",
-		"issues-dir": "./issues",
-		"log-format": "pretty",
-		"log-level": "info",
-	});
+  const env = toServerEnv({
+    json: true,
+    quiet: false,
+    port: 3000,
+    workflow: "./WORKFLOW.md",
+    tracker: "local-fs",
+    "issues-dir": "./issues",
+    "log-format": "pretty",
+    "log-level": "info",
+  });
 
-	expect(env["PLOT_LOG_FORMAT"]).toBe("json");
-	expect(env["PLOT_WEB_ENABLED"]).toBe("0");
+  expect(env["PLOT_LOG_FORMAT"]).toBe("json");
+  expect(env["PLOT_WEB_ENABLED"]).toBe("0");
 });
 
 test("toServerEnv keeps explicit log format for human mode", () => {
-	const env = toServerEnv({
-		json: false,
-		quiet: true,
-		port: 3000,
-		workflow: "./WORKFLOW.md",
-		tracker: "local-fs",
-		"issues-dir": "./issues",
-		"log-format": "pretty",
-		"log-level": "none",
-	});
+  const env = toServerEnv({
+    json: false,
+    quiet: true,
+    port: 3000,
+    workflow: "./WORKFLOW.md",
+    tracker: "local-fs",
+    "issues-dir": "./issues",
+    "log-format": "pretty",
+    "log-level": "none",
+  });
 
-	expect(env["PLOT_LOG_FORMAT"]).toBe("pretty");
-	expect(env["PLOT_LOG_LEVEL"]).toBe("none");
+  expect(env["PLOT_LOG_FORMAT"]).toBe("pretty");
+  expect(env["PLOT_LOG_LEVEL"]).toBe("none");
 });
 
 test("toServerEnv passes through a pi skills dir override", () => {
-	process.env["PLOT_PI_SKILLS_DIR"] = "/tmp/custom-skills";
+  process.env["PLOT_PI_SKILLS_DIR"] = "/tmp/custom-skills";
 
-	const env = toServerEnv({
-		json: false,
-		quiet: false,
-		port: 3000,
-		workflow: "./WORKFLOW.md",
-		tracker: "local-fs",
-		"issues-dir": "./issues",
-		"log-format": "pretty",
-		"log-level": "info",
-	});
+  const env = toServerEnv({
+    json: false,
+    quiet: false,
+    port: 3000,
+    workflow: "./WORKFLOW.md",
+    tracker: "local-fs",
+    "issues-dir": "./issues",
+    "log-format": "pretty",
+    "log-level": "info",
+  });
 
-	expect(env["PLOT_PI_SKILLS_DIR"]).toBe("/tmp/custom-skills");
+  expect(env["PLOT_PI_SKILLS_DIR"]).toBe("/tmp/custom-skills");
 });
 
 test("resolveBundledPiSkillsDir falls back to the bundled skills path", () => {
-	delete process.env["PLOT_PI_SKILLS_DIR"];
+  delete process.env["PLOT_PI_SKILLS_DIR"];
 
-	expect(resolveBundledPiSkillsDir()).toEndWith("/plot/resources/skills");
+  expect(resolveBundledPiSkillsDir()).toEndWith("/plot/resources/skills");
 });
 
 test("toServerEnv enables static web hosting only when requested", () => {
-	const env = toServerEnv({
-		json: false,
-		quiet: false,
-		port: 3000,
-		workflow: "./WORKFLOW.md",
-		tracker: "local-fs",
-		"issues-dir": "./issues",
-		"log-format": "pretty",
-		"log-level": "info",
-		web: true,
-	});
+  const env = toServerEnv({
+    json: false,
+    quiet: false,
+    port: 3000,
+    workflow: "./WORKFLOW.md",
+    tracker: "local-fs",
+    "issues-dir": "./issues",
+    "log-format": "pretty",
+    "log-level": "info",
+    web: true,
+  });
 
-	expect(env["PLOT_WEB_ENABLED"]).toBe("1");
+  expect(env["PLOT_WEB_ENABLED"]).toBe("1");
 });
 
 test("toTuiServerEnv disables terminal logs and adds a log file", () => {
-	const env = toTuiServerEnv({
-		json: false,
-		quiet: false,
-		port: 3000,
-		workflow: "./WORKFLOW.md",
-		tracker: "local-fs",
-		"issues-dir": "./issues",
-		"log-format": "pretty",
-		"log-level": "debug",
-	});
+  const env = toTuiServerEnv({
+    json: false,
+    quiet: false,
+    port: 3000,
+    workflow: "./WORKFLOW.md",
+    tracker: "local-fs",
+    "issues-dir": "./issues",
+    "log-format": "pretty",
+    "log-level": "debug",
+  });
 
-	expect(env["PLOT_LOG_FORMAT"]).toBe("json");
-	expect(env["PLOT_LOG_LEVEL"]).toBe("none");
-	expect(env["PLOT_TUI_SERVER_LOG_PATH"]).toBe(resolveTuiServerLogPath());
+  expect(env["PLOT_LOG_FORMAT"]).toBe("json");
+  expect(env["PLOT_LOG_LEVEL"]).toBe("none");
+  expect(env["PLOT_TUI_SERVER_LOG_PATH"]).toBe(resolveTuiServerLogPath());
 });
 
 test("resolveTuiServerWorkerPath points at the worker entry", () => {
-	expect(resolveTuiServerWorkerPath().pathname).toEndWith(
-		"/packages/plot/src/tui-worker.ts",
-	);
+  expect(resolveTuiServerWorkerPath().pathname).toEndWith("/packages/plot/src/tui-worker.ts");
 });
 
 test("stripBundledEntryArg drops bunfs argv entries", () => {
-	expect(stripBundledEntryArg(["/$bunfs/root/index.js", "serve"])).toEqual([
-		"serve",
-	]);
+  expect(stripBundledEntryArg(["/$bunfs/root/index.js", "serve"])).toEqual(["serve"]);
 });
 
 test("buildSelfCommandArgs skips bunfs entrypoints in compiled builds", () => {
-	expect(
-		buildSelfCommandArgs(
-			"/tmp/plot-ai",
-			"/$bunfs/root/index.js",
-			"__internal-server",
-		),
-	).toEqual(["/tmp/plot-ai", "__internal-server"]);
+  expect(
+    buildSelfCommandArgs("/tmp/plot-ai", "/$bunfs/root/index.js", "__internal-server"),
+  ).toEqual(["/tmp/plot-ai", "__internal-server"]);
 });
 
 test("resolveCliArgs drops script entries but keeps standalone argv", () => {
-	expect(resolveCliArgs(["bun", "/tmp/index.ts", "serve"])).toEqual(["serve"]);
-	expect(resolveCliArgs(["/tmp/plot-ai", "serve", "--json"])).toEqual([
-		"serve",
-		"--json",
-	]);
+  expect(resolveCliArgs(["bun", "/tmp/index.ts", "serve"])).toEqual(["serve"]);
+  expect(resolveCliArgs(["/tmp/plot-ai", "serve", "--json"])).toEqual(["serve", "--json"]);
 });
 
 test("normalizeCliProcessArgv gives effect cli a stable argv shape", () => {
-	expect(normalizeCliProcessArgv(["/tmp/plot-ai", "serve"])).toEqual([
-		"/tmp/plot-ai",
-		"/tmp/plot-ai",
-		"serve",
-	]);
+  expect(normalizeCliProcessArgv(["/tmp/plot-ai", "serve"])).toEqual([
+    "/tmp/plot-ai",
+    "/tmp/plot-ai",
+    "serve",
+  ]);
 });

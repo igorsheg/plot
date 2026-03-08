@@ -6,7 +6,5 @@
     "types": ["bun-types"]
   },
   "include": ["src", "src/**/*.test.ts"],
-  "references": [
-    { "path": "../sdk" }
-  ]
+  "references": [{ "path": "../sdk" }]
 }

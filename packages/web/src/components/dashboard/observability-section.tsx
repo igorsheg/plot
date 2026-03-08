@@ -151,9 +151,7 @@ export function ObservabilitySection() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between type-body">
                   <span className="type-meta">stops</span>
-                  <span className="type-body">
-                    {sum(observability.workerStopsByReason)}
-                  </span>
+                  <span className="type-body">{sum(observability.workerStopsByReason)}</span>
                 </div>
                 <ReasonList
                   reasons={observability.workerStopsByReason}
@@ -163,9 +161,7 @@ export function ObservabilitySection() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between type-body">
                   <span className="type-meta">exits</span>
-                  <span className="type-body">
-                    {sum(observability.workerExitsByReason)}
-                  </span>
+                  <span className="type-body">{sum(observability.workerExitsByReason)}</span>
                 </div>
                 <ReasonList
                   reasons={observability.workerExitsByReason}

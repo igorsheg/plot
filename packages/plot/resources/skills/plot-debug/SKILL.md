@@ -15,17 +15,17 @@ description: "investigate stuck runs, retry loops, and execution failures in the
 
 plot logs to stdout as structured key-value pairs. relevant log messages include:
 
-| message | meaning |
-|---------|---------|
-| `dispatch` | agent dispatched for issue |
-| `agent_session_created` | pi session started in workspace |
-| `retry_scheduled` | retry queued (continuation or error) |
-| `retry_issue_gone` | issue disappeared during retry |
-| `reconcile` | active run state check |
-| `tick` | poll cycle summary |
-| `workspace_ready` | workspace created/reused |
-| `agent_failed` | agent exited with error |
-| `worker_interrupted` | agent was stopped by reconciliation |
+| message                 | meaning                              |
+| ----------------------- | ------------------------------------ |
+| `dispatch`              | agent dispatched for issue           |
+| `agent_session_created` | pi session started in workspace      |
+| `retry_scheduled`       | retry queued (continuation or error) |
+| `retry_issue_gone`      | issue disappeared during retry       |
+| `reconcile`             | active run state check               |
+| `tick`                  | poll cycle summary                   |
+| `workspace_ready`       | workspace created/reused             |
+| `agent_failed`          | agent exited with error              |
+| `worker_interrupted`    | agent was stopped by reconciliation  |
 
 ## correlation keys
 
@@ -49,6 +49,7 @@ gh issue view <number> --repo igorsheg/plot --json labels
 ```
 
 possible causes:
+
 - missing or wrong label (state not in active_states)
 - issue already claimed (check `running` or `retrying` counts)
 - no available slots (`max_concurrent_agents` reached)
@@ -65,6 +66,7 @@ possible causes:
 ```
 
 possible causes:
+
 - agent waiting for user input (hard fail in pi)
 - stall timeout too short for complex tasks
 - workspace has broken state (missing deps, corrupt git)
@@ -78,6 +80,7 @@ possible causes:
 ```
 
 possible causes:
+
 - `continuation` retries are normal (agent finished, orchestrator re-checks if issue still active)
 - `retry_issue_gone` means issue was closed/moved to terminal state during retry
 - real errors trigger exponential backoff: 10s, 20s, 40s... up to max_retry_backoff_ms
@@ -107,6 +110,7 @@ cd workspaces/<workspace-key> && git status
 ## orchestrator state
 
 the server exposes runtime state at `http://localhost:3000/rpc` via RPC. the dashboard at `http://localhost:3000` shows:
+
 - running sessions with turn counts and token usage
 - retry queue with attempt numbers and due times
 - aggregate token totals and runtime

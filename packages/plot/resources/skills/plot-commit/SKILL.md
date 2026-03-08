@@ -14,6 +14,7 @@ description: "session-aware conventional commits for plot. produces commits with
 ## steps
 
 1. inspect working tree and staged changes:
+
    ```bash
    git status
    git diff
@@ -21,6 +22,7 @@ description: "session-aware conventional commits for plot. produces commits with
    ```
 
 2. stage only your changes explicitly — never `git add -A` or `git add .`:
+
    ```bash
    git add <specific-files>
    ```
@@ -36,6 +38,7 @@ description: "session-aware conventional commits for plot. produces commits with
    - `chore(scope):` — tooling, deps, config
 
 5. write the commit message:
+
    ```
    <type>(<scope>): <short summary, imperative mood, ≤72 chars>
 

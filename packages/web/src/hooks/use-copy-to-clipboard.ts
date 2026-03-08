@@ -10,35 +10,39 @@ export function useCopyToClipboard({
   const [isCopied, setIsCopied] = React.useState(false);
   const timeoutIdRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const copyToClipboard = React.useCallback((value: string) => {
-    if (typeof window === "undefined" || !navigator.clipboard.writeText) {
-      return;
-    }
+  const copyToClipboard = React.useCallback(
+    (value: string) => {
+      if (typeof window === "undefined" || !navigator.clipboard.writeText) {
+        return;
+      }
 
-    if (!value) return;
+      if (!value) return;
 
-    void navigator.clipboard.writeText(value)
-      .then(() => {
-        if (timeoutIdRef.current) {
-          clearTimeout(timeoutIdRef.current);
-        }
-        setIsCopied(true);
+      void navigator.clipboard
+        .writeText(value)
+        .then(() => {
+          if (timeoutIdRef.current) {
+            clearTimeout(timeoutIdRef.current);
+          }
+          setIsCopied(true);
 
-        onCopy?.();
+          onCopy?.();
 
-        if (timeout !== 0) {
-          timeoutIdRef.current = setTimeout(() => {
-            setIsCopied(false);
-            timeoutIdRef.current = null;
-          }, timeout);
-        }
+          if (timeout !== 0) {
+            timeoutIdRef.current = setTimeout(() => {
+              setIsCopied(false);
+              timeoutIdRef.current = null;
+            }, timeout);
+          }
 
-        return undefined;
-      })
-      .catch((error: unknown) => {
-        console.error(error);
-      });
-  }, [onCopy, timeout]);
+          return undefined;
+        })
+        .catch((error: unknown) => {
+          console.error(error);
+        });
+    },
+    [onCopy, timeout],
+  );
 
   // Cleanup timeout on unmount
   React.useEffect(() => {

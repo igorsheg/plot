@@ -1,4 +1,3 @@
-
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
@@ -33,11 +32,7 @@ function BreadcrumbItem({ className, ...props }: React.ComponentProps<"li">) {
   );
 }
 
-function BreadcrumbLink({
-  className,
-  render,
-  ...props
-}: useRender.ComponentProps<"a">) {
+function BreadcrumbLink({ className, render, ...props }: useRender.ComponentProps<"a">) {
   const defaultProps = {
     className: cn("transition-colors hover:text-foreground", className),
     "data-slot": "breadcrumb-link",
@@ -64,11 +59,7 @@ function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {
   );
 }
 
-function BreadcrumbSeparator({
-  children,
-  className,
-  ...props
-}: React.ComponentProps<"li">) {
+function BreadcrumbSeparator({ children, className, ...props }: React.ComponentProps<"li">) {
   return (
     <li
       aria-hidden="true"
@@ -82,10 +73,7 @@ function BreadcrumbSeparator({
   );
 }
 
-function BreadcrumbEllipsis({
-  className,
-  ...props
-}: React.ComponentProps<"span">) {
+function BreadcrumbEllipsis({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
       aria-hidden="true"

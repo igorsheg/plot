@@ -3,20 +3,20 @@ import type { Issue, IssueStateEntry } from "../schemas/issue.js";
 import type { TrackerError } from "../schemas/errors.js";
 
 export interface TrackerClientShape {
-	readonly fetchCandidateIssues: (
-		dispatchStates: ReadonlyArray<string>,
-	) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
+  readonly fetchCandidateIssues: (
+    dispatchStates: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
 
-	readonly fetchIssuesByStates: (
-		states: ReadonlyArray<string>,
-	) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
+  readonly fetchIssuesByStates: (
+    states: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
 
-	readonly fetchIssueStatesByIds: (
-		ids: ReadonlyArray<string>,
-	) => Effect.Effect<ReadonlyArray<IssueStateEntry>, TrackerError>;
+  readonly fetchIssueStatesByIds: (
+    ids: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<IssueStateEntry>, TrackerError>;
 }
 
 export class TrackerClient extends Context.Tag("TrackerClient")<
-	TrackerClient,
-	TrackerClientShape
+  TrackerClient,
+  TrackerClientShape
 >() {}

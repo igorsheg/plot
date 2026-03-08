@@ -12,10 +12,7 @@ const BREAKPOINTS = {
 
 type Breakpoint = keyof typeof BREAKPOINTS;
 
-type BreakpointQuery =
-  | Breakpoint
-  | `max-${Breakpoint}`
-  | `${Breakpoint}:max-${Breakpoint}`;
+type BreakpointQuery = Breakpoint | `max-${Breakpoint}` | `${Breakpoint}:max-${Breakpoint}`;
 
 export type MediaQueryInput = {
   min?: Breakpoint | number;
@@ -34,9 +31,7 @@ function resolveMax(value: Breakpoint | number): string {
   return `(max-width: ${px - 1}px)`;
 }
 
-function parseQuery(
-  query: BreakpointQuery | MediaQueryInput | (string & {}),
-): string {
+function parseQuery(query: BreakpointQuery | MediaQueryInput | (string & {})): string {
   if (typeof query !== "string") {
     const parts: string[] = [];
     if (query.min != null) parts.push(resolveMin(query.min));
@@ -66,9 +61,7 @@ function getServerSnapshot(): boolean {
   return false;
 }
 
-export function useMediaQuery(
-  query: BreakpointQuery | MediaQueryInput | (string & {}),
-): boolean {
+export function useMediaQuery(query: BreakpointQuery | MediaQueryInput | (string & {})): boolean {
   const mediaQuery = parseQuery(query);
 
   const subscribe = useCallback(

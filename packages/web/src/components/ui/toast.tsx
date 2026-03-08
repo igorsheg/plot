@@ -1,4 +1,3 @@
-
 import { Toast } from "@base-ui/react/toast";
 import {
   CircleAlertIcon,
@@ -53,11 +52,7 @@ interface ToastProviderProps extends Toast.Provider.Props {
   position?: ToastPosition;
 }
 
-function ToastProvider({
-  children,
-  position = "bottom-right",
-  ...props
-}: ToastProviderProps) {
+function ToastProvider({ children, position = "bottom-right", ...props }: ToastProviderProps) {
   return (
     <Toast.Provider toastManager={toastManager} {...props}>
       {children}
@@ -87,9 +82,7 @@ function Toasts({ position = "bottom-right" }: { position: ToastPosition }) {
         data-slot="toast-viewport"
       >
         {toasts.map((toast) => {
-          const Icon = toast.type
-            ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
-            : null;
+          const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
 
           return (
             <Toast.Root
@@ -151,10 +144,7 @@ function Toasts({ position = "bottom-right" }: { position: ToastPosition }) {
                   )}
 
                   <div className="flex flex-col gap-0.5">
-                    <Toast.Title
-                      className="font-medium"
-                      data-slot="toast-title"
-                    />
+                    <Toast.Title className="font-medium" data-slot="toast-title" />
                     <Toast.Description
                       className="text-muted-foreground"
                       data-slot="toast-description"
@@ -162,10 +152,7 @@ function Toasts({ position = "bottom-right" }: { position: ToastPosition }) {
                   </div>
                 </div>
                 {toast.actionProps && (
-                  <Toast.Action
-                    className={buttonVariants({ size: "xs" })}
-                    data-slot="toast-action"
-                  >
+                  <Toast.Action className={buttonVariants({ size: "xs" })} data-slot="toast-action">
                     {toast.actionProps.children}
                   </Toast.Action>
                 )}
@@ -192,16 +179,10 @@ function AnchoredToasts() {
 
   return (
     <Toast.Portal data-slot="toast-portal-anchored">
-      <Toast.Viewport
-        className="outline-none"
-        data-slot="toast-viewport-anchored"
-      >
+      <Toast.Viewport className="outline-none" data-slot="toast-viewport-anchored">
         {toasts.map((toast) => {
-          const Icon = toast.type
-            ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
-            : null;
-          const tooltipStyle =
-            (toast.data as { tooltipStyle?: boolean })?.tooltipStyle ?? false;
+          const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
+          const tooltipStyle = (toast.data as { tooltipStyle?: boolean })?.tooltipStyle ?? false;
           const positionerProps = toast.positionerProps;
 
           if (!positionerProps?.anchor) {
@@ -243,10 +224,7 @@ function AnchoredToasts() {
                       )}
 
                       <div className="flex flex-col gap-0.5">
-                        <Toast.Title
-                          className="font-medium"
-                          data-slot="toast-title"
-                        />
+                        <Toast.Title className="font-medium" data-slot="toast-title" />
                         <Toast.Description
                           className="text-muted-foreground"
                           data-slot="toast-description"

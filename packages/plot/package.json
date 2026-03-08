@@ -2,35 +2,32 @@
   "name": "@plot/plot",
   "version": "0.0.1",
   "private": true,
-  "type": "module",
-  "license": "UNLICENSED",
   "description": "orchestrate coding agents against an issue tracker",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/igorsheg/plot.git"
-  },
+  "keywords": [
+    "agents",
+    "ai",
+    "cli",
+    "github",
+    "orchestrator"
+  ],
   "homepage": "https://github.com/igorsheg/plot",
   "bugs": {
     "url": "https://github.com/igorsheg/plot/issues"
   },
-  "engines": {
-    "node": ">=18"
-  },
-  "keywords": [
-    "ai",
-    "cli",
-    "agents",
-    "orchestrator",
-    "github"
-  ],
-  "publishConfig": {
-    "access": "public"
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorsheg/plot.git"
   },
   "bin": {
     "plot-ai": "./src/cli/index.ts"
   },
+  "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "dev": "bun run --watch src/main.ts",
@@ -54,5 +51,8 @@
   },
   "devDependencies": {
     "bun-types": "latest"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

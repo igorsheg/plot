@@ -1,4 +1,3 @@
-
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { ChevronDownIcon } from "lucide-react";
 
@@ -18,11 +17,7 @@ function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props) {
   );
 }
 
-function AccordionTrigger({
-  className,
-  children,
-  ...props
-}: AccordionPrimitive.Trigger.Props) {
+function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.Trigger.Props) {
   return (
     <AccordionPrimitive.Header className="flex">
       <AccordionPrimitive.Trigger
@@ -43,11 +38,7 @@ function AccordionTrigger({
   );
 }
 
-function AccordionPanel({
-  className,
-  children,
-  ...props
-}: AccordionPrimitive.Panel.Props) {
+function AccordionPanel({ className, children, ...props }: AccordionPrimitive.Panel.Props) {
   return (
     <AccordionPrimitive.Panel
       className="h-(--accordion-panel-height) overflow-hidden text-muted-foreground text-sm transition-[height] duration-200 ease-in-out data-ending-style:h-0 data-starting-style:h-0"

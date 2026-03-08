@@ -13,7 +13,7 @@
     "lint": "oxlint src --tsconfig ../../tsconfig.json"
   },
   "dependencies": {
-    "@opentui/core": "latest",
+    "@mariozechner/pi-tui": "^0.57.1",
     "@plot/sdk": "workspace:*",
     "effect": "latest"
   },

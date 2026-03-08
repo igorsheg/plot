@@ -6,11 +6,7 @@ import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import * as ValidationError from "@effect/cli/ValidationError";
 import { runServerMain } from "../index.js";
-import {
-	CliError,
-	createCliOutput,
-	resolveRequestedOutputMode,
-} from "./shared/io.js";
+import { CliError, createCliOutput, resolveRequestedOutputMode } from "./shared/io.js";
 import { normalizeCliProcessArgv, resolveCliArgs } from "./shared/runtime.js";
 import { createTuiCommand } from "./commands/tui.js";
 import { ServeCommand } from "./commands/serve.js";
@@ -26,56 +22,50 @@ const output = createCliOutput(resolveRequestedOutputMode(argv));
 const [internalCommand] = argv;
 
 if (internalCommand === "__internal-server") {
-	await runServerMain(process.env as Record<string, string | undefined>);
-	await new Promise(() => {});
+  await runServerMain(process.env as Record<string, string | undefined>);
+  await new Promise(() => {});
 } else {
-	const cli = createTuiCommand(CLI_NAME).pipe(
-		Command.withSubcommands([
-			ServeCommand,
-			WebCommand,
-			LoginCommand,
-			LogoutCommand,
-			AuthCommand,
-		]),
-		Command.run({
-			name: CLI_NAME,
-			version: VERSION,
-			summary: Span.text("orchestrate coding agents against an issue tracker"),
-			footer: HelpDoc.blocks([
-				HelpDoc.h1("EXAMPLES"),
-				HelpDoc.p(Span.code(CLI_NAME)),
-				HelpDoc.p(Span.code(`${CLI_NAME} serve --workflow ./WORKFLOW.md`)),
-				HelpDoc.p(Span.code(`${CLI_NAME} web --port 4000`)),
-			]),
-		}),
-	);
+  const cli = createTuiCommand(CLI_NAME).pipe(
+    Command.withSubcommands([ServeCommand, WebCommand, LoginCommand, LogoutCommand, AuthCommand]),
+    Command.run({
+      name: CLI_NAME,
+      version: VERSION,
+      summary: Span.text("orchestrate coding agents against an issue tracker"),
+      footer: HelpDoc.blocks([
+        HelpDoc.h1("EXAMPLES"),
+        HelpDoc.p(Span.code(CLI_NAME)),
+        HelpDoc.p(Span.code(`${CLI_NAME} serve --workflow ./WORKFLOW.md`)),
+        HelpDoc.p(Span.code(`${CLI_NAME} web --port 4000`)),
+      ]),
+    }),
+  );
 
-	await cli(normalizeCliProcessArgv(process.argv)).pipe(
-		Effect.provide(BunContext.layer),
-		Effect.catchAll((error: unknown) => {
-			if (ValidationError.isValidationError(error)) {
-				return Effect.void;
-			}
-			if (isCliError(error)) {
-				return Effect.sync(() => {
-					output.error({
-						kind: error.kind,
-						message: error.message,
-						exitCode: error.exitCode,
-					});
-					process.exit(error.exitCode);
-				});
-			}
-			return Effect.sync(() => {
-				const message = error instanceof Error ? error.message : String(error);
-				output.error({ kind: "runtime", message, exitCode: 1 });
-				process.exit(1);
-			});
-		}),
-		Effect.runPromise,
-	);
+  await cli(normalizeCliProcessArgv(process.argv)).pipe(
+    Effect.provide(BunContext.layer),
+    Effect.catchAll((error: unknown) => {
+      if (ValidationError.isValidationError(error)) {
+        return Effect.void;
+      }
+      if (isCliError(error)) {
+        return Effect.sync(() => {
+          output.error({
+            kind: error.kind,
+            message: error.message,
+            exitCode: error.exitCode,
+          });
+          process.exit(error.exitCode);
+        });
+      }
+      return Effect.sync(() => {
+        const message = error instanceof Error ? error.message : String(error);
+        output.error({ kind: "runtime", message, exitCode: 1 });
+        process.exit(1);
+      });
+    }),
+    Effect.runPromise,
+  );
 }
 
 function isCliError(error: unknown): error is CliError {
-	return error instanceof CliError;
+  return error instanceof CliError;
 }

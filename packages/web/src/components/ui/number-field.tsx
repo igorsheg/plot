@@ -1,4 +1,3 @@
-
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { MinusIcon, PlusIcon } from "lucide-react";
 import * as React from "react";
@@ -35,10 +34,7 @@ function NumberField({
   );
 }
 
-function NumberFieldGroup({
-  className,
-  ...props
-}: NumberFieldPrimitive.Group.Props) {
+function NumberFieldGroup({ className, ...props }: NumberFieldPrimitive.Group.Props) {
   return (
     <NumberFieldPrimitive.Group
       className={cn(
@@ -51,10 +47,7 @@ function NumberFieldGroup({
   );
 }
 
-function NumberFieldDecrement({
-  className,
-  ...props
-}: NumberFieldPrimitive.Decrement.Props) {
+function NumberFieldDecrement({ className, ...props }: NumberFieldPrimitive.Decrement.Props) {
   return (
     <NumberFieldPrimitive.Decrement
       className={cn(
@@ -69,10 +62,7 @@ function NumberFieldDecrement({
   );
 }
 
-function NumberFieldIncrement({
-  className,
-  ...props
-}: NumberFieldPrimitive.Increment.Props) {
+function NumberFieldIncrement({ className, ...props }: NumberFieldPrimitive.Increment.Props) {
   return (
     <NumberFieldPrimitive.Increment
       className={cn(
@@ -87,10 +77,7 @@ function NumberFieldIncrement({
   );
 }
 
-function NumberFieldInput({
-  className,
-  ...props
-}: NumberFieldPrimitive.Input.Props) {
+function NumberFieldInput({ className, ...props }: NumberFieldPrimitive.Input.Props) {
   return (
     <NumberFieldPrimitive.Input
       className={cn(

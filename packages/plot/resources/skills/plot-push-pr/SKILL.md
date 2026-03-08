@@ -14,22 +14,27 @@ description: "push branch and create/update pull request for plot. handles PR cr
 ## steps
 
 1. identify current branch and confirm it's not `main`:
+
    ```bash
    branch=$(git branch --show-current)
    if [ "$branch" = "main" ]; then echo "ERROR: do not push directly to main"; exit 1; fi
    ```
 
 2. run validation before pushing:
+
    ```bash
    bun run typecheck
    bun run lint
    ```
 
 3. push branch to origin:
+
    ```bash
    git push -u origin HEAD
    ```
+
    if push is rejected (non-fast-forward), sync first:
+
    ```bash
    git fetch origin
    git merge origin/main
@@ -37,6 +42,7 @@ description: "push branch and create/update pull request for plot. handles PR cr
    ```
 
 4. check if a PR already exists for this branch:
+
    ```bash
    pr_state=$(gh pr view --json state -q .state --repo igorsheg/plot 2>/dev/null || echo "NONE")
    ```
@@ -47,6 +53,7 @@ description: "push branch and create/update pull request for plot. handles PR cr
    - `MERGED` or `CLOSED` → branch is stale; create a new branch and PR
 
 6. create PR with template compliance:
+
    ```bash
    gh pr create \
      --title "<issue-id>: <clear description of change>" \

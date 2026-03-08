@@ -1,4 +1,3 @@
-
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 
 import { cn } from "@/lib/utils";
@@ -7,17 +6,9 @@ const PopoverCreateHandle = PopoverPrimitive.createHandle;
 
 const Popover = PopoverPrimitive.Root;
 
-function PopoverTrigger({
-  className,
-  children,
-  ...props
-}: PopoverPrimitive.Trigger.Props) {
+function PopoverTrigger({ className, children, ...props }: PopoverPrimitive.Trigger.Props) {
   return (
-    <PopoverPrimitive.Trigger
-      className={className}
-      data-slot="popover-trigger"
-      {...props}
-    >
+    <PopoverPrimitive.Trigger className={className} data-slot="popover-trigger" {...props}>
       {children}
     </PopoverPrimitive.Trigger>
   );
@@ -93,10 +84,7 @@ function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
   );
 }
 
-function PopoverDescription({
-  className,
-  ...props
-}: PopoverPrimitive.Description.Props) {
+function PopoverDescription({ className, ...props }: PopoverPrimitive.Description.Props) {
   return (
     <PopoverPrimitive.Description
       className={cn("text-muted-foreground text-sm", className)}

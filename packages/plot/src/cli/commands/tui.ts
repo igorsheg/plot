@@ -6,32 +6,29 @@ import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { createTuiRuntimeHandle } from "../shared/tui-runtime.js";
 
 export function createTuiCommand(name: string) {
-	return Command.make(name, cliCommandOptions, (args) =>
-		Effect.gen(function* () {
-			ensureJsonSupported(args.json, "tui");
-			ensureTuiSupported();
-			const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
-			const runtime = yield* Effect.promise(() =>
-				createTuiRuntimeHandle(toServerOptions(args, logLevel)),
-			).pipe(
-				Effect.mapError(
-					(error) =>
-						new Error(
-							"failed to start tui runtime; logs: ~/.plot/logs/tui-server.log",
-							{
-								cause: error,
-							},
-						),
-				),
-			);
+  return Command.make(name, cliCommandOptions, (args) =>
+    Effect.gen(function* () {
+      ensureJsonSupported(args.json, "tui");
+      ensureTuiSupported();
+      const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
+      const runtime = yield* Effect.promise(() =>
+        createTuiRuntimeHandle(toServerOptions(args, logLevel)),
+      ).pipe(
+        Effect.mapError(
+          (error) =>
+            new Error("failed to start tui runtime; logs: ~/.plot/logs/tui-server.log", {
+              cause: error,
+            }),
+        ),
+      );
 
-			yield* Effect.promise(() => runTui({ api: runtime.api })).pipe(
-				Effect.ensuring(
-					Effect.sync(() => {
-						runtime.close();
-					}),
-				),
-			);
-		}),
-	).pipe(Command.withDescription("start server and launch TUI dashboard"));
+      yield* Effect.promise(() => runTui({ api: runtime.api })).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            runtime.close();
+          }),
+        ),
+      );
+    }),
+  ).pipe(Command.withDescription("start server and launch TUI dashboard"));
 }

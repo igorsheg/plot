@@ -5,9 +5,9 @@ import { EventRow } from "./event-row";
 import { DetailPane } from "./detail-pane";
 
 export const TraceViewer = {
-	Root,
-	Toolbar,
-	EventList,
-	EventRow,
-	DetailPane,
+  Root,
+  Toolbar,
+  EventList,
+  EventRow,
+  DetailPane,
 };

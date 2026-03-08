@@ -1,4 +1,3 @@
-
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -147,20 +146,14 @@ function SheetFooter({
 function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
-      className={cn(
-        "font-heading font-semibold text-xl leading-none",
-        className,
-      )}
+      className={cn("font-heading font-semibold text-xl leading-none", className)}
       data-slot="sheet-title"
       {...props}
     />
   );
 }
 
-function SheetDescription({
-  className,
-  ...props
-}: SheetPrimitive.Description.Props) {
+function SheetDescription({ className, ...props }: SheetPrimitive.Description.Props) {
   return (
     <SheetPrimitive.Description
       className={cn("text-muted-foreground text-sm", className)}

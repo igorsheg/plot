@@ -1,4 +1,3 @@
-
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
@@ -11,17 +10,9 @@ const Menu = MenuPrimitive.Root;
 
 const MenuPortal = MenuPrimitive.Portal;
 
-function MenuTrigger({
-  className,
-  children,
-  ...props
-}: MenuPrimitive.Trigger.Props) {
+function MenuTrigger({ className, children, ...props }: MenuPrimitive.Trigger.Props) {
   return (
-    <MenuPrimitive.Trigger
-      className={className}
-      data-slot="menu-trigger"
-      {...props}
-    >
+    <MenuPrimitive.Trigger className={className} data-slot="menu-trigger" {...props}>
       {children}
     </MenuPrimitive.Trigger>
   );
@@ -62,9 +53,7 @@ function MenuPopup({
           data-slot="menu-popup"
           {...props}
         >
-          <div className="max-h-(--available-height) w-full overflow-y-auto p-1">
-            {children}
-          </div>
+          <div className="max-h-(--available-height) w-full overflow-y-auto p-1">{children}</div>
         </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
@@ -112,9 +101,7 @@ function MenuCheckboxItem({
       checked={checked}
       className={cn(
         "grid min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-default items-center gap-2 rounded-sm py-1 ps-2 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-        variant === "switch"
-          ? "grid-cols-[1fr_auto] gap-4 pe-1.5"
-          : "grid-cols-[.75rem_1fr] pe-4",
+        variant === "switch" ? "grid-cols-[1fr_auto] gap-4 pe-1.5" : "grid-cols-[.75rem_1fr] pe-4",
         className,
       )}
       data-slot="menu-checkbox-item"
@@ -158,11 +145,7 @@ function MenuRadioGroup(props: MenuPrimitive.RadioGroup.Props) {
   return <MenuPrimitive.RadioGroup data-slot="menu-radio-group" {...props} />;
 }
 
-function MenuRadioItem({
-  className,
-  children,
-  ...props
-}: MenuPrimitive.RadioItem.Props) {
+function MenuRadioItem({ className, children, ...props }: MenuPrimitive.RadioItem.Props) {
   return (
     <MenuPrimitive.RadioItem
       className={cn(

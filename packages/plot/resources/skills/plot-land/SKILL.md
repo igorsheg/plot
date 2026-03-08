@@ -21,6 +21,7 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
 ## steps
 
 1. locate the PR:
+
    ```bash
    branch=$(git branch --show-current)
    pr_number=$(gh pr view --json number -q .number --repo igorsheg/plot)
@@ -47,6 +48,7 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
    do not merge while review comments are outstanding.
 
 3. check mergeability:
+
    ```bash
    mergeable=$(gh pr view --json mergeable -q .mergeable --repo igorsheg/plot)
    ```
@@ -59,12 +61,14 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
    - wait and re-check
 
 4. run local verification:
+
    ```bash
    bun run typecheck
    bun run lint
    ```
 
 5. watch CI checks:
+
    ```bash
    gh pr checks $pr_number --repo igorsheg/plot --watch
    ```
@@ -77,6 +81,7 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
    use judgment for flaky failures (timeouts on one platform) — may proceed.
 
 6. squash-merge:
+
    ```bash
    pr_title=$(gh pr view --json title -q .title --repo igorsheg/plot)
    gh pr merge $pr_number --squash --subject "$pr_title" --repo igorsheg/plot

@@ -17,8 +17,8 @@ polling:
 workspace:
   root: ./workspaces
 hooks:
-  after_create: "WS=$PWD && cd ../.. && rmdir \"$WS\" && git worktree add \"$WS\" HEAD --detach && cd \"$WS\" && bun install --frozen-lockfile"
-  before_remove: "WS=$PWD && cd ../.. && git worktree remove \"$WS\" --force || true"
+  after_create: 'WS=$PWD && cd ../.. && rmdir "$WS" && git worktree add "$WS" HEAD --detach && cd "$WS" && bun install --frozen-lockfile'
+  before_remove: 'WS=$PWD && cd ../.. && git worktree remove "$WS" --force || true'
   timeout_ms: 120000
 agent:
   max_concurrent_agents: 5
@@ -35,7 +35,9 @@ server:
 You are working on issue **{{ issue.identifier }}: {{ issue.title }}** in the `igorsheg/plot` repository.
 
 {% if issue.description %}
+
 ## Description
+
 {{ issue.description }}
 {% endif %}
 
@@ -45,13 +47,14 @@ You are working on issue **{{ issue.identifier }}: {{ issue.title }}** in the `i
 
 {% if attempt %}
 Continuation context:
+
 - This is retry attempt #{{ attempt }} because the issue is still in an active state.
 - Resume from the current workspace state instead of restarting from scratch.
 - Do not repeat already-completed investigation or validation unless needed for new code changes.
 - Do not end the turn while the issue remains in an active state unless you are blocked by missing required permissions/secrets.
-{% else %}
-Start fresh. Read the codebase, understand the context, then implement the changes.
-{% endif %}
+  {% else %}
+  Start fresh. Read the codebase, understand the context, then implement the changes.
+  {% endif %}
 
 ## Posture
 
@@ -75,14 +78,14 @@ Use these project skills during execution. Load each skill when you reach its st
 
 ## Status map
 
-| state | agent action |
-|-------|-------------|
-| Todo | move to In Progress, then run implementation flow |
-| In Progress | continue implementation flow |
-| Human Review | do nothing — wait for human to change state |
-| Rework | run rework flow |
-| Merging | run `plot-land` skill |
-| Done / Closed | do nothing, shut down |
+| state         | agent action                                      |
+| ------------- | ------------------------------------------------- |
+| Todo          | move to In Progress, then run implementation flow |
+| In Progress   | continue implementation flow                      |
+| Human Review  | do nothing — wait for human to change state       |
+| Rework        | run rework flow                                   |
+| Merging       | run `plot-land` skill                             |
+| Done / Closed | do nothing, shut down                             |
 
 ## Step 0: Route by current state
 
