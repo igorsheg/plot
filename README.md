@@ -6,9 +6,52 @@
 
 ---
 
-plot polls for issues in active states, prepares isolated workspaces, renders task prompts from a workflow file, runs an agent command, and exposes runtime state through a web or terminal dashboard.
+## usage
 
-informed by openai's [symphony](https://github.com/openai/symphony) spec.
+```bash
+npx plot-ai
+```
+
+this starts the server + tui dashboard. plot reads `WORKFLOW.md` from the current directory for tracker config and prompt templates.
+
+### commands
+
+| command | description |
+|---|---|
+| `plot-ai` | server + tui dashboard (default) |
+| `plot-ai serve` | headless server |
+| `plot-ai web` | server + browser dashboard |
+| `plot-ai auth status` | check auth state |
+| `plot-ai auth login [provider]` | login to a model provider |
+| `plot-ai auth logout [provider]` | logout from a model provider |
+
+### options
+
+shared across `plot-ai`, `serve`, and `web`:
+
+| flag | default | description |
+|---|---|---|
+| `--port` | `3000` | server port |
+| `--workflow` | `./WORKFLOW.md` | path to workflow file |
+| `--tracker` | — | tracker backend (`local-fs` or `github`) |
+| `--github-repo` | — | github repo (`owner/repo`) for github tracker |
+| `--issues-dir` | — | local issues directory |
+| `--json` | `false` | ndjson output (serve only) |
+| `--quiet` | `false` | suppress non-error output |
+| `--log-format` | `pretty` | server log format (`pretty` or `json`) |
+
+### configuration
+
+`WORKFLOW.md` is both config and prompt template. yaml frontmatter defines tracker settings, polling, workspace hooks, agent limits, and server defaults. the markdown body becomes the prompt given to the agent for each issue.
+
+environment overrides:
+
+| variable | default | description |
+|---|---|---|
+| `PLOT_PORT` | `3000` | server port |
+| `PLOT_WORKFLOW` | `./WORKFLOW.md` | workflow file path |
+| `PLOT_TRACKER_KIND` | `local-fs` | tracker backend (`local-fs` or `github`) |
+| `PLOT_GITHUB_REPO` | — | github repo in `owner/repo` form |
 
 ## repo layout
 
@@ -28,70 +71,18 @@ packages/
 - **ui**: coss ui (tailwind v4), compound components, system dark/light mode
 - **quality**: oxlint, oxfmt
 
-## requirements
+## development
+
+```bash
+bun install              # install deps
+bun run dev              # server + web via turbo
+bun run check            # typecheck → lint → fmt
+bun run test             # workspace tests via turbo
+bun run build            # workspace builds via turbo
+```
+
+### requirements
 
 - bun 1.3.5+
 - a runnable agent command (default: `pi`, configured in `WORKFLOW.md`)
 - for github tracking: `gh` cli authenticated for the target repo
-
-## quick start
-
-```bash
-bun install
-```
-
-start server + web dashboard:
-
-```bash
-bun run dev
-```
-
-server only:
-
-```bash
-bun run dev:server
-```
-
-web only:
-
-```bash
-bun run dev:web
-```
-
-run via cli:
-
-```bash
-bun run plot
-```
-
-## development
-
-```bash
-bun run dev         # server + web via turbo
-bun run check       # typecheck → lint → fmt
-bun run test        # workspace tests via turbo
-bun run build       # workspace builds via turbo
-bun run ui:add -- @coss/NAME   # add coss ui component to web
-```
-
-## configuration
-
-`WORKFLOW.md` is both config and prompt template. yaml frontmatter defines tracker settings, polling, workspace hooks, agent limits, and server defaults. the markdown body becomes the prompt given to the agent for each issue.
-
-environment overrides:
-
-| variable | default | description |
-|---|---|---|
-| `PLOT_PORT` | `3000` | server port |
-| `PLOT_WORKFLOW` | `./WORKFLOW.md` | workflow file path |
-| `PLOT_TRACKER_KIND` | `local-fs` | tracker backend (`local-fs` or `github`) |
-| `PLOT_GITHUB_REPO` | — | github repo in `owner/repo` form |
-
-see `.env.example` for the full list.
-
-## cli
-
-the entrypoint is `packages/plot/src/cli`. default command launches server + tui. other modes:
-
-- `serve` — headless server
-- `web` — server + browser dashboard
