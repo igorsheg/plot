@@ -24,7 +24,7 @@ import {
 	availableSlots,
 	clearRetryAttemptFromState,
 	createRunningEntry,
-	isActive,
+	isDispatchable,
 	isTerminal,
 	removeRunningEntryFromState,
 	releaseClaimFromState,
@@ -360,7 +360,8 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 						const entry = result.find((candidate) => candidate.id === issue.id);
 						if (!entry) return false;
 						return (
-							isActive(entry.state, config) && !isTerminal(entry.state, config)
+							isDispatchable(entry.state, config) &&
+							!isTerminal(entry.state, config)
 						);
 					}),
 				);
@@ -448,7 +449,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			}
 
 			const candidates = yield* deps.tracker
-				.fetchCandidateIssues(config.activeStates as string[])
+				.fetchCandidateIssues(config.dispatchStates as string[])
 				.pipe(
 					Effect.tapError((e) =>
 						Effect.logWarning("tracker_fetch_failed").pipe(

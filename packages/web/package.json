@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc -b tsconfig.json",
+    "lint": "oxlint src --tsconfig ../../tsconfig.json",
     "preview": "vite preview"
   },
   "dependencies": {

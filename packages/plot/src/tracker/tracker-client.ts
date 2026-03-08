@@ -4,7 +4,7 @@ import type { TrackerError } from "@plot/sdk";
 
 export interface TrackerClientShape {
 	readonly fetchCandidateIssues: (
-		activeStates: ReadonlyArray<string>,
+		dispatchStates: ReadonlyArray<string>,
 	) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
 
 	readonly fetchIssuesByStates: (

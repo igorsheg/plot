@@ -123,11 +123,11 @@ export const makeGithubTracker = (config: {
 	return Layer.succeed(
 		TrackerClient,
 		TrackerClient.of({
-			fetchCandidateIssues: (activeStates) =>
+			fetchCandidateIssues: (dispatchStates) =>
 				Effect.gen(function* () {
 					const ghIssues = yield* listIssues("open");
 					const issues = ghIssues.map(mapIssue);
-					const normalized = new Set(activeStates.map(normalizeState));
+					const normalized = new Set(dispatchStates.map(normalizeState));
 					const candidates = issues.filter((i) =>
 						normalized.has(normalizeState(i.state)),
 					);
@@ -137,7 +137,7 @@ export const makeGithubTracker = (config: {
 							operation: "fetch_candidates",
 							total: String(issues.length),
 							candidates: String(candidates.length),
-							active_states: activeStates.join(","),
+							dispatch_states: dispatchStates.join(","),
 						}),
 					);
 					return candidates;

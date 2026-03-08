@@ -6,6 +6,10 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "typecheck": "tsc -b tsconfig.json",
+    "lint": "oxlint src --tsconfig ../../tsconfig.json"
+  },
   "dependencies": {
     "@effect/platform": "latest",
     "@effect/rpc": "latest",

@@ -22,7 +22,8 @@ const makeConfig = (options?: { readonly maxConcurrentAgents?: number }) =>
 		new WorkflowConfig({
 			tracker: new TrackerConfig({
 				kind: "local-fs",
-				activeStates: ["Todo", "In Progress"],
+				dispatchStates: ["Todo", "In Progress"],
+				parkedStates: ["Human Review"],
 				terminalStates: ["Done"],
 			}),
 			agent: new AgentConfig({

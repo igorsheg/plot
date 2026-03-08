@@ -7,11 +7,11 @@ orchestrates coding agents against an issue tracker. see `SPEC.md` alignment wit
 run `just` for the full list. key recipes:
 
 ```
-just dev          # server + web in parallel
-just check        # typecheck → lint → fmt
-just test         # bun test
-just build        # all packages
-just ui-add NAME  # add coss ui component to web
+bun run dev       # server + web via turbo
+bun run check     # typecheck → lint → fmt
+bun run test      # workspace tests via turbo
+bun run build     # workspace builds via turbo
+bun run ui:add -- @coss/NAME  # add coss ui component to web
 ```
 
 ## structure

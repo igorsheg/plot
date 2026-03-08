@@ -3,8 +3,9 @@ import type { Issue } from "@plot/sdk";
 import { validateForDispatch, type ResolvedConfig } from "../config-service.js";
 import {
 	incrementStaleRetryDropCount,
-	isActive,
+	isDispatchable,
 	isEligible,
+	isParked,
 	isTerminal,
 	sortCandidates,
 	type OrchestratorState,
@@ -98,12 +99,15 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 					continue;
 				}
 
-				if (currentState && !isActive(currentState, config)) {
+				if (currentState && !isDispatchable(currentState, config)) {
 					yield* deps.stopRunningIssue(entry, config, {
 						reason: "inactive",
 						removeWorkspace: false,
 						releaseClaim: true,
-						log: { issue_state: currentState },
+						log: {
+							issue_state: currentState,
+							state_class: isParked(currentState, config) ? "parked" : "inactive",
+						},
 					});
 					stoppedCount++;
 					continue;
@@ -196,7 +200,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 		);
 
 		const candidates = yield* deps.tracker
-			.fetchCandidateIssues(config.activeStates as string[])
+			.fetchCandidateIssues(config.dispatchStates as string[])
 			.pipe(
 				Effect.catchAll((e) =>
 					Effect.succeed([] as ReadonlyArray<Issue>).pipe(

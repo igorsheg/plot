@@ -110,10 +110,10 @@ export const makeLocalFsTracker = (issuesDir: string) =>
 			);
 
 			return TrackerClient.of({
-				fetchCandidateIssues: (activeStates) =>
+				fetchCandidateIssues: (dispatchStates) =>
 					Effect.gen(function* () {
 						const issues = yield* readAllIssues;
-						const normalized = new Set(activeStates.map(normalizeState));
+						const normalized = new Set(dispatchStates.map(normalizeState));
 						const candidates = issues.filter((i) =>
 							normalized.has(normalizeState(i.state)),
 						);
@@ -123,7 +123,7 @@ export const makeLocalFsTracker = (issuesDir: string) =>
 								operation: "fetch_candidates",
 								total: String(issues.length),
 								candidates: String(candidates.length),
-								active_states: activeStates.join(","),
+								dispatch_states: dispatchStates.join(","),
 							}),
 						);
 						return candidates;

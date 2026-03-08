@@ -5,7 +5,8 @@ export class TrackerConfig extends Schema.Class<TrackerConfig>("TrackerConfig")(
   endpoint: Schema.optional(Schema.String),
   apiKey: Schema.optional(Schema.String),
   projectSlug: Schema.optional(Schema.String),
-  activeStates: Schema.optional(Schema.Array(Schema.String)),
+  dispatchStates: Schema.optional(Schema.Array(Schema.String)),
+  parkedStates: Schema.optional(Schema.Array(Schema.String)),
   terminalStates: Schema.optional(Schema.Array(Schema.String)),
 }) {}
 

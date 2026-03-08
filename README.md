@@ -49,19 +49,19 @@ bun install
 start the default dashboard:
 
 ```bash
-just plot
+bun run plot
 ```
 
 start the server without a dashboard:
 
 ```bash
-just plot serve
+bun run plot -- serve
 ```
 
 open the web dashboard:
 
 ```bash
-just plot web
+bun run plot -- web
 ```
 
 by default the cli reads `./WORKFLOW.md`, uses port `3000`, and uses the `local-fs` tracker unless told otherwise.
@@ -89,7 +89,7 @@ implement exponential backoff for failed runs.
 run against local issues:
 
 ```bash
-just plot serve --tracker local-fs --issues-dir ./issues
+bun run plot -- serve --tracker local-fs --issues-dir ./issues
 ```
 
 ### github
@@ -99,7 +99,7 @@ github mode reads issues through the `gh` cli and maps labels to workflow states
 run against a repository:
 
 ```bash
-just plot serve --tracker github --github-repo owner/repo
+bun run plot -- serve --tracker github --github-repo owner/repo
 ```
 
 ## workflow configuration
@@ -128,22 +128,22 @@ packages/
 common commands:
 
 ```bash
-just dev         # server + web
-just check       # typecheck + lint + format check
-just test        # bun test
-just build       # build all packages
+bun run dev       # server + web via turbo
+bun run check     # typecheck + lint + format check
+bun run test      # workspace tests via turbo
+bun run build     # workspace builds via turbo
 ```
 
 if you want the web app only:
 
 ```bash
-just dev-web
+bun run dev:web
 ```
 
 if you want the backend only:
 
 ```bash
-just dev-server
+bun run dev:server
 ```
 
 ## notes

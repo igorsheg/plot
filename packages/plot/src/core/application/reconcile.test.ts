@@ -24,7 +24,8 @@ const makeConfig = (options?: {
 		new WorkflowConfig({
 			tracker: new TrackerConfig({
 				kind: "local-fs",
-				activeStates: ["Todo", "In Progress"],
+				dispatchStates: ["Todo", "In Progress"],
+				parkedStates: ["Human Review"],
 				terminalStates: ["Done"],
 			}),
 			agent: new AgentConfig({
@@ -153,5 +154,67 @@ describe("makeTickRuntime", () => {
 		await Effect.runPromise(runtime.reconcile(config));
 
 		expect(stopReasons).toEqual(["terminal"]);
+	});
+
+	test("reconcile stops a parked worker without cleanup", async () => {
+		const config = makeConfig({ stallTimeoutMs: 1_000 });
+		const issue = makeIssue({ state: "In Progress" });
+		const entry = createRunningEntry(issue, "/tmp/plot-1", Date.now());
+		const stopCalls: Array<{ reason: string; removeWorkspace: boolean; releaseClaim: boolean; stateClass?: string }> = [];
+		const { runtime } = await makeDeps(
+			{
+				...initialState,
+				running: new Map([[issue.id, entry]]),
+			},
+			{
+				tracker: {
+					fetchIssueStatesByIds: () =>
+						Effect.succeed([{ id: issue.id, state: "Human Review" }]),
+					fetchIssuesByStates: () => Effect.succeed([]),
+					fetchCandidateIssues: () => Effect.succeed([]),
+				},
+				getConfig: Effect.succeed(config),
+				stopRunningIssue: (_entry, _config, options) =>
+					Effect.sync(() => {
+						stopCalls.push({
+							reason: options.reason,
+							removeWorkspace: options.removeWorkspace,
+							releaseClaim: options.releaseClaim,
+							stateClass: options.log["state_class"],
+						});
+					}),
+			},
+		);
+
+		await Effect.runPromise(runtime.reconcile(config));
+
+		expect(stopCalls).toEqual([
+			{
+				reason: "inactive",
+				removeWorkspace: false,
+				releaseClaim: true,
+				stateClass: "parked",
+			},
+		]);
+	});
+
+	test("runTick does not dispatch parked issues", async () => {
+		const dispatchCalls: string[] = [];
+		const parkedIssue = makeIssue({ state: "Human Review" });
+		const { runtime } = await makeDeps(initialState, {
+			tracker: {
+				fetchIssueStatesByIds: () => Effect.succeed([]),
+				fetchIssuesByStates: () => Effect.succeed([]),
+				fetchCandidateIssues: () => Effect.succeed([parkedIssue]),
+			},
+			dispatchIssue: (issue) =>
+				Effect.sync(() => {
+					dispatchCalls.push(issue.id);
+				}),
+		});
+
+		await Effect.runPromise(Effect.scoped(runtime.runTick));
+
+		expect(dispatchCalls).toEqual([]);
 	});
 });

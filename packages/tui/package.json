@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "bun run src/main.ts",
-    "build": "bun build src/main.ts --outdir dist --target bun"
+    "build": "bun build src/main.ts --outdir dist --target bun",
+    "typecheck": "tsc -b tsconfig.json",
+    "lint": "oxlint src --tsconfig ../../tsconfig.json"
   },
   "dependencies": {
     "@opentui/core": "latest",

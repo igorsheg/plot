@@ -1,12 +1,13 @@
 ---
 tracker:
   kind: github
-  active_states:
+  dispatch_states:
     - Todo
     - In Progress
-    - Human Review
     - Rework
     - Merging
+  parked_states:
+    - Human Review
   terminal_states:
     - Done
     - Closed

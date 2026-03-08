@@ -85,8 +85,16 @@ export const initialState: OrchestratorState = {
 
 export const normalizeState = (s: string) => s.trim().toLowerCase();
 
-export const isActive = (state: string, config: ResolvedConfig) =>
-	config.activeStates.some((a) => normalizeState(a) === normalizeState(state));
+export const isDispatchable = (state: string, config: ResolvedConfig) =>
+	config.dispatchStates.some(
+		(dispatchState) =>
+			normalizeState(dispatchState) === normalizeState(state),
+	);
+
+export const isParked = (state: string, config: ResolvedConfig) =>
+	config.parkedStates.some(
+		(parkedState) => normalizeState(parkedState) === normalizeState(state),
+	);
 
 export const isTerminal = (state: string, config: ResolvedConfig) =>
 	config.terminalStates.some(
@@ -126,7 +134,7 @@ export const isEligible = (
 ): boolean => {
 	if (!issue.id || !issue.identifier || !issue.title || !issue.state)
 		return false;
-	if (!isActive(issue.state, config)) return false;
+	if (!isDispatchable(issue.state, config)) return false;
 	if (isTerminal(issue.state, config)) return false;
 	if (state.running.has(issue.id)) return false;
 	if (state.claimed.has(issue.id)) return false;

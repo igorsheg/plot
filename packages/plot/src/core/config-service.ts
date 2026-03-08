@@ -31,7 +31,8 @@ export class ResolvedConfig {
   readonly trackerEndpoint: string;
   readonly trackerApiKey: string | undefined;
   readonly trackerProjectSlug: string | undefined;
-  readonly activeStates: ReadonlyArray<string>;
+  readonly dispatchStates: ReadonlyArray<string>;
+  readonly parkedStates: ReadonlyArray<string>;
   readonly terminalStates: ReadonlyArray<string>;
   readonly pollIntervalMs: number;
   readonly workspaceRoot: string;
@@ -55,7 +56,8 @@ export class ResolvedConfig {
     this.trackerEndpoint = wf.tracker?.endpoint ?? "";
     this.trackerApiKey = resolveEnvValue(wf.tracker?.apiKey);
     this.trackerProjectSlug = wf.tracker?.projectSlug;
-    this.activeStates = wf.tracker?.activeStates ?? ["Todo", "In Progress"];
+    this.dispatchStates = wf.tracker?.dispatchStates ?? ["Todo", "In Progress"];
+    this.parkedStates = wf.tracker?.parkedStates ?? [];
     this.terminalStates = wf.tracker?.terminalStates ?? [
       "Closed",
       "Cancelled",

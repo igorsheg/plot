@@ -34,7 +34,9 @@
   },
   "scripts": {
     "dev": "bun run --watch src/main.ts",
-    "test": "bun test"
+    "typecheck": "tsc -b tsconfig.json",
+    "lint": "oxlint src --tsconfig ../../tsconfig.json",
+    "test": "bun test src"
   },
   "dependencies": {
     "@effect/cli": "latest",
