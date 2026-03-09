@@ -1,51 +1,28 @@
 import { Schema } from "effect";
-import { AgentRuntimeEvent, RefreshResult, RuntimeSnapshot, type SseStatus } from "@plot/sdk";
+import { RefreshResult, RuntimeSnapshot, type SseStatus } from "@plot/sdk";
 import type { ServerOptions } from "./options.js";
 import { resolveTuiServerLogPath, resolveTuiServerWorkerPath, toTuiServerEnv } from "./runtime.js";
 
-type WorkerReadyMessage = {
-  type: "ready";
-};
-
-type WorkerEventMessage = {
-  type: "event";
-  event: unknown;
-};
-
-type WorkerErrorMessage = {
-  type: "error";
-  error: string;
-};
-
+type WorkerReadyMessage = { type: "ready" };
+type WorkerSnapshotMessage = { type: "snapshot"; snapshot: unknown };
+type WorkerErrorMessage = { type: "error"; error: string };
 type WorkerResponseMessage =
-  | {
-      type: "response";
-      id: number;
-      ok: true;
-      result: unknown;
-    }
-  | {
-      type: "response";
-      id: number;
-      ok: false;
-      error: string;
-    };
+  | { type: "response"; id: number; ok: true; result: unknown }
+  | { type: "response"; id: number; ok: false; error: string };
 
 type WorkerMessage =
   | WorkerReadyMessage
-  | WorkerEventMessage
+  | WorkerSnapshotMessage
   | WorkerErrorMessage
   | WorkerResponseMessage;
 
-const decodeEvent = Schema.decodeUnknownSync(AgentRuntimeEvent);
 const decodeSnapshot = Schema.decodeUnknownSync(RuntimeSnapshot);
 const decodeRefreshResult = Schema.decodeUnknownSync(RefreshResult);
 
 type RuntimeApi = {
-  getState: () => Promise<RuntimeSnapshot>;
   triggerRefresh: () => Promise<RefreshResult>;
-  connectEvents: (
-    handleEvent: (event: AgentRuntimeEvent) => void,
+  connectSnapshots: (
+    handleSnapshot: (snapshot: RuntimeSnapshot) => void,
     handleStatus: (status: SseStatus) => void,
   ) => () => void;
 };
@@ -62,15 +39,12 @@ export async function createTuiRuntimeHandle(
   const worker = new Worker(resolveTuiServerWorkerPath(), { type: "module" });
   const logPath = resolveTuiServerLogPath();
   let status: SseStatus = "connecting";
-  let onEvent: ((event: AgentRuntimeEvent) => void) | null = null;
+  let onSnapshot: ((snapshot: RuntimeSnapshot) => void) | null = null;
   let onStatus: ((status: SseStatus) => void) | null = null;
   let nextId = 1;
   const pending = new Map<
     number,
-    {
-      resolve: (value: unknown) => void;
-      reject: (error: Error) => void;
-    }
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
 
   const setStatus = (next: SseStatus) => {
@@ -93,8 +67,8 @@ export async function createTuiRuntimeHandle(
         resolve();
         return;
       }
-      if (message.type === "event") {
-        onEvent?.(decodeEvent(message.event));
+      if (message.type === "snapshot") {
+        onSnapshot?.(decodeSnapshot(message.snapshot));
         return;
       }
       if (message.type === "error") {
@@ -123,7 +97,7 @@ export async function createTuiRuntimeHandle(
   worker.postMessage({ type: "start", env: toTuiServerEnv(serverOptions) });
   await ready;
 
-  const call = (method: "getState" | "triggerRefresh") =>
+  const call = (method: "triggerRefresh") =>
     new Promise<unknown>((resolve, reject) => {
       const id = nextId++;
       pending.set(id, { resolve, reject });
@@ -139,14 +113,13 @@ export async function createTuiRuntimeHandle(
 
   return {
     api: {
-      getState: async () => decodeSnapshot(await call("getState")),
       triggerRefresh: async () => decodeRefreshResult(await call("triggerRefresh")),
-      connectEvents: (handleEvent, handleStatus) => {
-        onEvent = handleEvent;
+      connectSnapshots: (handleSnapshot, handleStatus) => {
+        onSnapshot = handleSnapshot;
         onStatus = handleStatus;
         handleStatus(status);
         return () => {
-          onEvent = null;
+          onSnapshot = null;
           onStatus = null;
         };
       },

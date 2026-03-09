@@ -1,6 +1,6 @@
 import { DateTime, Fiber } from "effect";
 import { AgentRuntimeEvent } from "@plot/sdk";
-import type { Issue } from "../../schemas/issue.js";
+import type { Issue } from "@plot/sdk";
 import type { ResolvedConfig } from "../config-service.js";
 
 export interface RunningEntry {

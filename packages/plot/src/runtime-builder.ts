@@ -1,7 +1,8 @@
 import { BunContext } from "@effect/platform-bun";
 import { Effect, Layer, Logger, LogLevel, ManagedRuntime } from "effect";
 import { Orchestrator } from "./core/index.js";
-import { makeLocalFsTracker, makeGithubTracker } from "./tracker/index.js";
+import { githubTrackerPlugin } from "./tracker/index.js";
+import type { TrackerPlugin } from "@plot/sdk";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
 import { type ResolvedConfig } from "./core/config-service.js";
@@ -31,13 +32,44 @@ export function makeLoggingLayer(config: ServerConfig) {
   );
 }
 
+const builtinTrackers: Record<string, TrackerPlugin> = {
+  github: githubTrackerPlugin,
+};
+
+function buildPluginConfig(resolved: ResolvedConfig) {
+  return {
+    ...resolved.trackerPluginConfig,
+    kind: resolved.trackerKind,
+    githubRepo: resolved.githubRepo || undefined,
+  };
+}
+
 export function makeTrackerLayer(resolved: ResolvedConfig) {
-  if (resolved.trackerKind === "github") {
-    return makeGithubTracker({
-      repo: resolved.githubRepo || undefined,
-    });
+  const kind = resolved.trackerKind;
+
+  const builtin = builtinTrackers[kind];
+  if (builtin) {
+    return builtin.factory(buildPluginConfig(resolved));
   }
-  return makeLocalFsTracker(resolved.issuesDir).pipe(Layer.provide(BunContext.layer));
+
+  return Layer.unwrapEffect(
+    Effect.gen(function* () {
+      const mod = yield* Effect.tryPromise({
+        try: () => import(kind) as Promise<{ default?: TrackerPlugin }>,
+        catch: (cause) =>
+          new Error(
+            `Failed to load tracker plugin "${kind}": ${cause instanceof Error ? cause.message : String(cause)}`,
+          ),
+      }).pipe(Effect.catchAll((e) => Effect.die(e)));
+      const plugin = mod.default;
+      if (!plugin || typeof plugin.factory !== "function") {
+        return yield* Effect.die(
+          new Error(`Tracker plugin "${kind}" does not export a valid default TrackerPlugin`),
+        );
+      }
+      return plugin.factory(buildPluginConfig(resolved));
+    }),
+  );
 }
 
 export function makeAppLayer(resolved: ResolvedConfig) {
@@ -61,7 +93,6 @@ export function makeStartupLayer(config: ServerConfig, resolved: ResolvedConfig)
         Effect.annotateLogs({
           component: "server",
           port: String(config.port),
-          issues_dir: resolved.issuesDir,
           workflow: config.workflowPath,
         }),
       );

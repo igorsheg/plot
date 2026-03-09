@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  AgentConfig,
-  AgentRuntimeConfig,
-  TrackerConfig,
-  WorkflowConfig,
-} from "../../schemas/workflow.js";
-import { Issue } from "../../schemas/issue.js";
+import { AgentConfig, AgentRuntimeConfig, Issue, TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { Effect, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {

@@ -1,20 +1,14 @@
 import * as React from "react";
-import { DateTime } from "effect";
 import type { RunningEntry, LiveSession } from "@plot/sdk";
 import { useDashboard } from "./root";
 import { statusLabel, statusVariant, isActiveState } from "./status";
-import { timeAgo as sharedTimeAgo } from "@plot/sdk";
+import { formatTimeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface WorkRowProps {
   entry: RunningEntry;
   isSelected: boolean;
-}
-
-function formatTimeAgo(dt: DateTime.Utc | string): string {
-  if (typeof dt === "string") return sharedTimeAgo(new Date(dt).getTime());
-  return sharedTimeAgo(DateTime.toEpochMillis(dt));
 }
 
 function phaseLabel(session: LiveSession): string | null {

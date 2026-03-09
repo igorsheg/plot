@@ -12,5 +12,10 @@ export class OrchestratorUnavailable extends Schema.TaggedError<OrchestratorUnav
   },
 ) {}
 
+export class TrackerError extends Schema.TaggedError<TrackerError>()("TrackerError", {
+  code: Schema.String,
+  message: Schema.String,
+}) {}
+
 export const PlotApiError = Schema.Union(IssueNotFound, OrchestratorUnavailable);
 export type PlotApiError = typeof PlotApiError.Type;

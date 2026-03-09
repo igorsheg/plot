@@ -1,6 +1,6 @@
 import { Duration, Effect, Ref, Schema, Scope } from "effect";
 import { FileSystem } from "@effect/platform";
-import { WorkflowDefinition, WorkflowConfig } from "../schemas/workflow.js";
+import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
 import { WorkflowFileNotFound, WorkflowParseError } from "../schemas/errors.js";
 import { parse as parseYaml } from "yaml";
 

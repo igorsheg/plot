@@ -1,7 +1,7 @@
 import { DateTime, Effect } from "effect";
 import { Eta } from "eta";
 import { TemplateRenderError } from "../schemas/errors.js";
-import type { Issue } from "../schemas/issue.js";
+import type { Issue } from "@plot/sdk";
 
 const eta = new Eta({ useWith: true });
 

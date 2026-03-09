@@ -2,50 +2,45 @@ import { Console } from "node:console";
 import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { ConfigProvider, Effect, ManagedRuntime, Schema, Stream } from "effect";
-import { AgentRuntimeEvent, RefreshResult, RuntimeSnapshot } from "@plot/sdk";
+import { applyRuntimeEvent, RefreshResult, RuntimeSnapshot } from "@plot/sdk";
 import { ObservabilityApi } from "./observability-service.js";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { ResolvedConfig } from "./core/config-service.js";
 import { makeObservabilityRuntime } from "./runtime-builder.js";
 
-type StartMessage = {
-  type: "start";
-  env: Record<string, string>;
-};
-
-type StopMessage = {
-  type: "stop";
-};
-
-type CallMessage = {
-  type: "call";
-  id: number;
-  method: "getState" | "triggerRefresh";
-};
-
+type StartMessage = { type: "start"; env: Record<string, string> };
+type StopMessage = { type: "stop" };
+type CallMessage = { type: "call"; id: number; method: "triggerRefresh" };
 type WorkerMessage = StartMessage | StopMessage | CallMessage;
 
 type ResponseMessage =
-  | {
-      type: "response";
-      id: number;
-      ok: true;
-      result: unknown;
-    }
-  | {
-      type: "response";
-      id: number;
-      ok: false;
-      error: string;
-    };
+  | { type: "response"; id: number; ok: true; result: unknown }
+  | { type: "response"; id: number; ok: false; error: string };
 
-const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
 const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
 const encodeRefreshResult = Schema.encodeSync(RefreshResult);
 
 let started = false;
 let runtime: ManagedRuntime.ManagedRuntime<ObservabilityApi, never> | null = null;
 let api: ObservabilityApi | null = null;
+let currentSnapshot: RuntimeSnapshot | null = null;
+let resyncTimer: ReturnType<typeof setInterval> | null = null;
+
+const RESYNC_INTERVAL_MS = 30_000;
+
+function postSnapshot(snapshot: RuntimeSnapshot) {
+  self.postMessage({ type: "snapshot", snapshot: encodeSnapshot(snapshot) });
+}
+
+async function resync(): Promise<void> {
+  if (!runtime || !api) return;
+  try {
+    currentSnapshot = await runtime.runPromise(api.getState);
+    postSnapshot(currentSnapshot);
+  } catch {
+    /* will retry on next event or interval */
+  }
+}
 
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   const message = event.data;
@@ -58,10 +53,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
     return;
   }
   if (started) {
-    self.postMessage({
-      type: "error",
-      error: "tui server worker already started",
-    });
+    self.postMessage({ type: "error", error: "tui server worker already started" });
     return;
   }
   started = true;
@@ -71,9 +63,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
 async function boot(env: Record<string, string>) {
   try {
     redirectProcessOutput(env["PLOT_TUI_SERVER_LOG_PATH"]);
-    const provider = ConfigProvider.fromMap(new Map(Object.entries(env)), {
-      pathDelim: "_",
-    });
+    const provider = ConfigProvider.fromMap(new Map(Object.entries(env)), { pathDelim: "_" });
     const config = await Effect.runPromise(ServerConfig.pipe(Effect.withConfigProvider(provider)));
     let content = "";
     try {
@@ -87,16 +77,26 @@ async function boot(env: Record<string, string>) {
         return yield* ObservabilityApi;
       }),
     );
+
+    currentSnapshot = await runtime.runPromise(api.getState);
+
     runtime.runFork(
       Stream.runForEach(api.eventStream, (event) =>
         Effect.sync(() => {
-          self.postMessage({
-            type: "event",
-            event: encodeEvent(event),
-          });
+          const result = applyRuntimeEvent(currentSnapshot, event);
+          if (result.type === "patched") {
+            currentSnapshot = result.snapshot;
+            postSnapshot(currentSnapshot);
+          } else {
+            void resync();
+          }
         }),
       ),
     );
+
+    resyncTimer = setInterval(() => void resync(), RESYNC_INTERVAL_MS);
+
+    postSnapshot(currentSnapshot);
     self.postMessage({ type: "ready" });
   } catch (error) {
     self.postMessage({
@@ -120,11 +120,9 @@ async function handleCall(message: CallMessage) {
     return;
   }
   try {
-    const result =
-      message.method === "getState"
-        ? encodeSnapshot(await runtime.runPromise(api.getState))
-        : encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
+    const result = encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
     postResponse({ type: "response", id: message.id, ok: true, result });
+    await resync();
   } catch (error) {
     postResponse({
       type: "response",
@@ -136,9 +134,8 @@ async function handleCall(message: CallMessage) {
 }
 
 async function shutdown() {
-  if (runtime) {
-    await runtime.dispose();
-  }
+  if (resyncTimer) clearInterval(resyncTimer);
+  if (runtime) await runtime.dispose();
   process.exit(0);
 }
 
@@ -156,10 +153,7 @@ function redirectProcessOutput(path?: string) {
   };
   process.stdout.write = write as typeof process.stdout.write;
   process.stderr.write = write as typeof process.stderr.write;
-  const redirectedConsole = new Console({
-    stdout: process.stdout,
-    stderr: process.stderr,
-  });
+  const redirectedConsole = new Console({ stdout: process.stdout, stderr: process.stderr });
   console.log = redirectedConsole.log.bind(redirectedConsole);
   console.info = redirectedConsole.info.bind(redirectedConsole);
   console.warn = redirectedConsole.warn.bind(redirectedConsole);

@@ -1,15 +1,39 @@
 import { TUI, ProcessTerminal, Text, Spacer, matchesKey } from "@mariozechner/pi-tui";
 import { DateTime } from "effect";
-import type { RuntimeSnapshot, SseStatus, AgentRuntimeEvent, RefreshResult } from "@plot/sdk";
-import { formatTokens, formatDuration, timeAgo, truncate } from "@plot/sdk";
+import type { RuntimeSnapshot, SseStatus, RefreshResult } from "@plot/sdk";
 
 interface RuntimeApi {
-  getState: () => Promise<RuntimeSnapshot>;
   triggerRefresh: () => Promise<RefreshResult>;
-  connectEvents: (
-    onEvent: (event: AgentRuntimeEvent) => void,
-    onStatus: (status: SseStatus) => void,
+  connectSnapshots: (
+    handleSnapshot: (snapshot: RuntimeSnapshot) => void,
+    handleStatus: (status: SseStatus) => void,
   ) => () => void;
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+function timeAgo(epochMs: number): string {
+  const diff = (Date.now() - epochMs) / 1000;
+  if (diff < 60) return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+  return `${Math.round(diff / 3600)}h ago`;
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + "…";
 }
 
 const ESC = "\x1b[";
@@ -215,8 +239,6 @@ function updateObservability() {
     `${fg(C.muted, "stops")} ${summarizeReasonCounts(o.workerStopsByReason)}`,
     `${fg(C.muted, "exits")} ${summarizeReasonCounts(o.workerExitsByReason)}`,
   ];
-  // reuse retryText area — actually we need a separate component
-  // observability is shown after detail
   observabilityText.setText(lines.join("\n"));
 }
 
@@ -228,50 +250,6 @@ function updateAll() {
   updateDetail();
   updateObservability();
   updateRetryQueue();
-}
-
-async function refresh(api: RuntimeApi) {
-  try {
-    currentState = await api.getState();
-    updateAll();
-  } catch {}
-}
-
-let lastRefreshAt = 0;
-let refreshPending = false;
-let refreshInFlight = false;
-const THROTTLE_MS = 1000;
-
-async function throttledRefresh(api: RuntimeApi) {
-  if (refreshInFlight) {
-    refreshPending = true;
-    return;
-  }
-  const now = Date.now();
-  const elapsed = now - lastRefreshAt;
-  if (elapsed < THROTTLE_MS) {
-    if (!refreshPending) {
-      refreshPending = true;
-      setTimeout(() => {
-        void throttledRefresh(api);
-      }, THROTTLE_MS - elapsed);
-    }
-    return;
-  }
-  refreshInFlight = true;
-  refreshPending = false;
-  lastRefreshAt = Date.now();
-  try {
-    currentState = await api.getState();
-    updateAll();
-  } catch {}
-  refreshInFlight = false;
-  if (refreshPending) {
-    refreshPending = false;
-    setTimeout(() => {
-      void throttledRefresh(api);
-    }, THROTTLE_MS);
-  }
 }
 
 export async function runTui(options: { api: RuntimeApi }) {
@@ -343,31 +321,25 @@ export async function runTui(options: { api: RuntimeApi }) {
           return { consume: true };
         }
         if (matchesKey(data, "r")) {
-          void (async () => {
-            await api.triggerRefresh();
-            await refresh(api);
-            tui.requestRender();
-          })();
+          void api.triggerRefresh();
           return { consume: true };
         }
         return undefined;
       });
 
-      disconnect = api.connectEvents(
-        () => {
-          void throttledRefresh(api).then(() => tui.requestRender());
+      disconnect = api.connectSnapshots(
+        (snapshot: RuntimeSnapshot) => {
+          currentState = snapshot;
+          updateAll();
+          tui.requestRender();
         },
         (status: SseStatus) => {
           sseStatus = status;
           updateHeader();
           tui.requestRender();
-          if (status === "connected") {
-            void throttledRefresh(api).then(() => tui.requestRender());
-          }
         },
       );
 
-      await refresh(api);
       tui.start();
       tui.requestRender();
     })().catch(reject);

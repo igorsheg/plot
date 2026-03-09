@@ -1,5 +1,5 @@
 import { Effect, Ref, type Scope } from "effect";
-import type { Issue } from "../../schemas/issue.js";
+import type { Issue } from "@plot/sdk";
 import { validateForDispatch, type ResolvedConfig } from "../config-service.js";
 import {
   clearEventLog,

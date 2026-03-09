@@ -1,15 +1,13 @@
 import { Config, ConfigError, Either, Option, Schema } from "effect";
-import { WorkflowConfig } from "./schemas/workflow.js";
+import { WorkflowConfig } from "@plot/sdk";
 import { parse as parseYaml } from "yaml";
 
 const LogFormat = Schema.Literal("pretty", "json");
 const LogLevel = Schema.Literal("debug", "info", "warning", "error", "none");
-const TrackerKind = Schema.Literal("local-fs", "github");
 
 export interface WorkflowOverrides {
-  readonly trackerKind?: "local-fs" | "github";
+  readonly trackerKind?: string;
   readonly githubRepo?: string;
-  readonly issuesDir?: string;
 }
 
 export interface ServerConfig {
@@ -36,9 +34,8 @@ export const ServerConfig: Config.Config<ServerConfig> = Config.all({
   webEnabled: Config.boolean("WEB_ENABLED").pipe(Config.withDefault(false)),
   logFormat: Schema.Config("LOG_FORMAT", LogFormat).pipe(Config.withDefault("pretty" as const)),
   logLevel: Schema.Config("LOG_LEVEL", LogLevel).pipe(Config.withDefault("info" as const)),
-  trackerKind: Schema.Config("TRACKER_KIND", TrackerKind).pipe(Config.option),
+  trackerKind: Config.string("TRACKER_KIND").pipe(Config.option),
   githubRepo: Config.string("GITHUB_REPO").pipe(Config.option),
-  issuesDir: Config.string("ISSUES_DIR").pipe(Config.option),
 }).pipe(
   Config.nested("PLOT"),
   Config.map((raw) => ({
@@ -51,7 +48,6 @@ export const ServerConfig: Config.Config<ServerConfig> = Config.all({
     overrides: {
       trackerKind: Option.getOrUndefined(raw.trackerKind),
       githubRepo: Option.getOrUndefined(raw.githubRepo),
-      issuesDir: Option.getOrUndefined(raw.issuesDir),
     },
   })),
 );

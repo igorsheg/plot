@@ -71,9 +71,6 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
   if (opts["github-repo"]) {
     env["PLOT_GITHUB_REPO"] = opts["github-repo"];
   }
-  if (opts["issues-dir"]) {
-    env["PLOT_ISSUES_DIR"] = opts["issues-dir"];
-  }
 
   return env;
 }

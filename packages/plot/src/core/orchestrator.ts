@@ -1,18 +1,9 @@
-import {
-  Config,
-  Effect,
-  Fiber,
-  Option,
-  PubSub,
-  Queue,
-  Ref,
-  Schema,
-  Stream,
-  SubscriptionRef,
-} from "effect";
-import type { AgentRuntimeEvent } from "@plot/sdk";
+import { Config, Effect, Fiber, Option, PubSub, Queue, Ref, Stream, SubscriptionRef } from "effect";
+import { type AgentRuntimeEvent, TrackerClient } from "@plot/sdk";
 import { ResolvedConfig } from "./config-service.js";
-import { AgentService, TrackerClient, WorkflowLoader, WorkspaceManager } from "./ports.js";
+import { AgentService } from "../agent/agent-service.js";
+import { WorkflowLoader } from "./workflow-loader.js";
+import { WorkspaceManager } from "./workspace-manager.js";
 import {
   COMMAND_QUEUE_CAPACITY,
   COMMAND_QUEUE_PRESSURE_WARN_AT,
@@ -44,8 +35,7 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
     const eventPubSub = yield* PubSub.bounded<AgentRuntimeEvent>(512);
     const commandQueue = yield* Queue.bounded<OrchestratorCommand>(COMMAND_QUEUE_CAPACITY);
 
-    const TrackerKind = Schema.Literal("local-fs", "github");
-    const trackerKindOpt = yield* Schema.Config("TRACKER_KIND", TrackerKind).pipe(
+    const trackerKindOpt = yield* Config.string("TRACKER_KIND").pipe(
       Config.option,
       Config.nested("PLOT"),
     );
@@ -53,14 +43,9 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
       Config.option,
       Config.nested("PLOT"),
     );
-    const issuesDirOpt = yield* Config.string("ISSUES_DIR").pipe(
-      Config.option,
-      Config.nested("PLOT"),
-    );
     const overrides = {
       trackerKind: Option.getOrUndefined(trackerKindOpt),
       githubRepo: Option.getOrUndefined(githubRepoOpt),
-      issuesDir: Option.getOrUndefined(issuesDirOpt),
     };
 
     // -----------------------------------------------------------------------

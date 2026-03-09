@@ -14,16 +14,14 @@ export const cliCommandOptions = {
     Options.withDescription("path to WORKFLOW.md"),
     Options.withDefault("./WORKFLOW.md"),
   ),
-  tracker: Options.choice("tracker", ["local-fs", "github"] as const).pipe(
-    Options.withDescription("tracker kind (overrides WORKFLOW.md)"),
+  tracker: Options.text("tracker").pipe(
+    Options.withDescription(
+      "tracker plugin: built-in name or package specifier (overrides WORKFLOW.md)",
+    ),
     Options.optional,
   ),
   "github-repo": Options.text("github-repo").pipe(
     Options.withDescription("github repo (owner/repo) for github tracker"),
-    Options.optional,
-  ),
-  "issues-dir": Options.text("issues-dir").pipe(
-    Options.withDescription("local issues directory"),
     Options.optional,
   ),
   "log-format": Options.choice("log-format", ["pretty", "json"] as const).pipe(
@@ -37,20 +35,16 @@ export type ServerOptions = {
   quiet: boolean;
   port: number;
   workflow: string;
-  tracker?: "local-fs" | "github";
+  tracker?: string;
   "github-repo"?: string;
-  "issues-dir"?: string;
   "log-format": "pretty" | "json";
   "log-level": "debug" | "info" | "warning" | "error" | "none";
   web?: boolean;
 };
 
 type ParsedCliCommandOptions = {
-  readonly [Key in keyof typeof cliCommandOptions]: Key extends
-    | "github-repo"
-    | "tracker"
-    | "issues-dir"
-    ? Option.Option<Key extends "tracker" ? "local-fs" | "github" : string>
+  readonly [Key in keyof typeof cliCommandOptions]: Key extends "github-repo" | "tracker"
+    ? Option.Option<string>
     : ServerOptions[Key];
 };
 
@@ -66,7 +60,6 @@ export function toServerOptions(
     workflow: options.workflow,
     tracker: Option.getOrUndefined(options.tracker),
     "github-repo": Option.getOrUndefined(options["github-repo"]),
-    "issues-dir": Option.getOrUndefined(options["issues-dir"]),
     "log-format": options["log-format"],
     "log-level": toServerLogLevel(logLevel),
     ...overrides,

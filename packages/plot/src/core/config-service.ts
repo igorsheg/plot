@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { WorkflowConfig } from "../schemas/workflow.js";
+import type { WorkflowConfig } from "@plot/sdk";
 import { ConfigValidationError } from "../schemas/errors.js";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -32,6 +32,7 @@ export class ResolvedConfig {
   readonly trackerEndpoint: string;
   readonly trackerApiKey: string | undefined;
   readonly trackerProjectSlug: string | undefined;
+  readonly trackerPluginConfig: Record<string, unknown>;
   readonly dispatchStates: ReadonlyArray<string>;
   readonly parkedStates: ReadonlyArray<string>;
   readonly terminalStates: ReadonlyArray<string>;
@@ -52,13 +53,13 @@ export class ResolvedConfig {
   readonly stallTimeoutMs: number;
   readonly serverPort: number | undefined;
   readonly githubRepo: string;
-  readonly issuesDir: string;
 
   constructor(wf: WorkflowConfig, overrides?: WorkflowOverrides) {
-    this.trackerKind = overrides?.trackerKind ?? wf.tracker?.kind ?? "local-fs";
+    this.trackerKind = overrides?.trackerKind ?? wf.tracker?.kind ?? "github";
     this.trackerEndpoint = wf.tracker?.endpoint ?? "";
     this.trackerApiKey = resolveEnvValue(wf.tracker?.apiKey);
     this.trackerProjectSlug = wf.tracker?.projectSlug;
+    this.trackerPluginConfig = { ...(wf.tracker ?? {}) };
     this.dispatchStates = wf.tracker?.dispatchStates ?? ["Todo", "In Progress"];
     this.parkedStates = wf.tracker?.parkedStates ?? [];
     this.terminalStates = wf.tracker?.terminalStates ?? [
@@ -94,7 +95,6 @@ export class ResolvedConfig {
     this.stallTimeoutMs = wf.codex?.stallTimeoutMs ?? 300_000;
     this.serverPort = wf.server?.port;
     this.githubRepo = overrides?.githubRepo ?? "";
-    this.issuesDir = overrides?.issuesDir ?? "./issues";
   }
 }
 

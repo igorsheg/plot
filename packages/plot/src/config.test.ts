@@ -33,7 +33,6 @@ describe("ServerConfig", () => {
     expect(config.overrides).toEqual({
       trackerKind: undefined,
       githubRepo: undefined,
-      issuesDir: undefined,
     });
   });
 
@@ -41,16 +40,10 @@ describe("ServerConfig", () => {
     const config = await resolveConfig({
       PLOT_TRACKER_KIND: "github",
       PLOT_GITHUB_REPO: "owner/repo",
-      PLOT_ISSUES_DIR: "./my-issues",
     });
 
     expect(config.overrides.trackerKind).toBe("github");
     expect(config.overrides.githubRepo).toBe("owner/repo");
-    expect(config.overrides.issuesDir).toBe("./my-issues");
-  });
-
-  test("rejects invalid tracker kind", async () => {
-    await expect(resolveConfig({ PLOT_TRACKER_KIND: "jira" })).rejects.toThrow();
   });
 
   test("rejects invalid log format", async () => {

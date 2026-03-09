@@ -15,11 +15,6 @@ export class TemplateRenderError extends Schema.TaggedError<TemplateRenderError>
   { message: Schema.String },
 ) {}
 
-export class TrackerError extends Schema.TaggedError<TrackerError>()("TrackerError", {
-  code: Schema.String,
-  message: Schema.String,
-}) {}
-
 export class WorkspaceError extends Schema.TaggedError<WorkspaceError>()("WorkspaceError", {
   code: Schema.String,
   message: Schema.String,

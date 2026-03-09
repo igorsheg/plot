@@ -1,18 +1,13 @@
 import { useCallback } from "react";
 import { DateTime } from "effect";
 import type { RunningEntry, RetryEntry, LiveSession } from "@plot/sdk";
-import { timeAgo as sharedTimeAgo, formatTokens } from "@plot/sdk";
+import { formatTokens, formatTimeAgo } from "@/lib/format";
 import { useDashboard } from "./root";
 import { statusLabel, statusVariant, isActiveState } from "./status";
 import { useRuntimeSnapshot } from "@/lib/runtime";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PhaseLabel } from "./phase-label";
-
-function formatTimeAgo(dt: DateTime.Utc | string): string {
-  if (typeof dt === "string") return sharedTimeAgo(new Date(dt).getTime());
-  return sharedTimeAgo(DateTime.toEpochMillis(dt));
-}
 
 function phaseLabel(session: LiveSession): string | null {
   switch (session.phase) {

@@ -1,9 +1,7 @@
 import { useCallback } from "react";
-import { DateTime } from "effect";
-
 import { useDashboard } from "./root";
 import { statusLabel, statusVariant } from "./status";
-import { timeAgo as sharedTimeAgo, formatTokens } from "@plot/sdk";
+import { formatTokens, formatTimeAgo } from "@/lib/format";
 import { useRuntimeSnapshot } from "@/lib/runtime";
 import { useEventLog } from "@/lib/use-event-log";
 import { Badge } from "@/components/ui/badge";
@@ -16,11 +14,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { TraceViewer } from "@/components/trace-viewer";
-
-function formatTimeAgo(dt: DateTime.Utc | string): string {
-  if (typeof dt === "string") return sharedTimeAgo(new Date(dt).getTime());
-  return sharedTimeAgo(DateTime.toEpochMillis(dt));
-}
 
 export function WorkDetailSheet() {
   const {

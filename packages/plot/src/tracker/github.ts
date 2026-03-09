@@ -1,7 +1,6 @@
 import { DateTime, Effect, Layer } from "effect";
-import { Issue, IssueStateEntry } from "../schemas/issue.js";
-import { TrackerError } from "../schemas/errors.js";
-import { TrackerClient } from "./tracker-client.js";
+import { Issue, IssueStateEntry, TrackerError, TrackerClient } from "@plot/sdk";
+import type { TrackerPlugin, TrackerPluginConfig } from "@plot/sdk";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -158,7 +157,6 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
           return yield* Effect.all(effects, { concurrency: 5 });
         }),
 
-
       fetchRunContext: (issueId, state) => {
         if (!config.repo) {
           return Effect.succeed(null);
@@ -184,14 +182,20 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
               "pr",
               "list",
               ...repoArgs,
-              "--state", "open",
-              "--json", "number,headRefName,body",
-              "--limit", "50",
+              "--state",
+              "open",
+              "--json",
+              "number,headRefName,body",
+              "--limit",
+              "50",
             ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "[]", stderr: "" })));
 
             let reviews = "";
             try {
-              const prs = JSON.parse(prSearchResult.stdout) as Array<{ number: number; body: string }>;
+              const prs = JSON.parse(prSearchResult.stdout) as Array<{
+                number: number;
+                body: string;
+              }>;
               const linkedPr = prs.find((pr) => pr.body?.includes(`#${issueId}`));
               if (linkedPr) {
                 const reviewResult = yield* runGh([
@@ -199,7 +203,8 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
                   "view",
                   String(linkedPr.number),
                   ...repoArgs,
-                  "--json", "reviews,comments",
+                  "--json",
+                  "reviews,comments",
                 ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "{}", stderr: "" })));
 
                 try {
@@ -239,3 +244,13 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
     }),
   );
 };
+
+const plugin: TrackerPlugin = {
+  name: "github",
+  factory: (config: TrackerPluginConfig) =>
+    makeGithubTracker({
+      repo: typeof config["githubRepo"] === "string" ? config["githubRepo"] : undefined,
+    }),
+};
+
+export default plugin;

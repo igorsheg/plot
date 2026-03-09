@@ -1,9 +1,8 @@
 import { Deferred, Effect, Exit, Fiber, PubSub, Ref, Scope, Stream } from "effect";
-import type { AgentRuntimeEvent } from "@plot/sdk";
-import type { Issue } from "../../schemas/issue.js";
+import type { AgentRuntimeEvent, Issue } from "@plot/sdk";
 import { renderPrompt } from "../prompt-renderer.js";
 import type { ResolvedConfig } from "../config-service.js";
-import type { AgentRunConfig } from "../ports.js";
+import type { AgentRunConfig } from "../../agent/agent-service.js";
 import type { OrchestratorCommand, WorkerExitCommand } from "./orchestrator-command.js";
 import { CONTINUATION_DELAY_MS, computeRetryDelay } from "./orchestrator-command.js";
 import {
