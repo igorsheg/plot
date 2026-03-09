@@ -9,6 +9,7 @@ export const renderPrompt = (
   template: string,
   issue: Issue,
   attempt: number | null,
+  context: string | null,
 ): Effect.Effect<string, TemplateRenderError> =>
   Effect.try({
     try: () =>
@@ -28,6 +29,7 @@ export const renderPrompt = (
           updated_at: issue.updatedAt ? DateTime.toEpochMillis(issue.updatedAt) : null,
         },
         attempt,
+        context,
       }),
     catch: (e) => new TemplateRenderError({ message: `Template render failed: ${e}` }),
   });

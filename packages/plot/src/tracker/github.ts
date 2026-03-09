@@ -157,6 +157,85 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
           );
           return yield* Effect.all(effects, { concurrency: 5 });
         }),
+
+
+      fetchRunContext: (issueId, state) => {
+        if (!config.repo) {
+          return Effect.succeed(null);
+        }
+
+        return Effect.gen(function* () {
+          const commentsResult = yield* runGh([
+            "api",
+            `repos/${config.repo}/issues/${issueId}/comments`,
+          ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "[]", stderr: "" })));
+
+          let workpad: string | null = null;
+          try {
+            const comments = JSON.parse(commentsResult.stdout) as Array<{ body: string }>;
+            const workpadComment = comments.find((c) => c.body.startsWith("## Plot Workpad"));
+            if (workpadComment) workpad = workpadComment.body;
+          } catch {
+            // ignore parse errors
+          }
+
+          if (normalizeState(state) === "rework") {
+            const prSearchResult = yield* runGh([
+              "pr",
+              "list",
+              ...repoArgs,
+              "--state", "open",
+              "--json", "number,headRefName,body",
+              "--limit", "50",
+            ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "[]", stderr: "" })));
+
+            let reviews = "";
+            try {
+              const prs = JSON.parse(prSearchResult.stdout) as Array<{ number: number; body: string }>;
+              const linkedPr = prs.find((pr) => pr.body?.includes(`#${issueId}`));
+              if (linkedPr) {
+                const reviewResult = yield* runGh([
+                  "pr",
+                  "view",
+                  String(linkedPr.number),
+                  ...repoArgs,
+                  "--json", "reviews,comments",
+                ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "{}", stderr: "" })));
+
+                try {
+                  const prData = JSON.parse(reviewResult.stdout) as {
+                    reviews?: Array<{ body: string; state: string; author: { login: string } }>;
+                    comments?: Array<{ body: string; author: { login: string } }>;
+                  };
+                  const parts: string[] = [];
+                  if (prData.reviews?.length) {
+                    for (const r of prData.reviews) {
+                      if (r.body) parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
+                    }
+                  }
+                  if (prData.comments?.length) {
+                    for (const c of prData.comments) {
+                      if (c.body) parts.push(`**${c.author.login}**:\n${c.body}`);
+                    }
+                  }
+                  if (parts.length) reviews = parts.join("\n\n---\n\n");
+                } catch {
+                  // ignore
+                }
+              }
+            } catch {
+              // ignore
+            }
+
+            const sections = [workpad, reviews ? `## Review Feedback\n\n${reviews}` : null]
+              .filter(Boolean)
+              .join("\n\n");
+            return sections || null;
+          }
+
+          return workpad;
+        });
+      },
     }),
   );
 };

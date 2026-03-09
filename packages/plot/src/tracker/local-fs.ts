@@ -133,6 +133,18 @@ export const makeLocalFsTracker = (issuesDir: string) =>
               .filter((i) => idSet.has(i.id))
               .map((i) => new IssueStateEntry({ id: i.id, state: i.state }));
           }),
+
+
+        fetchRunContext: (issueId, _state) =>
+          Effect.gen(function* () {
+            const contextPath = `${issuesDir}/${issueId}.context.md`;
+            const contextExists = yield* fs.exists(contextPath);
+            if (!contextExists) return null;
+            const content = yield* fs.readFileString(contextPath);
+            return content.trim() || null;
+          }).pipe(
+            Effect.catchAll(() => Effect.succeed(null as string | null)),
+          ),
       });
     }),
   );

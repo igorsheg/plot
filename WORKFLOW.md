@@ -45,6 +45,13 @@ You are working on issue **{{ issue.identifier }}: {{ issue.title }}** in the `i
 **Labels**: {{ issue.labels | join: ", " }}
 {% endif %}
 
+<% if (context) { %>
+
+## Session Context
+
+<%~ context %>
+<% } %>
+
 {% if attempt %}
 Continuation context:
 

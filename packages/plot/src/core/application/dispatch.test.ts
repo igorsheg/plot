@@ -74,6 +74,7 @@ const makeDeps = async (
     tracker: overrides?.tracker ?? {
       fetchCandidateIssues: () => Effect.succeed([]),
       fetchIssueStatesByIds: () => Effect.succeed([]),
+      fetchRunContext: () => Effect.succeed(null),
     },
     agentService: {
       run: () => {
@@ -138,6 +139,7 @@ describe("makeDispatchRuntime", () => {
         tracker: {
           fetchCandidateIssues: () => Effect.succeed([]),
           fetchIssueStatesByIds: () => Effect.succeed([]),
+          fetchRunContext: () => Effect.succeed(null),
         },
       },
     );
@@ -182,6 +184,7 @@ describe("makeDispatchRuntime", () => {
         tracker: {
           fetchCandidateIssues: () => Effect.succeed([retryIssue]),
           fetchIssueStatesByIds: () => Effect.succeed([]),
+          fetchRunContext: () => Effect.succeed(null),
         },
         getConfig: Effect.succeed(config),
       },

@@ -14,6 +14,11 @@ export interface TrackerClientShape {
   readonly fetchIssueStatesByIds: (
     ids: ReadonlyArray<string>,
   ) => Effect.Effect<ReadonlyArray<IssueStateEntry>, TrackerError>;
+
+  readonly fetchRunContext: (
+    issueId: string,
+    state: string,
+  ) => Effect.Effect<string | null, TrackerError>;
 }
 
 export class TrackerClient extends Context.Tag("TrackerClient")<

@@ -34,6 +34,10 @@ export interface DispatchDeps {
     readonly fetchIssueStatesByIds: (
       ids: readonly string[],
     ) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, unknown>;
+    readonly fetchRunContext: (
+      issueId: string,
+      state: string,
+    ) => Effect.Effect<string | null, unknown>;
   };
   readonly agentService: {
     readonly run: (
@@ -287,10 +291,15 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
         return;
       }
 
+      const runContext = yield* deps.tracker
+        .fetchRunContext(issue.id, issue.state)
+        .pipe(Effect.catchAll(() => Effect.succeed(null)));
+
       const prompt = yield* renderPrompt(
         wf.promptTemplate || "You are working on an issue.",
         issue,
         attempt,
+        runContext,
       ).pipe(
         Effect.tapError(() =>
           runAfterRunHook(config, ws.path).pipe(Effect.flatMap(() => releaseClaim(issue.id))),
