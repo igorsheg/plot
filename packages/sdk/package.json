@@ -1,7 +1,14 @@
 {
   "name": "@plot/sdk",
   "version": "0.0.1",
+  "description": "shared api surface: schemas, rpc groups, client helpers, sse utilities",
+  "author": "Igor Sheg <igorsheg@gmail.com>",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorsheg/plot.git",
+    "directory": "packages/sdk"
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -11,11 +18,11 @@
     "lint": "oxlint src --tsconfig ../../tsconfig.json"
   },
   "dependencies": {
-    "@effect/platform": "latest",
-    "@effect/rpc": "latest",
-    "effect": "latest"
+    "@effect/platform": "^0.94.5",
+    "@effect/rpc": "^0.73.2",
+    "effect": "^3.19.19"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "^1.3.10"
   }
 }

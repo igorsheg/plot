@@ -1,7 +1,14 @@
 {
   "name": "@plot/web",
   "version": "0.0.1",
+  "description": "tanstack SPA dashboard for plot",
+  "author": "Igor Sheg <igorsheg@gmail.com>",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorsheg/plot.git",
+    "directory": "packages/web"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,11 +21,11 @@
     "@base-ui/react": "^1.2.0",
     "@plot/sdk": "workspace:*",
     "@streamdown/code": "^1.1.0",
-    "@tanstack/react-query": "latest",
-    "@tanstack/react-router": "latest",
+    "@tanstack/react-query": "^5.90.21",
+    "@tanstack/react-router": "^1.166.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "effect": "latest",
+    "effect": "^3.19.19",
     "lucide-react": "^0.577.0",
     "motion": "^12.35.0",
     "react": "^19.1.0",

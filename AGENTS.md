@@ -1,51 +1,17 @@
-# plot
+# AGENTS.md
 
-orchestrates coding agents against an issue tracker. see `SPEC.md` alignment with [symphony](https://github.com/openai/symphony).
+## scope
 
-## commands
+- this file applies to the whole monorepo.
+- no package-local `AGENTS.md` files exist yet. if a closer one is added later, prefer the closest file over this root file.
+- treat `README.md`, `WORKFLOW.md`, and package-local config as the source of truth for discoverable commands and architecture.
 
-run `just` for the full list. key recipes:
+## landmines
 
-```
-bun run dev       # server + web via turbo
-bun run check     # typecheck → lint → fmt
-bun run test      # workspace tests via turbo
-bun run build     # workspace builds via turbo
-bun run ui:add -- @coss/NAME  # add coss ui component to web
-```
+- `packages/web/components/ui/*` are generated from the coss ui registry. do not hand-edit them. use `bun run ui:add` from the repo root when that surface needs to change.
+- follow the existing effect style: services use `Effect.Service`, and typed effect errors use `Schema.TaggedError`.
+- react 19 code in this repo does not use `forwardRef`. match nearby components instead of reintroducing it.
 
-## structure
+## verification
 
-```
-packages/
-  plot/      — main product package: runtime implementation, cli, and release launcher assets
-  sdk/       — shared api surface: schemas, rpc groups, client helpers, sse utilities
-  web/       — tanstack SPA dashboard
-```
-
-## stack
-
-- **runtime**: bun 1.3.5, typescript strict
-- **backend**: effect ts (services, layers, fibers, refs, schedules), @effect/rpc, @effect/platform-bun
-- **frontend**: react 19, tanstack router, tanstack query, vite
-- **ui**: coss ui (base ui + tailwind v4), `@/` path alias, compound components
-- **quality**: oxlint, oxfmt
-
-## conventions
-
-- no `any`, no linter suppressions
-- effect services use `Effect.Service` pattern
-- errors are `Schema.TaggedError`
-- shared api surface lives in `@plot/sdk`; runtime implementation lives in `@plot/plot`
-- ui: compound components with context (`state`/`actions`/`meta`), `use()` for context (react 19)
-- ui: monochrome + selective color, system dark/light mode
-- ui: coss token system (`--background`, `--foreground`, `--card`, `--muted`, `--border`, etc.)
-
-## do not
-
-- add dependencies without checking if an equivalent exists in the monorepo
-- use `forwardRef` — react 19, pass ref as prop
-- use render props or boolean prop proliferation — compose with children
-- put `"use client"` directives — this is vite, not next.js
-- commit generated coss ui component files (`components/ui/*`) with manual edits unless intentional
-- use relative `.js` imports in web — use `@/` alias
+- run verification from the repo root in this order: `bun run typecheck`, `bun run lint`, `bun run test`, `bun run build`.

@@ -40,7 +40,7 @@ try {
   const installedPlatformPackage = findInstalledPlatformPackage(tempDir);
   if (
     !existsSync(
-      join(tempDir, "node_modules", "@plot", installedPlatformPackage, "pi-resources", "skills"),
+      join(tempDir, "node_modules", "@plot-ai", installedPlatformPackage, "pi-resources", "skills"),
     )
   ) {
     throw new Error("missing bundled pi skills in platform package");
@@ -58,10 +58,10 @@ function findTarball(dir: string) {
 }
 
 function findInstalledPlatformPackage(installDir: string) {
-  const plotDir = join(installDir, "node_modules", "@plot");
-  const packageDir = readdirSync(plotDir).find((entry) => entry.startsWith("plot-ai-"));
+  const plotAiDir = join(installDir, "node_modules", "@plot-ai");
+  const packageDir = readdirSync(plotAiDir).find((entry) => entry !== "plot-ai");
   if (!packageDir) {
-    throw new Error("missing installed @plot plot-ai platform package");
+    throw new Error("missing installed @plot-ai platform package");
   }
   return packageDir;
 }

@@ -18,13 +18,13 @@ function isMusl() {
 export function resolvePlatformPackageName() {
   const { platform, arch } = process;
 
-  if (platform === "darwin" && arch === "arm64") return "@plot/plot-ai-darwin-arm64";
-  if (platform === "darwin" && arch === "x64") return "@plot/plot-ai-darwin-x64";
-  if (platform === "linux" && arch === "arm64") return "@plot/plot-ai-linux-arm64-gnu";
+  if (platform === "darwin" && arch === "arm64") return "@plot-ai/darwin-arm64";
+  if (platform === "darwin" && arch === "x64") return "@plot-ai/darwin-x64";
+  if (platform === "linux" && arch === "arm64") return "@plot-ai/linux-arm64-gnu";
   if (platform === "linux" && arch === "x64") {
-    return isMusl() ? "@plot/plot-ai-linux-x64-musl" : "@plot/plot-ai-linux-x64-gnu";
+    return isMusl() ? "@plot-ai/linux-x64-musl" : "@plot-ai/linux-x64-gnu";
   }
-  if (platform === "win32" && arch === "x64") return "@plot/plot-ai-win32-x64-msvc";
+  if (platform === "win32" && arch === "x64") return "@plot-ai/win32-x64-msvc";
 
   return null;
 }

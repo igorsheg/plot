@@ -31,7 +31,7 @@ export const dryRun = process.argv.includes("--dry-run") || process.env["PLOT_DR
 
 export const releaseTargets = [
   {
-    packageName: "@plot/plot-ai-darwin-arm64",
+    packageName: "@plot-ai/darwin-arm64",
     dirName: "plot-ai-darwin-arm64",
     bunTarget: "bun-darwin-arm64",
     os: ["darwin"],
@@ -39,7 +39,7 @@ export const releaseTargets = [
     binName: "plot-ai",
   },
   {
-    packageName: "@plot/plot-ai-darwin-x64",
+    packageName: "@plot-ai/darwin-x64",
     dirName: "plot-ai-darwin-x64",
     bunTarget: "bun-darwin-x64",
     os: ["darwin"],
@@ -47,7 +47,7 @@ export const releaseTargets = [
     binName: "plot-ai",
   },
   {
-    packageName: "@plot/plot-ai-linux-arm64-gnu",
+    packageName: "@plot-ai/linux-arm64-gnu",
     dirName: "plot-ai-linux-arm64-gnu",
     bunTarget: "bun-linux-arm64",
     os: ["linux"],
@@ -55,7 +55,7 @@ export const releaseTargets = [
     binName: "plot-ai",
   },
   {
-    packageName: "@plot/plot-ai-linux-x64-gnu",
+    packageName: "@plot-ai/linux-x64-gnu",
     dirName: "plot-ai-linux-x64-gnu",
     bunTarget: "bun-linux-x64",
     os: ["linux"],
@@ -63,7 +63,7 @@ export const releaseTargets = [
     binName: "plot-ai",
   },
   {
-    packageName: "@plot/plot-ai-linux-x64-musl",
+    packageName: "@plot-ai/linux-x64-musl",
     dirName: "plot-ai-linux-x64-musl",
     bunTarget: "bun-linux-x64-musl",
     os: ["linux"],
@@ -71,7 +71,7 @@ export const releaseTargets = [
     binName: "plot-ai",
   },
   {
-    packageName: "@plot/plot-ai-win32-x64-msvc",
+    packageName: "@plot-ai/win32-x64-msvc",
     dirName: "plot-ai-win32-x64-msvc",
     bunTarget: "bun-windows-x64",
     os: ["win32"],

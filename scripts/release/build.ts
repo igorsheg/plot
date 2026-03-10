@@ -72,6 +72,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
     bugs: plotPackage.bugs,
     os: target.os,
     cpu: target.cpu,
+    publishConfig: { access: "public" },
     files: ["bin", "web-dist", "pi-resources", "package.json"],
   });
 

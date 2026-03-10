@@ -1,6 +1,12 @@
 {
-  "name": "@igorsheg/plot",
+  "name": "@plot/monorepo",
+  "description": "orchestrate coding agents against an issue tracker",
+  "author": "Igor Sheg <igorsheg@gmail.com>",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorsheg/plot.git"
+  },
   "workspaces": [
     "packages/*"
   ],

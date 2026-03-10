@@ -1,130 +1,146 @@
 import { Schema } from "effect";
-import { RefreshResult, RuntimeSnapshot, type SseStatus } from "@plot/sdk";
+import {
+	IssueDetail,
+	RefreshResult,
+	RuntimeSnapshot,
+	type SseStatus,
+} from "@plot/sdk";
 import type { ServerOptions } from "./options.js";
-import { resolveTuiServerLogPath, resolveTuiServerWorkerPath, toTuiServerEnv } from "./runtime.js";
+import {
+	resolveTuiServerLogPath,
+	resolveTuiServerWorkerPath,
+	toTuiServerEnv,
+} from "./runtime.js";
 
 type WorkerReadyMessage = { type: "ready" };
 type WorkerSnapshotMessage = { type: "snapshot"; snapshot: unknown };
 type WorkerErrorMessage = { type: "error"; error: string };
 type WorkerResponseMessage =
-  | { type: "response"; id: number; ok: true; result: unknown }
-  | { type: "response"; id: number; ok: false; error: string };
+	| { type: "response"; id: number; ok: true; result: unknown }
+	| { type: "response"; id: number; ok: false; error: string };
+
+type WorkerMethod = "triggerRefresh" | "getIssue";
 
 type WorkerMessage =
-  | WorkerReadyMessage
-  | WorkerSnapshotMessage
-  | WorkerErrorMessage
-  | WorkerResponseMessage;
+	| WorkerReadyMessage
+	| WorkerSnapshotMessage
+	| WorkerErrorMessage
+	| WorkerResponseMessage;
 
 const decodeSnapshot = Schema.decodeUnknownSync(RuntimeSnapshot);
 const decodeRefreshResult = Schema.decodeUnknownSync(RefreshResult);
+const decodeIssueDetail = Schema.decodeUnknownSync(IssueDetail);
 
 type RuntimeApi = {
-  triggerRefresh: () => Promise<RefreshResult>;
-  connectSnapshots: (
-    handleSnapshot: (snapshot: RuntimeSnapshot) => void,
-    handleStatus: (status: SseStatus) => void,
-  ) => () => void;
+	triggerRefresh: () => Promise<RefreshResult>;
+	getIssue: (identifier: string) => Promise<IssueDetail>;
+	connectSnapshots: (
+		handleSnapshot: (snapshot: RuntimeSnapshot) => void,
+		handleStatus: (status: SseStatus) => void,
+	) => () => void;
 };
 
 export interface TuiRuntimeHandle {
-  api: RuntimeApi;
-  close: () => void;
-  logPath: string;
+	api: RuntimeApi;
+	close: () => void;
+	logPath: string;
 }
 
 export async function createTuiRuntimeHandle(
-  serverOptions: ServerOptions,
+	serverOptions: ServerOptions,
 ): Promise<TuiRuntimeHandle> {
-  const worker = new Worker(resolveTuiServerWorkerPath(), { type: "module" });
-  const logPath = resolveTuiServerLogPath();
-  let status: SseStatus = "connecting";
-  let onSnapshot: ((snapshot: RuntimeSnapshot) => void) | null = null;
-  let onStatus: ((status: SseStatus) => void) | null = null;
-  let nextId = 1;
-  const pending = new Map<
-    number,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
-  >();
+	const worker = new Worker(resolveTuiServerWorkerPath(), { type: "module" });
+	const logPath = resolveTuiServerLogPath();
+	let status: SseStatus = "connecting";
+	let onSnapshot: ((snapshot: RuntimeSnapshot) => void) | null = null;
+	let onStatus: ((status: SseStatus) => void) | null = null;
+	let nextId = 1;
+	const pending = new Map<
+		number,
+		{ resolve: (value: unknown) => void; reject: (error: Error) => void }
+	>();
 
-  const setStatus = (next: SseStatus) => {
-    status = next;
-    onStatus?.(next);
-  };
+	const setStatus = (next: SseStatus) => {
+		status = next;
+		onStatus?.(next);
+	};
 
-  const failPending = (message: string) => {
-    for (const request of pending.values()) {
-      request.reject(new Error(message));
-    }
-    pending.clear();
-  };
+	const failPending = (message: string) => {
+		for (const request of pending.values()) {
+			request.reject(new Error(message));
+		}
+		pending.clear();
+	};
 
-  const ready = new Promise<void>((resolve, reject) => {
-    worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-      const message = event.data;
-      if (message.type === "ready") {
-        setStatus("connected");
-        resolve();
-        return;
-      }
-      if (message.type === "snapshot") {
-        onSnapshot?.(decodeSnapshot(message.snapshot));
-        return;
-      }
-      if (message.type === "error") {
-        setStatus("disconnected");
-        failPending(message.error);
-        reject(new Error(message.error));
-        return;
-      }
-      const request = pending.get(message.id);
-      if (!request) return;
-      pending.delete(message.id);
-      if (message.ok) {
-        request.resolve(message.result);
-        return;
-      }
-      request.reject(new Error(message.error));
-    };
-    worker.onerror = (event) => {
-      setStatus("disconnected");
-      failPending(event.message);
-      reject(new Error(event.message));
-    };
-  });
+	const ready = new Promise<void>((resolve, reject) => {
+		worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+			const message = event.data;
+			if (message.type === "ready") {
+				setStatus("connected");
+				resolve();
+				return;
+			}
+			if (message.type === "snapshot") {
+				onSnapshot?.(decodeSnapshot(message.snapshot));
+				return;
+			}
+			if (message.type === "error") {
+				setStatus("disconnected");
+				failPending(message.error);
+				reject(new Error(message.error));
+				return;
+			}
+			const request = pending.get(message.id);
+			if (!request) return;
+			pending.delete(message.id);
+			if (message.ok) {
+				request.resolve(message.result);
+				return;
+			}
+			request.reject(new Error(message.error));
+		};
+		worker.onerror = (event) => {
+			setStatus("disconnected");
+			failPending(event.message);
+			reject(new Error(event.message));
+		};
+	});
 
-  setStatus("connecting");
-  worker.postMessage({ type: "start", env: toTuiServerEnv(serverOptions) });
-  await ready;
+	setStatus("connecting");
+	worker.postMessage({ type: "start", env: toTuiServerEnv(serverOptions) });
+	await ready;
 
-  const call = (method: "triggerRefresh") =>
-    new Promise<unknown>((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, { resolve, reject });
-      worker.postMessage({ type: "call", id, method });
-    });
+	const call = (method: WorkerMethod, identifier?: string) =>
+		new Promise<unknown>((resolve, reject) => {
+			const id = nextId++;
+			pending.set(id, { resolve, reject });
+			worker.postMessage({ type: "call", id, method, identifier });
+		});
 
-  const close = () => {
-    setStatus("disconnected");
-    failPending("tui runtime closed");
-    worker.postMessage({ type: "stop" });
-    worker.terminate();
-  };
+	const close = () => {
+		setStatus("disconnected");
+		failPending("tui runtime closed");
+		worker.postMessage({ type: "stop" });
+		worker.terminate();
+	};
 
-  return {
-    api: {
-      triggerRefresh: async () => decodeRefreshResult(await call("triggerRefresh")),
-      connectSnapshots: (handleSnapshot, handleStatus) => {
-        onSnapshot = handleSnapshot;
-        onStatus = handleStatus;
-        handleStatus(status);
-        return () => {
-          onSnapshot = null;
-          onStatus = null;
-        };
-      },
-    },
-    close,
-    logPath,
-  };
+	return {
+		api: {
+			triggerRefresh: async () =>
+				decodeRefreshResult(await call("triggerRefresh")),
+			getIssue: async (identifier: string) =>
+				decodeIssueDetail(await call("getIssue", identifier)),
+			connectSnapshots: (handleSnapshot, handleStatus) => {
+				onSnapshot = handleSnapshot;
+				onStatus = handleStatus;
+				handleStatus(status);
+				return () => {
+					onSnapshot = null;
+					onStatus = null;
+				};
+			},
+		},
+		close,
+		logPath,
+	};
 }

@@ -63,9 +63,16 @@ gh issue comment <number> --repo igorsheg/plot --body "$(cat <<'EOF'
 
 - [ ] <test command>
 
+### Latest Attempt Summary
+
+- changed: <files or none>
+- validated: <commands + outcome>
+- failed: <remaining failure or none>
+- blocked: <blocker or none>
+
 ### Notes
 
-- <progress note>
+- <durable context>
 EOF
 )"
 ```
@@ -110,9 +117,16 @@ gh api repos/igorsheg/plot/issues/comments/<comment-id> \
 
 - [ ] targeted tests: `<command>`
 
+### Latest Attempt Summary
+
+- changed: <files or none>
+- validated: <commands + outcome>
+- failed: <remaining failure or none>
+- blocked: <blocker or none>
+
 ### Notes
 
-- <short progress note>
+- <short durable context>
 
 ````
 
