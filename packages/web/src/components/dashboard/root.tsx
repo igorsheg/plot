@@ -42,8 +42,8 @@ export function Root({ children }: { children: ReactNode }) {
   const [focusedIssueId, setFocusedIssueId] = useState<string | null>(null);
   const [opsOpen, setOpsOpen] = useState(false);
   const snapshot = useRuntimeSnapshot();
-  const running = snapshot?.running ?? [];
-  const retrying = snapshot?.retrying ?? [];
+  const running = useMemo(() => snapshot?.running ?? [], [snapshot?.running]);
+  const retrying = useMemo(() => snapshot?.retrying ?? [], [snapshot?.retrying]);
 
   const toggleOps = useCallback(() => setOpsOpen((prev) => !prev), []);
 

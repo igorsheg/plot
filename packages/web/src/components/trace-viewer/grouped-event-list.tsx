@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { DateTime } from "effect";
 import { cn } from "@/lib/utils";
 import { useTraceViewer } from "./root";
@@ -60,9 +60,53 @@ function PulseDot() {
   );
 }
 
-function TurnSection({ turn }: { turn: TurnGroup }) {
+function ToolCallRow({
+  tc,
+  turn,
+  connector,
+}: {
+  tc: ToolCallGroup;
+  turn: TurnGroup;
+  connector: string;
+}) {
   const { actions } = useTraceViewer();
+  const color = toolColorMap[tc.toolName] ?? "text-zinc-400";
+  const handleClick = useCallback(
+    () => actions.selectEvent(tc.events[tc.events.length - 1] ?? null),
+    [actions, tc.events],
+  );
 
+  return (
+    <button
+      type="button"
+      className={cn(
+        "trace-tool-row flex w-full items-center gap-2 px-3 py-1 pl-6 type-body hover:bg-accent/20 cursor-pointer text-left",
+        tc.isError && "text-red-400/80",
+      )}
+      onClick={handleClick}
+    >
+      <span className="w-4 shrink-0 type-meta">{connector}</span>
+      <span className={cn("w-[72px] shrink-0 truncate", color)}>{tc.toolName}</span>
+      <span className="min-w-0 flex-1 truncate text-foreground">
+        {tc.summary ? truncate(tc.summary, 80) : ""}
+      </span>
+      <span className="shrink-0 type-meta tabular-nums">
+        {formatRelative(turn.startedAt, tc.startedAt)}
+      </span>
+      <span className="w-14 shrink-0 text-right type-meta tabular-nums">
+        {tc.isActive ? (
+          <PulseDot />
+        ) : tc.durationMs != null ? (
+          formatDuration(tc.durationMs)
+        ) : (
+          ""
+        )}
+      </span>
+    </button>
+  );
+}
+
+function TurnSection({ turn }: { turn: TurnGroup }) {
   const items: Array<
     { kind: "tool"; tc: ToolCallGroup } | { kind: "notification"; message: string }
   > = [];
@@ -95,40 +139,14 @@ function TurnSection({ turn }: { turn: TurnGroup }) {
 
         if (item.kind === "tool") {
           const { tc } = item;
-          const color = toolColorMap[tc.toolName] ?? "text-zinc-400";
+          const key = tc.toolCallId ?? `${tc.toolName}-${Number(DateTime.toEpochMillis(tc.startedAt))}`;
           return (
-            <button
-              key={tc.toolCallId ?? `tc-${i}`}
-              type="button"
-              className={cn(
-                "trace-tool-row flex w-full items-center gap-2 px-3 py-1 pl-6 type-body hover:bg-accent/20 cursor-pointer text-left",
-                tc.isError && "text-red-400/80",
-              )}
-              onClick={() => actions.selectEvent(tc.events[tc.events.length - 1] ?? null)}
-            >
-              <span className="w-4 shrink-0 type-meta">{connector}</span>
-              <span className={cn("w-[72px] shrink-0 truncate", color)}>{tc.toolName}</span>
-              <span className="min-w-0 flex-1 truncate text-foreground">
-                {tc.summary ? truncate(tc.summary, 80) : ""}
-              </span>
-              <span className="shrink-0 type-meta tabular-nums">
-                {formatRelative(turn.startedAt, tc.startedAt)}
-              </span>
-              <span className="w-14 shrink-0 text-right type-meta tabular-nums">
-                {tc.isActive ? (
-                  <PulseDot />
-                ) : tc.durationMs != null ? (
-                  formatDuration(tc.durationMs)
-                ) : (
-                  ""
-                )}
-              </span>
-            </button>
+            <ToolCallRow key={key} tc={tc} turn={turn} connector={connector} />
           );
         }
 
         return (
-          <div key={`notif-${i}`} className="flex items-center gap-2 px-3 py-1 pl-6 type-body">
+          <div key={`notif-${item.message}`} className="flex items-center gap-2 px-3 py-1 pl-6 type-body">
             <span className="w-4 shrink-0 type-meta">{connector}</span>
             <span className="w-[72px] shrink-0 text-muted-foreground">··</span>
             <span className="min-w-0 flex-1 truncate text-muted-foreground">
@@ -147,8 +165,8 @@ function UngroupedEvents({ section }: { section: UngroupedSection }) {
   return (
     <div>
       <div className="px-3 py-1 type-meta">{label}</div>
-      {section.events.map((ev, i) => (
-        <div key={`${section.kind}-${i}`} className="flex items-center gap-2 px-3 py-1 type-meta">
+      {section.events.map((ev) => (
+        <div key={`${section.kind}-${ev.event}-${Number(DateTime.toEpochMillis(ev.timestamp))}`} className="flex items-center gap-2 px-3 py-1 type-meta">
           <span className="shrink-0 tabular-nums">{formatTimestamp(ev.timestamp)}</span>
           <span className="w-[72px] shrink-0 truncate">{ev.event}</span>
           {ev.message && (

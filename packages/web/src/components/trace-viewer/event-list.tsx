@@ -49,8 +49,8 @@ function RawEventList() {
 
   return (
     <>
-      {filteredEvents.map((event, i) => (
-        <EventRow key={`${Number(event.timestamp)}-${i}`} event={event} />
+      {filteredEvents.map((event) => (
+        <EventRow key={`${event.event}-${Number(event.timestamp)}-${event.toolCallId ?? ""}`} event={event} />
       ))}
     </>
   );

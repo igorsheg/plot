@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { DateTime } from "effect";
 import type { AgentEventType, AgentRuntimeEvent } from "@plot/sdk";
 import { useTraceViewer } from "./root";
@@ -90,6 +90,7 @@ function collectFields(event: AgentRuntimeEvent): TreeField[] {
 export function DetailPane() {
   const { state } = useTraceViewer();
   const [showRaw, setShowRaw] = useState(false);
+  const toggleRaw = useCallback(() => setShowRaw((v) => !v), []);
 
   if (!state.selectedEvent) {
     return (
@@ -113,7 +114,7 @@ export function DetailPane() {
         <button
           type="button"
           className="type-meta hover:text-foreground"
-          onClick={() => setShowRaw((v) => !v)}
+          onClick={toggleRaw}
           aria-label="toggle raw json"
         >
           {"{}"}
