@@ -9,33 +9,35 @@ manages issue state and progress tracking for the plot orchestrator via GitHub l
 
 ## state transitions
 
-issue state is determined by labels. to transition, swap labels:
+issue state is determined by labels. plot only routes issues that have an explicit `plot:*` state label. unlabeled issues are ignored.
+
+to transition, swap labels:
 
 ```bash
-# move to In Progress
-gh issue edit <number> --add-label "In Progress" --remove-label "Todo" --repo igorsheg/plot
+# move to plot:in-progress
+gh issue edit <number> --add-label "plot:in-progress" --remove-label "plot:todo" --repo igorsheg/plot
 
-# move to Human Review
-gh issue edit <number> --add-label "Human Review" --remove-label "In Progress" --repo igorsheg/plot
-gh issue edit <number> --add-label "Human Review" --remove-label "Rework" --repo igorsheg/plot
+# move to plot:human-review
+gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:in-progress" --repo igorsheg/plot
+gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:rework" --repo igorsheg/plot
 
-# move to Done (terminal)
-gh issue edit <number> --add-label "Done" --remove-label "Merging" --repo igorsheg/plot
+# move to plot:done (terminal)
+gh issue edit <number> --add-label "plot:done" --remove-label "plot:merging" --repo igorsheg/plot
 gh issue close <number> --repo igorsheg/plot
 ```
 
-always remove the previous state label when adding the new one.
+always remove the previous `plot:*` state label when adding the new one.
 
 ## available states
 
-| label        | meaning                    | agent action                                     |
-| ------------ | -------------------------- | ------------------------------------------------ |
-| Todo         | queued for work            | move to In Progress, start execution             |
-| In Progress  | implementation underway    | implement, verify, open PR, move to Human Review |
-| Human Review | PR open, waiting on human  | do nothing, wait                                 |
-| Rework       | reviewer requested changes | read feedback, fix, move to Human Review         |
-| Merging      | human approved             | merge PR, move to Done                           |
-| Done         | terminal                   | stop                                             |
+| label             | meaning                    | agent action                                           |
+| ----------------- | -------------------------- | ------------------------------------------------------ |
+| plot:todo         | queued for work            | move to plot:in-progress, start execution              |
+| plot:in-progress  | implementation underway    | implement, verify, open PR, move to plot:human-review |
+| plot:human-review | PR open, waiting on human  | do nothing, wait                                       |
+| plot:rework       | reviewer requested changes | read feedback, fix, move to plot:human-review         |
+| plot:merging      | human approved             | merge PR, move to plot:done                           |
+| plot:done         | terminal                   | stop                                                   |
 
 ## workpad comment
 
@@ -137,7 +139,7 @@ gh api repos/igorsheg/plot/issues/comments/<comment-id> \
 gh issue view <number> --repo igorsheg/plot --json title,body,state,labels,comments
 
 # list open issues by label
-gh issue list --repo igorsheg/plot --label "In Progress" --state open
+gh issue list --repo igorsheg/plot --label "plot:in-progress" --state open
 ````
 
 ## PR linkage

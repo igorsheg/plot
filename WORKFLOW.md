@@ -2,14 +2,14 @@
 tracker:
   kind: github
   dispatch_states:
-    - Todo
-    - In Progress
-    - Rework
-    - Merging
+    - plot:todo
+    - plot:in-progress
+    - plot:rework
+    - plot:merging
   parked_states:
-    - Human Review
+    - plot:human-review
   terminal_states:
-    - Done
+    - plot:done
     - Closed
     - Cancelled
 polling:
@@ -79,29 +79,30 @@ use these project skills during execution. load each skill when you reach its st
 
 ## status map
 
-| state         | agent action                                      |
-| ------------- | ------------------------------------------------- |
-| Todo          | move to In Progress, then run implementation flow |
-| In Progress   | continue implementation flow                      |
-| Human Review  | do nothing — wait for human to change state       |
-| Rework        | run rework flow                                   |
-| Merging       | run `plot-land` skill                             |
-| Done / Closed | do nothing, shut down                             |
+| state                | agent action                                      |
+| -------------------- | ------------------------------------------------- |
+| plot:todo            | move to plot:in-progress, then run implementation flow |
+| plot:in-progress     | continue implementation flow                      |
+| plot:human-review    | do nothing — wait for human to change state       |
+| plot:rework          | run rework flow                                   |
+| plot:merging         | run `plot-land` skill                             |
+| plot:done / Closed   | do nothing, shut down                             |
 
 ## step 0: route by current state
 
 1. determine the current issue state from labels.
-2. route to the matching flow:
-   - `Todo` → use `plot-github-tracker` to move to In Progress, then implementation flow
-   - `In Progress` → continue implementation flow
-   - `Human Review` → do nothing, stop
-   - `Rework` → rework flow
-   - `Merging` → load `plot-land` skill, execute merge flow
-   - `Done` / `Closed` → do nothing, stop
-3. check whether a PR already exists for the current branch.
+2. if no `plot:*` state label exists, do nothing and stop.
+3. route to the matching flow:
+   - `plot:todo` → use `plot-github-tracker` to move to `plot:in-progress`, then implementation flow
+   - `plot:in-progress` → continue implementation flow
+   - `plot:human-review` → do nothing, stop
+   - `plot:rework` → rework flow
+   - `plot:merging` → load `plot-land` skill, execute merge flow
+   - `plot:done` / `Closed` → do nothing, stop
+4. check whether a PR already exists for the current branch.
    - if branch PR is `CLOSED` or `MERGED`, create a fresh branch from `origin/main` and restart.
 
-## implementation flow (Todo / In Progress)
+## implementation flow (plot:todo / plot:in-progress)
 
 1. use `plot-github-tracker` to find or create the workpad comment.
 2. write a hierarchical plan with acceptance criteria in the workpad.
@@ -112,9 +113,9 @@ use these project skills during execution. load each skill when you reach its st
 7. use `plot-commit` to create well-formed commits.
 8. use `plot-push-pr` to push and create/update the PR.
 9. update workpad with final checklist status and validation notes.
-10. use `plot-github-tracker` to move issue to `Human Review`.
+10. use `plot-github-tracker` to move issue to `plot:human-review`.
 
-## rework flow (Rework)
+## rework flow (plot:rework)
 
 1. use `plot-github-tracker` to load the workpad.
 2. read all PR feedback (load `plot-land` skill for the review sweep protocol):
@@ -127,9 +128,9 @@ use these project skills during execution. load each skill when you reach its st
 6. use `plot-commit` to commit fixes.
 7. use `plot-push-pr` to push updates.
 8. update workpad with feedback resolution status.
-9. use `plot-github-tracker` to move issue back to `Human Review`.
+9. use `plot-github-tracker` to move issue back to `plot:human-review`.
 
-## completion bar (before Human Review)
+## completion bar (before plot:human-review)
 
 - plan checklist is fully complete in workpad
 - acceptance criteria satisfied
@@ -143,9 +144,9 @@ use these project skills during execution. load each skill when you reach its st
 - if branch PR is closed/merged, do not reuse — fresh branch from `origin/main`
 - do not edit the issue body for planning — use workpad comment only
 - exactly one workpad comment per issue (`## Plot Workpad`)
-- do not move to `Human Review` unless completion bar is satisfied
-- in `Human Review`, do not make changes
-- if `Done`, do nothing and shut down
+- do not move to `plot:human-review` unless completion bar is satisfied
+- in `plot:human-review`, do not make changes
+- if `plot:done`, do nothing and shut down
 - if out-of-scope improvements are discovered, file a separate issue instead of expanding scope
 - prefer targeted reads/searches over broad dumps — avoid commands that produce huge output
 - prefer minimal diffs; do not refactor or clean up code beyond what the issue requires

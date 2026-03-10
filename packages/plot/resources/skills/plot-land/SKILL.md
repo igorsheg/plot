@@ -1,6 +1,6 @@
 ---
 name: plot-land
-description: "merge an approved PR for plot. monitors CI, resolves conflicts, handles review feedback, squash-merges, and transitions issue to Done. use when issue enters Merging state."
+description: "merge an approved PR for plot. monitors CI, resolves conflicts, handles review feedback, squash-merges, and transitions issue to plot:done. use when issue enters plot:merging state."
 ---
 
 # plot-land
@@ -10,12 +10,12 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
 - ensure PR is conflict-free with main
 - address any outstanding review feedback
 - squash-merge the PR when checks pass
-- transition issue to Done and close it
+- transition issue to plot:done and close it
 
 ## preconditions
 
 - `gh` CLI is authenticated
-- issue is in `Merging` state (label)
+- issue is in `plot:merging` state (label)
 - a PR exists for the current branch
 
 ## steps
@@ -87,11 +87,11 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
    gh pr merge $pr_number --squash --subject "$pr_title" --repo igorsheg/plot
    ```
 
-7. transition issue to Done:
+7. transition issue to plot:done:
    ```bash
    # extract issue number from PR body (Resolves #N)
    issue_number=<extracted>
-   gh issue edit $issue_number --add-label "Done" --remove-label "Merging" --repo igorsheg/plot
+   gh issue edit $issue_number --add-label "plot:done" --remove-label "plot:merging" --repo igorsheg/plot
    gh issue close $issue_number --repo igorsheg/plot
    ```
 

@@ -31,10 +31,12 @@ minimal `WORKFLOW.md`:
 tracker:
   kind: github
   dispatch_states:
-    - Todo
-    - In Progress
+    - plot:todo
+    - plot:in-progress
+  parked_states:
+    - plot:human-review
   terminal_states:
-    - Done
+    - plot:done
     - Closed
 workspace:
   root: ./workspaces
@@ -46,6 +48,8 @@ work on the assigned issue only.
 keep diffs minimal.
 prove changes with checks before claiming success.
 ```
+
+for the built-in github tracker, unlabeled issues are ignored. plot only routes issues with an explicit `plot:*` state label.
 
 that starts the server and launches the tui dashboard. for a browser dashboard instead, run `npx plot-ai web`.
 
@@ -125,10 +129,12 @@ tracker:
   api_key: $ACME_API_KEY
   project_slug: my-project
   dispatch_states:
-    - Todo
-    - In Progress
+    - plot:todo
+    - plot:in-progress
+  parked_states:
+    - plot:human-review
   terminal_states:
-    - Done
+    - plot:done
     - Closed
 ```
 

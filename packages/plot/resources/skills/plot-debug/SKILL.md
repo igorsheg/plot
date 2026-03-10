@@ -50,10 +50,10 @@ gh issue view <number> --repo igorsheg/plot --json labels
 
 possible causes:
 
-- missing or wrong label (state not in active_states)
+- missing or wrong `plot:*` state label (unlabeled issues are ignored)
 - issue already claimed (check `running` or `retrying` counts)
 - no available slots (`max_concurrent_agents` reached)
-- issue has non-terminal blockers (Todo state only)
+- issue has non-terminal blockers (`plot:todo` state only)
 
 ### agent stuck / not progressing
 

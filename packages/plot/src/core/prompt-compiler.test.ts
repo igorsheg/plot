@@ -10,7 +10,7 @@ const issue = new Issue({
 	title: "stabilize prompt compiler",
 	description: "agent should get structured issue payload",
 	priority: null,
-	state: "In Progress",
+	state: "plot:in-progress",
 	branchName: null,
 	url: null,
 	labels: ["ai", "orchestration"],

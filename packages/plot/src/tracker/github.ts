@@ -55,17 +55,17 @@ const GhPrDetail = Schema.Struct({
 export const makeGithubTracker = (config: {
 	repo?: string;
 	allStates?: ReadonlyArray<string>;
+	dispatchStates?: ReadonlyArray<string>;
+	parkedStates?: ReadonlyArray<string>;
+	terminalStates?: ReadonlyArray<string>;
 }) => {
-	const allStates = config.allStates ?? [
-		"Todo",
-		"In Progress",
-		"Human Review",
-		"Rework",
-		"Merging",
-		"Done",
-		"Closed",
-		"Cancelled",
-	];
+	const allStates =
+		config.allStates ??
+		[
+			...(config.dispatchStates ?? []),
+			...(config.parkedStates ?? []),
+			...(config.terminalStates ?? []),
+		].filter((state, index, states) => states.indexOf(state) === index);
 	const repoArgs = config.repo ? ["--repo", config.repo] : [];
 	const ghFields = "number,title,body,state,labels,url,createdAt,updatedAt";
 
@@ -139,7 +139,7 @@ export const makeGithubTracker = (config: {
 		for (const s of allStates) {
 			if (labelNames.includes(normalizeState(s))) return s;
 		}
-		return gh.state === "OPEN" ? (allStates[0] ?? "Todo") : "Done";
+		return gh.state === "OPEN" ? "" : "Closed";
 	};
 
 	const mapIssue = (gh: Schema.Schema.Type<typeof GhIssue>): Issue =>
@@ -235,7 +235,12 @@ export const makeGithubTracker = (config: {
 					if (workpadComment) workpad = workpadComment.body;
 
 					let reviews: string | null = null;
-					if (normalizeState(state) === "rework") {
+					if (
+						(config.dispatchStates ?? []).some(
+							(dispatchState) =>
+								normalizeState(dispatchState) === normalizeState(state),
+						)
+					) {
 						const prSearchResult = yield* runGh([
 							"pr",
 							"list",
@@ -314,6 +319,9 @@ const plugin: TrackerPlugin = {
 				typeof config["githubRepo"] === "string"
 					? config["githubRepo"]
 					: undefined,
+			dispatchStates: config.dispatchStates,
+			parkedStates: config.parkedStates,
+			terminalStates: config.terminalStates,
 		}),
 };
 
