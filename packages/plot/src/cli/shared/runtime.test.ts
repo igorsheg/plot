@@ -24,7 +24,7 @@ afterEach(() => {
 test("toServerEnv prefers json logs for machine mode", () => {
   const env = toServerEnv({
     json: true,
-    quiet: false,
+    verbose: false,
     port: 3000,
     workflow: "./WORKFLOW.md",
     tracker: "github",
@@ -39,7 +39,7 @@ test("toServerEnv prefers json logs for machine mode", () => {
 test("toServerEnv keeps explicit log format for human mode", () => {
   const env = toServerEnv({
     json: false,
-    quiet: true,
+    verbose: true,
     port: 3000,
     workflow: "./WORKFLOW.md",
     tracker: "github",
@@ -56,7 +56,7 @@ test("toServerEnv passes through a pi skills dir override", () => {
 
   const env = toServerEnv({
     json: false,
-    quiet: false,
+    verbose: false,
     port: 3000,
     workflow: "./WORKFLOW.md",
     tracker: "github",
@@ -76,7 +76,7 @@ test("resolveBundledPiSkillsDir falls back to the bundled skills path", () => {
 test("toServerEnv enables static web hosting only when requested", () => {
   const env = toServerEnv({
     json: false,
-    quiet: false,
+    verbose: false,
     port: 3000,
     workflow: "./WORKFLOW.md",
     tracker: "github",
@@ -91,7 +91,7 @@ test("toServerEnv enables static web hosting only when requested", () => {
 test("toTuiServerEnv disables terminal logs and adds a log file", () => {
   const env = toTuiServerEnv({
     json: false,
-    quiet: false,
+    verbose: false,
     port: 3000,
     workflow: "./WORKFLOW.md",
     tracker: "github",

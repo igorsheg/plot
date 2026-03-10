@@ -13,7 +13,7 @@ export class CliError extends Error {
 
 export interface CliOutputOptions {
   json?: boolean;
-  quiet?: boolean;
+  verbose?: boolean;
 }
 
 interface ErrorEvent {
@@ -36,23 +36,23 @@ interface ShutdownEvent {
 export function resolveRequestedOutputMode(argv: string[]): CliOutputOptions {
   return {
     json: argv.includes("--json"),
-    quiet: argv.includes("--quiet"),
+    verbose: argv.includes("--verbose"),
   };
 }
 
 export function createCliOutput(options: CliOutputOptions) {
   const json = options.json ?? false;
-  const quiet = options.quiet ?? false;
+  const verbose = options.verbose ?? false;
 
   return {
     json,
-    quiet,
+    verbose,
     info(message: string) {
-      if (json || quiet) return;
+      if (json || !verbose) return;
       process.stderr.write(`${message}\n`);
     },
     warn(message: string) {
-      if (json || quiet) return;
+      if (json || !verbose) return;
       process.stderr.write(`${message}\n`);
     },
     error(event: ErrorEvent) {
@@ -67,7 +67,7 @@ export function createCliOutput(options: CliOutputOptions) {
         writeJson({ event: "ready", ...event });
         return;
       }
-      if (quiet) return;
+      if (!verbose) return;
       const suffix = event.command === "serve" ? "listening on" : "available at";
       process.stderr.write(`plot-ai ${event.command} ${suffix} ${event.url}\n`);
     },
@@ -76,7 +76,7 @@ export function createCliOutput(options: CliOutputOptions) {
         writeJson({ event: "shutdown", ...event });
         return;
       }
-      if (quiet) return;
+      if (!verbose) return;
       process.stderr.write(`plot-ai ${event.command} stopped (${event.signal})\n`);
     },
   };

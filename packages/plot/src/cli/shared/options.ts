@@ -5,7 +5,9 @@ export const cliCommandOptions = {
   json: Options.boolean("json").pipe(
     Options.withDescription("emit machine-readable ndjson on stdout"),
   ),
-  quiet: Options.boolean("quiet").pipe(Options.withDescription("suppress non-error human output")),
+  verbose: Options.boolean("verbose").pipe(
+    Options.withDescription("enable non-error human output (quiet by default)"),
+  ),
   port: Options.integer("port").pipe(
     Options.withDescription("server port"),
     Options.withDefault(3000),
@@ -32,7 +34,7 @@ export const cliCommandOptions = {
 
 export type ServerOptions = {
   json: boolean;
-  quiet: boolean;
+  verbose: boolean;
   port: number;
   workflow: string;
   tracker?: string;
@@ -55,7 +57,7 @@ export function toServerOptions(
 ): ServerOptions {
   return {
     json: options.json,
-    quiet: options.quiet,
+    verbose: options.verbose,
     port: options.port,
     workflow: options.workflow,
     tracker: Option.getOrUndefined(options.tracker),
