@@ -24,8 +24,6 @@ agent:
   max_concurrent_agents: 5
   max_turns: 50
   max_retry_backoff_ms: 60000
-codex:
-  command: pi
   turn_timeout_ms: 1800000
   stall_timeout_ms: 300000
 server:

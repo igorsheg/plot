@@ -38,8 +38,6 @@ tracker:
     - Closed
 workspace:
   root: ./workspaces
-codex:
-  command: pi
 server:
   port: 3000
 ---
