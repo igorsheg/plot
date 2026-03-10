@@ -1,4 +1,4 @@
-import { DateTime, Effect, Layer } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { Issue, IssueStateEntry, TrackerError, TrackerClient } from "@plot/sdk";
 import type { TrackerPlugin, TrackerPluginConfig } from "@plot/sdk";
 import { execFile } from "node:child_process";
@@ -8,16 +8,48 @@ const execFileAsync = promisify(execFile);
 
 const normalizeState = (s: string): string => s.trim().toLowerCase();
 
-interface GhIssue {
-  number: number;
-  title: string;
-  body: string | null;
-  state: string;
-  labels: Array<{ name: string }>;
-  url: string;
-  createdAt: string;
-  updatedAt: string;
-}
+const GhLabel = Schema.Struct({
+  name: Schema.String,
+});
+
+const GhIssue = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  body: Schema.NullOr(Schema.String),
+  state: Schema.String,
+  labels: Schema.Array(GhLabel),
+  url: Schema.String,
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+});
+
+const GhIssueList = Schema.Array(GhIssue);
+
+const GhIssueView = Schema.Struct({
+  number: Schema.Number,
+  state: Schema.String,
+  labels: Schema.Array(GhLabel),
+});
+
+const GhComment = Schema.Struct({ body: Schema.String });
+const GhComments = Schema.Array(GhComment);
+
+const GhPrEntry = Schema.Struct({ number: Schema.Number, body: Schema.String });
+const GhPrList = Schema.Array(GhPrEntry);
+
+const GhReviewEntry = Schema.Struct({
+  body: Schema.String,
+  state: Schema.String,
+  author: Schema.Struct({ login: Schema.String }),
+});
+const GhPrCommentEntry = Schema.Struct({
+  body: Schema.String,
+  author: Schema.Struct({ login: Schema.String }),
+});
+const GhPrDetail = Schema.Struct({
+  reviews: Schema.optional(Schema.Array(GhReviewEntry)),
+  comments: Schema.optional(Schema.Array(GhPrCommentEntry)),
+});
 
 export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyArray<string> }) => {
   const allStates = config.allStates ?? [
@@ -59,14 +91,15 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
         "--limit",
         "500",
       ]);
-      try {
-        return JSON.parse(result.stdout) as Array<GhIssue>;
-      } catch {
-        return yield* new TrackerError({
-          code: "github_parse",
-          message: "Failed to parse gh output",
-        });
-      }
+      return yield* Schema.decodeUnknown(GhIssueList)(JSON.parse(result.stdout)).pipe(
+        Effect.mapError(
+          (e) =>
+            new TrackerError({
+              code: "github_parse",
+              message: `Failed to parse gh issue list: ${e}`,
+            }),
+        ),
+      );
     });
 
   const viewIssue = (issueNumber: string) =>
@@ -79,17 +112,21 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
         "--json",
         "number,state,labels",
       ]);
-      try {
-        return JSON.parse(result.stdout) as GhIssue;
-      } catch {
-        return yield* new TrackerError({
-          code: "github_parse",
-          message: "Failed to parse gh output",
-        });
-      }
+      return yield* Schema.decodeUnknown(GhIssueView)(JSON.parse(result.stdout)).pipe(
+        Effect.mapError(
+          (e) =>
+            new TrackerError({
+              code: "github_parse",
+              message: `Failed to parse gh issue view: ${e}`,
+            }),
+        ),
+      );
     });
 
-  const mapState = (gh: GhIssue): string => {
+  const mapState = (gh: {
+    labels: ReadonlyArray<{ readonly name: string }>;
+    state: string;
+  }): string => {
     const labelNames = gh.labels.map((l) => normalizeState(l.name));
     for (const s of allStates) {
       if (labelNames.includes(normalizeState(s))) return s;
@@ -97,7 +134,7 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
     return gh.state === "OPEN" ? (allStates[0] ?? "Todo") : "Done";
   };
 
-  const mapIssue = (gh: GhIssue): Issue =>
+  const mapIssue = (gh: Schema.Schema.Type<typeof GhIssue>): Issue =>
     new Issue({
       id: String(gh.number),
       identifier: `#${gh.number}`,
@@ -168,14 +205,14 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
             `repos/${config.repo}/issues/${issueId}/comments`,
           ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "[]", stderr: "" })));
 
+          const comments = yield* Schema.decodeUnknown(GhComments)(
+            JSON.parse(commentsResult.stdout),
+          ).pipe(
+            Effect.orElseSucceed(() => [] as ReadonlyArray<Schema.Schema.Type<typeof GhComment>>),
+          );
           let workpad: string | null = null;
-          try {
-            const comments = JSON.parse(commentsResult.stdout) as Array<{ body: string }>;
-            const workpadComment = comments.find((c) => c.body.startsWith("## Plot Workpad"));
-            if (workpadComment) workpad = workpadComment.body;
-          } catch {
-            // ignore parse errors
-          }
+          const workpadComment = comments.find((c) => c.body.startsWith("## Plot Workpad"));
+          if (workpadComment) workpad = workpadComment.body;
 
           if (normalizeState(state) === "rework") {
             const prSearchResult = yield* runGh([
@@ -191,45 +228,37 @@ export const makeGithubTracker = (config: { repo?: string; allStates?: ReadonlyA
             ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "[]", stderr: "" })));
 
             let reviews = "";
-            try {
-              const prs = JSON.parse(prSearchResult.stdout) as Array<{
-                number: number;
-                body: string;
-              }>;
-              const linkedPr = prs.find((pr) => pr.body?.includes(`#${issueId}`));
-              if (linkedPr) {
-                const reviewResult = yield* runGh([
-                  "pr",
-                  "view",
-                  String(linkedPr.number),
-                  ...repoArgs,
-                  "--json",
-                  "reviews,comments",
-                ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "{}", stderr: "" })));
+            const prs = yield* Schema.decodeUnknown(GhPrList)(
+              JSON.parse(prSearchResult.stdout),
+            ).pipe(
+              Effect.orElseSucceed(() => [] as ReadonlyArray<Schema.Schema.Type<typeof GhPrEntry>>),
+            );
+            const linkedPr = prs.find((pr) => pr.body?.includes(`#${issueId}`));
+            if (linkedPr) {
+              const reviewResult = yield* runGh([
+                "pr",
+                "view",
+                String(linkedPr.number),
+                ...repoArgs,
+                "--json",
+                "reviews,comments",
+              ]).pipe(Effect.catchAll(() => Effect.succeed({ stdout: "{}", stderr: "" })));
 
-                try {
-                  const prData = JSON.parse(reviewResult.stdout) as {
-                    reviews?: Array<{ body: string; state: string; author: { login: string } }>;
-                    comments?: Array<{ body: string; author: { login: string } }>;
-                  };
-                  const parts: string[] = [];
-                  if (prData.reviews?.length) {
-                    for (const r of prData.reviews) {
-                      if (r.body) parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
-                    }
-                  }
-                  if (prData.comments?.length) {
-                    for (const c of prData.comments) {
-                      if (c.body) parts.push(`**${c.author.login}**:\n${c.body}`);
-                    }
-                  }
-                  if (parts.length) reviews = parts.join("\n\n---\n\n");
-                } catch {
-                  // ignore
+              const prData = yield* Schema.decodeUnknown(GhPrDetail)(
+                JSON.parse(reviewResult.stdout),
+              ).pipe(Effect.orElseSucceed(() => ({}) as Schema.Schema.Type<typeof GhPrDetail>));
+              const parts: string[] = [];
+              if (prData.reviews?.length) {
+                for (const r of prData.reviews) {
+                  if (r.body) parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
                 }
               }
-            } catch {
-              // ignore
+              if (prData.comments?.length) {
+                for (const c of prData.comments) {
+                  if (c.body) parts.push(`**${c.author.login}**:\n${c.body}`);
+                }
+              }
+              if (parts.length) reviews = parts.join("\n\n---\n\n");
             }
 
             const sections = [workpad, reviews ? `## Review Feedback\n\n${reviews}` : null]

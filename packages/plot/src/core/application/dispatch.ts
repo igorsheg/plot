@@ -1,10 +1,10 @@
-import { Deferred, Effect, Exit, Fiber, PubSub, Ref, Scope, Stream } from "effect";
+import { Clock, Deferred, Duration, Effect, Exit, Fiber, PubSub, Ref, Scope, Stream } from "effect";
 import type { AgentRuntimeEvent, Issue } from "@plot/sdk";
 import { renderPrompt } from "../prompt-renderer.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../../agent/agent-service.js";
 import type { OrchestratorCommand, WorkerExitCommand } from "./orchestrator-command.js";
-import { CONTINUATION_DELAY_MS, computeRetryDelay } from "./orchestrator-command.js";
+import { CONTINUATION_DELAY, retryDelay } from "./orchestrator-command.js";
 import {
   availableSlots,
   clearEventLog,
@@ -19,6 +19,7 @@ import {
   type RetryReason,
   type RunningEntry,
 } from "../domain/orchestrator-state.js";
+import { withTrackerFallback } from "./tracker-fallback.js";
 
 export interface DispatchDeps {
   readonly stateRef: Ref.Ref<OrchestratorState>;
@@ -39,10 +40,7 @@ export interface DispatchDeps {
     ) => Effect.Effect<string | null, unknown>;
   };
   readonly agentService: {
-    readonly run: (
-      config: AgentRunConfig,
-      signal: AbortSignal,
-    ) => Stream.Stream<AgentRuntimeEvent, unknown>;
+    readonly run: (config: AgentRunConfig) => Stream.Stream<AgentRuntimeEvent, unknown>;
   };
   readonly workspaceManager: {
     readonly ensureWorkspace: (
@@ -110,18 +108,22 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
       : Effect.void;
 
   const removeRunningEntry = (issueId: string) =>
-    deps.updateState((s) => removeRunningEntryFromState(s, issueId, Date.now()));
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      yield* deps.updateState((s) => removeRunningEntryFromState(s, issueId, now));
+    });
 
   const scheduleRetry = (
     issueId: string,
     identifier: string,
     attempt: number,
-    delayMs: number,
+    delay: Duration.Duration,
     error: string | null,
     reason: RetryReason,
   ): Effect.Effect<void, never, Scope.Scope> =>
     Effect.gen(function* () {
-      const dueAtMs = Date.now() + delayMs;
+      const now = yield* Clock.currentTimeMillis;
+      const dueAtMs = now + Duration.toMillis(delay);
       yield* deps.updateState((s) => {
         const retryAttempts = new Map(s.retryAttempts);
         retryAttempts.set(issueId, {
@@ -150,13 +152,13 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
           issue_id: issueId,
           identifier,
           attempt: String(attempt),
-          delay_ms: String(delayMs),
+          delay_ms: String(Duration.toMillis(delay)),
           error: error ?? "continuation",
           reason,
         }),
       );
 
-      const timerFiber = yield* Effect.sleep(`${Math.max(delayMs, 0)} millis`).pipe(
+      const timerFiber = yield* Effect.sleep(delay).pipe(
         Effect.zipRight(deps.enqueueCommand({ _tag: "retry_due", issueId, attempt })),
         Effect.forkScoped,
       );
@@ -186,19 +188,26 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
           .pipe(Effect.ignore);
       }
       yield* clearRetryAttempt(entry.issueId);
-      if (options.reason === "terminal") {
-        yield* deps.updateState((s) => clearEventLog(s, entry.issueId));
-      }
-      yield* deps.updateState((s) => ({
-        ...s,
-        workerStopsByReason: {
-          ...s.workerStopsByReason,
-          [options.reason]: s.workerStopsByReason[options.reason] + 1,
-        },
-      }));
-      if (options.releaseClaim) {
-        yield* releaseClaim(entry.issueId);
-      }
+
+      // Atomic: clearEventLog + bump counter + releaseClaim in one write
+      yield* deps.updateState((s) => {
+        let next = s;
+        if (options.reason === "terminal") {
+          next = clearEventLog(next, entry.issueId);
+        }
+        next = {
+          ...next,
+          workerStopsByReason: {
+            ...next.workerStopsByReason,
+            [options.reason]: next.workerStopsByReason[options.reason] + 1,
+          },
+        };
+        if (options.releaseClaim) {
+          next = releaseClaimFromState(next, entry.issueId);
+        }
+        return next;
+      });
+
       yield* Effect.logInfo("worker_stopped").pipe(
         Effect.annotateLogs({
           issue_id: entry.issueId,
@@ -218,77 +227,64 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
     exit,
   }: WorkerExitCommand): Effect.Effect<void, never, Scope.Scope> =>
     Effect.gen(function* () {
-      yield* removeRunningEntry(issueId);
+      // Atomic: remove running entry + bump exit counter in one write
+      const now = yield* Clock.currentTimeMillis;
+      const exitReason: "success" | "interrupted" | "failure" = Exit.isSuccess(exit)
+        ? "success"
+        : Exit.isInterrupted(exit)
+          ? "interrupted"
+          : "failure";
+
+      yield* deps.updateState((s) => {
+        const after = removeRunningEntryFromState(s, issueId, now);
+        return {
+          ...after,
+          workerExitsByReason: {
+            ...after.workerExitsByReason,
+            [exitReason]: after.workerExitsByReason[exitReason] + 1,
+          },
+        };
+      });
+
       yield* runAfterRunHook(config, workspacePath);
 
       if (Exit.isSuccess(exit)) {
-        yield* deps.updateState((s) => ({
-          ...s,
-          workerExitsByReason: {
-            ...s.workerExitsByReason,
-            success: s.workerExitsByReason.success + 1,
-          },
-        }));
-        yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY_MS, null, "continuation");
+        yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY, null, "continuation");
       } else if (Exit.isInterrupted(exit)) {
-        yield* deps.updateState((s) => ({
-          ...s,
-          workerExitsByReason: {
-            ...s.workerExitsByReason,
-            interrupted: s.workerExitsByReason.interrupted + 1,
-          },
-        }));
         yield* releaseClaim(issueId);
         yield* Effect.logInfo("worker_interrupted").pipe(
           Effect.annotateLogs({ issue_id: issueId, identifier }),
         );
       } else {
-        yield* deps.updateState((s) => ({
-          ...s,
-          workerExitsByReason: {
-            ...s.workerExitsByReason,
-            failure: s.workerExitsByReason.failure + 1,
-          },
-        }));
         const error = Exit.isFailure(exit) ? String(exit.cause) : "unknown";
         yield* Effect.logError("agent_failed").pipe(
           Effect.annotateLogs({ issue_id: issueId, identifier, error }),
         );
         const nextAttempt = (attempt ?? 0) + 1;
-        const delay = computeRetryDelay(nextAttempt, config.maxRetryBackoffMs);
-        yield* scheduleRetry(issueId, identifier, nextAttempt, delay, error, "failure");
+        yield* scheduleRetry(
+          issueId,
+          identifier,
+          nextAttempt,
+          retryDelay(nextAttempt, config.maxRetryBackoffMs),
+          error,
+          "failure",
+        );
       }
     });
 
   const dispatchIssue = (issue: Issue, config: ResolvedConfig, attempt: number | null) =>
     Effect.gen(function* () {
-      yield* deps.updateState((s) => {
-        const claimed = new Set(s.claimed);
-        claimed.add(issue.id);
-        const retryAttempts = new Map(s.retryAttempts);
-        retryAttempts.delete(issue.id);
-        return { ...s, claimed, retryAttempts };
-      });
-
-      const ws = yield* deps.workspaceManager
-        .ensureWorkspace(issue.identifier, config)
-        .pipe(Effect.tapError(() => releaseClaim(issue.id)));
+      // --- Phase 1: all fallible work, no state mutations ---
+      const ws = yield* deps.workspaceManager.ensureWorkspace(issue.identifier, config);
 
       if (config.hooksBeforeRun) {
         yield* deps.workspaceManager
           .runHook(config.hooksBeforeRun, ws.path, config.hooksTimeoutMs)
-          .pipe(
-            Effect.tapError(() =>
-              runAfterRunHook(config, ws.path).pipe(Effect.flatMap(() => releaseClaim(issue.id))),
-            ),
-          );
+          .pipe(Effect.tapError(() => runAfterRunHook(config, ws.path)));
       }
 
       const wf = yield* deps.workflowLoader.getCurrent;
-      if (!wf) {
-        yield* releaseClaim(issue.id);
-        return;
-      }
+      if (!wf) return;
 
       const runContext = yield* deps.tracker
         .fetchRunContext(issue.id, issue.state)
@@ -299,11 +295,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
         issue,
         attempt,
         runContext,
-      ).pipe(
-        Effect.tapError(() =>
-          runAfterRunHook(config, ws.path).pipe(Effect.flatMap(() => releaseClaim(issue.id))),
-        ),
-      );
+      ).pipe(Effect.tapError(() => runAfterRunHook(config, ws.path)));
 
       yield* Effect.logInfo("dispatch").pipe(
         Effect.annotateLogs({
@@ -334,20 +326,14 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
         shouldContinue,
       };
 
-      const abortController = new AbortController();
-      const now = Date.now();
+      // --- Phase 2: fork worker ---
+      const now = yield* Clock.currentTimeMillis;
       const registered = yield* Deferred.make<void>();
-
-      yield* deps.updateState((s) => {
-        const running = new Map(s.running);
-        running.set(issue.id, createRunningEntry(issue, ws.path, now));
-        return { ...s, running };
-      });
 
       const fiber = yield* Effect.fork(
         Deferred.await(registered).pipe(
           Effect.flatMap(() =>
-            deps.agentService.run(agentConfig, abortController.signal).pipe(
+            deps.agentService.run(agentConfig).pipe(
               Stream.tap((event) =>
                 Effect.all([
                   deps.eventPubSub.publish(event),
@@ -371,12 +357,17 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
         ),
       );
 
+      // --- Phase 3: ONE atomic state write ---
       yield* deps.updateState((s) => {
+        const claimed = new Set(s.claimed);
+        claimed.add(issue.id);
+        const retryAttempts = new Map(s.retryAttempts);
+        retryAttempts.delete(issue.id);
         const running = new Map(s.running);
-        const entry = running.get(issue.id);
-        if (entry) running.set(issue.id, { ...entry, fiber });
-        return { ...s, running };
+        running.set(issue.id, createRunningEntry(issue, ws.path, now, fiber));
+        return { ...s, claimed, retryAttempts, running };
       });
+
       yield* Deferred.succeed(registered, undefined);
     }).pipe(
       Effect.annotateLogs({
@@ -405,19 +396,11 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
         return;
       }
 
-      const candidates = yield* deps.tracker
-        .fetchCandidateIssues(config.dispatchStates as string[])
-        .pipe(
-          Effect.tapError((e) =>
-            Effect.logWarning("tracker_fetch_failed").pipe(
-              Effect.annotateLogs({
-                operation: "retry_candidates",
-                error: String(e),
-              }),
-            ),
-          ),
-          Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<Issue>)),
-        );
+      const candidates = yield* withTrackerFallback(
+        deps.tracker.fetchCandidateIssues(config.dispatchStates as string[]),
+        "retry_candidates",
+        [] as ReadonlyArray<Issue>,
+      );
 
       const issue = candidates.find((i) => i.id === issueId);
       if (!issue) {
@@ -437,7 +420,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
           issueId,
           entry.identifier,
           entry.attempt,
-          1_000,
+          Duration.seconds(1),
           "no available orchestrator slots",
           "backpressure",
         );

@@ -1,4 +1,4 @@
-import type { Exit } from "effect";
+import { Duration, type Exit } from "effect";
 import type { AgentRuntimeEvent } from "@plot/sdk";
 import type { ResolvedConfig } from "../config-service.js";
 
@@ -35,9 +35,9 @@ export type OrchestratorCommand =
   | WorkerExitCommand
   | RetryDueCommand;
 
-export const CONTINUATION_DELAY_MS = 5_000;
+export const CONTINUATION_DELAY = Duration.seconds(5);
 export const COMMAND_QUEUE_CAPACITY = 1_024;
 export const COMMAND_QUEUE_PRESSURE_WARN_AT = 768;
 
-export const computeRetryDelay = (attempt: number, maxBackoffMs: number): number =>
-  Math.min(10_000 * Math.pow(2, attempt - 1), maxBackoffMs);
+export const retryDelay = (attempt: number, maxBackoffMs: number): Duration.Duration =>
+  Duration.min(Duration.millis(10_000 * Math.pow(2, attempt - 1)), Duration.millis(maxBackoffMs));

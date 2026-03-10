@@ -7,7 +7,7 @@ import {
   WorkflowConfig,
   type AgentRuntimeEvent,
 } from "@plot/sdk";
-import { Effect, PubSub, Ref } from "effect";
+import { Duration, Effect, PubSub, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
   createRunningEntry,
@@ -101,13 +101,17 @@ describe("makeDispatchRuntime", () => {
     const { stateRef, runtime } = await makeDeps(initialState);
 
     await Effect.runPromise(
-      Effect.scoped(runtime.scheduleRetry(issueId, "plot-1", 1, 60_000, null, "continuation")),
+      Effect.scoped(
+        runtime.scheduleRetry(issueId, "plot-1", 1, Duration.millis(60_000), null, "continuation"),
+      ),
     );
     const afterFirst = await Effect.runPromise(Ref.get(stateRef));
     expect(afterFirst.retryAttempts.get(issueId)?.attempt).toBe(1);
 
     await Effect.runPromise(
-      Effect.scoped(runtime.scheduleRetry(issueId, "plot-1", 2, 60_000, "boom", "failure")),
+      Effect.scoped(
+        runtime.scheduleRetry(issueId, "plot-1", 2, Duration.millis(60_000), "boom", "failure"),
+      ),
     );
     const afterSecond = await Effect.runPromise(Ref.get(stateRef));
     const scheduled = afterSecond.retryAttempts.get(issueId);

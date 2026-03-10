@@ -1,4 +1,4 @@
-import { Effect, Ref, type Scope } from "effect";
+import { Clock, Effect, Ref, type Scope } from "effect";
 import type { Issue } from "@plot/sdk";
 import { validateForDispatch, type ResolvedConfig } from "../config-service.js";
 import {
@@ -13,6 +13,7 @@ import {
   type RetryEntry,
 } from "../domain/orchestrator-state.js";
 import type { OrchestratorCommand } from "./orchestrator-command.js";
+import { withTrackerFallback } from "./tracker-fallback.js";
 
 type StopReason = "terminal" | "inactive" | "stalled";
 
@@ -65,21 +66,16 @@ export function makeTickRuntime(deps: ReconcileDeps) {
       const runningIds = [...state.running.keys()];
       if (runningIds.length === 0) return;
 
-      const stateEntries = yield* deps.tracker.fetchIssueStatesByIds(runningIds).pipe(
-        Effect.tapError((e) =>
-          Effect.logWarning("tracker_fetch_failed").pipe(
-            Effect.annotateLogs({
-              operation: "reconcile_states",
-              error: String(e),
-            }),
-          ),
-        ),
-        Effect.catchAll(() => Effect.succeed([] as const)),
+      const stateEntries = yield* withTrackerFallback(
+        deps.tracker.fetchIssueStatesByIds(runningIds),
+        "reconcile_states",
+        [] as ReadonlyArray<{ id: string; state: string }>,
       );
 
       const stateMap = new Map(stateEntries.map((e) => [e.id, e.state]));
       let stoppedCount = 0;
 
+      const now = yield* Clock.currentTimeMillis;
       for (const [issueId, entry] of state.running) {
         const currentState = stateMap.get(issueId);
 
@@ -118,7 +114,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
         }
 
         if (config.stallTimeoutMs > 0) {
-          const elapsed = Date.now() - entry.lastEventAt;
+          const elapsed = now - entry.lastEventAt;
           if (elapsed > config.stallTimeoutMs) {
             yield* Effect.logWarning("stall_detected").pipe(
               Effect.annotateLogs({
@@ -148,19 +144,11 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 
   const startupTerminalCleanup = (config: ResolvedConfig) =>
     Effect.gen(function* () {
-      const terminalIssues = yield* deps.tracker
-        .fetchIssuesByStates(config.terminalStates as string[])
-        .pipe(
-          Effect.tapError((e) =>
-            Effect.logWarning("tracker_fetch_failed").pipe(
-              Effect.annotateLogs({
-                operation: "startup_cleanup",
-                error: String(e),
-              }),
-            ),
-          ),
-          Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<Issue>)),
-        );
+      const terminalIssues = yield* withTrackerFallback(
+        deps.tracker.fetchIssuesByStates(config.terminalStates as string[]),
+        "startup_cleanup",
+        [] as ReadonlyArray<Issue>,
+      );
 
       let cleanedCount = 0;
       for (const issue of terminalIssues) {
@@ -192,19 +180,11 @@ export function makeTickRuntime(deps: ReconcileDeps) {
       ),
     );
 
-    const candidates = yield* deps.tracker
-      .fetchCandidateIssues(config.dispatchStates as string[])
-      .pipe(
-        Effect.catchAll((e) =>
-          Effect.succeed([] as ReadonlyArray<Issue>).pipe(
-            Effect.tap(
-              Effect.logError("tracker_fetch_failed").pipe(
-                Effect.annotateLogs({ error: String(e) }),
-              ),
-            ),
-          ),
-        ),
-      );
+    const candidates = yield* withTrackerFallback(
+      deps.tracker.fetchCandidateIssues(config.dispatchStates as string[]),
+      "tick_candidates",
+      [] as ReadonlyArray<Issue>,
+    );
 
     const sorted = sortCandidates(candidates);
     let dispatchedCount = 0;
@@ -246,7 +226,8 @@ export function makeTickRuntime(deps: ReconcileDeps) {
         yield* deps.updateState(incrementStaleRetryDropCount);
         return;
       }
-      if (retryEntry.dueAtMs > Date.now()) {
+      const retryNow = yield* Clock.currentTimeMillis;
+      if (retryEntry.dueAtMs > retryNow) {
         yield* deps.updateState(incrementStaleRetryDropCount);
         return;
       }

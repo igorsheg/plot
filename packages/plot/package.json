@@ -50,6 +50,7 @@
     "yaml": "latest"
   },
   "devDependencies": {
+    "@mariozechner/pi-agent-core": "^0.57.1",
     "bun-types": "latest"
   },
   "engines": {

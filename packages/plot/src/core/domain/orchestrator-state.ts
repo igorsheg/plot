@@ -154,13 +154,14 @@ export const createRunningEntry = (
   issue: Issue,
   workspacePath: string,
   startedAt: number,
+  fiber?: Fiber.RuntimeFiber<void, unknown> | null,
 ): RunningEntry => ({
   issueId: issue.id,
   issueIdentifier: issue.identifier,
   issue,
   state: issue.state,
   startedAt,
-  fiber: null,
+  fiber: fiber ?? null,
   turnCount: 0,
   lastEventAt: startedAt,
   sessionId: null,
@@ -178,6 +179,7 @@ export const createRunningEntry = (
 export const consumeRuntimeEvent = (
   state: OrchestratorState,
   event: AgentRuntimeEvent,
+  now: number,
 ): OrchestratorState => {
   const entry = state.running.get(event.issueId);
   if (!entry) return appendToEventLog(state, event);
@@ -262,7 +264,7 @@ export const consumeRuntimeEvent = (
 
   running.set(event.issueId, {
     ...entry,
-    lastEventAt: Date.now(),
+    lastEventAt: now,
     sessionId,
     turnCount,
     inputTokens,

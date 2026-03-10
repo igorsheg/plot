@@ -14,10 +14,7 @@ export interface AgentRunConfig {
 }
 
 export interface AgentServiceShape {
-  readonly run: (
-    config: AgentRunConfig,
-    signal: AbortSignal,
-  ) => Stream.Stream<AgentRuntimeEvent, AgentRunnerError>;
+  readonly run: (config: AgentRunConfig) => Stream.Stream<AgentRuntimeEvent, AgentRunnerError>;
 }
 
 export class AgentService extends Context.Tag("AgentService")<AgentService, AgentServiceShape>() {}

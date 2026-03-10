@@ -1,9 +1,23 @@
-import { Config, Effect, Fiber, Option, PubSub, Queue, Ref, Stream, SubscriptionRef } from "effect";
+import {
+  Clock,
+  Config,
+  Duration,
+  Effect,
+  Fiber,
+  Mailbox,
+  Match,
+  Option,
+  PubSub,
+  Ref,
+  Stream,
+  SubscriptionRef,
+} from "effect";
 import { type AgentRuntimeEvent, TrackerClient } from "@plot/sdk";
 import { ResolvedConfig } from "./config-service.js";
 import { AgentService } from "../agent/agent-service.js";
 import { WorkflowLoader } from "./workflow-loader.js";
 import { WorkspaceManager } from "./workspace-manager.js";
+import { WorkflowOverridesConfig } from "../config.js";
 import {
   COMMAND_QUEUE_CAPACITY,
   COMMAND_QUEUE_PRESSURE_WARN_AT,
@@ -19,10 +33,6 @@ import {
   type OrchestratorState,
 } from "./domain/orchestrator-state.js";
 
-// ---------------------------------------------------------------------------
-// orchestrator service
-// ---------------------------------------------------------------------------
-
 export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator", {
   effect: Effect.gen(function* () {
     const stateRef = yield* SubscriptionRef.make<OrchestratorState>(initialState);
@@ -33,32 +43,17 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
     const agentService = yield* AgentService;
     const workspaceManager = yield* WorkspaceManager;
     const eventPubSub = yield* PubSub.bounded<AgentRuntimeEvent>(512);
-    const commandQueue = yield* Queue.bounded<OrchestratorCommand>(COMMAND_QUEUE_CAPACITY);
+    const commandMailbox = yield* Mailbox.make<OrchestratorCommand>({
+      capacity: COMMAND_QUEUE_CAPACITY,
+    });
 
-    const trackerKindOpt = yield* Config.string("TRACKER_KIND").pipe(
-      Config.option,
-      Config.nested("PLOT"),
-    );
-    const githubRepoOpt = yield* Config.string("GITHUB_REPO").pipe(
-      Config.option,
-      Config.nested("PLOT"),
-    );
-    const overrides = {
-      trackerKind: Option.getOrUndefined(trackerKindOpt),
-      githubRepo: Option.getOrUndefined(githubRepoOpt),
-    };
+    const overrides = yield* WorkflowOverridesConfig.pipe(Config.nested("PLOT"));
 
-    // -----------------------------------------------------------------------
-    // state access
-    // -----------------------------------------------------------------------
+    const configRef = yield* SubscriptionRef.make<ResolvedConfig | null>(null);
 
     const getState = Ref.get(stateRef);
 
-    const getConfig = Effect.gen(function* () {
-      const wf = yield* workflowLoader.getCurrent;
-      if (!wf) return null;
-      return new ResolvedConfig(wf.config, overrides);
-    });
+    const getConfig = Ref.get(configRef);
 
     const updateState = (fn: (s: OrchestratorState) => OrchestratorState) =>
       Ref.update(stateRef, fn);
@@ -69,9 +64,11 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
     const noteCommandQueueSize = (queueSize: number) =>
       updateState((s) => noteCommandQueueSizeInState(s, queueSize));
 
+    const getCommandQueueDepth = commandMailbox.size.pipe(Effect.map(Option.getOrElse(() => 0)));
+
     const enqueueCommand = (command: OrchestratorCommand) =>
       Effect.gen(function* () {
-        const queueSize = yield* Queue.size(commandQueue);
+        const queueSize = yield* commandMailbox.size.pipe(Effect.map(Option.getOrElse(() => 0)));
         yield* noteCommandQueueSize(queueSize);
         if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
           yield* incrementCommandQueuePressure(queueSize);
@@ -83,7 +80,7 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
             }),
           );
         }
-        yield* Queue.offer(commandQueue, command);
+        yield* commandMailbox.offer(command);
       }).pipe(Effect.asVoid);
 
     const requestTick = (reason: string, options?: { readonly coalesce?: boolean }) =>
@@ -101,18 +98,11 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
         });
       });
 
-    const getCommandQueueDepth = Queue.size(commandQueue);
-
-    // -----------------------------------------------------------------------
-    // event consumption — updates running entry from agent events
-    // -----------------------------------------------------------------------
-
     const consumeEvent = (event: AgentRuntimeEvent) =>
-      updateState((s) => consumeRuntimeEvent(s, event));
-
-    // -----------------------------------------------------------------------
-    // retry scheduling — single scheduler fiber, wake-on-insert
-    // -----------------------------------------------------------------------
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        yield* updateState((s) => consumeRuntimeEvent(s, event, now));
+      });
 
     const dispatchRuntime = makeDispatchRuntime({
       stateRef,
@@ -138,10 +128,46 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
       dispatchIssue: dispatchRuntime.dispatchIssue,
     });
 
+    const handleCommand = (command: OrchestratorCommand) =>
+      Match.value(command).pipe(
+        Match.discriminator("_tag")("tick", (cmd) =>
+          Effect.gen(function* () {
+            if (cmd.coalesced) {
+              yield* Ref.set(pendingPollTickRef, false);
+            }
+            yield* tickRuntime.runTick.pipe(
+              Effect.catchAll((e) =>
+                Effect.logError("tick_failed").pipe(
+                  Effect.annotateLogs({
+                    reason: cmd.reason,
+                    error: String(e),
+                  }),
+                ),
+              ),
+            );
+          }),
+        ),
+        Match.discriminator("_tag")("runtime_event", (cmd) => consumeEvent(cmd.event)),
+        Match.discriminator("_tag")("retry_due", (cmd) => tickRuntime.handleRetryDue(cmd)),
+        Match.discriminator("_tag")("worker_exit", (cmd) =>
+          dispatchRuntime.handleWorkerExit(cmd).pipe(
+            Effect.catchAll((e) =>
+              Effect.logError("worker_exit_failed").pipe(
+                Effect.annotateLogs({
+                  issue_id: cmd.issueId,
+                  error: String(e),
+                }),
+              ),
+            ),
+          ),
+        ),
+        Match.exhaustive,
+      );
+
     const commandLoop = Effect.gen(function* () {
       while (true) {
-        const command = yield* Queue.take(commandQueue);
-        const queueSize = yield* Queue.size(commandQueue);
+        const command = yield* commandMailbox.take;
+        const queueSize = yield* commandMailbox.size.pipe(Effect.map(Option.getOrElse(() => 0)));
         yield* noteCommandQueueSize(queueSize);
         if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
           yield* Effect.logWarning("command_queue_backlog").pipe(
@@ -152,67 +178,29 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
             }),
           );
         }
-
-        if (command._tag === "tick") {
-          if (command.coalesced) {
-            yield* Ref.set(pendingPollTickRef, false);
-          }
-          yield* tickRuntime.runTick.pipe(
-            Effect.catchAll((e) =>
-              Effect.logError("tick_failed").pipe(
-                Effect.annotateLogs({
-                  reason: command.reason,
-                  error: String(e),
-                }),
-              ),
-            ),
-          );
-          continue;
-        }
-
-        if (command._tag === "runtime_event") {
-          yield* consumeEvent(command.event);
-          continue;
-        }
-
-        if (command._tag === "retry_due") {
-          yield* tickRuntime.handleRetryDue(command);
-          continue;
-        }
-
-        yield* dispatchRuntime.handleWorkerExit(command).pipe(
-          Effect.catchAll((e) =>
-            Effect.logError("worker_exit_failed").pipe(
-              Effect.annotateLogs({
-                issue_id: command.issueId,
-                error: String(e),
-              }),
-            ),
-          ),
-        );
+        yield* handleCommand(command);
       }
     });
 
-    // -----------------------------------------------------------------------
-    // poll loop
-    // -----------------------------------------------------------------------
+    const pollLoop = Effect.gen(function* () {
+      const config = yield* getConfig;
+      const interval = config?.pollIntervalMs ?? 30_000;
+      yield* requestTick("poll", { coalesce: true });
+      yield* Effect.sleep(`${interval} millis`);
+    }).pipe(Effect.forever);
 
-    const pollLoop: Effect.Effect<never> = Effect.gen(function* () {
-      while (true) {
-        const config = yield* getConfig;
-        const interval = config?.pollIntervalMs ?? 30_000;
-        yield* Effect.sleep(`${interval} millis`);
-        yield* requestTick("poll", { coalesce: true });
-      }
+    const syncConfig = Effect.gen(function* () {
+      const wf = yield* workflowLoader.getCurrent;
+      if (!wf) return;
+      const resolved = new ResolvedConfig(wf.config, overrides);
+      yield* Ref.set(configRef, resolved);
     });
-
-    // -----------------------------------------------------------------------
-    // start
-    // -----------------------------------------------------------------------
 
     const start = (workflowPath: string) =>
       Effect.gen(function* () {
         yield* workflowLoader.load(workflowPath).pipe(Effect.catchAll((e) => Effect.die(e)));
+
+        yield* syncConfig;
 
         const config = yield* getConfig;
 
@@ -226,6 +214,13 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
 
         yield* workflowLoader.startWatching(workflowPath);
 
+        const configWatchLoop = syncConfig.pipe(
+          Effect.delay(Duration.seconds(5)),
+          Effect.forever,
+          Effect.forkScoped,
+        );
+        yield* configWatchLoop;
+
         yield* Effect.forkScoped(commandLoop);
         yield* Effect.forkScoped(pollLoop);
         yield* requestTick("startup");
@@ -235,6 +230,7 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
 
     const eventStream = Stream.fromPubSub(eventPubSub);
     const stateStream = stateRef.changes;
+    const configStream = configRef.changes;
 
     return {
       start,
@@ -244,6 +240,7 @@ export class Orchestrator extends Effect.Service<Orchestrator>()("Orchestrator",
       getCommandQueueDepth,
       eventStream,
       stateStream,
+      configStream,
     };
   }),
   dependencies: [WorkflowLoader.Default, WorkspaceManager.Default],

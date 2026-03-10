@@ -80,6 +80,18 @@ const mapRetryEntry = (r: {
     error: r.error,
   });
 
+const withOrchestratorAvailability = <A, E>(
+  effect: Effect.Effect<A, E>,
+): Effect.Effect<A, OrchestratorUnavailable> =>
+  effect.pipe(
+    Effect.mapError(
+      () =>
+        new OrchestratorUnavailable({
+          message: "Orchestrator state is unavailable",
+        }),
+    ),
+  );
+
 const mapRuntimeSnapshot = (state: {
   running: Map<string, Parameters<typeof mapRunningEntry>[0]>;
   retryAttempts: Map<string, Parameters<typeof mapRetryEntry>[0]>;
@@ -143,26 +155,13 @@ export const makeObservabilityApi = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator;
   const stateStream = orchestrator.stateStream.pipe(Stream.map(mapRuntimeSnapshot));
 
-  const getState = orchestrator.getState.pipe(
-    Effect.map(mapRuntimeSnapshot),
-    Effect.mapError(
-      () =>
-        new OrchestratorUnavailable({
-          message: "Orchestrator state is unavailable",
-        }),
-    ),
+  const getState = withOrchestratorAvailability(
+    orchestrator.getState.pipe(Effect.map(mapRuntimeSnapshot)),
   );
 
   const getIssue = (identifier: string) =>
     Effect.gen(function* () {
-      const state = yield* orchestrator.getState.pipe(
-        Effect.mapError(
-          () =>
-            new OrchestratorUnavailable({
-              message: "Orchestrator state is unavailable",
-            }),
-        ),
-      );
+      const state = yield* withOrchestratorAvailability(orchestrator.getState);
       const running = [...state.running.values()].find((r) => r.issueIdentifier === identifier);
       const retry = [...state.retryAttempts.values()].find((r) => r.identifier === identifier);
 
@@ -189,14 +188,7 @@ export const makeObservabilityApi = Effect.gen(function* () {
 
   const getEventLog = (identifier: string) =>
     Effect.gen(function* () {
-      const state = yield* orchestrator.getState.pipe(
-        Effect.mapError(
-          () =>
-            new OrchestratorUnavailable({
-              message: "Orchestrator state is unavailable",
-            }),
-        ),
-      );
+      const state = yield* withOrchestratorAvailability(orchestrator.getState);
       const log = [...state.eventLogs.values()].find((l) => l.issueIdentifier === identifier);
       if (!log) {
         return yield* Effect.fail(
@@ -214,14 +206,7 @@ export const makeObservabilityApi = Effect.gen(function* () {
     });
 
   const triggerRefresh = Effect.gen(function* () {
-    yield* orchestrator.tick.pipe(
-      Effect.mapError(
-        () =>
-          new OrchestratorUnavailable({
-            message: "Orchestrator is unavailable",
-          }),
-      ),
-    );
+    yield* withOrchestratorAvailability(orchestrator.tick);
     return new RefreshResult({
       queued: true,
       coalesced: false,

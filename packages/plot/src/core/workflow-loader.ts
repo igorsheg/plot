@@ -2,21 +2,7 @@ import { Duration, Effect, Ref, Schema, Scope } from "effect";
 import { FileSystem } from "@effect/platform";
 import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
 import { WorkflowFileNotFound, WorkflowParseError } from "../schemas/errors.js";
-import { parse as parseYaml } from "yaml";
-
-const snakeToCamel = (s: string): string => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-
-const transformKeys = (obj: unknown): unknown => {
-  if (Array.isArray(obj)) return obj.map(transformKeys);
-  if (obj !== null && typeof obj === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      result[snakeToCamel(k)] = transformKeys(v);
-    }
-    return result;
-  }
-  return obj;
-};
+import { extractFrontmatter } from "./workflow-parse.js";
 
 export class WorkflowLoader extends Effect.Service<WorkflowLoader>()("WorkflowLoader", {
   effect: Effect.gen(function* () {
@@ -29,39 +15,12 @@ export class WorkflowLoader extends Effect.Service<WorkflowLoader>()("WorkflowLo
       content: string,
     ): Effect.Effect<WorkflowDefinition, WorkflowParseError> =>
       Effect.gen(function* () {
-        const trimmed = content.trimStart();
-        let configRaw: Record<string, unknown> = {};
-        let promptTemplate = trimmed;
+        const { configRaw, promptTemplate } = yield* Effect.try({
+          try: () => extractFrontmatter(content),
+          catch: (e) => new WorkflowParseError({ message: String(e) }),
+        });
 
-        if (trimmed.startsWith("---")) {
-          const endIdx = trimmed.indexOf("\n---", 3);
-          if (endIdx === -1) {
-            return yield* new WorkflowParseError({
-              message: "Unterminated YAML front matter",
-            });
-          }
-          const yamlBlock = trimmed.slice(3, endIdx);
-          promptTemplate = trimmed.slice(endIdx + 4).trim();
-
-          try {
-            const parsed = parseYaml(yamlBlock);
-            if (parsed === null || parsed === undefined) {
-              configRaw = {};
-            } else if (typeof parsed !== "object" || Array.isArray(parsed)) {
-              return yield* new WorkflowParseError({
-                message: "Front matter must be a YAML map",
-              });
-            } else {
-              configRaw = parsed as Record<string, unknown>;
-            }
-          } catch (e) {
-            return yield* new WorkflowParseError({
-              message: `YAML parse error: ${e}`,
-            });
-          }
-        }
-
-        const config = yield* Schema.decodeUnknown(WorkflowConfig)(transformKeys(configRaw)).pipe(
+        const config = yield* Schema.decodeUnknown(WorkflowConfig)(configRaw).pipe(
           Effect.mapError((e) => new WorkflowParseError({ message: `Config validation: ${e}` })),
         );
 

@@ -16,29 +16,29 @@ this starts the server + tui dashboard. plot reads `WORKFLOW.md` from the curren
 
 ### commands
 
-| command | description |
-|---|---|
-| `plot-ai` | server + tui dashboard (default) |
-| `plot-ai serve` | headless server |
-| `plot-ai web` | server + browser dashboard |
-| `plot-ai auth status` | check auth state |
-| `plot-ai auth login [provider]` | login to a model provider |
-| `plot-ai auth logout [provider]` | logout from a model provider |
+| command                          | description                      |
+| -------------------------------- | -------------------------------- |
+| `plot-ai`                        | server + tui dashboard (default) |
+| `plot-ai serve`                  | headless server                  |
+| `plot-ai web`                    | server + browser dashboard       |
+| `plot-ai auth status`            | check auth state                 |
+| `plot-ai auth login [provider]`  | login to a model provider        |
+| `plot-ai auth logout [provider]` | logout from a model provider     |
 
 ### options
 
 shared across `plot-ai`, `serve`, and `web`:
 
-| flag | default | description |
-|---|---|---|
-| `--port` | `3000` | server port |
-| `--workflow` | `./WORKFLOW.md` | path to workflow file |
-| `--tracker` | — | tracker backend (`local-fs` or `github`) |
-| `--github-repo` | — | github repo (`owner/repo`) for github tracker |
-| `--issues-dir` | — | local issues directory |
-| `--json` | `false` | ndjson output (serve only) |
-| `--quiet` | `false` | suppress non-error output |
-| `--log-format` | `pretty` | server log format (`pretty` or `json`) |
+| flag            | default         | description                                   |
+| --------------- | --------------- | --------------------------------------------- |
+| `--port`        | `3000`          | server port                                   |
+| `--workflow`    | `./WORKFLOW.md` | path to workflow file                         |
+| `--tracker`     | —               | tracker backend (`local-fs` or `github`)      |
+| `--github-repo` | —               | github repo (`owner/repo`) for github tracker |
+| `--issues-dir`  | —               | local issues directory                        |
+| `--json`        | `false`         | ndjson output (serve only)                    |
+| `--quiet`       | `false`         | suppress non-error output                     |
+| `--log-format`  | `pretty`        | server log format (`pretty` or `json`)        |
 
 ### configuration
 
@@ -46,12 +46,12 @@ shared across `plot-ai`, `serve`, and `web`:
 
 environment overrides:
 
-| variable | default | description |
-|---|---|---|
-| `PLOT_PORT` | `3000` | server port |
-| `PLOT_WORKFLOW` | `./WORKFLOW.md` | workflow file path |
-| `PLOT_TRACKER_KIND` | `local-fs` | tracker backend (`local-fs` or `github`) |
-| `PLOT_GITHUB_REPO` | — | github repo in `owner/repo` form |
+| variable            | default         | description                              |
+| ------------------- | --------------- | ---------------------------------------- |
+| `PLOT_PORT`         | `3000`          | server port                              |
+| `PLOT_WORKFLOW`     | `./WORKFLOW.md` | workflow file path                       |
+| `PLOT_TRACKER_KIND` | `local-fs`      | tracker backend (`local-fs` or `github`) |
+| `PLOT_GITHUB_REPO`  | —               | github repo in `owner/repo` form         |
 
 ## repo layout
 
