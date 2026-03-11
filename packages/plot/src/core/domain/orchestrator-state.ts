@@ -154,7 +154,7 @@ export const hasNonTerminalBlockers = (
 	issue: Issue,
 	config: ResolvedConfig,
 ): boolean =>
-	issue.blockedBy.some((b) => b.state !== null && !isTerminal(b.state, config));
+	(issue.blockedBy ?? []).some((b) => b.state !== null && !isTerminal(b.state, config));
 
 export const isEligible = (
 	issue: Issue,

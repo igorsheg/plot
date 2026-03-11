@@ -10,7 +10,14 @@ import {
 	Scope,
 	Stream,
 } from "effect";
-import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
+import type {
+	AgentResult,
+	AgentRuntimeEvent,
+	Issue,
+	PluginToolDefinition,
+	TrackerPluginHooks,
+	TrackerRunContext,
+} from "@plot/sdk";
 import { compilePrompt } from "../prompt-compiler.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../../agent/agent-service.js";
@@ -83,9 +90,21 @@ export interface DispatchDeps {
 	readonly updateState: (
 		fn: (s: OrchestratorState) => OrchestratorState,
 	) => Effect.Effect<void>;
+	readonly pluginSkillPaths: ReadonlyArray<string>;
+	readonly pluginTools: ReadonlyArray<PluginToolDefinition>;
+	readonly pluginHooks: TrackerPluginHooks | undefined;
 }
 
 export function makeDispatchRuntime(deps: DispatchDeps) {
+	const runHook = (name: string, issueId: string, effect: Effect.Effect<void, unknown>) =>
+		effect.pipe(
+			Effect.catchAll((error) =>
+				Effect.logWarning("plugin_hook_failed").pipe(
+					Effect.annotateLogs({ hook: name, issue_id: issueId, error: String(error) }),
+				),
+			),
+		);
+
 	const releaseClaim = (issueId: string) =>
 		deps.updateState((s) => releaseClaimFromState(s, issueId));
 
@@ -257,7 +276,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		exit,
 	}: WorkerExitCommand): Effect.Effect<void, never, Scope.Scope> =>
 		Effect.gen(function* () {
-			// Atomic: remove running entry + bump exit counter in one write
 			const now = yield* Clock.currentTimeMillis;
 			const exitReason: "success" | "interrupted" | "failure" = Exit.isSuccess(
 				exit,
@@ -266,6 +284,9 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				: Exit.isInterrupted(exit)
 					? "interrupted"
 					: "failure";
+
+			const preExitState = yield* Ref.get(deps.stateRef);
+			const runningEntrySnapshot = preExitState.running.get(issueId) ?? null;
 
 			yield* deps.updateState((s) => {
 				const runningEntry = s.running.get(issueId) ?? null;
@@ -333,6 +354,23 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					"failure",
 				);
 			}
+
+			if (exitReason !== "interrupted" && runningEntrySnapshot) {
+				const issue = runningEntrySnapshot.issue;
+				const agentResult: AgentResult = {
+					turnCount: runningEntrySnapshot.turnCount,
+					inputTokens: runningEntrySnapshot.inputTokens,
+					outputTokens: runningEntrySnapshot.outputTokens,
+					lastMessage: runningEntrySnapshot.lastMessage,
+				};
+
+				if (exitReason === "success" && deps.pluginHooks?.onAgentComplete) {
+					yield* runHook("onAgentComplete", issueId, deps.pluginHooks.onAgentComplete(issue, agentResult));
+				} else if (exitReason === "failure" && deps.pluginHooks?.onAgentFailed) {
+					const error = Exit.isFailure(exit) ? String(exit.cause) : "unknown";
+					yield* runHook("onAgentFailed", issueId, deps.pluginHooks.onAgentFailed(issue, error));
+				}
+			}
 		});
 
 	const dispatchIssue = (
@@ -397,7 +435,8 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				workspacePath: ws.path,
 				issueId: issue.id,
 				issueIdentifier: issue.identifier,
-				trackerSkillPaths: config.trackerSkillPaths,
+				pluginSkillPaths: deps.pluginSkillPaths,
+				pluginTools: deps.pluginTools,
 				maxTurns: config.maxTurns,
 				turnTimeoutMs: config.turnTimeoutMs,
 				shouldContinue,
@@ -462,6 +501,10 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			});
 
 			yield* Deferred.succeed(registered, undefined);
+
+			if (deps.pluginHooks?.onIssueDispatched) {
+				yield* runHook("onIssueDispatched", issue.id, deps.pluginHooks.onIssueDispatched(issue));
+			}
 		}).pipe(
 			Effect.annotateLogs({
 				issue_id: issue.id,

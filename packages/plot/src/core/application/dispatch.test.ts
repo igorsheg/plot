@@ -44,7 +44,7 @@ const makeIssue = (overrides?: Partial<Issue>) =>
 		description: overrides?.description ?? null,
 		priority: overrides?.priority ?? 1,
 		state: overrides?.state ?? "plot:todo",
-		branchName: overrides?.branchName ?? null,
+		branchName: overrides?.branchName,
 		url: overrides?.url ?? null,
 		labels: overrides?.labels ?? [],
 		blockedBy: overrides?.blockedBy ?? [],
@@ -94,6 +94,9 @@ const makeDeps = async (
 		enqueueCommand: overrides?.enqueueCommand ?? (() => Effect.void),
 		getConfig: overrides?.getConfig ?? Effect.succeed(makeConfig()),
 		updateState: (fn) => Ref.update(stateRef, fn),
+		pluginSkillPaths: [],
+		pluginTools: [],
+		pluginHooks: undefined,
 	};
 
 	return { stateRef, runtime: makeDispatchRuntime(deps) };

@@ -46,7 +46,7 @@ const makeIssue = (overrides?: Partial<Issue>) =>
 		description: overrides?.description ?? null,
 		priority: overrides?.priority ?? 1,
 		state: overrides?.state ?? "plot:todo",
-		branchName: overrides?.branchName ?? null,
+		branchName: overrides?.branchName,
 		url: overrides?.url ?? null,
 		labels: overrides?.labels ?? [],
 		blockedBy: overrides?.blockedBy ?? [],

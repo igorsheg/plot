@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import {
+	AgentRuntimeEvent,
 	IssueDetail,
+	IssueEventLog,
 	RefreshResult,
 	RuntimeSnapshot,
 	type SseStatus,
@@ -14,29 +16,37 @@ import {
 
 type WorkerReadyMessage = { type: "ready" };
 type WorkerSnapshotMessage = { type: "snapshot"; snapshot: unknown };
+type WorkerEventMessage = { type: "event"; event: unknown };
 type WorkerErrorMessage = { type: "error"; error: string };
 type WorkerResponseMessage =
 	| { type: "response"; id: number; ok: true; result: unknown }
 	| { type: "response"; id: number; ok: false; error: string };
 
-type WorkerMethod = "triggerRefresh" | "getIssue";
+type WorkerMethod = "triggerRefresh" | "getIssue" | "getEventLog";
 
 type WorkerMessage =
 	| WorkerReadyMessage
 	| WorkerSnapshotMessage
+	| WorkerEventMessage
 	| WorkerErrorMessage
 	| WorkerResponseMessage;
 
 const decodeSnapshot = Schema.decodeUnknownSync(RuntimeSnapshot);
+const decodeEvent = Schema.decodeUnknownSync(AgentRuntimeEvent);
 const decodeRefreshResult = Schema.decodeUnknownSync(RefreshResult);
 const decodeIssueDetail = Schema.decodeUnknownSync(IssueDetail);
+const decodeIssueEventLog = Schema.decodeUnknownSync(IssueEventLog);
 
 type RuntimeApi = {
 	triggerRefresh: () => Promise<RefreshResult>;
 	getIssue: (identifier: string) => Promise<IssueDetail>;
+	getEventLog: (identifier: string) => Promise<IssueEventLog>;
 	connectSnapshots: (
 		handleSnapshot: (snapshot: RuntimeSnapshot) => void,
 		handleStatus: (status: SseStatus) => void,
+	) => () => void;
+	connectEvents: (
+		handleEvent: (event: AgentRuntimeEvent) => void,
 	) => () => void;
 };
 
@@ -54,6 +64,7 @@ export async function createTuiRuntimeHandle(
 	let status: SseStatus = "connecting";
 	let onSnapshot: ((snapshot: RuntimeSnapshot) => void) | null = null;
 	let onStatus: ((status: SseStatus) => void) | null = null;
+	let onEvent: ((event: AgentRuntimeEvent) => void) | null = null;
 	let nextId = 1;
 	const pending = new Map<
 		number,
@@ -82,6 +93,10 @@ export async function createTuiRuntimeHandle(
 			}
 			if (message.type === "snapshot") {
 				onSnapshot?.(decodeSnapshot(message.snapshot));
+				return;
+			}
+			if (message.type === "event") {
+				onEvent?.(decodeEvent(message.event));
 				return;
 			}
 			if (message.type === "error") {
@@ -130,6 +145,8 @@ export async function createTuiRuntimeHandle(
 				decodeRefreshResult(await call("triggerRefresh")),
 			getIssue: async (identifier: string) =>
 				decodeIssueDetail(await call("getIssue", identifier)),
+			getEventLog: async (identifier: string) =>
+				decodeIssueEventLog(await call("getEventLog", identifier)),
 			connectSnapshots: (handleSnapshot, handleStatus) => {
 				onSnapshot = handleSnapshot;
 				onStatus = handleStatus;
@@ -137,6 +154,12 @@ export async function createTuiRuntimeHandle(
 				return () => {
 					onSnapshot = null;
 					onStatus = null;
+				};
+			},
+			connectEvents: (handleEvent) => {
+				onEvent = handleEvent;
+				return () => {
+					onEvent = null;
 				};
 			},
 		},

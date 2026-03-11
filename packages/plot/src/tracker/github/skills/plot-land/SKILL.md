@@ -87,13 +87,13 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
    gh pr merge $pr_number --squash --subject "$pr_title" --repo $GITHUB_REPO
    ```
 
-7. transition issue to plot:done:
+7. transition issue to `plot:done`:
    ```bash
    # extract issue number from PR body (Resolves #N)
    issue_number=<extracted>
-   gh issue edit $issue_number --add-label "plot:done" --remove-label "plot:merging" --repo $GITHUB_REPO
-   gh issue close $issue_number --repo $GITHUB_REPO
    ```
+
+   use `github_transition_issue` to move from `plot:merging` to `plot:done` and close the issue.
 
 ## review response format
 

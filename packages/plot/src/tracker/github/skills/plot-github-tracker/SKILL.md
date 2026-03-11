@@ -7,24 +7,18 @@ description: "github issue state management for plot orchestration. state transi
 
 manages issue state and progress tracking for the plot orchestrator via GitHub labels and comments.
 
+read-only operations still use `gh` directly: viewing issues, listing issues, inspecting PRs, and similar reads.
+
 ## state transitions
 
 issue state is determined by labels. plot only routes issues that have an explicit `plot:*` state label. unlabeled issues are ignored.
 
-to transition, swap labels:
+to transition, use `github_transition_issue`:
 
-```bash
-# move to plot:in-progress
-gh issue edit <number> --add-label "plot:in-progress" --remove-label "plot:todo" --repo $GITHUB_REPO
-
-# move to plot:human-review
-gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:in-progress" --repo $GITHUB_REPO
-gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:rework" --repo $GITHUB_REPO
-
-# move to plot:done (terminal)
-gh issue edit <number> --add-label "plot:done" --remove-label "plot:merging" --repo $GITHUB_REPO
-gh issue close <number> --repo $GITHUB_REPO
-```
+- move to `plot:in-progress` from `plot:todo`
+- move to `plot:human-review` from `plot:in-progress`
+- move to `plot:human-review` from `plot:rework`
+- move to `plot:done` from `plot:merging` and close the issue
 
 always remove the previous `plot:*` state label when adding the new one.
 
@@ -48,9 +42,11 @@ a single persistent GitHub issue comment used as a living scratchpad across agen
 ```bash
 # search for existing workpad
 gh api repos/$GITHUB_REPO/issues/<number>/comments --jq '.[] | select(.body | startswith("## Plot Workpad")) | .id' | head -1
+```
 
-# create if not found
-gh issue comment <number> --repo $GITHUB_REPO --body "$(cat <<'EOF'
+if not found, use `github_add_comment` with this body:
+
+```markdown
 ## Plot Workpad
 
 ### Plan
@@ -75,16 +71,11 @@ gh issue comment <number> --repo $GITHUB_REPO --body "$(cat <<'EOF'
 ### Notes
 
 - <durable context>
-EOF
-)"
 ```
 
 ### update existing
 
-```bash
-gh api repos/$GITHUB_REPO/issues/comments/<comment-id> \
-  -X PATCH -f body="<updated markdown body>"
-```
+use `github_update_comment` to replace the workpad comment body.
 
 ### rules
 
@@ -102,7 +93,6 @@ gh api repos/$GITHUB_REPO/issues/comments/<comment-id> \
 ```text
 <workspace-id>@<short-sha>
 ```
-````
 
 ### Plan
 
@@ -140,8 +130,8 @@ gh issue view <number> --repo $GITHUB_REPO --json title,body,state,labels,commen
 
 # list open issues by label
 gh issue list --repo $GITHUB_REPO --label "plot:in-progress" --state open
-````
+```
 
 ## PR linkage
 
-after creating a PR, the PR body should reference the issue with `Resolves #<number>`. no additional linkage commands needed — GitHub handles it automatically.
+after creating a PR, use `github_link_pull_request` to link the PR to the issue. the PR body should still reference the issue with `Resolves #<number>`.

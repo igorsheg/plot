@@ -78,41 +78,46 @@ shared flags for `plot-ai`, `serve`, and `web`:
 
 ## plugin system
 
-plot has one built-in tracker today: `github`. everything else goes through the tracker plugin contract.
+plot has one built-in tracker: `github`. everything else goes through the tracker plugin contract.
 
 at startup, plot:
 
 1. reads `tracker.kind` from `WORKFLOW.md`
 2. resolves a built-in tracker if the kind is known
 3. otherwise dynamically imports the module named by `tracker.kind`
-4. reads the module's default export as a tracker plugin
-5. calls `factory(config)` to get a tracker layer
+4. validates plugin config through the plugin's schema (if provided)
+5. auto-discovers skills from a co-located `skills/` directory
+6. resolves tools, hooks, and the tracker layer
 
-that means you can add your own tracker type as:
+add your own tracker type as:
 
-- a package specifier, like `@acme/plot-tracker-jira`
-- a local module path, like `./trackers/jira.ts`
+- a package specifier: `@acme/plot-tracker-jira`
+- a local module path: `./trackers/jira.ts`
 
-plugin shape:
+### minimal plugin
 
 ```ts
-import { Effect, Layer } from "effect";
-import {
-  TrackerClient,
-  type TrackerPlugin,
-  type TrackerPluginConfig,
-} from "@plot/sdk";
+import { Effect, Layer, Schema } from "effect";
+import { TrackerClient, type TrackerPlugin } from "@plot/sdk";
 
-const plugin: TrackerPlugin = {
+const AcmeConfig = Schema.Struct({
+  kind: Schema.String,
+  endpoint: Schema.optional(Schema.String),
+  apiKey: Schema.optional(Schema.String),
+});
+type AcmeConfig = typeof AcmeConfig.Type;
+
+const plugin: TrackerPlugin<AcmeConfig> = {
   name: "acme",
-  factory: (config: TrackerPluginConfig) =>
+  configSchema: AcmeConfig,
+  factory: (config) =>
     Layer.succeed(
       TrackerClient,
       TrackerClient.of({
-        fetchCandidateIssues: (_dispatchStates) => Effect.succeed([]),
+        fetchCandidateIssues: (_states) => Effect.succeed([]),
         fetchIssuesByStates: (_states) => Effect.succeed([]),
         fetchIssueStatesByIds: (_ids) => Effect.succeed([]),
-        fetchRunContext: (_issueId, _state) => Effect.succeed(null),
+        fetchRunContext: (_id, _state) => Effect.succeed(null),
       }),
     ),
 };
@@ -120,14 +125,57 @@ const plugin: TrackerPlugin = {
 export default plugin;
 ```
 
-wire it up in `WORKFLOW.md`:
+### plugin with tools
+
+plugins can provide tools that get injected into the agent session. this is how tracker-specific write operations (state transitions, comments, PRs) reach the agent without encoding them in skill markdown.
+
+```ts
+const plugin: TrackerPlugin<AcmeConfig> = {
+  name: "acme",
+  configSchema: AcmeConfig,
+  factory: (config) => makeAcmeClient(config),
+  tools: (config) => [
+    {
+      name: "tracker_transition_issue",
+      description: "Move an issue to a new state",
+      parameters: Schema.Struct({
+        issueId: Schema.String,
+        fromState: Schema.String,
+        toState: Schema.String,
+      }),
+      execute: (args) => /* tracker-specific logic */,
+    },
+  ],
+  hooks: {
+    onAgentFailed: (issue, error) =>
+      Effect.logWarning(`agent failed on ${issue.identifier}: ${error}`),
+  },
+};
+```
+
+### skills auto-discovery
+
+place skills in a `skills/` directory next to the plugin entrypoint. each subdirectory containing a `SKILL.md` is auto-discovered:
+
+```
+my-tracker-plugin/
+├── index.ts              ← plugin entrypoint
+└── skills/               ← auto-discovered
+    ├── my-triage/
+    │   └── SKILL.md
+    └── my-sync/
+        └── SKILL.md
+```
+
+the `skillPaths` field on `TrackerPlugin` is an escape hatch for non-standard layouts.
+
+### workflow config
 
 ```yaml
 tracker:
   kind: ./trackers/acme.ts
   endpoint: $ACME_ENDPOINT
   api_key: $ACME_API_KEY
-  project_slug: my-project
   dispatch_states:
     - plot:todo
     - plot:in-progress
@@ -140,10 +188,11 @@ tracker:
 
 notes:
 
-- plot passes the whole `tracker` block to the plugin as config, with yaml keys normalized to camelCase
-- cli overrides still apply. `--tracker` replaces `tracker.kind`, and `--github-repo` is forwarded as `githubRepo`
-- the plugin is responsible for validating its own config
-- the tracker client contract is small on purpose: fetch candidate issues, fetch issues by state, refresh issue states by id, and fetch per-issue run context
+- plot passes the whole `tracker:` block to the plugin's config schema for validation
+- cli overrides still apply: `--tracker` replaces `tracker.kind`, `--github-repo` is forwarded as `githubRepo`
+- plugins with a `configSchema` get validated config; without one, the raw object is passed through
+- the tracker client has read methods (fetch issues, states, run context) and optional write methods (transition, comment, link PR)
+- discriminated error types (`TrackerAuthError`, `TrackerRateLimitError`, `TrackerNotFoundError`, `TrackerNetworkError`, `TrackerValidationError`) enable intelligent retry behavior
 
 ## contributing
 

@@ -3,22 +3,24 @@ import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { ConfigProvider, Effect, ManagedRuntime, Schema, Stream } from "effect";
 import {
+	AgentRuntimeEvent,
 	applyRuntimeEvent,
 	IssueDetail,
+	IssueEventLog,
 	RefreshResult,
 	RuntimeSnapshot,
 } from "@plot/sdk";
 import { ObservabilityApi } from "./observability-service.js";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { ResolvedConfig } from "./core/config-service.js";
-import { makeObservabilityRuntime } from "./runtime-builder.js";
+import { makeObservabilityRuntime, resolvePlugin } from "./runtime-builder.js";
 
 type StartMessage = { type: "start"; env: Record<string, string> };
 type StopMessage = { type: "stop" };
 type CallMessage = {
 	type: "call";
 	id: number;
-	method: "triggerRefresh" | "getIssue";
+	method: "triggerRefresh" | "getIssue" | "getEventLog";
 	identifier?: string;
 };
 type WorkerMessage = StartMessage | StopMessage | CallMessage;
@@ -28,8 +30,10 @@ type ResponseMessage =
 	| { type: "response"; id: number; ok: false; error: string };
 
 const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
+const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
 const encodeRefreshResult = Schema.encodeSync(RefreshResult);
 const encodeIssueDetail = Schema.encodeSync(IssueDetail);
+const encodeIssueEventLog = Schema.encodeSync(IssueEventLog);
 
 let started = false;
 let runtime: ManagedRuntime.ManagedRuntime<ObservabilityApi, never> | null =
@@ -42,6 +46,10 @@ const RESYNC_INTERVAL_MS = 30_000;
 
 function postSnapshot(snapshot: RuntimeSnapshot) {
 	self.postMessage({ type: "snapshot", snapshot: encodeSnapshot(snapshot) });
+}
+
+function postEvent(event: AgentRuntimeEvent) {
+	self.postMessage({ type: "event", event: encodeEvent(event) });
 }
 
 async function resync(): Promise<void> {
@@ -87,7 +95,8 @@ async function boot(env: Record<string, string>) {
 		const content = readFileSync(config.workflowPath, "utf-8");
 		const workflowConfig = parseWorkflowFrontmatter(content);
 		const resolved = new ResolvedConfig(workflowConfig, config.overrides);
-		runtime = makeObservabilityRuntime(config, resolved);
+		const resolvedPlugin = await Effect.runPromise(resolvePlugin(resolved));
+		runtime = makeObservabilityRuntime(config, resolvedPlugin);
 		api = await runtime.runPromise(
 			Effect.gen(function* () {
 				return yield* ObservabilityApi;
@@ -99,6 +108,7 @@ async function boot(env: Record<string, string>) {
 		runtime.runFork(
 			Stream.runForEach(api.eventStream, (event) =>
 				Effect.sync(() => {
+					postEvent(event);
 					const result = applyRuntimeEvent(currentSnapshot, event);
 					if (result.type === "patched") {
 						currentSnapshot = result.snapshot;
@@ -141,7 +151,13 @@ async function handleCall(message: CallMessage) {
 				? encodeIssueDetail(
 						await runtime.runPromise(api.getIssue(message.identifier ?? "")),
 					)
-				: encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
+				: message.method === "getEventLog"
+					? encodeIssueEventLog(
+							await runtime.runPromise(
+								api.getEventLog(message.identifier ?? ""),
+							),
+						)
+					: encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
 		postResponse({ type: "response", id: message.id, ok: true, result });
 		if (message.method === "triggerRefresh") {
 			await resync();

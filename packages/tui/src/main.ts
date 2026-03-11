@@ -1,26 +1,52 @@
 import {
+	type Component,
 	TUI,
 	ProcessTerminal,
 	Text,
 	Spacer,
 	matchesKey,
+	visibleWidth,
 } from "@mariozechner/pi-tui";
 import { DateTime } from "effect";
 import type {
+	AgentRuntimeEvent,
 	IssueDetail,
+	IssueEventLog,
+	RefreshResult,
 	RuntimeSnapshot,
 	SseStatus,
-	RefreshResult,
 } from "@plot/sdk";
+import { Columns, Lines, Panel } from "./layout.js";
 
 interface RuntimeApi {
 	triggerRefresh: () => Promise<RefreshResult>;
 	getIssue: (identifier: string) => Promise<IssueDetail>;
+	getEventLog: (identifier: string) => Promise<IssueEventLog>;
 	connectSnapshots: (
 		handleSnapshot: (snapshot: RuntimeSnapshot) => void,
 		handleStatus: (status: SseStatus) => void,
 	) => () => void;
+	connectEvents: (
+		handleEvent: (event: AgentRuntimeEvent) => void,
+	) => () => void;
 }
+
+type PaneFocus = "issues" | "events";
+type RailEntry =
+	| {
+			kind: "running";
+			identifier: string;
+			issueId: string;
+			primary: string;
+			secondary: string;
+	  }
+	| {
+			kind: "retrying";
+			identifier: string;
+			issueId: string;
+			primary: string;
+			secondary: string;
+	  };
 
 function formatTokens(n: number): string {
 	if (n < 1000) return String(n);
@@ -44,8 +70,8 @@ function timeAgo(epochMs: number): string {
 }
 
 function truncate(s: string, max: number): string {
-	if (s.length <= max) return s;
-	return s.slice(0, max - 1) + "…";
+	if (visibleWidth(s) <= max) return s;
+	return s.slice(0, Math.max(0, max - 1)) + "…";
 }
 
 const ESC = "\x1b[";
@@ -74,6 +100,14 @@ function toEpochMs(dt: DateTime.Utc): number {
 	return DateTime.toEpochMillis(dt);
 }
 
+function formatClock(dt: DateTime.Utc): string {
+	return new Date(toEpochMs(dt)).toISOString().slice(11, 19);
+}
+
+function formatIso(dt: DateTime.Utc): string {
+	return new Date(toEpochMs(dt)).toISOString();
+}
+
 function summarizeReasonCounts(reasons: Record<string, number>): string {
 	const parts = Object.entries(reasons)
 		.filter(([, count]) => count > 0)
@@ -88,248 +122,475 @@ function phaseStr(session: {
 }): string {
 	switch (session.phase) {
 		case "thinking":
-			return fg(C.yellow, "thinking");
+			return fg(C.yellow, "thinking…");
 		case "tool_execution": {
 			const tool = session.activeTools[session.activeTools.length - 1];
-			return fg(C.cyan, tool?.toolName ?? "exec");
+			return fg(C.cyan, `${tool?.toolName ?? "exec"}…`);
 		}
 		case "compacting":
-			return fg(C.magenta, "compacting");
+			return fg(C.magenta, "compacting…");
 		case "retrying":
-			return fg(C.red, "retrying");
+			return fg(C.red, "retrying…");
 		default:
 			return fg(C.muted, "idle");
 	}
 }
 
-function activityStr(session: {
-	phase: string;
-	activeTools: ReadonlyArray<{ toolName: string }>;
-	lastMessage: string | null;
-}): string {
-	if (session.phase === "tool_execution" && session.activeTools.length > 0) {
-		const names = session.activeTools.map((t) => t.toolName).join(", ");
-		return fg(C.cyan, truncate(names, 40));
-	}
-	return fg(C.muted, truncate(session.lastMessage ?? "—", 40));
+function eventSummary(event: AgentRuntimeEvent): string {
+	const pieces: string[] = [event.event];
+	if (event.toolName) pieces.push(event.toolName);
+	else if (event.message)
+		pieces.push(truncate(event.message.replace(/\s+/g, " "), 48));
+	return pieces.join(" · ");
 }
 
-const ANSI_RE = new RegExp(String.fromCharCode(0x1b) + "\\[[0-9;]*m", "g");
-
-function pad(s: string, len: number): string {
-	const visible = s.replace(ANSI_RE, "");
-	const diff = len - visible.length;
-	return diff > 0 ? s + " ".repeat(diff) : s;
+function eventListFromState(): readonly AgentRuntimeEvent[] {
+	if (currentEventLog) return currentEventLog.events;
+	if (currentIssueDetail) return currentIssueDetail.eventTail;
+	return [];
 }
 
-let selectedIndex = 0;
-let currentState: RuntimeSnapshot | null = null;
-let currentIssueDetail: IssueDetail | null = null;
-let currentIssueDetailIdentifier: string | null = null;
-let issueDetailRequestId = 0;
-let sseStatus = "connecting";
-
-let headerText: Text;
-let tableText: Text;
-let detailText: Text;
-let retryText: Text;
-let footerText: Text;
-
-function updateHeader() {
-	if (!currentState) return;
-	const s = currentState;
-	const dot = sseStatus === "connected" ? fg(C.green, "●") : fg(C.red, "●");
-	const parts = [
-		`${bold("plot")} ${dot} ${fg(C.muted, sseStatus)}`,
-		`${bold(String(s.counts.running))} running ${bold(String(s.counts.retrying))} retrying`,
-		`queue ${fg(C.cyan, `${s.observability.commandQueueDepth}/${s.observability.commandQueuePeak}`)}`,
-		`pressure ${fg(C.yellow, String(s.observability.commandQueuePressureCount))}`,
-		`tokens ${fg(C.yellow, formatTokens(s.codexTotals.totalTokens))}`,
-		`up ${fg(C.magenta, formatDuration(s.codexTotals.secondsRunning))}`,
-	];
-	headerText.setText(parts.join(" │ "));
+function padLabel(label: string, width: number): string {
+	const diff = width - visibleWidth(label);
+	return diff > 0 ? label + " ".repeat(diff) : label;
 }
 
-function updateTable() {
-	if (!currentState) return;
-	const hdr = [
-		pad(bold("ID"), 14),
-		pad(bold("State"), 10),
-		pad(bold("Phase"), 16),
-		pad(bold("Age"), 8),
-		pad(bold("Turns"), 6),
-		pad(bold("Tokens"), 10),
-		bold("Activity"),
-	].join(" ");
-
-	const rows = currentState.running.map((r, i) => {
-		const age = timeAgo(toEpochMs(r.startedAt));
-		const isSelected = i === selectedIndex;
-		const id = isSelected
-			? fg(C.cyan, bold(r.issueIdentifier))
-			: r.issueIdentifier;
-		return [
-			pad(id, 14),
-			pad(r.state, 10),
-			pad(phaseStr(r.session), 16),
-			pad(age, 8),
-			pad(String(r.session.turnCount), 6),
-			pad(formatTokens(r.session.totalTokens), 10),
-			activityStr(r.session),
-		].join(" ");
-	});
-
-	if (rows.length === 0) {
-		rows.push(fg(C.muted, "No active sessions"));
+class DashboardBody implements Component {
+	invalidate() {
+		workRailPane.invalidate();
+		eventListPane.invalidate();
+		eventDetailPane.invalidate();
+		opsPane.invalidate();
 	}
 
-	tableText.setText(`${hdr}\n${rows.join("\n")}`);
+	render(width: number): string[] {
+		const workPanel = new Panel(workRailPane, "work", {
+			active: focusPane === "issues",
+		});
+		const tracePanel = new Panel(eventListPane, "trace", {
+			active: focusPane === "events",
+		});
+		const detailPanel = new Panel(eventDetailPane, "detail");
+		const opsPanel = new Panel(opsPane, "ops");
+		const workspace = new Columns(
+			[tracePanel, detailPanel],
+			[
+				{ kind: "flex", weight: 3 },
+				{ kind: "fixed", width: 38 },
+			],
+			1,
+		);
+		const body = new Columns(
+			opsVisible ? [workPanel, workspace, opsPanel] : [workPanel, workspace],
+			opsVisible
+				? [
+						{ kind: "fixed", width: 30 },
+						{ kind: "flex", weight: 1 },
+						{ kind: "fixed", width: 34 },
+					]
+				: [
+						{ kind: "fixed", width: 30 },
+						{ kind: "flex", weight: 1 },
+					],
+			1,
+		);
+		return body.render(width);
+	}
 }
 
-function updateDetail() {
-	if (!currentState || currentState.running.length === 0) {
-		detailText.setText(fg(C.muted, "Select a session to view details"));
+function getRailEntries(): RailEntry[] {
+	if (!currentState) return [];
+	const running = [...currentState.running]
+		.sort((a, b) => {
+			const aAt = a.session.lastEventAt ? toEpochMs(a.session.lastEventAt) : 0;
+			const bAt = b.session.lastEventAt ? toEpochMs(b.session.lastEventAt) : 0;
+			return bAt - aAt;
+		})
+		.map<RailEntry>((entry) => ({
+			kind: "running",
+			identifier: entry.issueIdentifier,
+			issueId: entry.issueId,
+			primary: `${entry.issueIdentifier} ${fg(C.blue, entry.state)}`,
+			secondary: `${phaseStr(entry.session)} · t${entry.session.turnCount} · ${formatTokens(entry.session.totalTokens)} · ${entry.session.lastEventAt ? timeAgo(toEpochMs(entry.session.lastEventAt)) : "idle"}`,
+		}));
+	const retrying = currentState.retrying.map<RailEntry>((entry) => ({
+		kind: "retrying",
+		identifier: entry.identifier,
+		issueId: entry.issueId,
+		primary: `${entry.identifier} ${fg(C.red, `attempt ${entry.attempt}`)}`,
+		secondary: `${timeAgo(toEpochMs(entry.dueAt))}${entry.error ? ` · ${truncate(entry.error, 28)}` : ""}`,
+	}));
+	return [...running, ...retrying];
+}
+
+function getSelectedRailIndex(entries = getRailEntries()): number {
+	if (entries.length === 0) return -1;
+	const index = entries.findIndex(
+		(entry) => entry.identifier === selectedIssueIdentifier,
+	);
+	return index === -1 ? 0 : index;
+}
+
+function ensureSelection() {
+	const entries = getRailEntries();
+	if (entries.length === 0) {
+		selectedIssueIdentifier = null;
+		selectedEventIndex = 0;
 		return;
 	}
-	const idx = Math.min(selectedIndex, currentState.running.length - 1);
-	const r = currentState.running[idx];
-	if (!r) return;
-
-	const s = r.session;
-	const phaseColor =
-		s.phase === "thinking"
-			? C.yellow
-			: s.phase === "tool_execution"
-				? C.cyan
-				: s.phase === "compacting"
-					? C.magenta
-					: s.phase === "retrying"
-						? C.red
-						: C.muted;
-	const toolNames =
-		s.activeTools.length > 0
-			? s.activeTools.map((at) => at.toolName).join(", ")
-			: "—";
-	const message = s.lastAssistantMessage ?? s.lastMessage ?? "—";
-
-	const prompt = currentIssueDetail?.promptSnapshot;
-	const runContext = currentIssueDetail?.runContext;
-	const promptSummary = prompt
-		? [
-				`${fg(C.muted, "prompt")}   system ${fg(C.yellow, formatTokens(prompt.systemCharCount))} user ${fg(C.yellow, formatTokens(prompt.userCharCount))}`,
-				`${fg(C.muted, "prefix")}   ${prompt.stablePrefixHash.slice(0, 12)}…`,
-			]
-		: [`${fg(C.muted, "prompt")}   loading…`];
-	const workpadSummary = runContext?.workpadSections.length
-		? `${fg(C.muted, "workpad")}  ${runContext.workpadSections.map((section) => section.title).join(", ")}`
-		: `${fg(C.muted, "workpad")}  none`;
-
-	const lines = [
-		`${bold(r.issueIdentifier)} ${fg(C.blue, r.state)} ${fg(phaseColor, s.phase)}`,
-		"",
-		`${fg(C.muted, "workspace")} ${r.workspacePath ?? "—"}`,
-		`${fg(C.muted, "session")}  ${s.sessionId.slice(0, 12)}…`,
-		`${fg(C.muted, "phase")}    ${fg(phaseColor, s.phase)}`,
-		`${fg(C.muted, "turns")}    ${bold(String(s.turnCount))}`,
-		`${fg(C.muted, "tokens")}   in ${fg(C.yellow, formatTokens(s.inputTokens))} out ${fg(C.yellow, formatTokens(s.outputTokens))} total ${fg(C.yellow, formatTokens(s.totalTokens))}`,
-		`${fg(C.muted, "tools")}    ${fg(C.cyan, toolNames)}`,
-		...promptSummary,
-		workpadSummary,
-		"",
-		bold("last response"),
-		message,
-	];
-	detailText.setText(lines.join("\n"));
-}
-
-function updateRetryQueue() {
-	if (!currentState) return;
-	if (currentState.retrying.length === 0) {
-		retryText.setText(fg(C.muted, "No queued retries"));
-		return;
+	if (
+		!selectedIssueIdentifier ||
+		!entries.some((entry) => entry.identifier === selectedIssueIdentifier)
+	) {
+		selectedIssueIdentifier = entries[0]!.identifier;
+		currentIssueDetail = null;
+		currentIssueDetailIdentifier = null;
+		currentEventLog = null;
+		currentEventLogIdentifier = null;
+		selectedEventIndex = 0;
 	}
-	const parts = currentState.retrying.map((r) => {
-		const dueMs = toEpochMs(r.dueAt);
-		const dueIn = Math.max(0, Math.round((dueMs - Date.now()) / 1000));
-		const errPart = r.error ? ` ${truncate(r.error, 50)}` : "";
-		return `↻ ${r.identifier} attempt ${r.attempt} in ${dueIn}s${errPart}`;
-	});
-	retryText.setText(parts.join("\n"));
 }
 
-function updateObservability() {
-	if (!currentState) return;
-	const o = currentState.observability;
-	const lines = [
-		bold("queue"),
-		`${fg(C.muted, "depth")} ${bold(String(o.commandQueueDepth))} │ ${fg(C.muted, "peak")} ${bold(String(o.commandQueuePeak))} │ ${fg(C.muted, "pressure")} ${bold(String(o.commandQueuePressureCount))}`,
-		"",
-		bold("retries"),
-		`${fg(C.muted, "queued")} ${bold(String(currentState.counts.retrying))} │ ${fg(C.muted, "stale drops")} ${bold(String(o.staleRetryDropCount))}`,
-		`${fg(C.muted, "mix")} ${summarizeReasonCounts(o.retriesScheduledByReason)}`,
-		"",
-		bold("workers"),
-		`${fg(C.muted, "stops")} ${summarizeReasonCounts(o.workerStopsByReason)}`,
-		`${fg(C.muted, "exits")} ${summarizeReasonCounts(o.workerExitsByReason)}`,
-	];
-	observabilityText.setText(lines.join("\n"));
+function selectIssue(delta: number) {
+	const entries = getRailEntries();
+	if (entries.length === 0) return false;
+	const currentIndex = getSelectedRailIndex(entries);
+	const nextIndex = Math.max(
+		0,
+		Math.min(entries.length - 1, currentIndex + delta),
+	);
+	const next = entries[nextIndex];
+	if (!next || next.identifier === selectedIssueIdentifier) return false;
+	selectedIssueIdentifier = next.identifier;
+	currentIssueDetail = null;
+	currentIssueDetailIdentifier = null;
+	currentEventLog = null;
+	currentEventLogIdentifier = null;
+	selectedEventIndex = 0;
+	return true;
 }
 
-let observabilityText: Text;
-
-function updateAll() {
-	updateHeader();
-	updateTable();
-	updateDetail();
-	updateObservability();
-	updateRetryQueue();
+function selectEvent(delta: number) {
+	const events = eventListFromState();
+	if (events.length === 0) return false;
+	const nextIndex = Math.max(
+		0,
+		Math.min(events.length - 1, selectedEventIndex + delta),
+	);
+	if (nextIndex === selectedEventIndex) return false;
+	selectedEventIndex = nextIndex;
+	return true;
 }
 
 function refreshIssueDetail(api: RuntimeApi, requestRender?: () => void) {
-	if (!currentState || currentState.running.length === 0) {
+	if (!selectedIssueIdentifier) {
 		currentIssueDetail = null;
 		currentIssueDetailIdentifier = null;
 		return;
 	}
-	const idx = Math.min(selectedIndex, currentState.running.length - 1);
-	const entry = currentState.running[idx];
-	if (!entry) return;
-	if (currentIssueDetailIdentifier === entry.issueIdentifier) return;
-
+	if (currentIssueDetailIdentifier === selectedIssueIdentifier) return;
 	currentIssueDetail = null;
-	currentIssueDetailIdentifier = entry.issueIdentifier;
+	currentIssueDetailIdentifier = selectedIssueIdentifier;
 	const requestId = ++issueDetailRequestId;
 	void api
-		.getIssue(entry.issueIdentifier)
+		.getIssue(selectedIssueIdentifier)
 		.then((detail) => {
 			if (requestId !== issueDetailRequestId) return detail;
 			currentIssueDetail = detail;
-			updateDetail();
+			updateEventList();
+			updateEventDetail();
 			requestRender?.();
 			return detail;
 		})
 		.catch(() => {
 			if (requestId !== issueDetailRequestId) return null;
 			currentIssueDetail = null;
-			updateDetail();
+			updateEventList();
+			updateEventDetail();
 			requestRender?.();
 			return null;
 		});
 }
 
+function refreshEventLog(api: RuntimeApi, requestRender?: () => void) {
+	if (!selectedIssueIdentifier) {
+		currentEventLog = null;
+		currentEventLogIdentifier = null;
+		selectedEventIndex = 0;
+		return;
+	}
+	if (currentEventLogIdentifier === selectedIssueIdentifier) return;
+	currentEventLog = null;
+	currentEventLogIdentifier = selectedIssueIdentifier;
+	const requestId = ++eventLogRequestId;
+	void api
+		.getEventLog(selectedIssueIdentifier)
+		.then((log) => {
+			if (requestId !== eventLogRequestId) return log;
+			currentEventLog = log;
+			selectedEventIndex = Math.max(0, log.events.length - 1);
+			updateEventList();
+			updateEventDetail();
+			requestRender?.();
+			return log;
+		})
+		.catch(() => {
+			if (requestId !== eventLogRequestId) return null;
+			currentEventLog = null;
+			selectedEventIndex = Math.max(0, eventListFromState().length - 1);
+			updateEventList();
+			updateEventDetail();
+			requestRender?.();
+			return null;
+		});
+}
+
+function mergeRuntimeEvent(event: AgentRuntimeEvent) {
+	if (!currentEventLog || currentEventLog.issueId !== event.issueId) return;
+	const previous = currentEventLog.events;
+	const shouldFollowTail =
+		selectedEventIndex >= Math.max(0, previous.length - 1);
+	const nextEvents =
+		event.event === "notification" &&
+		previous.length > 0 &&
+		previous[previous.length - 1]?.event === "notification"
+			? [
+					...previous.slice(0, -1),
+					{
+						...previous[previous.length - 1]!,
+						timestamp: event.timestamp,
+						message:
+							(previous[previous.length - 1]!.message ?? "") +
+							(event.message ?? ""),
+					} as AgentRuntimeEvent,
+				]
+			: [...previous, event];
+	currentEventLog = {
+		...currentEventLog,
+		events: nextEvents,
+	} as IssueEventLog;
+	if (shouldFollowTail) {
+		selectedEventIndex = Math.max(0, nextEvents.length - 1);
+	}
+}
+
+let focusPane: PaneFocus = "issues";
+let opsVisible = true;
+let selectedIssueIdentifier: string | null = null;
+let selectedEventIndex = 0;
+let currentState: RuntimeSnapshot | null = null;
+let currentIssueDetail: IssueDetail | null = null;
+let currentIssueDetailIdentifier: string | null = null;
+let currentEventLog: IssueEventLog | null = null;
+let currentEventLogIdentifier: string | null = null;
+let issueDetailRequestId = 0;
+let eventLogRequestId = 0;
+let sseStatus: SseStatus = "connecting";
+
+let headerText: Text;
+let footerText: Text;
+let workRailPane: Lines;
+let eventListPane: Lines;
+let eventDetailPane: Lines;
+let opsPane: Lines;
+
+function updateHeader() {
+	const runningCount = currentState?.counts.running ?? 0;
+	const retryingCount = currentState?.counts.retrying ?? 0;
+	const dot = sseStatus === "connected" ? fg(C.green, "●") : fg(C.red, "●");
+	const parts = [
+		`${bold("plot")} ${dot} ${fg(C.muted, sseStatus)}`,
+		`${bold(String(runningCount))} active`,
+		retryingCount > 0 ? `${bold(String(retryingCount))} retrying` : null,
+		currentState
+			? `tokens ${fg(C.yellow, formatTokens(currentState.codexTotals.totalTokens))}`
+			: null,
+		currentState
+			? `up ${fg(C.magenta, formatDuration(currentState.codexTotals.secondsRunning))}`
+			: null,
+	].filter(Boolean);
+	headerText.setText(parts.join(" │ "));
+}
+
+function updateWorkRail() {
+	const entries = getRailEntries();
+	const lines: string[] = [];
+	if (entries.length === 0) {
+		lines.push(fg(C.muted, "no active work"));
+		workRailPane.setLines(lines);
+		return;
+	}
+	for (const [index, entry] of entries.entries()) {
+		const selected = entry.identifier === selectedIssueIdentifier;
+		const prefix = selected ? fg(C.cyan, "›") : fg(C.muted, " ");
+		if (entry.kind === "retrying" && index === currentState?.running.length) {
+			lines.push(fg(C.muted, "retrying"));
+		}
+		lines.push(`${prefix} ${entry.primary}`);
+		lines.push(`  ${fg(C.muted, entry.secondary)}`);
+		lines.push("");
+	}
+	workRailPane.setLines(lines);
+}
+
+function updateEventList() {
+	const events = eventListFromState();
+	const lines = [
+		selectedIssueIdentifier
+			? fg(C.muted, `${selectedIssueIdentifier} · ${events.length} events`)
+			: fg(C.muted, "select an issue"),
+		"",
+	];
+	if (!selectedIssueIdentifier) {
+		lines.push(fg(C.muted, "select an issue to inspect"));
+		eventListPane.setLines(lines);
+		return;
+	}
+	if (!currentEventLog && !currentIssueDetail) {
+		lines.push(fg(C.muted, "loading trace…"));
+		eventListPane.setLines(lines);
+		return;
+	}
+	if (events.length === 0) {
+		lines.push(fg(C.muted, "no events yet"));
+		eventListPane.setLines(lines);
+		return;
+	}
+	for (const [index, event] of events.entries()) {
+		const selected = index === selectedEventIndex;
+		const prefix = selected ? fg(C.cyan, "›") : fg(C.muted, " ");
+		const clock = fg(C.muted, formatClock(event.timestamp));
+		lines.push(`${prefix} ${clock} ${eventSummary(event)}`);
+	}
+	eventListPane.setLines(lines);
+}
+
+function updateEventDetail() {
+	const events = eventListFromState();
+	const event = events[selectedEventIndex] ?? null;
+	const lines = [""];
+	if (!selectedIssueIdentifier) {
+		lines.push(fg(C.muted, "select an issue to inspect"));
+		eventDetailPane.setLines(lines);
+		return;
+	}
+	if (!event) {
+		lines.push(fg(C.muted, "select an event to inspect"));
+		if (currentIssueDetail) {
+			lines.push("");
+			lines.push(`${fg(C.muted, "status")} ${currentIssueDetail.status}`);
+			lines.push(
+				`${fg(C.muted, "workspace")} ${currentIssueDetail.workspacePath ?? "—"}`,
+			);
+		}
+		eventDetailPane.setLines(lines);
+		return;
+	}
+	lines.push(`${event.event}`);
+	lines.push(fg(C.muted, formatIso(event.timestamp)));
+	lines.push("");
+	if (event.message) lines.push(`${fg(C.muted, "message")} ${event.message}`);
+	if (event.toolName) lines.push(`${fg(C.muted, "tool")} ${event.toolName}`);
+	if (event.toolCallId)
+		lines.push(`${fg(C.muted, "call")} ${event.toolCallId}`);
+	if (event.sessionId)
+		lines.push(`${fg(C.muted, "session")} ${truncate(event.sessionId, 18)}`);
+	if (event.isError !== undefined) {
+		lines.push(
+			`${fg(C.muted, "error")} ${event.isError ? fg(C.red, "true") : fg(C.green, "false")}`,
+		);
+	}
+	if (event.usage) {
+		lines.push(
+			`${fg(C.muted, "tokens")} in ${fg(C.yellow, formatTokens(event.usage.inputTokens))} out ${fg(C.yellow, formatTokens(event.usage.outputTokens))} total ${fg(C.yellow, formatTokens(event.usage.totalTokens))}`,
+		);
+	}
+	eventDetailPane.setLines(lines);
+}
+
+function updateOps() {
+	const lines = [""];
+	if (!currentState) {
+		lines.push(fg(C.muted, "waiting for runtime snapshot"));
+		opsPane.setLines(lines);
+		return;
+	}
+	const o = currentState.observability;
+	lines.push(bold("retries"));
+	if (currentState.retrying.length === 0) {
+		lines.push(fg(C.muted, "none"));
+	} else {
+		for (const retry of currentState.retrying) {
+			const dueIn = Math.max(
+				0,
+				Math.round((toEpochMs(retry.dueAt) - Date.now()) / 1000),
+			);
+			lines.push(
+				`↻ ${retry.identifier} · attempt ${retry.attempt} · ${dueIn}s`,
+			);
+			if (retry.error)
+				lines.push(`  ${fg(C.muted, truncate(retry.error, 44))}`);
+		}
+	}
+	lines.push("");
+	lines.push(bold("queue"));
+	lines.push(
+		`${fg(C.muted, "depth")} ${padLabel(String(o.commandQueueDepth), 4)} ${fg(C.muted, "peak")} ${padLabel(String(o.commandQueuePeak), 4)} ${fg(C.muted, "pressure")} ${o.commandQueuePressureCount}`,
+	);
+	lines.push("");
+	lines.push(bold("workers"));
+	lines.push(
+		`${fg(C.muted, "stops")} ${summarizeReasonCounts(o.workerStopsByReason)}`,
+	);
+	lines.push(
+		`${fg(C.muted, "exits")} ${summarizeReasonCounts(o.workerExitsByReason)}`,
+	);
+	lines.push("");
+	lines.push(bold("retry mix"));
+	lines.push(summarizeReasonCounts(o.retriesScheduledByReason));
+	opsPane.setLines(lines);
+}
+
+function updateFooter() {
+	const opsLabel = opsVisible ? fg(C.green, "on") : fg(C.muted, "off");
+	footerText.setText(
+		fg(
+			C.muted,
+			`j/k move │ h/l focus │ tab switch │ o ops ${opsLabel} │ r refresh │ q quit`,
+		),
+	);
+}
+
+function updateAll() {
+	updateHeader();
+	updateWorkRail();
+	updateEventList();
+	updateEventDetail();
+	updateOps();
+	updateFooter();
+}
+
 export async function runTui(options: { api: RuntimeApi }) {
 	const api = options.api;
-	selectedIndex = 0;
+	focusPane = "issues";
+	opsVisible = true;
+	selectedIssueIdentifier = null;
+	selectedEventIndex = 0;
 	currentState = null;
 	currentIssueDetail = null;
 	currentIssueDetailIdentifier = null;
+	currentEventLog = null;
+	currentEventLogIdentifier = null;
 	issueDetailRequestId = 0;
+	eventLogRequestId = 0;
 	sseStatus = "connecting";
-	let disconnect = () => {};
+	let disconnectSnapshots = () => {};
+	let disconnectEvents = () => {};
 
 	const done = new Promise<void>((resolve, reject) => {
 		const finish = () => {
-			disconnect();
+			disconnectSnapshots();
+			disconnectEvents();
 			resolve();
 		};
 
@@ -337,37 +598,29 @@ export async function runTui(options: { api: RuntimeApi }) {
 			const terminal = new ProcessTerminal();
 			const tui = new TUI(terminal, false);
 
-			headerText = new Text(`${bold("plot")} ${fg(C.muted, "connecting…")}`, 1);
-			const headerSpacer = new Spacer(0);
+			headerText = new Text(`${bold("plot")} ${fg(C.muted, "connecting…")}`, 0);
+			const headerSpacer = new Spacer(1);
+			workRailPane = new Lines();
+			eventListPane = new Lines();
+			eventDetailPane = new Lines();
+			opsPane = new Lines();
+			footerText = new Text("", 0);
+			const footerSpacer = new Spacer(1);
 
-			tableText = new Text(fg(C.muted, "Waiting for data…"), 1);
-			const tableSpacer = new Spacer(1);
-
-			detailText = new Text(fg(C.muted, "Select a session to view details"), 1);
-			const detailSpacer = new Spacer(1);
-
-			observabilityText = new Text(
-				fg(C.muted, "Waiting for runtime snapshot"),
-				1,
-			);
-			const obsSpacer = new Spacer(1);
-
-			retryText = new Text(fg(C.muted, "No queued retries"), 1);
-			const retrySpacer = new Spacer(1);
-
-			footerText = new Text(fg(C.muted, "j/k navigate │ r refresh │ q quit"));
+			const body = new DashboardBody();
 
 			tui.addChild(headerText);
 			tui.addChild(headerSpacer);
-			tui.addChild(tableText);
-			tui.addChild(tableSpacer);
-			tui.addChild(detailText);
-			tui.addChild(detailSpacer);
-			tui.addChild(observabilityText);
-			tui.addChild(obsSpacer);
-			tui.addChild(retryText);
-			tui.addChild(retrySpacer);
+			tui.addChild(body);
+			tui.addChild(footerSpacer);
 			tui.addChild(footerText);
+
+			const syncSelectedIssue = () => {
+				ensureSelection();
+				refreshIssueDetail(api, () => tui.requestRender());
+				refreshEventLog(api, () => tui.requestRender());
+				updateAll();
+			};
 
 			tui.addInputListener((data: string) => {
 				if (matchesKey(data, "q") || matchesKey(data, "ctrl+c")) {
@@ -375,22 +628,44 @@ export async function runTui(options: { api: RuntimeApi }) {
 					finish();
 					return { consume: true };
 				}
+				if (matchesKey(data, "tab")) {
+					focusPane = focusPane === "issues" ? "events" : "issues";
+					updateAll();
+					tui.requestRender();
+					return { consume: true };
+				}
+				if (matchesKey(data, "h") || matchesKey(data, "left")) {
+					focusPane = "issues";
+					updateAll();
+					tui.requestRender();
+					return { consume: true };
+				}
+				if (matchesKey(data, "l") || matchesKey(data, "right")) {
+					focusPane = "events";
+					updateAll();
+					tui.requestRender();
+					return { consume: true };
+				}
+				if (matchesKey(data, "o")) {
+					opsVisible = !opsVisible;
+					updateFooter();
+					tui.requestRender(true);
+					return { consume: true };
+				}
 				if (matchesKey(data, "j") || matchesKey(data, "down")) {
-					if (currentState && selectedIndex < currentState.running.length - 1) {
-						selectedIndex++;
-						currentIssueDetailIdentifier = null;
-						refreshIssueDetail(api, () => tui.requestRender());
-						updateAll();
+					const changed =
+						focusPane === "issues" ? selectIssue(1) : selectEvent(1);
+					if (changed) {
+						syncSelectedIssue();
 						tui.requestRender();
 					}
 					return { consume: true };
 				}
 				if (matchesKey(data, "k") || matchesKey(data, "up")) {
-					if (selectedIndex > 0) {
-						selectedIndex--;
-						currentIssueDetailIdentifier = null;
-						refreshIssueDetail(api, () => tui.requestRender());
-						updateAll();
+					const changed =
+						focusPane === "issues" ? selectIssue(-1) : selectEvent(-1);
+					if (changed) {
+						syncSelectedIssue();
 						tui.requestRender();
 					}
 					return { consume: true };
@@ -402,10 +677,12 @@ export async function runTui(options: { api: RuntimeApi }) {
 				return undefined;
 			});
 
-			disconnect = api.connectSnapshots(
+			disconnectSnapshots = api.connectSnapshots(
 				(snapshot: RuntimeSnapshot) => {
 					currentState = snapshot;
+					ensureSelection();
 					refreshIssueDetail(api, () => tui.requestRender());
+					refreshEventLog(api, () => tui.requestRender());
 					updateAll();
 					tui.requestRender();
 				},
@@ -415,9 +692,16 @@ export async function runTui(options: { api: RuntimeApi }) {
 					tui.requestRender();
 				},
 			);
+			disconnectEvents = api.connectEvents((event) => {
+				mergeRuntimeEvent(event);
+				updateEventList();
+				updateEventDetail();
+				tui.requestRender();
+			});
 
+			updateAll();
 			tui.start();
-			tui.requestRender();
+			tui.requestRender(true);
 		})().catch(reject);
 	});
 

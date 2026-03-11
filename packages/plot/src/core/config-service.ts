@@ -53,7 +53,6 @@ export class ResolvedConfig {
 	readonly stallTimeoutMs: number;
 	readonly serverPort: number | undefined;
 	readonly githubRepo: string;
-	trackerSkillPaths: ReadonlyArray<string>;
 
 	constructor(wf: WorkflowConfig, overrides?: WorkflowOverrides) {
 		this.trackerKind = overrides?.trackerKind ?? wf.tracker?.kind ?? "github";
@@ -106,7 +105,6 @@ export class ResolvedConfig {
 		this.stallTimeoutMs = wf.codex?.stallTimeoutMs ?? 300_000;
 		this.serverPort = wf.server?.port;
 		this.githubRepo = overrides?.githubRepo ?? "";
-		this.trackerSkillPaths = [];
 	}
 }
 

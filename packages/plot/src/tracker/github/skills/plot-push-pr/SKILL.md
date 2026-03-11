@@ -61,10 +61,17 @@ description: "push branch and create/update pull request for plot. handles PR cr
      --repo $GITHUB_REPO
    ```
 
+   after creation:
+   - call `github_link_pull_request` to link the PR to the issue
+   - call `github_transition_issue` to move the issue from its current state to `plot:human-review`
+
 7. update existing PR if scope changed:
    ```bash
    gh pr edit --title "<updated title>" --body-file /tmp/pr-body.md --repo $GITHUB_REPO
    ```
+
+   after update:
+   - call `github_link_pull_request` to link the PR to the issue
 
 ## PR body template
 

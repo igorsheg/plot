@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ResolvedConfig } from "../core/config-service.js";
-import { makeTrackerLayer } from "../runtime-builder.js";
+import { makeTrackerLayer, resolvePlugin } from "../runtime-builder.js";
 
 const fixturesDir = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -14,13 +14,19 @@ const fixturesDir = join(
 const makeMinimalConfig = (trackerKind: string): ResolvedConfig =>
 	new ResolvedConfig({ tracker: { kind: trackerKind } });
 
-const evaluateTrackerLayer = (config: ResolvedConfig) =>
-	Effect.runPromise(
+const resolveTrackerPlugin = (config: ResolvedConfig) =>
+	Effect.runPromise(resolvePlugin(config));
+
+const evaluateTrackerLayer = async (config: ResolvedConfig) => {
+	const resolvedPlugin = await resolveTrackerPlugin(config);
+
+	return Effect.runPromise(
 		Effect.gen(function* () {
 			const tracker = yield* TrackerClient;
 			return yield* tracker.fetchCandidateIssues([]);
-		}).pipe(Effect.provide(makeTrackerLayer(config))),
+		}).pipe(Effect.provide(makeTrackerLayer(resolvedPlugin))),
 	);
+};
 
 describe("tracker plugin system", () => {
 	test("external plugin with skillPaths threads them through dynamic import", async () => {
@@ -28,14 +34,15 @@ describe("tracker plugin system", () => {
 			join(fixturesDir, "fake-jira-tracker/index.ts"),
 		);
 
+		const resolvedPlugin = await resolveTrackerPlugin(config);
 		await evaluateTrackerLayer(config);
 
-		expect(config.trackerSkillPaths.length).toBe(2);
+		expect(resolvedPlugin.skillPaths.length).toBe(2);
 		expect(
-			config.trackerSkillPaths.some((path) => path.includes("jira-triage")),
+			resolvedPlugin.skillPaths.some((path) => path.includes("jira-triage")),
 		).toBe(true);
 		expect(
-			config.trackerSkillPaths.some((path) => path.includes("jira-sync")),
+			resolvedPlugin.skillPaths.some((path) => path.includes("jira-sync")),
 		).toBe(true);
 	});
 
@@ -44,15 +51,17 @@ describe("tracker plugin system", () => {
 			join(fixturesDir, "fake-minimal-tracker/index.ts"),
 		);
 
+		const resolvedPlugin = await resolveTrackerPlugin(config);
 		await evaluateTrackerLayer(config);
 
-		expect(config.trackerSkillPaths).toEqual([]);
+		expect(resolvedPlugin.skillPaths).toEqual([]);
 	});
 
 	test("external plugin provides a working TrackerClient", async () => {
 		const config = makeMinimalConfig(
 			join(fixturesDir, "fake-jira-tracker/index.ts"),
 		);
+		const resolvedPlugin = await resolveTrackerPlugin(config);
 
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -63,7 +72,7 @@ describe("tracker plugin system", () => {
 					issueStatesByIds: yield* tracker.fetchIssueStatesByIds([]),
 					runContext: yield* tracker.fetchRunContext("issue-1", "todo"),
 				};
-			}).pipe(Effect.provide(makeTrackerLayer(config))),
+			}).pipe(Effect.provide(makeTrackerLayer(resolvedPlugin))),
 		);
 
 		expect(result).toEqual({

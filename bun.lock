@@ -27,6 +27,7 @@
         "@mariozechner/pi-coding-agent": "^0.57.1",
         "@plot/sdk": "workspace:*",
         "@plot/tui": "workspace:*",
+        "@sinclair/typebox": "^0.34.48",
         "effect": "^3.19.19",
         "eta": "^4.5.1",
         "gray-matter": "^4.0.3",
