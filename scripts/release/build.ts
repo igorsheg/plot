@@ -85,10 +85,10 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
     },
   });
 
-  writeFileSync(
-    join(binDir, "README.md"),
-    await Bun.file(join(plotPackageDir, "README.md")).text(),
-  );
+  const readmePath = join(plotPackageDir, "README.md");
+  if (existsSync(readmePath)) {
+    writeFileSync(join(binDir, "README.md"), await Bun.file(readmePath).text());
+  }
   writeFileSync(
     join(binDir, "CHANGELOG.md"),
     `# changelog\n\n## ${version}\n\n- packaged plot-ai release\n`,
@@ -102,7 +102,10 @@ async function buildUmbrellaPackage() {
   mkdirSync(join(packageDir, "bin"), { recursive: true });
   mkdirSync(join(packageDir, "lib"), { recursive: true });
 
-  cpSync(join(plotPackageDir, "README.md"), join(packageDir, "README.md"));
+  const readmeSrc = join(plotPackageDir, "README.md");
+  if (existsSync(readmeSrc)) {
+    cpSync(readmeSrc, join(packageDir, "README.md"));
+  }
   cpSync(join(plotPackageDir, "bin", "plot-ai"), join(packageDir, "bin", "plot-ai"));
   cpSync(join(plotPackageDir, "lib", "platform.js"), join(packageDir, "lib", "platform.js"));
   cpSync(join(plotPackageDir, "postinstall.mjs"), join(packageDir, "postinstall.mjs"));
@@ -122,7 +125,7 @@ async function buildUmbrellaPackage() {
     bin: {
       "plot-ai": "bin/plot-ai",
     },
-    files: ["bin", "lib", "postinstall.mjs", "README.md"],
+    files: ["bin", "lib", "postinstall.mjs", ...(existsSync(readmeSrc) ? ["README.md"] : [])],
     scripts: {
       postinstall: "node ./postinstall.mjs",
     },
