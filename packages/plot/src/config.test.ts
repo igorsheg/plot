@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ConfigProvider, Effect } from "effect";
 import { WorkflowConfig } from "@plot/sdk";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
+import { WorkflowParseError } from "./schemas/errors.js";
 import { ResolvedConfig } from "./core/config-service.js";
 
 function resolveConfig(env: Record<string, string>) {
@@ -86,9 +87,24 @@ template content`;
 		]);
 	});
 
-	test("returns empty config for no frontmatter", () => {
-		const config = parseWorkflowFrontmatter("just template");
-		expect(config.tracker).toBeUndefined();
+	test("parses crlf frontmatter without leaking carriage returns", () => {
+		const content = `---\r
+tracker:\r
+  kind: github\r
+  dispatch_states:\r
+    - plot:todo\r
+---\r
+template content`;
+
+		const config = parseWorkflowFrontmatter(content);
+		expect(config.tracker?.kind).toBe("github");
+		expect(config.tracker?.dispatchStates).toEqual(["plot:todo"]);
+	});
+
+	test("throws typed parse errors for invalid frontmatter", () => {
+		expect(() =>
+			parseWorkflowFrontmatter("---\ntracker: [github\nbody"),
+		).toThrow(WorkflowParseError);
 	});
 });
 

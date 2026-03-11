@@ -2,8 +2,10 @@ import { DateTime, Effect, Layer, Schema } from "effect";
 import { Issue, IssueStateEntry, TrackerError, TrackerClient } from "@plot/sdk";
 import type { TrackerPlugin, TrackerPluginConfig } from "@plot/sdk";
 import { execFile } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { buildTrackerRunContext } from "../core/workpad-context.js";
+import { buildTrackerRunContext } from "../../core/workpad-context.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -311,8 +313,16 @@ export const makeGithubTracker = (config: {
 	);
 };
 
+const githubSkillsDir = join(dirname(fileURLToPath(import.meta.url)), "skills");
+
 const plugin: TrackerPlugin = {
 	name: "github",
+	skillPaths: [
+		join(githubSkillsDir, "plot-debug"),
+		join(githubSkillsDir, "plot-github-tracker"),
+		join(githubSkillsDir, "plot-land"),
+		join(githubSkillsDir, "plot-push-pr"),
+	],
 	factory: (config: TrackerPluginConfig) =>
 		makeGithubTracker({
 			repo:

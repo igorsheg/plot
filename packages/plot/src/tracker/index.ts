@@ -1,2 +1,2 @@
-export { makeGithubTracker } from "./github.js";
-export { default as githubTrackerPlugin } from "./github.js";
+export { makeGithubTracker } from "./github/index.js";
+export { default as githubTrackerPlugin } from "./github/index.js";

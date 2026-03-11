@@ -44,7 +44,7 @@ description: "push branch and create/update pull request for plot. handles PR cr
 4. check if a PR already exists for this branch:
 
    ```bash
-   pr_state=$(gh pr view --json state -q .state --repo igorsheg/plot 2>/dev/null || echo "NONE")
+   pr_state=$(gh pr view --json state -q .state --repo $GITHUB_REPO 2>/dev/null || echo "NONE")
    ```
 
 5. handle PR state:
@@ -58,12 +58,12 @@ description: "push branch and create/update pull request for plot. handles PR cr
    gh pr create \
      --title "<issue-id>: <clear description of change>" \
      --body-file /tmp/pr-body.md \
-     --repo igorsheg/plot
+     --repo $GITHUB_REPO
    ```
 
 7. update existing PR if scope changed:
    ```bash
-   gh pr edit --title "<updated title>" --body-file /tmp/pr-body.md --repo igorsheg/plot
+   gh pr edit --title "<updated title>" --body-file /tmp/pr-body.md --repo $GITHUB_REPO
    ```
 
 ## PR body template

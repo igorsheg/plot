@@ -75,4 +75,5 @@ export interface TrackerPluginConfig {
 export interface TrackerPlugin {
 	readonly name: string;
 	readonly factory: (config: TrackerPluginConfig) => Layer.Layer<TrackerClient>;
+	readonly skillPaths?: ReadonlyArray<string>;
 }

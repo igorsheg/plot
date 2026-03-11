@@ -42,7 +42,7 @@ plot logs to stdout as structured key-value pairs. relevant log messages include
 
 ```bash
 # check if issue has correct label
-gh issue view <number> --repo igorsheg/plot --json labels
+gh issue view <number> --repo $GITHUB_REPO --json labels
 
 # check server logs for candidate detection
 # look for tick logs showing candidates > 0

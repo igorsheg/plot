@@ -84,10 +84,7 @@ async function boot(env: Record<string, string>) {
 		const config = await Effect.runPromise(
 			ServerConfig.pipe(Effect.withConfigProvider(provider)),
 		);
-		let content = "";
-		try {
-			content = readFileSync(config.workflowPath, "utf-8");
-		} catch {}
+		const content = readFileSync(config.workflowPath, "utf-8");
 		const workflowConfig = parseWorkflowFrontmatter(content);
 		const resolved = new ResolvedConfig(workflowConfig, config.overrides);
 		runtime = makeObservabilityRuntime(config, resolved);

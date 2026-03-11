@@ -49,6 +49,7 @@
     "@plot/tui": "workspace:*",
     "effect": "^3.19.19",
     "eta": "^4.5.1",
+    "gray-matter": "^4.0.3",
     "yaml": "^2.8.2"
   },
   "devDependencies": {

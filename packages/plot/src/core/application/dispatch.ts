@@ -397,6 +397,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				workspacePath: ws.path,
 				issueId: issue.id,
 				issueIdentifier: issue.identifier,
+				trackerSkillPaths: config.trackerSkillPaths,
 				maxTurns: config.maxTurns,
 				turnTimeoutMs: config.turnTimeoutMs,
 				shouldContinue,

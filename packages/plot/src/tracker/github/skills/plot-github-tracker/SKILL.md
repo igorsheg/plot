@@ -15,15 +15,15 @@ to transition, swap labels:
 
 ```bash
 # move to plot:in-progress
-gh issue edit <number> --add-label "plot:in-progress" --remove-label "plot:todo" --repo igorsheg/plot
+gh issue edit <number> --add-label "plot:in-progress" --remove-label "plot:todo" --repo $GITHUB_REPO
 
 # move to plot:human-review
-gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:in-progress" --repo igorsheg/plot
-gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:rework" --repo igorsheg/plot
+gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:in-progress" --repo $GITHUB_REPO
+gh issue edit <number> --add-label "plot:human-review" --remove-label "plot:rework" --repo $GITHUB_REPO
 
 # move to plot:done (terminal)
-gh issue edit <number> --add-label "plot:done" --remove-label "plot:merging" --repo igorsheg/plot
-gh issue close <number> --repo igorsheg/plot
+gh issue edit <number> --add-label "plot:done" --remove-label "plot:merging" --repo $GITHUB_REPO
+gh issue close <number> --repo $GITHUB_REPO
 ```
 
 always remove the previous `plot:*` state label when adding the new one.
@@ -47,10 +47,10 @@ a single persistent GitHub issue comment used as a living scratchpad across agen
 
 ```bash
 # search for existing workpad
-gh api repos/igorsheg/plot/issues/<number>/comments --jq '.[] | select(.body | startswith("## Plot Workpad")) | .id' | head -1
+gh api repos/$GITHUB_REPO/issues/<number>/comments --jq '.[] | select(.body | startswith("## Plot Workpad")) | .id' | head -1
 
 # create if not found
-gh issue comment <number> --repo igorsheg/plot --body "$(cat <<'EOF'
+gh issue comment <number> --repo $GITHUB_REPO --body "$(cat <<'EOF'
 ## Plot Workpad
 
 ### Plan
@@ -82,7 +82,7 @@ EOF
 ### update existing
 
 ```bash
-gh api repos/igorsheg/plot/issues/comments/<comment-id> \
+gh api repos/$GITHUB_REPO/issues/comments/<comment-id> \
   -X PATCH -f body="<updated markdown body>"
 ```
 
@@ -136,10 +136,10 @@ gh api repos/igorsheg/plot/issues/comments/<comment-id> \
 
 ```bash
 # view issue details
-gh issue view <number> --repo igorsheg/plot --json title,body,state,labels,comments
+gh issue view <number> --repo $GITHUB_REPO --json title,body,state,labels,comments
 
 # list open issues by label
-gh issue list --repo igorsheg/plot --label "plot:in-progress" --state open
+gh issue list --repo $GITHUB_REPO --label "plot:in-progress" --state open
 ````
 
 ## PR linkage

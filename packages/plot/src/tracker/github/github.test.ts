@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeGithubTracker } from "./github.js";
+import { makeGithubTracker } from "./index.js";
 
 const originalPath = process.env["PATH"];
 const tempDirs: string[] = [];
