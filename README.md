@@ -93,7 +93,78 @@ that means you can add your own tracker type as:
 - a package specifier, like `@acme/plot-tracker-jira`
 - a local module path, like `./trackers/jira.ts`
 
-plugin shape:
+### `TrackerPlugin` interface
+
+```ts
+interface TrackerPlugin {
+  readonly name: string;
+  readonly factory: (config: TrackerPluginConfig) => Layer.Layer<TrackerClient>;
+  readonly skillPaths?: ReadonlyArray<string>;
+}
+```
+
+| field        | required | description                                                                                              |
+| ------------ | -------- | -------------------------------------------------------------------------------------------------------- |
+| `name`       | yes      | human-readable plugin identifier                                                                         |
+| `factory`    | yes      | receives the normalized tracker config, returns an effect `Layer` providing `TrackerClient`               |
+| `skillPaths` | no       | absolute paths to skill directories the plugin ships. these are loaded into every agent session it spawns |
+
+### plugin skills
+
+a tracker plugin can ship its own skills by declaring `skillPaths`. each entry is an absolute path to a skill directory containing a `SKILL.md`. the built-in github tracker uses this to provide skills like `plot-github-tracker`, `plot-push-pr`, `plot-land`, and `plot-debug`.
+
+directory convention — colocate a `skills/` folder next to the plugin's `index.ts`:
+
+```
+trackers/acme/
+├── index.ts          # default export: TrackerPlugin
+└── skills/
+    ├── acme-triage/
+    │   └── SKILL.md
+    └── acme-sync/
+        └── SKILL.md
+```
+
+then reference them from the plugin:
+
+```ts
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const skillsDir = join(dirname(fileURLToPath(import.meta.url)), "skills");
+
+const plugin: TrackerPlugin = {
+  name: "acme",
+  skillPaths: [
+    join(skillsDir, "acme-triage"),
+    join(skillsDir, "acme-sync"),
+  ],
+  factory: (config: TrackerPluginConfig) =>
+    Layer.succeed(
+      TrackerClient,
+      TrackerClient.of({
+        fetchCandidateIssues: (_dispatchStates) => Effect.succeed([]),
+        fetchIssuesByStates: (_states) => Effect.succeed([]),
+        fetchIssueStatesByIds: (_ids) => Effect.succeed([]),
+        fetchRunContext: (_issueId, _state) => Effect.succeed(null),
+      }),
+    ),
+};
+
+export default plugin;
+```
+
+### skill loading order
+
+when plot spawns an agent session, it merges skills from three sources in order:
+
+1. **core skills** — built-in skills shipped with plot (e.g. `plot-commit`, `plot-pull-main`)
+2. **tracker plugin skills** — skills declared in the plugin's `skillPaths`
+3. **workspace skills** — repo-local skill directories discovered in the workspace
+
+all sources go through the same `resolvePlugin` path — built-in trackers like `github` and external plugins are treated identically. the resolved `skillPaths` are threaded through config and passed to the agent adapter at session creation time.
+
+### minimal plugin example (no skills)
 
 ```ts
 import { Effect, Layer } from "effect";
