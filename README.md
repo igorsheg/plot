@@ -73,7 +73,7 @@ shared flags for `plot-ai`, `serve`, and `web`:
 | `--tracker`     | workflow value  | built-in tracker name or external plugin specifier               |
 | `--github-repo` | workflow value  | github repo in `owner/repo` form                                 |
 | `--log-format`  | `pretty`        | server log format: `pretty` or `json`                            |
-| `--quiet`       | `false`         | suppress non-error human output                                  |
+| `--verbose`     | `false`         | enable non-error human output (quiet by default)                 |
 | `--json`        | `false`         | machine-readable ndjson output on stdout. practical with `serve` |
 
 ## plugin system
