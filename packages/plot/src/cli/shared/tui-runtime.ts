@@ -8,11 +8,7 @@ import {
 	type SseStatus,
 } from "@plot/sdk";
 import type { ServerOptions } from "./options.js";
-import {
-	resolveTuiServerLogPath,
-	resolveTuiServerWorkerPath,
-	toTuiServerEnv,
-} from "./runtime.js";
+import { resolveTuiServerLogPath, resolveTuiWorkerUrl, toTuiServerEnv } from "./runtime.js";
 
 type WorkerReadyMessage = { type: "ready" };
 type WorkerSnapshotMessage = { type: "snapshot"; snapshot: unknown };
@@ -59,7 +55,7 @@ export interface TuiRuntimeHandle {
 export async function createTuiRuntimeHandle(
 	serverOptions: ServerOptions,
 ): Promise<TuiRuntimeHandle> {
-	const worker = new Worker(resolveTuiServerWorkerPath(), { type: "module" });
+	const worker = new Worker(resolveTuiWorkerUrl(), { type: "module" });
 	const logPath = resolveTuiServerLogPath();
 	let status: SseStatus = "connecting";
 	let onSnapshot: ((snapshot: RuntimeSnapshot) => void) | null = null;

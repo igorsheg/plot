@@ -16,8 +16,6 @@ const child = spawn(resolved.binaryPath, process.argv.slice(2), {
 		...process.env,
 		PLOT_VERSION: readPackageVersion(),
 		PLOT_CLI_NAME: "plot-ai",
-		PLOT_WEB_DIST_DIR: resolved.webDistDir,
-		PLOT_PI_SKILLS_DIR: resolved.piSkillsDir,
 	},
 });
 

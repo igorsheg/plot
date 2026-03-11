@@ -37,21 +37,14 @@ export function resolveInstalledBinary() {
   const packageDir = dirname(packageJsonPath);
   const binaryName = process.platform === "win32" ? "plot-ai.exe" : "plot-ai";
   const binaryPath = join(packageDir, "bin", binaryName);
-  const webDistDir = join(packageDir, "web-dist");
-  const piSkillsDir = join(packageDir, "pi-resources", "skills");
 
   if (!existsSync(binaryPath)) {
     throw new Error(`installed package ${packageName} is missing ${binaryName}`);
-  }
-  if (!existsSync(piSkillsDir)) {
-    throw new Error(`installed package ${packageName} is missing bundled pi skills`);
   }
 
   return {
     packageName,
     binaryPath,
-    webDistDir,
-    piSkillsDir,
   };
 }
 

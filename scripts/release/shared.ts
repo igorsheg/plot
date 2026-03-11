@@ -37,6 +37,7 @@ export const releaseTargets = [
     os: ["darwin"],
     cpu: ["arm64"],
     binName: "plot-ai",
+    opentuiPlatformPackage: "@opentui/core-darwin-arm64",
   },
   {
     packageName: "@plot-ai/darwin-x64",
@@ -45,6 +46,7 @@ export const releaseTargets = [
     os: ["darwin"],
     cpu: ["x64"],
     binName: "plot-ai",
+    opentuiPlatformPackage: "@opentui/core-darwin-x64",
   },
   {
     packageName: "@plot-ai/linux-arm64-gnu",
@@ -53,6 +55,7 @@ export const releaseTargets = [
     os: ["linux"],
     cpu: ["arm64"],
     binName: "plot-ai",
+    opentuiPlatformPackage: "@opentui/core-linux-arm64",
   },
   {
     packageName: "@plot-ai/linux-x64-gnu",
@@ -61,6 +64,7 @@ export const releaseTargets = [
     os: ["linux"],
     cpu: ["x64"],
     binName: "plot-ai",
+    opentuiPlatformPackage: "@opentui/core-linux-x64",
   },
   {
     packageName: "@plot-ai/linux-x64-musl",
@@ -69,6 +73,7 @@ export const releaseTargets = [
     os: ["linux"],
     cpu: ["x64"],
     binName: "plot-ai",
+    opentuiPlatformPackage: "@opentui/core-linux-x64",
   },
   {
     packageName: "@plot-ai/win32-x64-msvc",
@@ -77,6 +82,7 @@ export const releaseTargets = [
     os: ["win32"],
     cpu: ["x64"],
     binName: "plot-ai.exe",
+    opentuiPlatformPackage: "@opentui/core-win32-x64",
   },
 ] as const;
 

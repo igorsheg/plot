@@ -8,12 +8,19 @@ import {
   piSkillsDir,
   plotPackage,
   plotPackageDir,
+  readJson,
   releaseDir,
   releaseTargets,
   repoDir,
   version,
   webDistDir,
 } from "./shared.js";
+
+const tuiPackage = readJson(join(repoDir, "packages/tui/package.json")) as {
+  dependencies: Record<string, string>;
+};
+const opentuiVersion = tuiPackage.dependencies["@opentui/core"].replace("^", "");
+await $`bun install --os="*" --cpu="*" @opentui/core@${opentuiVersion}`.cwd(repoDir);
 
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
@@ -54,6 +61,18 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 
   if (process.platform !== "win32") {
     chmodSync(join(binDir, target.binName), 0o755);
+  }
+
+  const workerResult = await Bun.build({
+    entrypoints: [join(repoDir, "packages/plot/src/tui-worker.ts")],
+    target: "bun",
+    outdir: binDir,
+    naming: "tui-worker.js",
+    tsconfig: join(repoDir, "packages/plot/tsconfig.json"),
+  });
+
+  if (!workerResult.success) {
+    throw new Error(`failed to bundle tui-worker for ${target.packageName}`);
   }
 
   cpSync(webDistDir, join(packageDir, "web-dist"), { recursive: true });

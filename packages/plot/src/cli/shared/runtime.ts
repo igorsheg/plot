@@ -3,14 +3,21 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { ServerOptions } from "./options.js";
 
+const compiled = import.meta.url.includes("/$bunfs/");
 const cliDir = dirname(fileURLToPath(import.meta.url));
+const binDir = compiled ? dirname(process.execPath) : null;
+const packageDir = binDir ? dirname(binDir) : null;
 
 export function resolveBundledWebDistDir() {
-  return process.env["PLOT_WEB_DIST_DIR"] ?? join(cliDir, "../../../../web/dist");
+  return process.env["PLOT_WEB_DIST_DIR"] ?? (packageDir
+    ? join(packageDir, "web-dist")
+    : join(cliDir, "../../../../web/dist"));
 }
 
 export function resolveBundledPiSkillsDir() {
-  return process.env["PLOT_PI_SKILLS_DIR"] ?? join(cliDir, "../../../resources/skills");
+  return process.env["PLOT_PI_SKILLS_DIR"] ?? (packageDir
+    ? join(packageDir, "pi-resources", "skills")
+    : join(cliDir, "../../../resources/skills"));
 }
 
 export function stripBundledEntryArg(argv: string[]) {
@@ -45,12 +52,19 @@ export function resolveSelfCommandArgs(command: string) {
   return buildSelfCommandArgs(process.execPath, process.argv[1], command);
 }
 
-export function resolveTuiServerWorkerPath() {
-  return new URL("../../tui-worker.ts", import.meta.url);
-}
-
 export function resolveTuiServerLogPath() {
   return join(homedir(), ".plot", "logs", "tui-server.log");
+}
+
+export function resolveTuiWorkerUrl(): URL {
+  const envPath = process.env["PLOT_TUI_WORKER_PATH"];
+  if (envPath) {
+    return new URL(`file://${envPath}`);
+  }
+  if (binDir) {
+    return new URL(`file://${join(binDir, "tui-worker.js")}`);
+  }
+  return new URL("../../tui-worker.ts", import.meta.url);
 }
 
 export function toServerEnv(opts: ServerOptions): Record<string, string> {

@@ -3,8 +3,11 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react",
+    "lib": ["ESNext", "DOM"]
   },
-  "include": ["src", "src/**/*.test.ts"],
+  "include": ["src"],
   "references": [{ "path": "../sdk" }]
 }
