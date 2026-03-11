@@ -92,7 +92,7 @@ gh api repos/igorsheg/plot/issues/comments/<comment-id> \
 - reuse existing comment on continuation runs — do not create duplicates
 - update the workpad after every meaningful milestone
 - never leave completed items unchecked
-- include environment stamp at top: `<hostname>:<workdir>@<short-sha>`
+- include workspace id and short sha at top: `<workspace-id>@<short-sha>`
 
 ## workpad template
 
@@ -100,7 +100,7 @@ gh api repos/igorsheg/plot/issues/comments/<comment-id> \
 ## Plot Workpad
 
 ```text
-<hostname>:<abs-workdir>@<short-sha>
+<workspace-id>@<short-sha>
 ```
 ````
 
