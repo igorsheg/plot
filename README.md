@@ -90,9 +90,9 @@ at startup, plot:
 1. reads `tracker.kind` from `WORKFLOW.md`
 2. resolves a built-in tracker if the kind is known
 3. otherwise dynamically imports the module named by `tracker.kind`
-4. validates plugin config through the plugin's schema (if provided)
+4. validates plugin config with the plugin's `validateConfig` function (if provided)
 5. auto-discovers skills from a co-located `skills/` directory
-6. resolves tools and the tracker layer
+6. builds the tracker client layer
 
 add your own tracker type as:
 
@@ -102,57 +102,32 @@ add your own tracker type as:
 ### minimal plugin
 
 ```ts
-import { Effect, Layer, Schema } from "effect";
-import { TrackerClient, type TrackerPlugin } from "@plot/sdk";
+import type { TrackerPluginDefinition } from "@plot/sdk";
 
-const AcmeConfig = Schema.Struct({
-  kind: Schema.String,
-  endpoint: Schema.optional(Schema.String),
-  apiKey: Schema.optional(Schema.String),
-});
-type AcmeConfig = typeof AcmeConfig.Type;
-
-const plugin: TrackerPlugin<AcmeConfig> = {
+const plugin: TrackerPluginDefinition = {
   name: "acme",
-  configSchema: AcmeConfig,
-  factory: (config) =>
-    Layer.succeed(
-      TrackerClient,
-      TrackerClient.of({
-        fetchCandidateIssues: (_states) => Effect.succeed([]),
-        fetchIssuesByStates: (_states) => Effect.succeed([]),
-        fetchIssueStatesByIds: (_ids) => Effect.succeed([]),
-        fetchRunContext: (_id, _state) => Effect.succeed(null),
-      }),
-    ),
+  async factory() {
+    return {
+      async fetchCandidateIssues() {
+        return [];
+      },
+      async fetchIssuesByStates() {
+        return [];
+      },
+      async fetchIssueStatesByIds() {
+        return [];
+      },
+      async fetchRunContext() {
+        return null;
+      },
+    };
+  },
 };
 
 export default plugin;
 ```
 
-### plugin with tools
-
-plugins can provide tools that get injected into the agent session. this is how tracker-specific write operations (state transitions, comments, PRs) reach the agent without encoding them in skill markdown.
-
-```ts
-const plugin: TrackerPlugin<AcmeConfig> = {
-  name: "acme",
-  configSchema: AcmeConfig,
-  factory: (config) => makeAcmeClient(config),
-  tools: (config) => [
-    {
-      name: "tracker_transition_issue",
-      description: "Move an issue to a new state",
-      parameters: Schema.Struct({
-        issueId: Schema.String,
-        fromState: Schema.String,
-        toState: Schema.String,
-      }),
-      execute: (args) => /* tracker-specific logic */,
-    },
-  ],
-};
-```
+tracker plugins are read-only clients. the coding agent handles all tracker writes (state transitions, comments, pr links) using cli tools available in the runtime environment, guided by tracker-specific skills.
 
 ### skills auto-discovery
 
@@ -189,10 +164,10 @@ tracker:
 
 notes:
 
-- plot passes the whole `tracker:` block to the plugin's config schema for validation
+- plot passes the whole `tracker:` block to the plugin's `validateConfig` function
 - cli overrides still apply: `--tracker` replaces `tracker.kind`, `--github-repo` is forwarded as `githubRepo`
-- plugins with a `configSchema` get validated config; without one, the raw object is passed through
-- the tracker client has read methods (fetch issues, states, run context) and optional write methods (transition, comment, link PR)
+- plugins with `validateConfig` get validated config; without it, the raw object is passed through
+- the tracker client is read-only: fetch issues, states, and run context from the tracker
 - discriminated error types (`TrackerAuthError`, `TrackerRateLimitError`, `TrackerNotFoundError`, `TrackerNetworkError`, `TrackerValidationError`) enable intelligent retry behavior
 
 ## contributing

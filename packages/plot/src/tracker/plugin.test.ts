@@ -82,4 +82,33 @@ describe("tracker plugin system", () => {
 			runContext: null,
 		});
 	});
+
+	test("syncs github repo into process env from resolved config", async () => {
+		const previous = process.env["GITHUB_REPO"];
+
+		try {
+			const workflowConfig = new ResolvedConfig(
+				{
+					tracker: {
+						kind: join(fixturesDir, "fake-minimal-tracker/index.ts"),
+					},
+				},
+				{ githubRepo: "workflow/repo" },
+			);
+			await resolveTrackerPlugin(workflowConfig);
+			expect(process.env["GITHUB_REPO"]).toBe("workflow/repo");
+
+			const emptyConfig = makeMinimalConfig(
+				join(fixturesDir, "fake-minimal-tracker/index.ts"),
+			);
+			await resolveTrackerPlugin(emptyConfig);
+			expect(process.env["GITHUB_REPO"]).toBeUndefined();
+		} finally {
+			if (previous === undefined) {
+				delete process.env["GITHUB_REPO"];
+			} else {
+				process.env["GITHUB_REPO"] = previous;
+			}
+		}
+	});
 });

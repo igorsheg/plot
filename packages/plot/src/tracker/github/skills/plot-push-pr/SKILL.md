@@ -44,7 +44,7 @@ description: "push branch and create/update pull request for plot. handles PR cr
 4. check if a PR already exists for this branch:
 
    ```bash
-   pr_state=$(gh pr view --json state -q .state --repo $GITHUB_REPO 2>/dev/null || echo "NONE")
+   pr_state=$(gh pr view --json state -q .state --repo "$GITHUB_REPO" 2>/dev/null || echo "NONE")
    ```
 
 5. handle PR state:
@@ -55,23 +55,24 @@ description: "push branch and create/update pull request for plot. handles PR cr
 6. create PR with template compliance:
 
    ```bash
-   gh pr create \
-     --title "<issue-id>: <clear description of change>" \
-     --body-file /tmp/pr-body.md \
-     --repo $GITHUB_REPO
+   gh pr create      --title "#<number>: <clear description of change>"      --body-file /tmp/pr-body.md      --repo "$GITHUB_REPO"
    ```
 
    after creation:
-   - call `github_link_pull_request` to link the PR to the issue
-   - call `github_transition_issue` to move the issue from its current state to `plot:human-review`
+   - ensure the PR body includes `Resolves #<number>` so GitHub links and closes the issue on merge
+   - move the issue into review by swapping labels:
+
+   ```bash
+   gh issue edit <number>      --repo "$GITHUB_REPO"      --remove-label "plot:in-progress"      --add-label "plot:human-review"
+   ```
 
 7. update existing PR if scope changed:
    ```bash
-   gh pr edit --title "<updated title>" --body-file /tmp/pr-body.md --repo $GITHUB_REPO
+   gh pr edit --title "#<number>: <updated title>" --body-file /tmp/pr-body.md --repo "$GITHUB_REPO"
    ```
 
    after update:
-   - call `github_link_pull_request` to link the PR to the issue
+   - keep `Resolves #<number>` in the PR body so linkage stays intact
 
 ## PR body template
 

@@ -1,26 +1,41 @@
 ---
 name: plot-github-tracker
-description: "github issue state management for plot orchestration. state transitions via labels, workpad comment lifecycle, issue/PR linkage. use when moving issues between states, creating/updating workpad comments, or linking PRs to issues."
+description: "github issue state management for plot orchestration. state transitions via labels, workpad comment lifecycle, and issue/PR linkage. use when moving issues between states, creating/updating workpad comments, or linking PRs to issues."
 ---
 
 # plot-github-tracker
 
 manages issue state and progress tracking for the plot orchestrator via GitHub labels and comments.
 
-read-only operations still use `gh` directly: viewing issues, listing issues, inspecting PRs, and similar reads.
+use `gh` CLI for all GitHub operations. `$GITHUB_REPO` must be set to `owner/repo`.
 
 ## state transitions
 
 issue state is determined by labels. plot only routes issues that have an explicit `plot:*` state label. unlabeled issues are ignored.
 
-to transition, use `github_transition_issue`:
+transition by removing the previous `plot:*` label and adding the new one:
 
-- move to `plot:in-progress` from `plot:todo`
-- move to `plot:human-review` from `plot:in-progress`
-- move to `plot:human-review` from `plot:rework`
-- move to `plot:done` from `plot:merging` and close the issue
+```bash
+# todo -> in-progress
+gh issue edit <number>   --repo "$GITHUB_REPO"   --remove-label "plot:todo"   --add-label "plot:in-progress"
 
-always remove the previous `plot:*` state label when adding the new one.
+# in-progress -> human-review
+gh issue edit <number>   --repo "$GITHUB_REPO"   --remove-label "plot:in-progress"   --add-label "plot:human-review"
+
+# rework -> human-review
+gh issue edit <number>   --repo "$GITHUB_REPO"   --remove-label "plot:rework"   --add-label "plot:human-review"
+
+# merging -> done, then close
+gh issue edit <number>   --repo "$GITHUB_REPO"   --remove-label "plot:merging"   --add-label "plot:done"
+gh issue close <number> --repo "$GITHUB_REPO"
+```
+
+if you need to move a terminal issue back into active work, reopen first, then swap labels:
+
+```bash
+gh issue reopen <number> --repo "$GITHUB_REPO"
+gh issue edit <number>   --repo "$GITHUB_REPO"   --remove-label "plot:done"   --add-label "plot:rework"
+```
 
 ## available states
 
@@ -44,10 +59,10 @@ a single persistent GitHub issue comment used as a living scratchpad across agen
 gh api repos/$GITHUB_REPO/issues/<number>/comments --jq '.[] | select(.body | startswith("## Plot Workpad")) | .id' | head -1
 ```
 
-if not found, use `github_add_comment` with this body:
+if not found, create it:
 
-```markdown
-## Plot Workpad
+```bash
+gh api repos/$GITHUB_REPO/issues/<number>/comments   -X POST   -f body='## Plot Workpad
 
 ### Plan
 
@@ -70,12 +85,16 @@ if not found, use `github_add_comment` with this body:
 
 ### Notes
 
-- <durable context>
+- <durable context>'
 ```
 
 ### update existing
 
-use `github_update_comment` to replace the workpad comment body.
+replace the full workpad body in place:
+
+```bash
+gh api repos/$GITHUB_REPO/issues/comments/<id>   -X PATCH   -f body='...full updated workpad body...'
+```
 
 ### rules
 
@@ -126,12 +145,18 @@ use `github_update_comment` to replace the workpad comment body.
 
 ```bash
 # view issue details
-gh issue view <number> --repo $GITHUB_REPO --json title,body,state,labels,comments
+gh issue view <number> --repo "$GITHUB_REPO" --json title,body,state,labels,comments
 
 # list open issues by label
-gh issue list --repo $GITHUB_REPO --label "plot:in-progress" --state open
+gh issue list --repo "$GITHUB_REPO" --label "plot:in-progress" --state open
 ```
 
 ## PR linkage
 
-after creating a PR, use `github_link_pull_request` to link the PR to the issue. the PR body should still reference the issue with `Resolves #<number>`.
+after creating or updating a PR, ensure the PR body includes `Resolves #<number>`. that is the durable issue/PR link.
+
+if you need to post the PR URL back to the issue, add a normal issue comment:
+
+```bash
+gh api repos/$GITHUB_REPO/issues/<number>/comments   -X POST   -f body='linked PR: <pr-url>'
+```

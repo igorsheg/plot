@@ -10,12 +10,7 @@ import {
 	Scope,
 	Stream,
 } from "effect";
-import type {
-	AgentRuntimeEvent,
-	Issue,
-	PluginToolDefinition,
-	TrackerRunContext,
-} from "@plot/sdk";
+import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
 import { compilePrompt } from "../prompt-compiler.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../../agent/agent-service.js";
@@ -39,7 +34,6 @@ import {
 	type RunningEntry,
 } from "../domain/orchestrator-state.js";
 import { withTrackerFallback } from "./tracker-fallback.js";
-
 
 export interface DispatchDeps {
 	readonly stateRef: Ref.Ref<OrchestratorState>;
@@ -90,11 +84,9 @@ export interface DispatchDeps {
 		fn: (s: OrchestratorState) => OrchestratorState,
 	) => Effect.Effect<void>;
 	readonly pluginSkillPaths: ReadonlyArray<string>;
-	readonly pluginTools: ReadonlyArray<PluginToolDefinition>;
 }
 
 export function makeDispatchRuntime(deps: DispatchDeps) {
-
 	const releaseClaim = (issueId: string) =>
 		deps.updateState((s) => releaseClaimFromState(s, issueId));
 
@@ -275,7 +267,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					? "interrupted"
 					: "failure";
 
-
 			yield* deps.updateState((s) => {
 				const runningEntry = s.running.get(issueId) ?? null;
 				const after = removeRunningEntryFromState(s, issueId, now);
@@ -407,7 +398,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				issueId: issue.id,
 				issueIdentifier: issue.identifier,
 				pluginSkillPaths: deps.pluginSkillPaths,
-				pluginTools: deps.pluginTools,
 				maxTurns: config.maxTurns,
 				turnTimeoutMs: config.turnTimeoutMs,
 				shouldContinue,
@@ -472,7 +462,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			});
 
 			yield* Deferred.succeed(registered, undefined);
-
 		}).pipe(
 			Effect.annotateLogs({
 				issue_id: issue.id,

@@ -1,5 +1,5 @@
 import { Context, Effect, type Stream } from "effect";
-import type { AgentRuntimeEvent, PluginToolDefinition } from "@plot/sdk";
+import type { AgentRuntimeEvent } from "@plot/sdk";
 import type { AgentRunnerError } from "../schemas/errors.js";
 
 export interface AgentRunConfig {
@@ -9,7 +9,6 @@ export interface AgentRunConfig {
 	readonly issueId: string;
 	readonly issueIdentifier: string;
 	readonly pluginSkillPaths: ReadonlyArray<string>;
-	readonly pluginTools: ReadonlyArray<PluginToolDefinition>;
 	readonly maxTurns: number;
 	readonly turnTimeoutMs: number;
 	readonly shouldContinue?: () => Effect.Effect<boolean>;

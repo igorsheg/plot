@@ -2,11 +2,30 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BunContext } from "@effect/platform-bun";
-import { Effect, Layer, Logger, LogLevel, ManagedRuntime } from "effect";
-import type {
-	PluginToolDefinition,
-	TrackerPlugin,
+import { DateTime, Effect, Layer, Logger, LogLevel, ManagedRuntime } from "effect";
+import {
+	type PlainTrackerClient,
+	type TrackerPluginDefinition,
+	type IssueLike,
+	type IssueStateEntryLike,
+	type TrackerRunContextLike,
+	type TrackerPluginConfig,
+	type TrackerError,
+	PluginAuthError,
+	PluginRateLimitError,
+	PluginNotFoundError,
+	PluginValidationError,
+	TrackerAuthError,
+	TrackerNetworkError,
+	TrackerNotFoundError,
+	TrackerRateLimitError,
+	TrackerValidationError,
 	TrackerClient,
+	TrackerRunContext,
+	WorkpadSection,
+	Issue,
+	IssueStateEntry,
+	BlockerRef,
 } from "@plot/sdk";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
@@ -44,15 +63,140 @@ export interface ResolvedPlugin {
 	readonly name: string;
 	readonly trackerLayer: Layer.Layer<TrackerClient>;
 	readonly skillPaths: ReadonlyArray<string>;
-	readonly tools: ReadonlyArray<PluginToolDefinition>;
 }
+
+// ---------------------------------------------------------------------------
+// Adaptation: PlainTrackerClient → Layer<TrackerClient>
+// ---------------------------------------------------------------------------
+
+function mapPluginError(error: unknown, operation: string): TrackerError {
+	if (error instanceof PluginAuthError)
+		return new TrackerAuthError({ message: error.message });
+	if (error instanceof PluginRateLimitError)
+		return new TrackerRateLimitError({
+			message: error.message,
+			retryAfterMs: error.retryAfterMs,
+		});
+	if (error instanceof PluginNotFoundError)
+		return new TrackerNotFoundError({
+			message: error.message,
+			resourceId: error.resourceId,
+		});
+	if (error instanceof PluginValidationError)
+		return new TrackerValidationError({
+			message: error.message,
+			field: error.field,
+		});
+	const message = error instanceof Error ? error.message : String(error);
+	return new TrackerNetworkError({ message: `${operation}: ${message}` });
+}
+
+function toDateTime(
+	value: Date | string | null | undefined,
+): DateTime.Utc | null {
+	if (value == null) return null;
+	const date = typeof value === "string" ? new Date(value) : value;
+	return DateTime.unsafeFromDate(date);
+}
+
+function normalizeIssue(plain: IssueLike): Issue {
+	return new Issue({
+		id: plain.id,
+		identifier: plain.identifier,
+		title: plain.title,
+		description: plain.description ?? null,
+		priority: plain.priority,
+		state: plain.state,
+		branchName: plain.branchName,
+		url: plain.url ?? null,
+		labels: Array.from(plain.labels),
+		blockedBy: plain.blockedBy?.map(
+			(b) =>
+				new BlockerRef({
+					id: b.id ?? null,
+					identifier: b.identifier ?? null,
+					state: b.state ?? null,
+				}),
+		),
+		metadata: plain.metadata,
+		createdAt: toDateTime(plain.createdAt),
+		updatedAt: toDateTime(plain.updatedAt),
+	});
+}
+
+function normalizeIssueStateEntry(
+	plain: IssueStateEntryLike,
+): IssueStateEntry {
+	return new IssueStateEntry({ id: plain.id, state: plain.state });
+}
+
+function normalizeRunContext(
+	plain: TrackerRunContextLike | null,
+): TrackerRunContext | null {
+	if (plain == null) return null;
+	return new TrackerRunContext({
+		raw: plain.raw ?? null,
+		promptContext: plain.promptContext ?? null,
+		workpad: plain.workpad ?? null,
+		reviewFeedback: plain.reviewFeedback ?? null,
+		workpadSections: (plain.workpadSections ?? []).map(
+			(s) => new WorkpadSection(s),
+		),
+	});
+}
+
+function adaptTrackerClient(
+	plain: PlainTrackerClient,
+): Layer.Layer<TrackerClient> {
+	return Layer.succeed(
+		TrackerClient,
+		TrackerClient.of({
+			fetchCandidateIssues: (dispatchStates) =>
+				Effect.tryPromise({
+					try: () => plain.fetchCandidateIssues(dispatchStates),
+					catch: (e) => mapPluginError(e, "fetchCandidateIssues"),
+				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
+			fetchIssuesByStates: (states) =>
+				Effect.tryPromise({
+					try: () =>
+						plain.fetchIssuesByStates?.(states) ?? Promise.resolve([]),
+					catch: (e) => mapPluginError(e, "fetchIssuesByStates"),
+				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
+			fetchIssueStatesByIds: (ids) =>
+				Effect.tryPromise({
+					try: () =>
+						plain.fetchIssueStatesByIds?.(ids) ?? Promise.resolve([]),
+					catch: (e) => mapPluginError(e, "fetchIssueStatesByIds"),
+				}).pipe(
+					Effect.map((entries) => entries.map(normalizeIssueStateEntry)),
+				),
+			fetchRunContext: (issueId, state) =>
+				Effect.tryPromise({
+					try: () =>
+						plain.fetchRunContext?.(issueId, state) ??
+						Promise.resolve(null),
+					catch: (e) => mapPluginError(e, "fetchRunContext"),
+				}).pipe(Effect.map(normalizeRunContext)),
+		}),
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Plugin resolution
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyPluginDefinition = TrackerPluginDefinition<any>;
 
 const builtinTrackers: Record<
 	string,
-	{ readonly plugin: TrackerPlugin; readonly moduleDir: string }
+	{
+		readonly definition: AnyPluginDefinition;
+		readonly moduleDir: string;
+	}
 > = {
 	github: {
-		plugin: githubTrackerPlugin,
+		definition: githubTrackerPlugin,
 		moduleDir: join(
 			dirname(fileURLToPath(import.meta.url)),
 			"tracker",
@@ -69,6 +213,14 @@ function buildPluginConfig(resolved: ResolvedConfig) {
 	};
 }
 
+function syncGithubRepoEnv(resolved: ResolvedConfig) {
+	if (resolved.githubRepo) {
+		process.env["GITHUB_REPO"] = resolved.githubRepo;
+		return;
+	}
+	delete process.env["GITHUB_REPO"];
+}
+
 function discoverSkillPaths(moduleDir: string): ReadonlyArray<string> {
 	const skillsDir = join(moduleDir, "skills");
 	if (!existsSync(skillsDir)) return [];
@@ -83,20 +235,40 @@ function discoverSkillPaths(moduleDir: string): ReadonlyArray<string> {
 	}
 }
 
+function resolveDefinitionConfig(
+	definition: AnyPluginDefinition,
+	rawConfig: TrackerPluginConfig,
+): Effect.Effect<unknown> {
+	if (!definition.validateConfig) return Effect.succeed(rawConfig as unknown);
+	return Effect.tryPromise({
+		try: () => Promise.resolve(definition.validateConfig!(rawConfig)),
+		catch: (error) =>
+			new Error(
+				`Plugin "${definition.name}" config validation failed: ${error instanceof Error ? error.message : String(error)}`,
+			),
+	}).pipe(Effect.orDie);
+}
+
 function makeResolvedPlugin(
-	plugin: TrackerPlugin,
+	definition: AnyPluginDefinition,
 	config: unknown,
 	moduleDir?: string,
 ): Effect.Effect<ResolvedPlugin> {
 	const autoSkillPaths = moduleDir ? discoverSkillPaths(moduleDir) : [];
-	const explicitSkillPaths = plugin.skillPaths ?? [];
+	const explicitSkillPaths = definition.skillPaths ?? [];
 
-	return plugin.buildInstance(config).pipe(
-		Effect.map((instance) => ({
-			name: plugin.name,
-			trackerLayer: instance.trackerLayer,
+	return Effect.tryPromise({
+		try: () => Promise.resolve(definition.factory(config)),
+		catch: (error) =>
+			new Error(
+				`Plugin "${definition.name}" factory failed: ${error instanceof Error ? error.message : String(error)}`,
+			),
+	}).pipe(
+		Effect.orDie,
+		Effect.map((plain) => ({
+			name: definition.name,
+			trackerLayer: adaptTrackerClient(plain),
 			skillPaths: [...new Set([...autoSkillPaths, ...explicitSkillPaths])],
-			tools: instance.tools,
 		})),
 	);
 }
@@ -104,50 +276,49 @@ function makeResolvedPlugin(
 export function resolvePlugin(
 	resolved: ResolvedConfig,
 ): Effect.Effect<ResolvedPlugin> {
+	syncGithubRepoEnv(resolved);
 	const rawConfig = buildPluginConfig(resolved);
 	const builtin = builtinTrackers[resolved.trackerKind];
 
 	if (builtin) {
-		return builtin.plugin
-			.resolveConfig(rawConfig)
-			.pipe(
-				Effect.flatMap((config) =>
-					makeResolvedPlugin(builtin.plugin, config, builtin.moduleDir),
-				),
-			);
+		return resolveDefinitionConfig(builtin.definition, rawConfig).pipe(
+			Effect.flatMap((config) =>
+				makeResolvedPlugin(builtin.definition, config, builtin.moduleDir),
+			),
+		);
 	}
 
 	return Effect.gen(function* () {
 		const kind = resolved.trackerKind;
 		const mod = yield* Effect.tryPromise({
-			try: () => import(kind) as Promise<{ default?: TrackerPlugin }>,
+			try: () =>
+				import(kind) as Promise<{ default?: AnyPluginDefinition }>,
 			catch: (cause) =>
 				new Error(
 					`Failed to load tracker plugin "${kind}": ${cause instanceof Error ? cause.message : String(cause)}`,
 				),
 		}).pipe(Effect.orDie);
-		const plugin = mod.default;
+		const definition = mod.default;
 		if (
-			!plugin ||
-			typeof plugin !== "object" ||
-			typeof plugin.name !== "string" ||
-			typeof plugin.resolveConfig !== "function" ||
-			typeof plugin.buildInstance !== "function"
+			!definition ||
+			typeof definition !== "object" ||
+			typeof definition.name !== "string" ||
+			typeof definition.factory !== "function"
 		) {
 			return yield* Effect.die(
 				new Error(
-					`Tracker plugin "${kind}" does not export a valid default tracker plugin (expected defineTrackerPlugin() result)`,
+					`Tracker plugin "${kind}" does not export a valid default tracker plugin definition`,
 				),
 			);
 		}
 
-		const config = yield* plugin.resolveConfig(rawConfig);
+		const config = yield* resolveDefinitionConfig(definition, rawConfig);
 		const moduleDir =
 			kind.startsWith("./") || kind.startsWith("../") || kind.startsWith("/")
 				? dirname(resolve(kind))
 				: undefined;
 
-		return yield* makeResolvedPlugin(plugin, config, moduleDir);
+		return yield* makeResolvedPlugin(definition, config, moduleDir);
 	});
 }
 
@@ -162,7 +333,6 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		BunContext.layer,
 		Layer.succeed(PluginContext, {
 			skillPaths: resolvedPlugin.skillPaths,
-			tools: resolvedPlugin.tools,
 		}),
 	);
 }

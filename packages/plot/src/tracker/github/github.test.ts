@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { TrackerClient } from "@plot/sdk";
-import { Effect } from "effect";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,22 +46,14 @@ const fetchCandidateIssues = async (options: {
 }) => {
 	await setupFakeGh(options.issuesFixture);
 
-	const config = await Effect.runPromise(
-		plugin.resolveConfig({
-			kind: "github",
-			dispatchStates: options.dispatchStates,
-			parkedStates: options.parkedStates,
-			terminalStates: options.terminalStates,
-		}),
-	);
-	const instance = await Effect.runPromise(plugin.buildInstance(config));
-
-	return Effect.runPromise(
-		Effect.gen(function* () {
-			const tracker = yield* TrackerClient;
-			return yield* tracker.fetchCandidateIssues(options.dispatchStates);
-		}).pipe(Effect.provide(instance.trackerLayer)),
-	);
+	const config = await plugin.validateConfig!({
+		kind: "github",
+		dispatchStates: options.dispatchStates,
+		parkedStates: options.parkedStates,
+		terminalStates: options.terminalStates,
+	});
+	const client = await plugin.factory(config);
+	return client.fetchCandidateIssues(options.dispatchStates);
 };
 
 describe("github tracker", () => {

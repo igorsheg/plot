@@ -135,7 +135,6 @@ export class Orchestrator extends Effect.Service<Orchestrator>()(
 				getConfig,
 				updateState,
 				pluginSkillPaths: pluginContext.skillPaths,
-				pluginTools: pluginContext.tools,
 			});
 
 			const tickRuntime = makeTickRuntime({

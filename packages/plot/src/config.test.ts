@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ConfigProvider, Effect } from "effect";
-import { WorkflowConfig } from "@plot/sdk";
+import { TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { WorkflowParseError } from "./schemas/errors.js";
 import { ResolvedConfig } from "./core/config-service.js";
@@ -121,5 +121,19 @@ describe("ResolvedConfig", () => {
 			"Duplicate",
 			"plot:done",
 		]);
+	});
+
+	test("uses github repo override", () => {
+		const workflowConfig = new WorkflowConfig({
+			tracker: new TrackerConfig({
+				kind: "github",
+			}),
+		});
+
+		expect(new ResolvedConfig(workflowConfig).githubRepo).toBe("");
+		expect(
+			new ResolvedConfig(workflowConfig, { githubRepo: "override/repo" })
+				.githubRepo,
+		).toBe("override/repo");
 	});
 });

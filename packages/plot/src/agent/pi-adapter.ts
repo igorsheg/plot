@@ -5,10 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Config, DateTime, Effect, Layer, Ref, Stream } from "effect";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, TextContent, Usage } from "@mariozechner/pi-ai";
-import type {
-	AgentSessionEvent,
-	ToolDefinition,
-} from "@mariozechner/pi-coding-agent";
+import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import {
 	createAgentSession,
 	AuthStorage,
@@ -17,9 +14,8 @@ import {
 	DefaultResourceLoader,
 	createCodingTools,
 } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import { getModel } from "@mariozechner/pi-ai";
-import { AgentRuntimeEvent, type PluginToolDefinition } from "@plot/sdk";
+import { AgentRuntimeEvent } from "@plot/sdk";
 import { AgentRunnerError } from "../schemas/errors.js";
 import { AgentService, type AgentRunConfig } from "./agent-service.js";
 
@@ -68,42 +64,6 @@ function getMessageText(message: AgentMessage): string | null {
 function getUsage(message: AgentMessage): Usage | undefined {
 	if (!isAssistantMessage(message)) return undefined;
 	return message.usage;
-}
-
-function stringifyToolResult(result: unknown): string {
-	if (typeof result === "string") return result;
-	if (result === undefined) return "Done";
-	try {
-		return JSON.stringify(result, null, 2);
-	} catch {
-		return String(result);
-	}
-}
-
-function convertPluginTools(
-	pluginTools: ReadonlyArray<PluginToolDefinition>,
-): ToolDefinition[] {
-	return pluginTools.map((tool) => ({
-		name: tool.name,
-		label: tool.name,
-		description: tool.description,
-		parameters: Type.Unsafe(tool.parameters),
-		execute: async (_toolCallId, params) => {
-			const result = await Effect.runPromise(
-				tool
-					.execute(params)
-					.pipe(
-						Effect.catchAll((error) =>
-							Effect.succeed({ error: true, message: String(error) }),
-						),
-					),
-			);
-			return {
-				content: [{ type: "text", text: stringifyToolResult(result) }],
-				details: result,
-			};
-		},
-	}));
 }
 
 function summarizeArgs(args: unknown): string | null {
@@ -426,7 +386,6 @@ const createEventStream = (
 						modelRegistry,
 						model,
 						tools: createCodingTools(config.workspacePath),
-						customTools: convertPluginTools(config.pluginTools),
 						resourceLoader: loader,
 						sessionManager: SessionManager.inMemory(config.workspacePath),
 					}),

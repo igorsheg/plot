@@ -1,6 +1,6 @@
 import {
 	buildRunContext,
-	parseWorkpadSections as parseWorkpadSectionsPlain,
+	parseWorkpadSectionsPlain,
 	TrackerRunContext,
 	WorkpadSection,
 } from "@plot/sdk";
@@ -9,7 +9,8 @@ export function parseWorkpadSections(
 	workpad: string | null,
 ): ReadonlyArray<WorkpadSection> {
 	return parseWorkpadSectionsPlain(workpad).map(
-		(section) => new WorkpadSection(section),
+		(section: { title: string; body: string; itemCount: number }) =>
+			new WorkpadSection(section),
 	);
 }
 
@@ -25,7 +26,8 @@ export function buildTrackerRunContext(input: {
 		workpad: plain.workpad ?? null,
 		reviewFeedback: plain.reviewFeedback ?? null,
 		workpadSections: (plain.workpadSections ?? []).map(
-			(section) => new WorkpadSection(section),
+			(section: { title: string; body: string; itemCount: number }) =>
+			new WorkpadSection(section),
 		),
 	});
 }

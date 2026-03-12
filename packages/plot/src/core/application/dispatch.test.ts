@@ -95,7 +95,6 @@ const makeDeps = async (
 		getConfig: overrides?.getConfig ?? Effect.succeed(makeConfig()),
 		updateState: (fn) => Ref.update(stateRef, fn),
 		pluginSkillPaths: [],
-		pluginTools: [],
 	};
 
 	return { stateRef, runtime: makeDispatchRuntime(deps) };
