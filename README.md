@@ -3,6 +3,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/igorsheg/plot/actions"><img src="https://img.shields.io/github/actions/workflow/status/igorsheg/plot/ci.yml?branch=main&style=flat-square" alt="build status" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/igorsheg/plot?style=flat-square" alt="license" /></a>
+</p>
+
+<p align="center">
   orchestrate coding agents against an issue tracker.
 </p>
 
@@ -87,7 +92,7 @@ at startup, plot:
 3. otherwise dynamically imports the module named by `tracker.kind`
 4. validates plugin config through the plugin's schema (if provided)
 5. auto-discovers skills from a co-located `skills/` directory
-6. resolves tools, hooks, and the tracker layer
+6. resolves tools and the tracker layer
 
 add your own tracker type as:
 
@@ -146,10 +151,6 @@ const plugin: TrackerPlugin<AcmeConfig> = {
       execute: (args) => /* tracker-specific logic */,
     },
   ],
-  hooks: {
-    onAgentFailed: (issue, error) =>
-      Effect.logWarning(`agent failed on ${issue.identifier}: ${error}`),
-  },
 };
 ```
 

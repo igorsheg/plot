@@ -18,30 +18,6 @@ const execFileAsync = promisify(execFile);
 
 const normalizeState = (s: string): string => s.trim().toLowerCase();
 
-const WORKPAD_TEMPLATE = `## Plot Workpad
-
-### Plan
-
-- [ ] 1. <task>
-
-### Acceptance Criteria
-
-- [ ] <criterion>
-
-### Validation
-
-- [ ] <test command>
-
-### Latest Attempt Summary
-
-- changed: <none>
-- validated: <none>
-- failed: <none>
-- blocked: <none>
-
-### Notes
-
-- <durable context>`;
 
 interface GithubTrackerConfig {
 	kind: string;
@@ -272,33 +248,7 @@ function createGithubOps(config: {
 		await addComment(issueId, `[plot] linked PR: ${prUrl}`);
 	};
 
-	const findWorkpadCommentId = async (
-		issueId: string,
-	): Promise<string | null> => {
-		if (!config.repo) return null;
-		try {
-			const result = await runGh([
-				"api",
-				`repos/${config.repo}/issues/${issueId}/comments`,
-			]);
-			const comments = JSON.parse(result.stdout) as ReadonlyArray<{
-				id: number;
-				body: string;
-			}>;
-			const workpad = comments.find((c) =>
-				c.body.startsWith("## Plot Workpad"),
-			);
-			return workpad ? String(workpad.id) : null;
-		} catch {
-			return null;
-		}
-	};
 
-	const ensureWorkpadComment = async (issueId: string): Promise<void> => {
-		const existingId = await findWorkpadCommentId(issueId);
-		if (existingId) return;
-		await addComment(issueId, WORKPAD_TEMPLATE);
-	};
 
 	const fetchRunContext = async (
 		issueId: string,
@@ -407,8 +357,6 @@ function createGithubOps(config: {
 		addComment,
 		updateComment,
 		linkPullRequest,
-		findWorkpadCommentId,
-		ensureWorkpadComment,
 		fetchRunContext,
 	};
 }
@@ -561,17 +509,6 @@ const plugin = defineTrackerPlugin({
 					},
 				},
 			],
-			hooks: {
-				async onIssueDispatched(issue) {
-					try {
-						await ops.ensureWorkpadComment(issue.id);
-					} catch (error) {
-						console.warn(
-							`workpad_ensure_failed for issue ${issue.id}: ${error}`,
-						);
-					}
-				},
-			},
 		};
 	},
 });

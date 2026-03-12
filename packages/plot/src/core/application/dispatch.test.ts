@@ -96,7 +96,6 @@ const makeDeps = async (
 		updateState: (fn) => Ref.update(stateRef, fn),
 		pluginSkillPaths: [],
 		pluginTools: [],
-		pluginHooks: undefined,
 	};
 
 	return { stateRef, runtime: makeDispatchRuntime(deps) };

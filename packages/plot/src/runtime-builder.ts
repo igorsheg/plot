@@ -6,7 +6,6 @@ import { Effect, Layer, Logger, LogLevel, ManagedRuntime } from "effect";
 import type {
 	PluginToolDefinition,
 	TrackerPlugin,
-	TrackerPluginHooks,
 	TrackerClient,
 } from "@plot/sdk";
 import { PiAgentLive } from "./agent/index.js";
@@ -46,7 +45,6 @@ export interface ResolvedPlugin {
 	readonly trackerLayer: Layer.Layer<TrackerClient>;
 	readonly skillPaths: ReadonlyArray<string>;
 	readonly tools: ReadonlyArray<PluginToolDefinition>;
-	readonly hooks: TrackerPluginHooks | undefined;
 }
 
 const builtinTrackers: Record<
@@ -99,7 +97,6 @@ function makeResolvedPlugin(
 			trackerLayer: instance.trackerLayer,
 			skillPaths: [...new Set([...autoSkillPaths, ...explicitSkillPaths])],
 			tools: instance.tools,
-			hooks: instance.hooks,
 		})),
 	);
 }
@@ -166,7 +163,6 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		Layer.succeed(PluginContext, {
 			skillPaths: resolvedPlugin.skillPaths,
 			tools: resolvedPlugin.tools,
-			hooks: resolvedPlugin.hooks,
 		}),
 	);
 }

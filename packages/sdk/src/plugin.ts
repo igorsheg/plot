@@ -138,16 +138,9 @@ export interface PlainPluginToolDefinition {
 	readonly execute: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
-export interface PlainTrackerPluginHooks {
-	readonly onIssueDispatched?: (issue: IssueLike) => Promise<void>;
-	readonly onAgentComplete?: (issue: IssueLike, result: unknown) => Promise<void>;
-	readonly onAgentFailed?: (issue: IssueLike, error: unknown) => Promise<void>;
-}
-
 export interface PlainTrackerInstance {
 	readonly tracker: PlainTrackerClient;
 	readonly tools?: ReadonlyArray<PlainPluginToolDefinition>;
-	readonly hooks?: PlainTrackerPluginHooks;
 }
 
 export interface TrackerPluginDefinition<TConfig = TrackerPluginConfig> {
@@ -168,12 +161,6 @@ export interface PluginToolDefinition {
 	readonly execute: (args: unknown) => Effect.Effect<unknown, TrackerError>;
 }
 
-export interface TrackerPluginHooks {
-	readonly onIssueDispatched?: (issue: Issue) => Effect.Effect<void, unknown>;
-	readonly onAgentComplete?: (issue: Issue, result: unknown) => Effect.Effect<void, unknown>;
-	readonly onAgentFailed?: (issue: Issue, error: unknown) => Effect.Effect<void, unknown>;
-}
-
 export interface TrackerPlugin {
 	readonly name: string;
 	readonly skillPaths?: ReadonlyArray<string>;
@@ -184,7 +171,6 @@ export interface TrackerPlugin {
 export interface ResolvedTrackerInstance {
 	readonly trackerLayer: Layer.Layer<TrackerClient>;
 	readonly tools: ReadonlyArray<PluginToolDefinition>;
-	readonly hooks: TrackerPluginHooks | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,32 +321,6 @@ function normalizeRunContext(plain: TrackerRunContextLike | null): TrackerRunCon
 	});
 }
 
-function issueToPlain(issue: Issue): IssueLike {
-	return {
-		id: issue.id,
-		identifier: issue.identifier,
-		title: issue.title,
-		description: issue.description,
-		priority: issue.priority,
-		state: issue.state,
-		branchName: issue.branchName,
-		url: issue.url,
-		labels: Array.from(issue.labels),
-		blockedBy: issue.blockedBy?.map((b) => ({
-			id: b.id,
-			identifier: b.identifier,
-			state: b.state,
-		})),
-		metadata: issue.metadata as Record<string, unknown> | undefined,
-		createdAt: issue.createdAt
-			? new Date(DateTime.toEpochMillis(issue.createdAt))
-			: null,
-		updatedAt: issue.updatedAt
-			? new Date(DateTime.toEpochMillis(issue.updatedAt))
-			: null,
-	};
-}
-
 // ---------------------------------------------------------------------------
 // Adapter: PlainTrackerClient → Layer<TrackerClient>
 // ---------------------------------------------------------------------------
@@ -422,36 +382,6 @@ function adaptTool(tool: PlainPluginToolDefinition): PluginToolDefinition {
 }
 
 // ---------------------------------------------------------------------------
-// Adapter: PlainTrackerPluginHooks → TrackerPluginHooks
-// ---------------------------------------------------------------------------
-
-function adaptHooks(hooks: PlainTrackerPluginHooks): TrackerPluginHooks {
-	return {
-		onIssueDispatched: hooks.onIssueDispatched
-			? (issue) =>
-					Effect.tryPromise({
-						try: () => hooks.onIssueDispatched!(issueToPlain(issue)),
-						catch: (e) => mapPluginError(e, "onIssueDispatched"),
-					}).pipe(Effect.asVoid)
-			: undefined,
-		onAgentComplete: hooks.onAgentComplete
-			? (issue, result) =>
-					Effect.tryPromise({
-						try: () => hooks.onAgentComplete!(issueToPlain(issue), result),
-						catch: (e) => mapPluginError(e, "onAgentComplete"),
-					}).pipe(Effect.asVoid)
-			: undefined,
-		onAgentFailed: hooks.onAgentFailed
-			? (issue, error) =>
-					Effect.tryPromise({
-						try: () => hooks.onAgentFailed!(issueToPlain(issue), error),
-						catch: (e) => mapPluginError(e, "onAgentFailed"),
-					}).pipe(Effect.asVoid)
-			: undefined,
-	};
-}
-
-// ---------------------------------------------------------------------------
 // defineTrackerPlugin: main entry point for plugin authors
 // ---------------------------------------------------------------------------
 
@@ -487,7 +417,6 @@ export function defineTrackerPlugin<TConfig = TrackerPluginConfig>(
 				Effect.map((instance) => ({
 					trackerLayer: adaptTrackerClient(instance.tracker),
 					tools: (instance.tools ?? []).map(adaptTool),
-					hooks: instance.hooks ? adaptHooks(instance.hooks) : undefined,
 				})),
 			),
 	};
