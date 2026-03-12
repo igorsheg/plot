@@ -3,6 +3,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/igorsheg/plot/actions"><img src="https://img.shields.io/github/actions/workflow/status/igorsheg/plot/ci.yml?branch=main&style=flat-square" alt="build status" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/igorsheg/plot?style=flat-square" alt="license" /></a>
+</p>
+
+<p align="center">
   orchestrate coding agents against an issue tracker.
 </p>
 
