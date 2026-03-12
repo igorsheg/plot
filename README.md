@@ -92,7 +92,7 @@ at startup, plot:
 3. otherwise dynamically imports the module named by `tracker.kind`
 4. validates plugin config through the plugin's schema (if provided)
 5. auto-discovers skills from a co-located `skills/` directory
-6. resolves tools, hooks, and the tracker layer
+6. resolves tools and the tracker layer
 
 add your own tracker type as:
 
@@ -151,10 +151,6 @@ const plugin: TrackerPlugin<AcmeConfig> = {
       execute: (args) => /* tracker-specific logic */,
     },
   ],
-  hooks: {
-    onAgentFailed: (issue, error) =>
-      Effect.logWarning(`agent failed on ${issue.identifier}: ${error}`),
-  },
 };
 ```
 
