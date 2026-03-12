@@ -11,7 +11,6 @@ import {
 	Stream,
 } from "effect";
 import type {
-	AgentResult,
 	AgentRuntimeEvent,
 	Issue,
 	PluginToolDefinition,
@@ -41,6 +40,13 @@ import {
 	type RunningEntry,
 } from "../domain/orchestrator-state.js";
 import { withTrackerFallback } from "./tracker-fallback.js";
+
+interface AgentResult {
+	readonly turnCount: number;
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly lastMessage: string | null;
+}
 
 export interface DispatchDeps {
 	readonly stateRef: Ref.Ref<OrchestratorState>;
@@ -96,11 +102,19 @@ export interface DispatchDeps {
 }
 
 export function makeDispatchRuntime(deps: DispatchDeps) {
-	const runHook = (name: string, issueId: string, effect: Effect.Effect<void, unknown>) =>
+	const runHook = (
+		name: string,
+		issueId: string,
+		effect: Effect.Effect<void, unknown>,
+	) =>
 		effect.pipe(
 			Effect.catchAll((error) =>
 				Effect.logWarning("plugin_hook_failed").pipe(
-					Effect.annotateLogs({ hook: name, issue_id: issueId, error: String(error) }),
+					Effect.annotateLogs({
+						hook: name,
+						issue_id: issueId,
+						error: String(error),
+					}),
 				),
 			),
 		);
@@ -365,10 +379,21 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				};
 
 				if (exitReason === "success" && deps.pluginHooks?.onAgentComplete) {
-					yield* runHook("onAgentComplete", issueId, deps.pluginHooks.onAgentComplete(issue, agentResult));
-				} else if (exitReason === "failure" && deps.pluginHooks?.onAgentFailed) {
+					yield* runHook(
+						"onAgentComplete",
+						issueId,
+						deps.pluginHooks.onAgentComplete(issue, agentResult),
+					);
+				} else if (
+					exitReason === "failure" &&
+					deps.pluginHooks?.onAgentFailed
+				) {
 					const error = Exit.isFailure(exit) ? String(exit.cause) : "unknown";
-					yield* runHook("onAgentFailed", issueId, deps.pluginHooks.onAgentFailed(issue, error));
+					yield* runHook(
+						"onAgentFailed",
+						issueId,
+						deps.pluginHooks.onAgentFailed(issue, error),
+					);
 				}
 			}
 		});
@@ -503,7 +528,11 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			yield* Deferred.succeed(registered, undefined);
 
 			if (deps.pluginHooks?.onIssueDispatched) {
-				yield* runHook("onIssueDispatched", issue.id, deps.pluginHooks.onIssueDispatched(issue));
+				yield* runHook(
+					"onIssueDispatched",
+					issue.id,
+					deps.pluginHooks.onIssueDispatched(issue),
+				);
 			}
 		}).pipe(
 			Effect.annotateLogs({

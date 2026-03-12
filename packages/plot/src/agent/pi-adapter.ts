@@ -2,15 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import {
-	Config,
-	DateTime,
-	Effect,
-	JSONSchema,
-	Layer,
-	Ref,
-	Stream,
-} from "effect";
+import { Config, DateTime, Effect, Layer, Ref, Stream } from "effect";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, TextContent, Usage } from "@mariozechner/pi-ai";
 import type {
@@ -95,14 +87,16 @@ function convertPluginTools(
 		name: tool.name,
 		label: tool.name,
 		description: tool.description,
-		parameters: Type.Unsafe(JSONSchema.make(tool.parameters)),
+		parameters: Type.Unsafe(tool.parameters),
 		execute: async (_toolCallId, params) => {
 			const result = await Effect.runPromise(
-				tool.execute(params).pipe(
-					Effect.catchAll((error) =>
-						Effect.succeed({ error: true, message: String(error) }),
+				tool
+					.execute(params)
+					.pipe(
+						Effect.catchAll((error) =>
+							Effect.succeed({ error: true, message: String(error) }),
+						),
 					),
-				),
 			);
 			return {
 				content: [{ type: "text", text: stringifyToolResult(result) }],

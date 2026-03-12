@@ -1,19 +1,16 @@
-import { TrackerClient } from "@plot/sdk";
-import type { TrackerPlugin } from "@plot/sdk";
-import { Effect, Layer } from "effect";
+import { defineTrackerPlugin } from "@plot/sdk";
 
-const plugin: TrackerPlugin = {
+const plugin = defineTrackerPlugin({
 	name: "fake-minimal",
-	factory: () =>
-		Layer.succeed(
-			TrackerClient,
-			TrackerClient.of({
-				fetchCandidateIssues: () => Effect.succeed([]),
-				fetchIssuesByStates: () => Effect.succeed([]),
-				fetchIssueStatesByIds: () => Effect.succeed([]),
-				fetchRunContext: () => Effect.succeed(null),
-			}),
-		),
-};
+	async factory() {
+		return {
+			tracker: {
+				async fetchCandidateIssues() {
+					return [];
+				},
+			},
+		};
+	},
+});
 
 export default plugin;

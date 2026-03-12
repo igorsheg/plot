@@ -1,4 +1,4 @@
-import { Context, Effect, Schema, type Layer } from "effect";
+import { Context, Effect, Schema } from "effect";
 import type { Issue, IssueStateEntry } from "./issue.js";
 import type { TrackerError } from "../errors.js";
 
@@ -61,19 +61,3 @@ export interface TrackerPluginConfig {
 	readonly [key: string]: unknown;
 }
 
-/**
- * Contract implemented by tracker plugins.
- *
- * A tracker plugin is an npm package or local module that exports a default
- * `TrackerPlugin`. plot resolves the plugin at startup via dynamic `import()`
- * and calls `factory(config)` to obtain a `Layer<TrackerClient>`.
- *
- * Built-in trackers (e.g. `"github"`) are resolved by name; external ones
- * use npm package specifiers (`"@myorg/plot-tracker-jira"`) or relative
- * paths (`"./trackers/jira.ts"`).
- */
-export interface TrackerPlugin {
-	readonly name: string;
-	readonly factory: (config: TrackerPluginConfig) => Layer.Layer<TrackerClient>;
-	readonly skillPaths?: ReadonlyArray<string>;
-}

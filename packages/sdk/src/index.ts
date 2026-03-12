@@ -9,3 +9,4 @@ export * from "./schemas/tracker.js";
 export * from "./schemas/workflow.js";
 export * from "./errors.js";
 export * from "./rpc.js";
+export * from "./plugin.js";

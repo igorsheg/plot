@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeGithubTracker } from "./index.js";
+import plugin from "./index.js";
 
 const originalPath = process.env["PATH"];
 const tempDirs: string[] = [];
@@ -15,28 +15,21 @@ afterEach(async () => {
 	} else {
 		process.env["PATH"] = originalPath;
 	}
-
 	await Promise.all(
 		tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
 	);
 });
 
-const fetchCandidateIssues = async (options: {
-	issuesFixture: unknown;
-	dispatchStates: ReadonlyArray<string>;
-	parkedStates?: ReadonlyArray<string>;
-	terminalStates?: ReadonlyArray<string>;
-}) => {
+const setupFakeGh = async (issuesFixture: unknown) => {
 	const dir = await mkdtemp(join(tmpdir(), "plot-gh-test-"));
 	tempDirs.push(dir);
-
 	const ghPath = join(dir, "gh");
 	await writeFile(
 		ghPath,
 		`#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (args[0] === "issue" && args[1] === "list") {
-  process.stdout.write(JSON.stringify(${JSON.stringify(options.issuesFixture)}));
+  process.stdout.write(JSON.stringify(${JSON.stringify(issuesFixture)}));
   process.exit(0);
 }
 process.stderr.write("unexpected gh args: " + args.join(" "));
@@ -45,24 +38,35 @@ process.exit(1);
 	);
 	await chmod(ghPath, 0o755);
 	process.env["PATH"] = `${dir}:${originalPath ?? ""}`;
+};
+
+const fetchCandidateIssues = async (options: {
+	issuesFixture: unknown;
+	dispatchStates: ReadonlyArray<string>;
+	parkedStates?: ReadonlyArray<string>;
+	terminalStates?: ReadonlyArray<string>;
+}) => {
+	await setupFakeGh(options.issuesFixture);
+
+	const config = await Effect.runPromise(
+		plugin.resolveConfig({
+			kind: "github",
+			dispatchStates: options.dispatchStates,
+			parkedStates: options.parkedStates,
+			terminalStates: options.terminalStates,
+		}),
+	);
+	const instance = await Effect.runPromise(plugin.buildInstance(config));
 
 	return Effect.runPromise(
 		Effect.gen(function* () {
 			const tracker = yield* TrackerClient;
 			return yield* tracker.fetchCandidateIssues(options.dispatchStates);
-		}).pipe(
-			Effect.provide(
-				makeGithubTracker({
-					dispatchStates: options.dispatchStates,
-					parkedStates: options.parkedStates,
-					terminalStates: options.terminalStates,
-				}),
-			),
-		),
+		}).pipe(Effect.provide(instance.trackerLayer)),
 	);
 };
 
-describe("makeGithubTracker", () => {
+describe("github tracker", () => {
 	test("ignores open issues without a configured state label", async () => {
 		const issues = await fetchCandidateIssues({
 			issuesFixture: [

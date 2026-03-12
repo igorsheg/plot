@@ -1,24 +1,21 @@
-import { TrackerClient } from "@plot/sdk";
-import type { TrackerPlugin } from "@plot/sdk";
-import { Effect, Layer } from "effect";
+import { defineTrackerPlugin } from "@plot/sdk";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const skillsDir = join(dirname(fileURLToPath(import.meta.url)), "skills");
 
-const plugin: TrackerPlugin = {
+const plugin = defineTrackerPlugin({
 	name: "fake-jira",
 	skillPaths: [join(skillsDir, "jira-triage"), join(skillsDir, "jira-sync")],
-	factory: () =>
-		Layer.succeed(
-			TrackerClient,
-			TrackerClient.of({
-				fetchCandidateIssues: () => Effect.succeed([]),
-				fetchIssuesByStates: () => Effect.succeed([]),
-				fetchIssueStatesByIds: () => Effect.succeed([]),
-				fetchRunContext: () => Effect.succeed(null),
-			}),
-		),
-};
+	async factory() {
+		return {
+			tracker: {
+				async fetchCandidateIssues() {
+					return [];
+				},
+			},
+		};
+	},
+});
 
 export default plugin;

@@ -2,19 +2,12 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BunContext } from "@effect/platform-bun";
-import {
-	Effect,
-	Layer,
-	Logger,
-	LogLevel,
-	ManagedRuntime,
-	Schema,
-} from "effect";
+import { Effect, Layer, Logger, LogLevel, ManagedRuntime } from "effect";
 import type {
 	PluginToolDefinition,
-	TrackerClient,
 	TrackerPlugin,
 	TrackerPluginHooks,
+	TrackerClient,
 } from "@plot/sdk";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
@@ -58,7 +51,7 @@ export interface ResolvedPlugin {
 
 const builtinTrackers: Record<
 	string,
-	{ readonly plugin: TrackerPlugin<any>; readonly moduleDir: string }
+	{ readonly plugin: TrackerPlugin; readonly moduleDir: string }
 > = {
 	github: {
 		plugin: githubTrackerPlugin,
@@ -92,38 +85,23 @@ function discoverSkillPaths(moduleDir: string): ReadonlyArray<string> {
 	}
 }
 
-function resolvePluginConfig(
-	plugin: TrackerPlugin,
-	rawConfig: Record<string, unknown>,
-): Effect.Effect<unknown> {
-	if (!plugin.configSchema) {
-		return Effect.succeed(rawConfig);
-	}
-
-	return Schema.decodeUnknown(plugin.configSchema)(rawConfig).pipe(
-		Effect.mapError(
-			(error) =>
-				new Error(`Plugin "${plugin.name}" config validation failed: ${error}`),
-		),
-		Effect.orDie,
-	);
-}
-
 function makeResolvedPlugin(
 	plugin: TrackerPlugin,
 	config: unknown,
 	moduleDir?: string,
-): ResolvedPlugin {
+): Effect.Effect<ResolvedPlugin> {
 	const autoSkillPaths = moduleDir ? discoverSkillPaths(moduleDir) : [];
 	const explicitSkillPaths = plugin.skillPaths ?? [];
 
-	return {
-		name: plugin.name,
-		trackerLayer: plugin.factory(config),
-		skillPaths: [...new Set([...autoSkillPaths, ...explicitSkillPaths])],
-		tools: plugin.tools?.(config) ?? [],
-		hooks: plugin.hooks?.(config),
-	};
+	return plugin.buildInstance(config).pipe(
+		Effect.map((instance) => ({
+			name: plugin.name,
+			trackerLayer: instance.trackerLayer,
+			skillPaths: [...new Set([...autoSkillPaths, ...explicitSkillPaths])],
+			tools: instance.tools,
+			hooks: instance.hooks,
+		})),
+	);
 }
 
 export function resolvePlugin(
@@ -133,11 +111,13 @@ export function resolvePlugin(
 	const builtin = builtinTrackers[resolved.trackerKind];
 
 	if (builtin) {
-		return resolvePluginConfig(builtin.plugin, rawConfig).pipe(
-			Effect.map((config) =>
-				makeResolvedPlugin(builtin.plugin, config, builtin.moduleDir),
-			),
-		);
+		return builtin.plugin
+			.resolveConfig(rawConfig)
+			.pipe(
+				Effect.flatMap((config) =>
+					makeResolvedPlugin(builtin.plugin, config, builtin.moduleDir),
+				),
+			);
 	}
 
 	return Effect.gen(function* () {
@@ -150,21 +130,27 @@ export function resolvePlugin(
 				),
 		}).pipe(Effect.orDie);
 		const plugin = mod.default;
-		if (!plugin || typeof plugin.factory !== "function") {
+		if (
+			!plugin ||
+			typeof plugin !== "object" ||
+			typeof plugin.name !== "string" ||
+			typeof plugin.resolveConfig !== "function" ||
+			typeof plugin.buildInstance !== "function"
+		) {
 			return yield* Effect.die(
 				new Error(
-					`Tracker plugin "${kind}" does not export a valid default TrackerPlugin`,
+					`Tracker plugin "${kind}" does not export a valid default tracker plugin (expected defineTrackerPlugin() result)`,
 				),
 			);
 		}
 
-		const config = yield* resolvePluginConfig(plugin, rawConfig);
+		const config = yield* plugin.resolveConfig(rawConfig);
 		const moduleDir =
 			kind.startsWith("./") || kind.startsWith("../") || kind.startsWith("/")
 				? dirname(resolve(kind))
 				: undefined;
 
-		return makeResolvedPlugin(plugin, config, moduleDir);
+		return yield* makeResolvedPlugin(plugin, config, moduleDir);
 	});
 }
 
