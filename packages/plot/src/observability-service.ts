@@ -236,10 +236,77 @@ export const makeObservabilityApi = Effect.gen(function* () {
 		});
 	});
 
+	const getExportData = withOrchestratorAvailability(
+		orchestrator.getState.pipe(
+			Effect.map((state) => ({
+				timestamp: new Date().toISOString(),
+				running: Object.fromEntries(
+					[...state.running.entries()].map(([k, v]) => [
+						k,
+						{
+							issueId: v.issueId,
+							issueIdentifier: v.issueIdentifier,
+							state: v.state,
+							startedAt: v.startedAt,
+							workspacePath: v.workspacePath,
+							sessionId: v.sessionId,
+							lastEventAt: v.lastEventAt,
+							inputTokens: v.inputTokens,
+							outputTokens: v.outputTokens,
+							totalTokens: v.totalTokens,
+							turnCount: v.turnCount,
+							phase: v.phase,
+							lastMessage: v.lastMessage,
+						},
+					]),
+				),
+				claimed: [...state.claimed],
+				retryAttempts: Object.fromEntries(
+					[...state.retryAttempts.entries()].map(([k, v]) => [
+						k,
+						{
+							issueId: v.issueId,
+							identifier: v.identifier,
+							attempt: v.attempt,
+							dueAtMs: v.dueAtMs,
+							error: v.error,
+							reason: v.reason,
+						},
+					]),
+				),
+				issueArtifacts: Object.fromEntries(
+					[...state.issueArtifacts.entries()].map(([k, v]) => [
+						k,
+						{
+							issueId: v.issueId,
+							issueIdentifier: v.issueIdentifier,
+							workspacePath: v.workspacePath,
+							lastError: v.lastError,
+						},
+					]),
+				),
+				counters: {
+					totalInputTokens: state.totalInputTokens,
+					totalOutputTokens: state.totalOutputTokens,
+					totalTokens: state.totalTokens,
+					endedSessionSeconds: state.endedSessionSeconds,
+					commandQueueDepth: state.commandQueueDepth,
+					commandQueuePeak: state.commandQueuePeak,
+					commandQueuePressureCount: state.commandQueuePressureCount,
+					staleRetryDropCount: state.staleRetryDropCount,
+					retriesScheduledByReason: state.retriesScheduledByReason,
+					workerStopsByReason: state.workerStopsByReason,
+					workerExitsByReason: state.workerExitsByReason,
+				},
+			})),
+		),
+	);
+
 	return {
 		getState,
 		getIssue,
 		getEventLog,
+		getExportData,
 		triggerRefresh,
 		eventStream: orchestrator.eventStream,
 		stateStream,

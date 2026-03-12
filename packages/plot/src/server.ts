@@ -72,6 +72,24 @@ export function makeServer(
 		}),
 	).pipe(Layer.provide(ObservabilityLive));
 
+	const ExportRouteLive = HttpRouter.Default.use((router) =>
+		Effect.gen(function* () {
+			const api = yield* ObservabilityApi;
+			yield* router.get(
+				"/api/export",
+				Effect.gen(function* () {
+					const data = yield* api.getExportData;
+					return yield* HttpServerResponse.json(data, {
+						headers: {
+							"Content-Disposition":
+								'attachment; filename="plot-state.json"',
+						},
+					});
+				}),
+			);
+		}),
+	).pipe(Layer.provide(ObservabilityLive));
+
 	const startedAt = Date.now();
 
 	const HealthzLive = HttpRouter.Default.use((router) =>
@@ -149,6 +167,7 @@ export function makeServer(
 		Layer.provide(RpcLayer),
 		Layer.provide(HttpProtocol),
 		Layer.provide(SseRouteLive),
+		Layer.provide(ExportRouteLive),
 		Layer.provide(HealthzLive),
 		Layer.provide(BunHttpServer.layer({ port: config.port, idleTimeout: 120 })),
 		Layer.provide(StartupLive),
