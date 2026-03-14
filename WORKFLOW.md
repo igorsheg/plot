@@ -1,6 +1,6 @@
 ---
 tracker:
-  kind: github
+  kind: beads
   dispatch_states:
     - plot:todo
     - plot:in-progress
@@ -10,8 +10,7 @@ tracker:
     - plot:human-review
   terminal_states:
     - plot:done
-    - Closed
-    - Cancelled
+    - closed
 polling:
   interval_ms: 15000
 workspace:
@@ -49,7 +48,9 @@ this section is workflow policy. plot compiles it into the stable system prompt.
 
 ## workpad contract
 
-keep exactly one `## Plot Workpad` comment per issue. structure it so both humans and later runs can parse it quickly.
+keep exactly one current `## Plot Workpad` comment per issue. structure it so both humans and later runs can parse it quickly.
+
+beads comments are append-only. the current workpad is always the **latest** comment whose body starts with `## Plot Workpad`. when updating, add a new full workpad comment — do not attempt to edit old comments.
 
 required sections:
 
@@ -61,16 +62,18 @@ required sections:
 
 rules:
 
-- prefer updating existing sections over appending duplicate notes
+- treat the latest `## Plot Workpad` comment as canonical
+- never rely on older workpad comments once a newer one exists
 - when a checklist item is done, mark it done immediately
 - keep `Latest Attempt Summary` short and factual
 - if a retry changed the plan, update the workpad before large edits
+- keep the full workpad body in each update so the latest comment is self-contained
 
 ## skills
 
 use these project skills during execution. load each skill when you reach its step.
 
-- `plot-github-tracker` — issue state transitions via labels, workpad comment lifecycle
+- `plot-beads-tracker` — issue state transitions via bd set-state, workpad comment lifecycle, issue queries
 - `plot-commit` — session-aware conventional commits
 - `plot-push-pr` — push branch and create/update PR with template compliance
 - `plot-pull-main` — sync branch with origin/main, conflict resolution
@@ -86,25 +89,25 @@ use these project skills during execution. load each skill when you reach its st
 | plot:human-review    | do nothing — wait for human to change state       |
 | plot:rework          | run rework flow                                   |
 | plot:merging         | run `plot-land` skill                             |
-| plot:done / Closed   | do nothing, shut down                             |
+| plot:done / closed   | do nothing, shut down                             |
 
 ## step 0: route by current state
 
-1. determine the current issue state from labels.
+1. determine the current issue state from plot dimension labels.
 2. if no `plot:*` state label exists, do nothing and stop.
 3. route to the matching flow:
-   - `plot:todo` → use `plot-github-tracker` to move to `plot:in-progress`, then implementation flow
+   - `plot:todo` → use `plot-beads-tracker` to move to `plot:in-progress`, then implementation flow
    - `plot:in-progress` → continue implementation flow
    - `plot:human-review` → do nothing, stop
    - `plot:rework` → rework flow
    - `plot:merging` → load `plot-land` skill, execute merge flow
-   - `plot:done` / `Closed` → do nothing, stop
+   - `plot:done` / `closed` → do nothing, stop
 4. check whether a PR already exists for the current branch.
    - if branch PR is `CLOSED` or `MERGED`, create a fresh branch from `origin/main` and restart.
 
 ## implementation flow (plot:todo / plot:in-progress)
 
-1. use `plot-github-tracker` to find or create the workpad comment.
+1. use `plot-beads-tracker` to find or create the workpad comment.
 2. write a hierarchical plan with acceptance criteria in the workpad.
 3. use `plot-pull-main` to sync with `origin/main` before code edits.
 4. implement the changes against the plan. keep diffs minimal and focused.
@@ -113,11 +116,11 @@ use these project skills during execution. load each skill when you reach its st
 7. use `plot-commit` to create well-formed commits.
 8. use `plot-push-pr` to push and create/update the PR.
 9. update workpad with final checklist status and validation notes.
-10. use `plot-github-tracker` to move issue to `plot:human-review`.
+10. use `plot-beads-tracker` to move issue to `plot:human-review`.
 
 ## rework flow (plot:rework)
 
-1. use `plot-github-tracker` to load the workpad.
+1. use `plot-beads-tracker` to load the workpad.
 2. read all PR feedback (load `plot-land` skill for the review sweep protocol):
    - top-level PR comments
    - inline review comments
@@ -128,7 +131,7 @@ use these project skills during execution. load each skill when you reach its st
 6. use `plot-commit` to commit fixes.
 7. use `plot-push-pr` to push updates.
 8. update workpad with feedback resolution status.
-9. use `plot-github-tracker` to move issue back to `plot:human-review`.
+9. use `plot-beads-tracker` to move issue back to `plot:human-review`.
 
 ## completion bar (before plot:human-review)
 
@@ -143,11 +146,11 @@ use these project skills during execution. load each skill when you reach its st
 
 - if branch PR is closed/merged, do not reuse — fresh branch from `origin/main`
 - do not edit the issue body for planning — use workpad comment only
-- exactly one workpad comment per issue (`## Plot Workpad`)
+- one current workpad per issue (latest `## Plot Workpad` comment)
 - do not move to `plot:human-review` unless completion bar is satisfied
 - in `plot:human-review`, do not make changes
 - if `plot:done`, do nothing and shut down
-- if out-of-scope improvements are discovered, file a separate issue instead of expanding scope
+- if out-of-scope improvements are discovered, file a separate issue via `bd create` instead of expanding scope
 - prefer targeted reads/searches over broad dumps — avoid commands that produce huge output
 - prefer minimal diffs; do not refactor or clean up code beyond what the issue requires
 - if uncertain about a change, inspect more before editing
