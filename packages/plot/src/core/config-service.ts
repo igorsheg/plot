@@ -47,6 +47,8 @@ export class ResolvedConfig {
 	readonly maxTurns: number;
 	readonly maxRetryBackoffMs: number;
 	readonly maxConcurrentAgentsByState: ReadonlyMap<string, number>;
+	readonly model: string | undefined;
+	readonly modelByState: ReadonlyMap<string, string>;
 	readonly agentCommand: string;
 	readonly turnTimeoutMs: number;
 	readonly readTimeoutMs: number;
@@ -99,12 +101,27 @@ export class ResolvedConfig {
 			}
 		}
 		this.maxConcurrentAgentsByState = byState;
+		this.model = wf.agent?.model;
+		const byStateModel = new Map<string, string>();
+		if (wf.agent?.modelByState) {
+			for (const [k, v] of Object.entries(wf.agent.modelByState)) {
+				if (typeof v === "string" && v.length > 0) {
+					byStateModel.set(k.trim().toLowerCase(), v);
+				}
+			}
+		}
+		this.modelByState = byStateModel;
 		this.agentCommand = wf.codex?.command ?? "pi";
 		this.turnTimeoutMs = wf.codex?.turnTimeoutMs ?? 3_600_000;
 		this.readTimeoutMs = wf.codex?.readTimeoutMs ?? 5_000;
 		this.stallTimeoutMs = wf.codex?.stallTimeoutMs ?? 300_000;
 		this.serverPort = wf.server?.port;
 		this.githubRepo = overrides?.githubRepo ?? "";
+	}
+
+	resolveModelSpec(issueState: string): string | undefined {
+		const normalized = issueState.trim().toLowerCase();
+		return this.modelByState.get(normalized) ?? this.model;
 	}
 }
 

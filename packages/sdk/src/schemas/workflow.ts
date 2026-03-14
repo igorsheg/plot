@@ -39,6 +39,10 @@ export class AgentConfig extends Schema.Class<AgentConfig>("AgentConfig")({
 	maxConcurrentAgentsByState: Schema.optional(
 		Schema.Record({ key: Schema.String, value: Schema.Number }),
 	),
+	model: Schema.optional(Schema.String),
+	modelByState: Schema.optional(
+		Schema.Record({ key: Schema.String, value: Schema.String }),
+	),
 }) {}
 
 export class AgentRuntimeConfig extends Schema.Class<AgentRuntimeConfig>(

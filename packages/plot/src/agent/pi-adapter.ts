@@ -14,10 +14,39 @@ import {
 	DefaultResourceLoader,
 	createCodingTools,
 } from "@mariozechner/pi-coding-agent";
-import { getModel } from "@mariozechner/pi-ai";
+import { getModel, type Api, type Model } from "@mariozechner/pi-ai";
 import { AgentRuntimeEvent } from "@plot/sdk";
 import { AgentRunnerError } from "../schemas/errors.js";
 import { AgentService, type AgentRunConfig } from "./agent-service.js";
+
+function parseModelSpec(spec: string): { provider: string; modelId: string } | null {
+	const slashIndex = spec.indexOf("/");
+	if (slashIndex <= 0 || slashIndex === spec.length - 1) return null;
+	return { provider: spec.slice(0, slashIndex), modelId: spec.slice(slashIndex + 1) };
+}
+
+function resolveModel(
+	modelSpec: string | undefined,
+	registry: ModelRegistry,
+	available: ReadonlyArray<Model<Api>>,
+): Model<Api> {
+	if (modelSpec) {
+		const parsed = parseModelSpec(modelSpec);
+		if (parsed) {
+			const fromRegistry = registry.find(parsed.provider, parsed.modelId);
+			if (fromRegistry) return fromRegistry;
+			return getModel(parsed.provider as never, parsed.modelId as never);
+		}
+	}
+	return (
+		available.find((m) => m.id === "claude-opus-4-6") ??
+		available.find((m) => m.id.startsWith("claude-opus-4")) ??
+		available.find((m) => m.id === "claude-sonnet-4-20250514") ??
+		available.find((m) => !m.id.includes("haiku")) ??
+		available[0] ??
+		getModel("anthropic", "claude-opus-4-6")
+	);
+}
 
 const agentDir = dirname(fileURLToPath(import.meta.url));
 const repoSkillDirectories = [".agent/skills", ".claude/skills"];
@@ -351,13 +380,11 @@ const createEventStream = (
 				join(plotAgentDir, "models.json"),
 			);
 			const available = modelRegistry.getAvailable();
-			const model =
-				available.find((m) => m.id === "claude-opus-4-6") ??
-				available.find((m) => m.id.startsWith("claude-opus-4")) ??
-				available.find((m) => m.id === "claude-sonnet-4-20250514") ??
-				available.find((m) => !m.id.includes("haiku")) ??
-				available[0] ??
-				getModel("anthropic", "claude-opus-4-6");
+			const model = resolveModel(
+				config.modelSpec,
+				modelRegistry,
+				available,
+			);
 
 			const loader = new DefaultResourceLoader({
 				cwd: config.workspacePath,

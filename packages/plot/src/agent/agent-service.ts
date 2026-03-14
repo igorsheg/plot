@@ -11,6 +11,7 @@ export interface AgentRunConfig {
 	readonly pluginSkillPaths: ReadonlyArray<string>;
 	readonly maxTurns: number;
 	readonly turnTimeoutMs: number;
+	readonly modelSpec?: string;
 	readonly shouldContinue?: () => Effect.Effect<boolean>;
 }
 

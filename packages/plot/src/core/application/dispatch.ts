@@ -400,6 +400,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				pluginSkillPaths: deps.pluginSkillPaths,
 				maxTurns: config.maxTurns,
 				turnTimeoutMs: config.turnTimeoutMs,
+				modelSpec: config.resolveModelSpec(issue.state),
 				shouldContinue,
 			};
 
