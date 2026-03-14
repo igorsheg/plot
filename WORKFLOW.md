@@ -2,14 +2,14 @@
 tracker:
   kind: beads
   dispatch_states:
-    - plot:todo
-    - plot:in-progress
+    - open
+    - in_progress
     - plot:rework
     - plot:merging
   parked_states:
-    - plot:human-review
+    - blocked
+    - deferred
   terminal_states:
-    - plot:done
     - closed
 polling:
   interval_ms: 15000
@@ -46,6 +46,15 @@ this section is workflow policy. plot compiles it into the stable system prompt.
 11. spend extra effort up front on planning and verification design before implementation.
 12. on retries, resume from current workspace state instead of starting from scratch unless the workpad or repo state proves that reset is necessary.
 
+## state model
+
+beads uses a hybrid state model:
+
+- **status** (native beads lifecycle): `open`, `in_progress`, `blocked`, `deferred`, `closed`
+- **labels** (orchestrator sub-states): `plot:rework`, `plot:merging`
+
+the orchestrator routes by whichever is more specific: if a configured label exists, it wins over status. otherwise status is the state.
+
 ## workpad contract
 
 keep exactly one current `## Plot Workpad` comment per issue. structure it so both humans and later runs can parse it quickly.
@@ -73,7 +82,7 @@ rules:
 
 use these project skills during execution. load each skill when you reach its step.
 
-- `plot-beads-tracker` — issue state transitions via bd set-state, workpad comment lifecycle, issue queries
+- `plot-beads-tracker` — issue state transitions (status + labels), workpad comment lifecycle, bd queries
 - `plot-commit` — session-aware conventional commits
 - `plot-push-pr` — push branch and create/update PR with template compliance
 - `plot-pull-main` — sync branch with origin/main, conflict resolution
@@ -82,30 +91,30 @@ use these project skills during execution. load each skill when you reach its st
 
 ## status map
 
-| state                | agent action                                      |
-| -------------------- | ------------------------------------------------- |
-| plot:todo            | move to plot:in-progress, then run implementation flow |
-| plot:in-progress     | continue implementation flow                      |
-| plot:human-review    | do nothing — wait for human to change state       |
-| plot:rework          | run rework flow                                   |
-| plot:merging         | run `plot-land` skill                             |
-| plot:done / closed   | do nothing, shut down                             |
+| state            | agent action                                           |
+| ---------------- | ------------------------------------------------------ |
+| open             | move to in_progress, then run implementation flow      |
+| in_progress      | continue implementation flow                           |
+| blocked          | do nothing — wait for human to change state            |
+| deferred         | do nothing — wait for human to undefer                 |
+| plot:rework      | run rework flow                                        |
+| plot:merging     | run `plot-land` skill                                  |
+| closed           | do nothing, shut down                                  |
 
 ## step 0: route by current state
 
-1. determine the current issue state from plot dimension labels.
-2. if no `plot:*` state label exists, do nothing and stop.
-3. route to the matching flow:
-   - `plot:todo` → use `plot-beads-tracker` to move to `plot:in-progress`, then implementation flow
-   - `plot:in-progress` → continue implementation flow
-   - `plot:human-review` → do nothing, stop
+1. determine the current issue state (label match first, then beads status).
+2. route to the matching flow:
+   - `open` → use `plot-beads-tracker` to move to `in_progress`, then implementation flow
+   - `in_progress` → continue implementation flow
+   - `blocked` / `deferred` → do nothing, stop
    - `plot:rework` → rework flow
    - `plot:merging` → load `plot-land` skill, execute merge flow
-   - `plot:done` / `closed` → do nothing, stop
-4. check whether a PR already exists for the current branch.
+   - `closed` → do nothing, stop
+3. check whether a PR already exists for the current branch.
    - if branch PR is `CLOSED` or `MERGED`, create a fresh branch from `origin/main` and restart.
 
-## implementation flow (plot:todo / plot:in-progress)
+## implementation flow (open / in_progress)
 
 1. use `plot-beads-tracker` to find or create the workpad comment.
 2. write a hierarchical plan with acceptance criteria in the workpad.
@@ -116,7 +125,7 @@ use these project skills during execution. load each skill when you reach its st
 7. use `plot-commit` to create well-formed commits.
 8. use `plot-push-pr` to push and create/update the PR.
 9. update workpad with final checklist status and validation notes.
-10. use `plot-beads-tracker` to move issue to `plot:human-review`.
+10. use `plot-beads-tracker` to move issue to `blocked` (waiting for human review).
 
 ## rework flow (plot:rework)
 
@@ -131,9 +140,9 @@ use these project skills during execution. load each skill when you reach its st
 6. use `plot-commit` to commit fixes.
 7. use `plot-push-pr` to push updates.
 8. update workpad with feedback resolution status.
-9. use `plot-beads-tracker` to move issue back to `plot:human-review`.
+9. use `plot-beads-tracker` to remove `plot:rework` label and move issue to `blocked`.
 
-## completion bar (before plot:human-review)
+## completion bar (before blocked)
 
 - plan checklist is fully complete in workpad
 - acceptance criteria satisfied
@@ -147,9 +156,9 @@ use these project skills during execution. load each skill when you reach its st
 - if branch PR is closed/merged, do not reuse — fresh branch from `origin/main`
 - do not edit the issue body for planning — use workpad comment only
 - one current workpad per issue (latest `## Plot Workpad` comment)
-- do not move to `plot:human-review` unless completion bar is satisfied
-- in `plot:human-review`, do not make changes
-- if `plot:done`, do nothing and shut down
+- do not move to `blocked` unless completion bar is satisfied
+- while `blocked`, do not make changes
+- if `closed`, do nothing and shut down
 - if out-of-scope improvements are discovered, file a separate issue via `bd create` instead of expanding scope
 - prefer targeted reads/searches over broad dumps — avoid commands that produce huge output
 - prefer minimal diffs; do not refactor or clean up code beyond what the issue requires

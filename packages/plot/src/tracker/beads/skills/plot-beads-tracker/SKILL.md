@@ -1,82 +1,99 @@
 ---
 name: plot-beads-tracker
-description: "beads issue state management for plot orchestration. state transitions via bd set-state, workpad comment lifecycle, and issue queries. use when moving issues between states, creating/updating workpad comments, or querying issue status."
+description: "beads issue state management for plot orchestration. hybrid model: native beads status for primary lifecycle, labels for orchestrator sub-states (rework, merging). workpad comment lifecycle and bd queries. use when moving issues between states, creating/updating workpad comments, or querying issue status."
 ---
 
 # plot-beads-tracker
 
-manages issue state and progress tracking for the plot orchestrator via `bd` status, `plot:*` state dimensions, and comments.
+manages issue state and progress tracking for the plot orchestrator via beads status, labels, and comments.
 
-use `bd` for all tracker operations. do not use `gh`. beads issues are local and have no url.
+use `bd` for all tracker operations. the git/PR lifecycle uses `gh` separately.
 
 ## state model
 
-beads has two separate state layers:
+beads uses a hybrid state model with two layers:
 
-- issue `status` tracks actual work state: `open`, `in_progress`, `blocked`, `deferred`, `closed`
-- `plot:*` state tracks orchestrator routing via `bd set-state <id> plot=<value>`
+- **status** (native beads lifecycle): `open`, `in_progress`, `blocked`, `deferred`, `closed`
+- **labels** (orchestrator sub-states): `plot:rework`, `plot:merging`
 
-plot routes by `plot` state, not by status alone. keep both layers coherent.
+the orchestrator checks labels first. if a configured label exists on the issue, it becomes the routing state. otherwise the native beads status is the state.
 
-- when starting active work, issue status should usually be `in_progress`
-- when work is queued but not started, issue status is usually `open`
-- when work is complete, set `plot=done` then close the issue
+```
+                  ┌─────────┐
+                  │  open    │  agent picks up, starts work
+                  └────┬────┘
+                       │ bd update <id> --status in_progress
+                       ▼
+                ┌─────────────┐
+                │ in_progress  │  agent implements, pushes PR
+                └──────┬──────┘
+                       │ bd update <id> --status blocked
+                       ▼
+                  ┌─────────┐
+                  │ blocked  │  human reviews PR
+                  └────┬────┘
+                       │
+            ┌──────────┼──────────┐
+            ▼          ▼          ▼
+     ┌────────────┐  ┌─────────────────┐  ┌────────┐
+     │plot:rework │  │  plot:merging    │  │closed  │
+     │(label)     │  │  (label)        │  │(reject)│
+     └─────┬──────┘  └───────┬─────────┘  └────────┘
+           │                 │
+           │ agent fixes,    │ agent merges PR,
+           │ removes label,  │ removes label,
+           │ → blocked       │ closes issue
+           │                 │
+           ▼                 ▼
+      ┌─────────┐      ┌────────┐
+      │ blocked  │      │ closed │
+      └─────────┘      └────────┘
+```
 
 ## state transitions
 
-use `bd set-state` for plot routing changes. use `bd update`, `bd close`, and `bd reopen` for underlying issue lifecycle.
-
 ```bash
-# todo -> in-progress
+# open → in_progress (starting work)
 bd update <id> --status in_progress
-bd set-state <id> plot=in-progress --reason "starting work"
 
-# in-progress -> human-review
-bd set-state <id> plot=human-review --reason "PR ready for review"
+# in_progress → blocked (PR ready for review)
+bd update <id> --status blocked
 
-# rework -> human-review
-bd set-state <id> plot=human-review --reason "rework complete"
+# human approves → add merging label (human does this)
+bd label add <id> plot:merging
 
-# merging -> done, then close
-bd set-state <id> plot=done --reason "PR merged"
+# human requests changes → add rework label (human does this)
+bd label add <id> plot:rework
+
+# plot:rework → blocked (rework complete, remove label first)
+bd label remove <id> plot:rework
+bd update <id> --status blocked
+
+# plot:merging → closed (PR merged, remove label first)
+bd label remove <id> plot:merging
 bd close <id> -r "completed"
 
-# reopen terminal -> rework
+# reopen closed → in_progress
 bd reopen <id> -r "needs rework"
-bd set-state <id> plot=rework --reason "reopened for changes"
-bd update <id> --status in_progress
-```
-
-if you need to park work without changing plot routing, update the issue status directly:
-
-```bash
-bd update <id> --status blocked
-bd update <id> --status deferred
-bd update <id> --status open
-bd update <id> --status in_progress
 ```
 
 ## available states
 
-| layer | state | meaning | agent action |
-| --- | --- | --- | --- |
-| plot | `plot:todo` | queued for execution | set issue to `in_progress`, move to `plot:in-progress`, start work |
-| plot | `plot:in-progress` | implementation underway | implement, verify, push PR, move to `plot:human-review` |
-| plot | `plot:human-review` | waiting on human review | do nothing, wait |
-| plot | `plot:rework` | changes requested | address feedback, then move to `plot:human-review` |
-| plot | `plot:merging` | approved, ready to land | finish merge flow, move to `plot:done`, close issue |
-| plot | `plot:done` | terminal plot state | stop |
-| issue status | `open` | not started or re-opened queue state | eligible for `bd ready --json` if unblocked |
-| issue status | `in_progress` | active work underway | keep aligned with active execution |
-| issue status | `blocked` | blocked by dependency or external condition | record blocker in workpad |
-| issue status | `deferred` | intentionally postponed | stop unless explicitly resumed |
-| issue status | `closed` | terminal issue state | stop |
+| source | state          | meaning                     | agent action                                          |
+| ------ | -------------- | --------------------------- | ----------------------------------------------------- |
+| status | `open`         | queued for work             | move to `in_progress`, start implementation           |
+| status | `in_progress`  | implementation underway     | continue implementation, push PR, move to `blocked`   |
+| status | `blocked`      | waiting on human review     | do nothing, wait                                      |
+| status | `deferred`     | intentionally postponed     | do nothing, wait                                      |
+| label  | `plot:rework`  | reviewer requested changes  | address feedback, remove label, move to `blocked`     |
+| label  | `plot:merging` | human approved PR           | merge PR, remove label, close issue                   |
+| status | `closed`       | terminal                    | stop                                                  |
 
-workflow routing states:
+workflow routing:
 
-- dispatch_states: `plot:todo`, `plot:in-progress`, `plot:rework`, `plot:merging`
-- parked_states: `plot:human-review`
-- terminal_states: `plot:done`, `closed`
+- dispatch_states: `open`, `in_progress`, `plot:rework`, `plot:merging`
+- parked_states: `blocked`, `deferred`
+- terminal_states: `closed`
 
 ## workpad comment
 
@@ -90,11 +107,7 @@ comments are append-only. there is no edit-in-place. the current workpad is the 
 bd comments <id> --json
 ```
 
-scan the returned comments and pick the latest one with:
-
-```text
-## Plot Workpad
-```
+scan the returned comments and pick the latest one starting with `## Plot Workpad`.
 
 if none exists, create one.
 
@@ -188,24 +201,27 @@ bd comments add <id> -f /tmp/workpad.md
 ## issue queries
 
 ```bash
-# full issue details, including comments
+# full issue details
 bd show <id> --json
 
-# all comments
+# all comments (for workpad lookup)
 bd comments <id> --json
 
 # list by status
 bd list --status open --json
 bd list --status in_progress --json
 bd list --status blocked --json
-bd list --status deferred --json
-bd list --status closed --json
+
+# list by label
+bd list --label plot:rework --json
+bd list --label plot:merging --json
 
 # ready work: open + no blockers
 bd ready --json
 
 # complex filters
 bd query "status=open AND priority<=1" --json
+bd query "label=plot:rework" --json
 
 # text search
 bd search "keyword" --json
@@ -214,14 +230,12 @@ bd search "keyword" --json
 bd dep list <id>
 ```
 
-use `bd show <id> --json` when you need the full issue payload. use `bd comments <id> --json` when you need comment history or the current workpad.
-
 ## out-of-scope issue creation
 
 if you discover unrelated work, file a separate beads issue instead of expanding scope:
 
 ```bash
-bd create "discovered: <title>" -t task -p 2 -d "<description>" --labels "plot:todo,discovered"
+bd create "discovered: <title>" -t task -p 2 -d "<description>"
 ```
 
 keep the new issue narrow and factual. reference the triggering issue in the description when useful.

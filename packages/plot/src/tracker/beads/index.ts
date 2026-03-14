@@ -15,6 +15,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+const normalizeState = (s: string): string => s.trim().toLowerCase();
+
 interface BeadsTrackerConfig {
 	kind: string;
 	beadsDir?: string;
@@ -77,9 +79,7 @@ function mapBdFailure(error: unknown, resourceId?: string): Error {
 
 function createBeadsOps(config: {
 	beadsDir?: string;
-	dispatchStates?: ReadonlyArray<string>;
-	parkedStates?: ReadonlyArray<string>;
-	terminalStates?: ReadonlyArray<string>;
+	allStates: ReadonlyArray<string>;
 }) {
 	const runBd = async (
 		args: ReadonlyArray<string>,
@@ -105,6 +105,11 @@ function createBeadsOps(config: {
 		return JSON.parse(result.stdout) as ReadonlyArray<BdIssue>;
 	};
 
+	const listOpenIssues = async () => {
+		const result = await runBd(["list", "--json", "--limit", "0"]);
+		return JSON.parse(result.stdout) as ReadonlyArray<BdIssue>;
+	};
+
 	const viewIssue = async (id: string) => {
 		const result = await runBd(["show", id, "--json"], { resourceId: id });
 		const parsed = JSON.parse(result.stdout);
@@ -113,7 +118,16 @@ function createBeadsOps(config: {
 		return issue as BdIssueDetailed;
 	};
 
-	const mapState = (bd: { status: string }): string => bd.status;
+	const mapState = (bd: {
+		status: string;
+		labels?: ReadonlyArray<string>;
+	}): string => {
+		const labelNames = (bd.labels ?? []).map((l) => normalizeState(l));
+		for (const s of config.allStates) {
+			if (labelNames.includes(normalizeState(s))) return s;
+		}
+		return bd.status;
+	};
 
 	const mapIssue = (bd: BdIssue): IssueLike => ({
 		id: bd.id,
@@ -152,6 +166,7 @@ function createBeadsOps(config: {
 		runBd,
 		listIssues,
 		listAllIssues,
+		listOpenIssues,
 		viewIssue,
 		mapState,
 		mapIssue,
@@ -178,39 +193,29 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 		};
 	},
 	async factory(config): Promise<PlainTrackerClient> {
+		const allStates = [
+			...(config.dispatchStates ?? []),
+			...(config.parkedStates ?? []),
+			...(config.terminalStates ?? []),
+		].filter((s, i, arr) => arr.indexOf(s) === i);
+
 		const ops = createBeadsOps({
 			beadsDir: config.beadsDir,
-			dispatchStates: config.dispatchStates,
-			parkedStates: config.parkedStates,
-			terminalStates: config.terminalStates,
+			allStates,
 		});
 
 		return {
 			async fetchCandidateIssues(dispatchStates) {
-				const results = await Promise.all(
-					dispatchStates.map((s) => ops.listIssues(s)),
-				);
-				const allIssues = results.flat();
-				const seen = new Set<string>();
-				return allIssues
-					.filter((i) => {
-						if (seen.has(i.id)) return false;
-						seen.add(i.id);
-						return true;
-					})
-					.map(ops.mapIssue);
+				const bdIssues = await ops.listOpenIssues();
+				const issues = bdIssues.map(ops.mapIssue);
+				const normalized = new Set(dispatchStates.map(normalizeState));
+				return issues.filter((i) => normalized.has(normalizeState(i.state)));
 			},
 			async fetchIssuesByStates(states) {
-				const results = await Promise.all(states.map((s) => ops.listIssues(s)));
-				const allIssues = results.flat();
-				const seen = new Set<string>();
-				return allIssues
-					.filter((i) => {
-						if (seen.has(i.id)) return false;
-						seen.add(i.id);
-						return true;
-					})
-					.map(ops.mapIssue);
+				const bdIssues = await ops.listAllIssues();
+				const issues = bdIssues.map(ops.mapIssue);
+				const normalized = new Set(states.map(normalizeState));
+				return issues.filter((i) => normalized.has(normalizeState(i.state)));
 			},
 			async fetchIssueStatesByIds(ids) {
 				const results = await Promise.all(

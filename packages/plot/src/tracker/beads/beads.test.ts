@@ -57,7 +57,7 @@ const fetchCandidateIssues = async (options: {
 };
 
 describe("beads tracker", () => {
-	test("returns issues matching dispatch state statuses", async () => {
+	test("returns issues matching configured workflow labels before status fallback", async () => {
 		const issues = await fetchCandidateIssues({
 			issuesFixture: [
 				{
@@ -73,6 +73,17 @@ describe("beads tracker", () => {
 				},
 				{
 					id: "bd-c3d4",
+					title: "rework task",
+					description: "",
+					status: "open",
+					priority: 1,
+					labels: ["plot:rework"],
+					created_at: "2026-03-10T00:00:00Z",
+					updated_at: "2026-03-10T00:00:00Z",
+					assignee: "",
+				},
+				{
+					id: "bd-e5f6",
 					title: "blocked task",
 					description: "",
 					status: "blocked",
@@ -83,13 +94,14 @@ describe("beads tracker", () => {
 					assignee: "",
 				},
 			],
-			dispatchStates: ["open"],
+			dispatchStates: ["plot:rework", "open"],
 			parkedStates: ["blocked", "deferred"],
 			terminalStates: ["closed"],
 		});
 
 		expect(issues.map((i) => i.id)).toEqual(["bd-a1b2", "bd-c3d4"]);
 		expect(issues[0]?.state).toBe("open");
+		expect(issues[1]?.state).toBe("plot:rework");
 	});
 
 	test("maps beads issue fields to IssueLike", async () => {
