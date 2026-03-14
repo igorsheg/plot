@@ -107,7 +107,10 @@ function createBeadsOps(config: {
 
 	const viewIssue = async (id: string) => {
 		const result = await runBd(["show", id, "--json"], { resourceId: id });
-		return JSON.parse(result.stdout) as BdIssueDetailed;
+		const parsed = JSON.parse(result.stdout);
+		const issue = Array.isArray(parsed) ? parsed[0] : parsed;
+		if (!issue) throw new Error(`bd show returned empty result for ${id}`);
+		return issue as BdIssueDetailed;
 	};
 
 	const mapState = (bd: { status: string }): string => bd.status;
@@ -119,7 +122,7 @@ function createBeadsOps(config: {
 		description: bd.description || null,
 		state: mapState(bd),
 		url: null,
-		labels: bd.labels.map((l) => l.toLowerCase()),
+		labels: (bd.labels ?? []).map((l) => l.toLowerCase()),
 		createdAt: bd.created_at || null,
 		updatedAt: bd.updated_at || null,
 	});
