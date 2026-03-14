@@ -44,11 +44,6 @@ export class TrackerClient extends Context.Tag("TrackerClient")<
 	TrackerClientShape
 >() {}
 
-/**
- * Bag of tracker-specific configuration extracted from the workflow file's
- * `tracker` block. The plugin decides what keys it needs and validates
- * them internally.
- */
 export interface TrackerPluginConfig {
 	readonly kind: string;
 	readonly endpoint?: string;
@@ -57,7 +52,5 @@ export interface TrackerPluginConfig {
 	readonly dispatchStates?: ReadonlyArray<string>;
 	readonly parkedStates?: ReadonlyArray<string>;
 	readonly terminalStates?: ReadonlyArray<string>;
-	/** Catch-all for tracker-specific keys the workflow YAML may contain. */
 	readonly [key: string]: unknown;
 }
-

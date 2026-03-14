@@ -1,5 +1,5 @@
 import { DateTime, Fiber } from "effect";
-import { AgentRuntimeEvent } from "@plot/sdk";
+import { AgentRuntimeEvent, reducePhase } from "@plot/sdk";
 import type { Issue, PromptSnapshot, TrackerRunContext } from "@plot/sdk";
 import type { ResolvedConfig } from "../config-service.js";
 
@@ -267,56 +267,11 @@ export const consumeRuntimeEvent = (
 			? [...entry.eventTail.slice(-(maxEventTail - 1)), event]
 			: [...entry.eventTail, event];
 
-	let phase = entry.phase;
-	let activeTools = entry.activeTools;
-	let lastAssistantMessage = entry.lastAssistantMessage;
-
-	switch (event.event) {
-		case "message_start":
-		case "message_update":
-			phase = "thinking";
-			break;
-		case "message_end":
-			if (event.message) lastAssistantMessage = event.message;
-			phase = "idle";
-			break;
-		case "tool_execution_start":
-			if (event.toolCallId && event.toolName) {
-				activeTools = [
-					...activeTools,
-					{ toolCallId: event.toolCallId, toolName: event.toolName },
-				];
-			}
-			phase = "tool_execution";
-			break;
-		case "tool_execution_end":
-			if (event.toolCallId) {
-				activeTools = activeTools.filter(
-					(t) => t.toolCallId !== event.toolCallId,
-				);
-			}
-			phase = activeTools.length > 0 ? "tool_execution" : "idle";
-			break;
-		case "turn_start":
-			phase = "thinking";
-			break;
-		case "turn_end":
-			phase = "idle";
-			activeTools = [];
-			break;
-		case "auto_compaction_start":
-			phase = "compacting";
-			break;
-		case "auto_compaction_end":
-			phase = "idle";
-			break;
-		case "auto_retry_start":
-			phase = "retrying";
-			break;
-		case "auto_retry_end":
-			phase = "idle";
-			break;
-	}
+	const next = reducePhase(
+		{ phase: entry.phase, activeTools: entry.activeTools, lastAssistantMessage: entry.lastAssistantMessage },
+		event.event,
+		event,
+	);
 
 	running.set(event.issueId, {
 		...entry,
@@ -328,9 +283,9 @@ export const consumeRuntimeEvent = (
 		totalTokens,
 		lastMessage,
 		eventTail,
-		phase,
-		activeTools,
-		lastAssistantMessage,
+		phase: next.phase,
+		activeTools: next.activeTools,
+		lastAssistantMessage: next.lastAssistantMessage,
 	});
 
 	return appendToEventLog(

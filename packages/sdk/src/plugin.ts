@@ -1,9 +1,5 @@
 import type { TrackerPluginConfig } from "./schemas/tracker.js";
 
-// ---------------------------------------------------------------------------
-// Plain error classes — plugin authors throw these for granular error mapping
-// ---------------------------------------------------------------------------
-
 export class PluginAuthError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -37,10 +33,6 @@ export class PluginValidationError extends Error {
 		this.field = field;
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Plain issue-like types — what plugin authors return from tracker methods
-// ---------------------------------------------------------------------------
 
 export interface IssueLike {
 	readonly id: string;
@@ -79,10 +71,6 @@ export interface TrackerRunContextLike {
 	}>;
 }
 
-// ---------------------------------------------------------------------------
-// Plugin definition — the contract for tracker plugin authors
-// ---------------------------------------------------------------------------
-
 export interface PlainTrackerClient {
 	readonly fetchCandidateIssues: (
 		dispatchStates: ReadonlyArray<string>,
@@ -109,10 +97,6 @@ export interface TrackerPluginDefinition<TConfig = TrackerPluginConfig> {
 		config: TConfig,
 	) => PlainTrackerClient | Promise<PlainTrackerClient>;
 }
-
-// ---------------------------------------------------------------------------
-// Plain workpad parsing utilities
-// ---------------------------------------------------------------------------
 
 function normalizeBlock(value: string | null | undefined): string {
 	return (value ?? "").replace(/\r\n/g, "\n").trim();

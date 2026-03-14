@@ -5,6 +5,7 @@ import {
   ToolExecution,
 } from "./schemas/orchestrator.js";
 import type { AgentRuntimeEvent } from "./schemas/events.js";
+import { reducePhase } from "./phase-reducer.js";
 
 export type ApplyResult =
   | { readonly type: "patched"; readonly snapshot: RuntimeSnapshot }
@@ -33,57 +34,11 @@ export function applyRuntimeEvent(
 
   const shouldIncrementTurn = event.event === "turn_end";
 
-  let phase = session.phase;
-  let activeTools = session.activeTools;
-  let lastAssistantMessage = session.lastAssistantMessage;
-
-  switch (event.event) {
-    case "message_start":
-    case "message_update":
-      phase = "thinking";
-      break;
-    case "message_end":
-      if (event.message) lastAssistantMessage = event.message;
-      phase = "idle";
-      break;
-    case "tool_execution_start":
-      if (event.toolCallId && event.toolName) {
-        activeTools = [
-          ...activeTools,
-          new ToolExecution({
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-          }),
-        ];
-      }
-      phase = "tool_execution";
-      break;
-    case "tool_execution_end":
-      if (event.toolCallId) {
-        activeTools = activeTools.filter((t) => t.toolCallId !== event.toolCallId);
-      }
-      phase = activeTools.length > 0 ? "tool_execution" : "idle";
-      break;
-    case "turn_start":
-      phase = "thinking";
-      break;
-    case "turn_end":
-      phase = "idle";
-      activeTools = [];
-      break;
-    case "auto_compaction_start":
-      phase = "compacting";
-      break;
-    case "auto_compaction_end":
-      phase = "idle";
-      break;
-    case "auto_retry_start":
-      phase = "retrying";
-      break;
-    case "auto_retry_end":
-      phase = "idle";
-      break;
-  }
+  const next = reducePhase(
+    { phase: session.phase, activeTools: session.activeTools, lastAssistantMessage: session.lastAssistantMessage },
+    event.event,
+    event,
+  );
 
   const newSession = new LiveSession({
     sessionId: session.sessionId,
@@ -97,9 +52,9 @@ export function applyRuntimeEvent(
     outputTokens: event.usage?.outputTokens ?? session.outputTokens,
     totalTokens: event.usage?.totalTokens ?? session.totalTokens,
     turnCount: shouldIncrementTurn ? session.turnCount + 1 : session.turnCount,
-    phase,
-    activeTools,
-    lastAssistantMessage,
+    phase: next.phase,
+    activeTools: next.activeTools.map((t) => new ToolExecution(t)),
+    lastAssistantMessage: next.lastAssistantMessage,
   });
 
   const newEntry = new RunningEntry({

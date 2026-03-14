@@ -33,7 +33,7 @@ import { Orchestrator } from "./core/index.js";
 import { PluginContext } from "./core/plugin-context.js";
 import { type ResolvedConfig } from "./core/config-service.js";
 import { ObservabilityApi } from "./observability-service.js";
-import { githubTrackerPlugin } from "./tracker/index.js";
+import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
 
 export function parseServerLogLevel(s: string): LogLevel.LogLevel {
 	switch (s.toLowerCase()) {
@@ -195,6 +195,14 @@ const builtinTrackers: Record<
 		readonly moduleDir: string;
 	}
 > = {
+	beads: {
+		definition: beadsTrackerPlugin,
+		moduleDir: join(
+			dirname(fileURLToPath(import.meta.url)),
+			"tracker",
+			"beads",
+		),
+	},
 	github: {
 		definition: githubTrackerPlugin,
 		moduleDir: join(
