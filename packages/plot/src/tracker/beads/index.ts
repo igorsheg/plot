@@ -24,6 +24,7 @@ const normalizeState = (s: string): string => s.trim().toLowerCase();
 interface BeadsTrackerConfig {
 	kind: string;
 	beadsDir?: string;
+	githubRepo?: string;
 	dispatchStates?: ReadonlyArray<string>;
 	parkedStates?: ReadonlyArray<string>;
 	terminalStates?: ReadonlyArray<string>;
@@ -83,6 +84,8 @@ function mapBdFailure(error: unknown, resourceId?: string): Error {
 
 async function createBeadsOps(config: {
 	beadsDir?: string;
+	githubRepo?: string;
+	dispatchStates: ReadonlyArray<string>;
 	allStates: ReadonlyArray<string>;
 }) {
 	const workspaceRoot = config.beadsDir ?? process.cwd();
@@ -185,9 +188,80 @@ async function createBeadsOps(config: {
 		updatedAt: bd.updated_at || null,
 	});
 
+	const runGh = async (
+		args: ReadonlyArray<string>,
+	): Promise<{ stdout: string; stderr: string }> => {
+		return await execFileAsync("gh", args as string[], {
+			maxBuffer: 50 * 1024 * 1024,
+			cwd: workspaceRoot,
+		});
+	};
+
+	const fetchPrReviews = async (issueId: string): Promise<string | null> => {
+		const repoArgs = config.githubRepo
+			? ["--repo", config.githubRepo]
+			: [];
+		try {
+			const prSearchResult = await runGh([
+				"pr",
+				"list",
+				...repoArgs,
+				"--state",
+				"open",
+				"--json",
+				"number,headRefName,body",
+				"--limit",
+				"50",
+			]);
+
+			const prs = JSON.parse(prSearchResult.stdout) as ReadonlyArray<{
+				number: number;
+				body: string;
+			}>;
+			const linkedPr = prs.find((pr) => pr.body?.includes(issueId));
+			if (!linkedPr) return null;
+
+			const reviewResult = await runGh([
+				"pr",
+				"view",
+				String(linkedPr.number),
+				...repoArgs,
+				"--json",
+				"reviews,comments",
+			]);
+
+			const prData = JSON.parse(reviewResult.stdout) as {
+				reviews?: ReadonlyArray<{
+					body: string;
+					state: string;
+					author: { login: string };
+				}>;
+				comments?: ReadonlyArray<{
+					body: string;
+					author: { login: string };
+				}>;
+			};
+			const parts: string[] = [];
+			if (prData.reviews?.length) {
+				for (const r of prData.reviews) {
+					if (r.body)
+						parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
+				}
+			}
+			if (prData.comments?.length) {
+				for (const c of prData.comments) {
+					if (c.body) parts.push(`**${c.author.login}**:\n${c.body}`);
+				}
+			}
+			return parts.length > 0 ? parts.join("\n\n---\n\n") : null;
+		} catch {
+			return null;
+		}
+	};
+
 	const fetchRunContext = async (
 		issueId: string,
-		_state: string,
+		state: string,
 	): Promise<TrackerRunContextLike | null> => {
 		let comments: ReadonlyArray<{ text: string }> = [];
 		try {
@@ -203,7 +277,13 @@ async function createBeadsOps(config: {
 		);
 		if (workpadComment) workpad = workpadComment.text;
 
-		return buildRunContext({ workpad, reviewFeedback: null });
+		let reviews: string | null = null;
+		const normalizedDispatch = config.dispatchStates.map(normalizeState);
+		if (normalizedDispatch.includes(normalizeState(state))) {
+			reviews = await fetchPrReviews(issueId);
+		}
+
+		return buildRunContext({ workpad, reviewFeedback: reviews });
 	};
 
 	return {
@@ -225,6 +305,8 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 			kind: String(raw.kind),
 			beadsDir:
 				typeof raw["beadsDir"] === "string" ? raw["beadsDir"] : undefined,
+			githubRepo:
+				typeof raw["githubRepo"] === "string" ? raw["githubRepo"] : undefined,
 			dispatchStates: Array.isArray(raw["dispatchStates"])
 				? raw["dispatchStates"]
 				: undefined,
@@ -245,12 +327,14 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 
 		const ops = await createBeadsOps({
 			beadsDir: config.beadsDir,
+			githubRepo: config.githubRepo,
+			dispatchStates: config.dispatchStates ?? [],
 			allStates,
 		});
 
 		return {
 			async fetchCandidateIssues(dispatchStates) {
-				const bdIssues = await ops.listOpenIssues();
+				const bdIssues = await ops.listAllIssues();
 				const issues = bdIssues.map(ops.mapIssue);
 				const normalized = new Set(dispatchStates.map(normalizeState));
 				return issues.filter((i) => normalized.has(normalizeState(i.state)));

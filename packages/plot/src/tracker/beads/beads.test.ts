@@ -179,6 +179,65 @@ describe("beads tracker", () => {
 		expect(issues[1]?.state).toBe("plot:rework");
 	});
 
+	test("fetchCandidateIssues picks up closed issues and rework labels", async () => {
+		await setupFakeBd({
+			issuesFixture: [
+				{
+					id: "bd-open1",
+					title: "open task",
+					description: "",
+					status: "open",
+					priority: 1,
+					labels: [],
+					created_at: "2026-03-10T00:00:00Z",
+					updated_at: "2026-03-10T00:00:00Z",
+					assignee: "",
+				},
+				{
+					id: "bd-done1",
+					title: "done task",
+					description: "",
+					status: "done",
+					priority: 1,
+					labels: [],
+					created_at: "2026-03-10T00:00:00Z",
+					updated_at: "2026-03-10T00:00:00Z",
+					assignee: "",
+				},
+				{
+					id: "bd-rework1",
+					title: "rework task",
+					description: "",
+					status: "done",
+					priority: 1,
+					labels: ["plot:rework"],
+					created_at: "2026-03-10T00:00:00Z",
+					updated_at: "2026-03-10T00:00:00Z",
+					assignee: "",
+				},
+			],
+		});
+
+		const config = await makeConfig({
+			dispatchStates: ["open", "plot:rework", "done"],
+			parkedStates: ["blocked"],
+			terminalStates: ["closed"],
+		});
+		const client = await plugin.factory(config);
+		const issues = await client.fetchCandidateIssues(
+			config.dispatchStates ?? [],
+		);
+
+		expect(issues.map((i) => i.id)).toEqual([
+			"bd-open1",
+			"bd-done1",
+			"bd-rework1",
+		]);
+		expect(issues[0]?.state).toBe("open");
+		expect(issues[1]?.state).toBe("done");
+		expect(issues[2]?.state).toBe("plot:rework");
+	});
+
 	test("maps beads issue fields to IssueLike", async () => {
 		await setupFakeBd({
 			issuesFixture: [

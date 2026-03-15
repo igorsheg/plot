@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun";
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getOptionalDependencies,
@@ -80,6 +80,8 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
     recursive: true,
   });
 
+  copyTrackerSkills(binDir);
+
   writeJson(join(packageDir, "package.json"), {
     name: target.packageName,
     version,
@@ -152,6 +154,19 @@ async function buildUmbrellaPackage() {
   });
 
   await $`npm pack`.cwd(packageDir);
+}
+
+function copyTrackerSkills(binDir: string) {
+  const trackerSrcDir = join(repoDir, "packages/plot/src/tracker");
+  if (!existsSync(trackerSrcDir)) return;
+
+  for (const entry of readdirSync(trackerSrcDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const skillsDir = join(trackerSrcDir, entry.name, "skills");
+    if (!existsSync(skillsDir)) continue;
+    const dest = join(binDir, "tracker", entry.name, "skills");
+    cpSync(skillsDir, dest, { recursive: true });
+  }
 }
 
 function writeJson(path: string, value: unknown) {
