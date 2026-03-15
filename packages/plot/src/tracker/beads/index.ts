@@ -12,6 +12,10 @@ import {
 	type TrackerPluginDefinition,
 	type TrackerRunContextLike,
 } from "@plot/sdk";
+import {
+	BeadsDaemonTransport,
+	tryCreateBeadsDaemonTransport,
+} from "./daemon-transport.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -77,10 +81,13 @@ function mapBdFailure(error: unknown, resourceId?: string): Error {
 	return new Error(`bd command failed: ${details}`);
 }
 
-function createBeadsOps(config: {
+async function createBeadsOps(config: {
 	beadsDir?: string;
 	allStates: ReadonlyArray<string>;
 }) {
+	const workspaceRoot = config.beadsDir ?? process.cwd();
+	const daemon = await tryCreateBeadsDaemonTransport(workspaceRoot);
+
 	const runBd = async (
 		args: ReadonlyArray<string>,
 		options?: { resourceId?: string },
@@ -88,34 +95,71 @@ function createBeadsOps(config: {
 		try {
 			return await execFileAsync("bd", args as string[], {
 				maxBuffer: 50 * 1024 * 1024,
-				...(config.beadsDir ? { cwd: config.beadsDir } : {}),
+				cwd: workspaceRoot,
 			});
 		} catch (error) {
 			throw mapBdFailure(error, options?.resourceId);
 		}
 	};
 
+	const parseIssueList = (value: unknown) => value as ReadonlyArray<BdIssue>;
+
+	const parseDetailedIssue = (value: unknown, id: string) => {
+		const issue = Array.isArray(value) ? value[0] : value;
+		if (!issue) throw new Error(`bd show returned empty result for ${id}`);
+		return issue as BdIssueDetailed;
+	};
+
+	const runDaemon = async <T>(
+		operation: (transport: BeadsDaemonTransport) => Promise<T>,
+	): Promise<T | null> => {
+		if (!daemon) return null;
+		try {
+			return await operation(daemon);
+		} catch {
+			return null;
+		}
+	};
+
 	const listIssues = async (status: string) => {
+		const daemonResult = await runDaemon((transport) =>
+			transport.listAllIssues<ReadonlyArray<BdIssue>>(),
+		);
+		if (daemonResult) {
+			if (status === "all") return daemonResult;
+			return daemonResult.filter(
+				(issue) => normalizeState(issue.status) === normalizeState(status),
+			);
+		}
 		const result = await runBd(["list", "--json", "--status", status]);
-		return JSON.parse(result.stdout) as ReadonlyArray<BdIssue>;
+		return parseIssueList(JSON.parse(result.stdout));
 	};
 
 	const listAllIssues = async () => {
+		const daemonResult = await runDaemon((transport) =>
+			transport.listAllIssues<ReadonlyArray<BdIssue>>(),
+		);
+		if (daemonResult) return daemonResult;
 		const result = await runBd(["list", "--json", "--status", "all"]);
-		return JSON.parse(result.stdout) as ReadonlyArray<BdIssue>;
+		return parseIssueList(JSON.parse(result.stdout));
 	};
 
 	const listOpenIssues = async () => {
+		const daemonResult = await runDaemon((transport) =>
+			transport.listOpenIssues<ReadonlyArray<BdIssue>>(),
+		);
+		if (daemonResult) return daemonResult;
 		const result = await runBd(["list", "--json", "--limit", "0"]);
-		return JSON.parse(result.stdout) as ReadonlyArray<BdIssue>;
+		return parseIssueList(JSON.parse(result.stdout));
 	};
 
 	const viewIssue = async (id: string) => {
+		const daemonResult = await runDaemon((transport) =>
+			transport.viewIssue<BdIssueDetailed>(id),
+		);
+		if (daemonResult) return parseDetailedIssue(daemonResult, id);
 		const result = await runBd(["show", id, "--json"], { resourceId: id });
-		const parsed = JSON.parse(result.stdout);
-		const issue = Array.isArray(parsed) ? parsed[0] : parsed;
-		if (!issue) throw new Error(`bd show returned empty result for ${id}`);
-		return issue as BdIssueDetailed;
+		return parseDetailedIssue(JSON.parse(result.stdout), id);
 	};
 
 	const mapState = (bd: {
@@ -199,7 +243,7 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 			...(config.terminalStates ?? []),
 		].filter((s, i, arr) => arr.indexOf(s) === i);
 
-		const ops = createBeadsOps({
+		const ops = await createBeadsOps({
 			beadsDir: config.beadsDir,
 			allStates,
 		});
@@ -218,20 +262,16 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 				return issues.filter((i) => normalized.has(normalizeState(i.state)));
 			},
 			async fetchIssueStatesByIds(ids) {
-				const results = await Promise.all(
-					ids.map(async (id) => {
-						try {
-							const bd = await ops.viewIssue(id);
-							return [
-								{ id: bd.id, state: ops.mapState(bd) },
-							] as IssueStateEntryLike[];
-						} catch (e) {
-							if (e instanceof PluginNotFoundError) return [];
-							throw e;
-						}
-					}),
-				);
-				return results.flat();
+				const wantedIds = new Set(ids);
+				const allIssues = await ops.listAllIssues();
+				return allIssues
+					.filter((issue) => wantedIds.has(issue.id))
+					.map(
+						(issue): IssueStateEntryLike => ({
+							id: issue.id,
+							state: ops.mapState(issue),
+						}),
+					);
 			},
 			fetchRunContext: (issueId, state) => ops.fetchRunContext(issueId, state),
 		};
