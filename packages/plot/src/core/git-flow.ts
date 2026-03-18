@@ -1,5 +1,9 @@
 import { Data, Effect, ServiceMap } from "effect"
 
+export const MERGE_CONFLICT_INSTRUCTION =
+	"A previous attempt at this task resulted in merge conflicts. " +
+	"Please try implementing the task again from scratch on a clean branch.";
+
 export class GitFlowError extends Data.TaggedError("GitFlowError")<{
 	message: string
 }> {}
@@ -23,6 +27,10 @@ export interface GitFlowShape {
 	readonly autoMerge: (options: {
 		readonly targetBranch: string | undefined
 		readonly issueId: string
+	}) => Effect.Effect<void, GitFlowError>
+	readonly flagUnmergable?: (options: {
+		readonly issueId: string
+		readonly description: string
 	}) => Effect.Effect<void, GitFlowError>
 }
 

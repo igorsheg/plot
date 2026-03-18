@@ -29,6 +29,7 @@ export interface RunningEntry {
 	readonly lastAssistantMessage: string | null;
 	readonly promptSnapshot: PromptSnapshot | null;
 	readonly runContext: TrackerRunContext | null;
+	readonly lastKnownDescription: string | null;
 }
 
 export interface IssueArtifact {
@@ -40,7 +41,12 @@ export interface IssueArtifact {
 	readonly lastError: string | null;
 }
 
-export type RetryReason = "continuation" | "failure" | "stall" | "backpressure";
+export type RetryReason =
+	| "continuation"
+	| "failure"
+	| "stall"
+	| "backpressure"
+	| "merge_conflict";
 
 export interface RetryEntry {
 	readonly issueId: string;
@@ -99,6 +105,7 @@ export const initialState: OrchestratorState = {
 		failure: 0,
 		stall: 0,
 		backpressure: 0,
+		merge_conflict: 0,
 	},
 	workerStopsByReason: {
 		terminal: 0,
@@ -155,7 +162,9 @@ export const hasNonTerminalBlockers = (
 	issue: Issue,
 	config: ResolvedConfig,
 ): boolean =>
-	(issue.blockedBy ?? []).some((b) => b.state !== null && !isTerminal(b.state, config));
+	(issue.blockedBy ?? []).some(
+		(b) => b.state !== null && !isTerminal(b.state, config),
+	);
 
 export const isEligible = (
 	issue: Issue,
@@ -226,6 +235,7 @@ export const createRunningEntry = (
 	lastAssistantMessage: null,
 	promptSnapshot: options?.promptSnapshot ?? null,
 	runContext: options?.runContext ?? null,
+	lastKnownDescription: issue.description ?? null,
 });
 
 export const consumeRuntimeEvent = (
@@ -269,7 +279,11 @@ export const consumeRuntimeEvent = (
 			: [...entry.eventTail, event];
 
 	const next = reducePhase(
-		{ phase: entry.phase, activeTools: entry.activeTools, lastAssistantMessage: entry.lastAssistantMessage },
+		{
+			phase: entry.phase,
+			activeTools: entry.activeTools,
+			lastAssistantMessage: entry.lastAssistantMessage,
+		},
 		event.event,
 		event,
 	);
