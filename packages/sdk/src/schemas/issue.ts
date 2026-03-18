@@ -21,8 +21,8 @@ export class Issue extends Schema.Class<Issue>("Issue")({
 	metadata: Schema.optional(
 		Schema.Record(Schema.String, Schema.Unknown ),
 	),
-	createdAt: Schema.NullOr(Schema.DateTimeUtc),
-	updatedAt: Schema.NullOr(Schema.DateTimeUtc),
+	createdAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+	updatedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 }) {}
 
 export class IssueStateEntry extends Schema.Class<IssueStateEntry>("IssueStateEntry",

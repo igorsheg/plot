@@ -20,7 +20,7 @@ export type AgentEventType = typeof AgentEventType.Type;
 
 export class AgentRuntimeEvent extends Schema.Class<AgentRuntimeEvent>("AgentRuntimeEvent")({
   event: AgentEventType,
-  timestamp: Schema.DateTimeUtc,
+  timestamp: Schema.DateTimeUtcFromString,
   agentPid: Schema.NullOr(Schema.String),
   issueId: Schema.String,
   issueIdentifier: Schema.String,

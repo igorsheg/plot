@@ -18,7 +18,7 @@ export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
 	turnId: Schema.String,
 	agentPid: Schema.NullOr(Schema.String),
 	lastEvent: Schema.NullOr(Schema.String),
-	lastEventAt: Schema.NullOr(Schema.DateTimeUtc),
+	lastEventAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 	lastMessage: Schema.NullOr(Schema.String),
 	inputTokens: Schema.Number,
 	outputTokens: Schema.Number,
@@ -33,7 +33,7 @@ export class RunningEntry extends Schema.Class<RunningEntry>("RunningEntry")({
 	issueId: Schema.String,
 	issueIdentifier: Schema.String,
 	state: Schema.String,
-	startedAt: Schema.DateTimeUtc,
+	startedAt: Schema.DateTimeUtcFromString,
 	workspacePath: Schema.NullOr(Schema.String),
 	session: LiveSession,
 }) {}
@@ -42,7 +42,7 @@ export class RetryEntry extends Schema.Class<RetryEntry>("RetryEntry")({
 	issueId: Schema.String,
 	identifier: Schema.String,
 	attempt: Schema.Number,
-	dueAt: Schema.DateTimeUtc,
+	dueAt: Schema.DateTimeUtcFromString,
 	error: Schema.NullOr(Schema.String),
 }) {}
 
@@ -106,7 +106,7 @@ export type IssueStatus = typeof IssueStatus.Type;
 
 export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>("RuntimeSnapshot",
 )({
-	generatedAt: Schema.DateTimeUtc,
+	generatedAt: Schema.DateTimeUtcFromString,
 	counts: Schema.Struct({
 		running: Schema.Number,
 		retrying: Schema.Number,

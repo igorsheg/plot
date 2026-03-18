@@ -6,12 +6,13 @@ import {
 	IssueEventLog,
 	RuntimeSnapshot,
 } from "./schemas/orchestrator.js";
+import { AgentRuntimeEvent } from "./schemas/events.js";
 
 export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")(
 	{
 		queued: Schema.Boolean,
 		coalesced: Schema.Boolean,
-		requestedAt: Schema.DateTimeUtc,
+		requestedAt: Schema.DateTimeUtcFromString,
 		operations: Schema.Array(Schema.String),
 	},
 ) {}
@@ -34,5 +35,10 @@ export class PlotRpcs extends RpcGroup.make(
 		success: IssueEventLog,
 		error: PlotApiError,
 		payload: { identifier: Schema.String },
+	}),
+	Rpc.make("Events", {
+		success: AgentRuntimeEvent,
+		error: PlotApiError,
+		stream: true,
 	}),
 ) {}
