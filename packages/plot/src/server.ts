@@ -41,41 +41,37 @@ export function makeServer(
 	const encoder = new TextEncoder();
 	const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
 
-	const eventStreamResponse = (api: ObservabilityApi) => {
-		const events = api.eventStream.pipe(
-			Stream.map((event) => {
-				const json = JSON.stringify(encodeEvent(event));
-				return encoder.encode(`data: ${json}\n\n`);
-			}),
-		);
-		const heartbeat = Stream.repeat(
-			Effect.succeed(encoder.encode(": heartbeat\n\n")),
-			Schedule.fixed("5 seconds"),
-		);
-		return HttpServerResponse.stream(Stream.merge(events, heartbeat), {
-			contentType: "text/event-stream",
-			headers: {
-				"Cache-Control": "no-cache",
-				"X-Accel-Buffering": "no",
-				Connection: "keep-alive",
-			},
-		});
-	};
-
-	const SseRouteLive = HttpRouter.Default.use(
+	const SseRouteLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
 			const api = yield* ObservabilityApi;
-			yield* router.get(
+			const events = api.eventStream.pipe(
+				Stream.map((event: AgentRuntimeEvent) => {
+					const json = JSON.stringify(encodeEvent(event));
+					return encoder.encode(`data: ${json}\n\n`);
+				}),
+			);
+			const heartbeat = Stream.repeat(
+				Stream.succeed(encoder.encode(": heartbeat\n\n")),
+				Schedule.fixed("5 seconds"),
+			);
+			yield* router.add("GET",
 				"/rpc/events",
-				Effect.sync(() => eventStreamResponse(api)),
+				HttpServerResponse.stream(Stream.merge(events, heartbeat), {
+					contentType: "text/event-stream",
+					headers: {
+						"Cache-Control": "no-cache",
+						"X-Accel-Buffering": "no",
+						Connection: "keep-alive",
+					},
+				}),
 			);
 		}),
 	).pipe(Layer.provide(ObservabilityLive));
 
 	const startedAt = Date.now();
 
-	const HealthzLive = HttpRouter.Default.use((router) =>
-		router.get(
+	const HealthzLive = HttpRouter.use((router) =>
+		router.add("GET",
 			"/healthz",
 			Effect.flatMap(
 				Effect.sync(() => ({
@@ -102,11 +98,11 @@ export function makeServer(
 		".woff2": "font/woff2",
 	};
 
-	const StaticLive = HttpRouter.Default.use(
+	const StaticLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
 			const fs = yield* FileSystem.FileSystem;
 
-			yield* router.get(
+			yield* router.add("GET",
 				"/*",
 				Effect.gen(function* () {
 					const req = yield* HttpServerRequest.HttpServerRequest;
@@ -145,20 +141,19 @@ export function makeServer(
 		}),
 	).pipe(Layer.provide(BunServices.layer));
 
-	let app = HttpRouter.Default.serve().pipe(
+	let routeLayers = Layer.mergeAll(SseRouteLive, HealthzLive);
+	if (config.webEnabled) {
+		routeLayers = Layer.mergeAll(routeLayers, StaticLive);
+	}
+
+	const app = HttpRouter.serve(routeLayers).pipe(
 		Layer.provide(RpcLayer),
 		Layer.provide(HttpProtocol),
-		Layer.provide(SseRouteLive),
-		Layer.provide(HealthzLive),
 		Layer.provide(BunHttpServer.layer({ port: config.port, idleTimeout: 120 })),
 		Layer.provide(StartupLive),
 		Layer.provide(LoggingLive),
 		Layer.provide(AppLayer),
 	);
-
-	if (config.webEnabled) {
-		app = app.pipe(Layer.provide(StaticLive));
-	}
 
 	return app;
 }

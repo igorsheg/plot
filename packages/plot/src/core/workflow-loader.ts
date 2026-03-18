@@ -1,4 +1,12 @@
-import { Duration, Effect, FileSystem, Ref, Schema, ServiceMap } from "effect";
+import {
+	Duration,
+	Effect,
+	FileSystem,
+	Layer,
+	Ref,
+	Schema,
+	ServiceMap,
+} from "effect";
 import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
 import { WorkflowFileNotFound, WorkflowParseError } from "../schemas/errors.js";
 import { extractFrontmatter } from "./workflow-parse.js";
@@ -6,7 +14,7 @@ import { extractFrontmatter } from "./workflow-parse.js";
 export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 	"WorkflowLoader",
 	{
-		effect: Effect.gen(function* () {
+		make: Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem;
 			const currentRef = yield* Ref.make<WorkflowDefinition | null>(null);
 			const revisionRef = yield* Ref.make(0);
@@ -59,15 +67,15 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 					const prev = yield* Ref.get(lastContentRef);
 					if (content === prev) return;
 
-					const result = yield* parseWorkflow(content).pipe(Effect.either);
-					if (result._tag === "Right") {
-						yield* Ref.set(currentRef, result.right);
+					const result = yield* parseWorkflow(content).pipe(Effect.result);
+					if (result._tag === "Success") {
+						yield* Ref.set(currentRef, result.success);
 						yield* Ref.update(revisionRef, (n) => n + 1);
 						yield* Ref.set(lastContentRef, content);
 					} else {
 						yield* Effect.logError("workflow_reload_failed").pipe(
 							Effect.annotateLogs("path", path),
-							Effect.annotateLogs("error", String(result.left)),
+							Effect.annotateLogs("error", String(result.failure)),
 						);
 					}
 				});
@@ -91,4 +99,6 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 			return { load, startWatching, getCurrent, getSnapshot };
 		}),
 	},
-) {}
+) {
+	static layer = Layer.effect(this, this.make);
+}

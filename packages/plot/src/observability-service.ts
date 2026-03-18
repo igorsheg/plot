@@ -1,4 +1,4 @@
-import { Effect, DateTime, ServiceMap, Stream } from "effect";
+import { Effect, DateTime, Layer, ServiceMap, Stream } from "effect";
 import {
 	IssueDetail,
 	IssueEventLog,
@@ -44,7 +44,7 @@ const mapRunningEntry = (r: {
 		issueId: r.issueId,
 		issueIdentifier: r.issueIdentifier,
 		state: r.state,
-		startedAt: DateTime.unsafeFromDate(new Date(r.startedAt)),
+		startedAt: DateTime.fromDateUnsafe(new Date(r.startedAt)),
 		workspacePath: r.workspacePath,
 		session: new LiveSession({
 			sessionId: r.sessionId ?? "",
@@ -53,7 +53,7 @@ const mapRunningEntry = (r: {
 			agentPid: null,
 			lastEvent: null,
 			lastEventAt: r.lastEventAt
-				? DateTime.unsafeFromDate(new Date(r.lastEventAt))
+				? DateTime.fromDateUnsafe(new Date(r.lastEventAt))
 				: null,
 			lastMessage: r.lastMessage,
 			inputTokens: r.inputTokens,
@@ -78,7 +78,7 @@ const mapRetryEntry = (r: {
 		issueId: r.issueId,
 		identifier: r.identifier,
 		attempt: r.attempt,
-		dueAt: DateTime.unsafeFromDate(new Date(r.dueAtMs)),
+		dueAt: DateTime.fromDateUnsafe(new Date(r.dueAtMs)),
 		error: r.error,
 	});
 
@@ -130,7 +130,7 @@ const mapRuntimeSnapshot = (state: {
 	);
 
 	return new RuntimeSnapshot({
-		generatedAt: DateTime.unsafeNow(),
+		generatedAt: DateTime.nowUnsafe(),
 		counts: { running: running.length, retrying: retrying.length },
 		running,
 		retrying,
@@ -164,72 +164,71 @@ export const makeObservabilityApi = Effect.gen(function* () {
 	);
 
 	const getIssue = Effect.fnUntraced(function* (identifier: string) {
-			const state = yield* withOrchestratorAvailability(orchestrator.getState);
-			const running = [...state.running.values()].find(
-				(r) => r.issueIdentifier === identifier,
-			);
-			const retry = [...state.retryAttempts.values()].find(
-				(r) => r.identifier === identifier,
-			);
-			const artifact = [...state.issueArtifacts.values()].find(
-				(r) => r.issueIdentifier === identifier,
-			);
+		const state = yield* withOrchestratorAvailability(orchestrator.getState);
+		const running = [...state.running.values()].find(
+			(r) => r.issueIdentifier === identifier,
+		);
+		const retry = [...state.retryAttempts.values()].find(
+			(r) => r.identifier === identifier,
+		);
+		const artifact = [...state.issueArtifacts.values()].find(
+			(r) => r.issueIdentifier === identifier,
+		);
 
-			if (!running && !retry && !artifact) {
-				return yield* Effect.fail(
-					new IssueNotFound({
-						identifier,
-						message: `Issue not found: ${identifier}`,
-					}),
-				);
-			}
+		if (!running && !retry && !artifact) {
+			return yield* Effect.fail(
+				new IssueNotFound({
+					identifier,
+					message: `Issue not found: ${identifier}`,
+				}),
+			);
+		}
 
-			return new IssueDetail({
-				issueIdentifier: identifier,
-				issueId: running?.issueId ?? retry?.issueId ?? artifact?.issueId ?? "",
-				status: running ? "running" : "retrying",
-				workspacePath:
-					running?.workspacePath ?? artifact?.workspacePath ?? null,
-				running: running ? mapRunningEntry(running) : null,
-				retry: retry ? mapRetryEntry(retry) : null,
-				lastError: retry?.error ?? artifact?.lastError ?? null,
-				eventTail:
-					running?.eventTail ??
-					state.eventLogs.get(artifact?.issueId ?? retry?.issueId ?? "")
-						?.events ??
-					[],
-				promptSnapshot:
-					running?.promptSnapshot ?? artifact?.promptSnapshot ?? null,
-				runContext: running?.runContext ?? artifact?.runContext ?? null,
-			});
+		return new IssueDetail({
+			issueIdentifier: identifier,
+			issueId: running?.issueId ?? retry?.issueId ?? artifact?.issueId ?? "",
+			status: running ? "running" : "retrying",
+			workspacePath: running?.workspacePath ?? artifact?.workspacePath ?? null,
+			running: running ? mapRunningEntry(running) : null,
+			retry: retry ? mapRetryEntry(retry) : null,
+			lastError: retry?.error ?? artifact?.lastError ?? null,
+			eventTail:
+				running?.eventTail ??
+				state.eventLogs.get(artifact?.issueId ?? retry?.issueId ?? "")
+					?.events ??
+				[],
+			promptSnapshot:
+				running?.promptSnapshot ?? artifact?.promptSnapshot ?? null,
+			runContext: running?.runContext ?? artifact?.runContext ?? null,
 		});
+	});
 
 	const getEventLog = Effect.fnUntraced(function* (identifier: string) {
-			const state = yield* withOrchestratorAvailability(orchestrator.getState);
-			const log = [...state.eventLogs.values()].find(
-				(l) => l.issueIdentifier === identifier,
+		const state = yield* withOrchestratorAvailability(orchestrator.getState);
+		const log = [...state.eventLogs.values()].find(
+			(l) => l.issueIdentifier === identifier,
+		);
+		if (!log) {
+			return yield* Effect.fail(
+				new IssueNotFound({
+					identifier,
+					message: `Event log not found: ${identifier}`,
+				}),
 			);
-			if (!log) {
-				return yield* Effect.fail(
-					new IssueNotFound({
-						identifier,
-						message: `Event log not found: ${identifier}`,
-					}),
-				);
-			}
-			return new IssueEventLog({
-				issueId: log.issueId,
-				issueIdentifier: log.issueIdentifier,
-				events: [...log.events],
-			});
+		}
+		return new IssueEventLog({
+			issueId: log.issueId,
+			issueIdentifier: log.issueIdentifier,
+			events: [...log.events],
 		});
+	});
 
 	const triggerRefresh = Effect.gen(function* () {
 		yield* withOrchestratorAvailability(orchestrator.tick);
 		return new RefreshResult({
 			queued: true,
 			coalesced: false,
-			requestedAt: DateTime.unsafeNow(),
+			requestedAt: DateTime.nowUnsafe(),
 			operations: ["poll", "reconcile"],
 		});
 	});
@@ -247,7 +246,8 @@ export const makeObservabilityApi = Effect.gen(function* () {
 export class ObservabilityApi extends ServiceMap.Service<ObservabilityApi>()(
 	"ObservabilityApi",
 	{
-		effect: makeObservabilityApi,
-		dependencies: [Orchestrator.Default],
+		make: makeObservabilityApi,
 	},
-) {}
+) {
+	static layer = Layer.effect(this, this.make);
+}

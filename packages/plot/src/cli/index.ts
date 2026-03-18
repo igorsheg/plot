@@ -29,7 +29,7 @@ if (internalCommand === "__internal-server") {
 
   await Command.runWith(command, { version: VERSION })(normalizeCliProcessArgv(process.argv)).pipe(
     Effect.provide(BunServices.layer),
-    Effect.catchAll((error: unknown) => {
+    Effect.catch((error: unknown) => {
       if (FrameworkCliError.isCliError(error)) {
         return Effect.void;
       }

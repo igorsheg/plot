@@ -104,7 +104,7 @@ const runResearchPhase = Effect.fnUntraced(function* (
 
 		const shouldContinue = () =>
 			deps.tracker.fetchIssueStatesByIds([issue.id]).pipe(
-				Effect.catchAll(() => Effect.succeed([] as const)),
+				Effect.catch(() => Effect.succeed([] as const)),
 				Effect.map((result) => {
 					const entry = result.find((c) => c.id === issue.id);
 					if (!entry) return false;
@@ -176,7 +176,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			? deps.workspaceManager
 					.runHook(config.hooksAfterRun, wsPath, config.hooksTimeoutMs)
 					.pipe(
-						Effect.catchAll((e) =>
+						Effect.catch((e) =>
 							Effect.logWarning("after_run_hook_failed").pipe(
 								Effect.annotateLogs({ error: String(e) }),
 							),
@@ -410,7 +410,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 			const runContext = yield* deps.tracker
 				.fetchRunContext(issue.id, issue.state)
-				.pipe(Effect.catchAll(() => Effect.succeed(null)));
+				.pipe(Effect.catch(() => Effect.succeed(null)));
 
 			let researchReport: string | null = null;
 			if (config.researchAgent && attempt === null) {
@@ -422,7 +422,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					config,
 					deps,
 				).pipe(
-					Effect.catchAll((e) =>
+					Effect.catch((e) =>
 						Effect.logWarning("research_phase_failed").pipe(
 							Effect.annotateLogs({ error: String(e) }),
 							Effect.map(() => null as string | null),
@@ -453,7 +453,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 			const shouldContinue = () =>
 				deps.tracker.fetchIssueStatesByIds([issue.id]).pipe(
-					Effect.catchAll(() => Effect.succeed([] as const)),
+					Effect.catch(() => Effect.succeed([] as const)),
 					Effect.map((result) => {
 						const entry = result.find((candidate) => candidate.id === issue.id);
 						if (!entry) return false;
@@ -595,7 +595,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			}
 
 			yield* dispatchIssue(issue, config, entry.attempt).pipe(
-				Effect.catchAll((e) =>
+				Effect.catch((e) =>
 					Effect.logError("retry_dispatch_failed").pipe(
 						Effect.annotateLogs({
 							issue_id: issueId,

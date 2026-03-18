@@ -36,14 +36,13 @@ export * from "./tracker/index.js";
 export async function runServerMain(
 	env: Record<string, string | undefined>,
 ): Promise<void> {
-	const provider = ConfigProvider.fromMap(
-		new Map(
+	const provider = ConfigProvider.fromEnv({
+		env: Object.fromEntries(
 			Object.entries(env).filter(
 				(entry): entry is [string, string] => entry[1] !== undefined,
 			),
 		),
-		{ pathDelim: "_" },
-	);
+	});
 
 	const program = Effect.gen(function* () {
 		const config = yield* ServerConfig;
@@ -64,7 +63,7 @@ export async function runServerMain(
 		const resolvedPlugin = yield* resolvePlugin(resolved);
 
 		yield* Layer.launch(makeServer(config, resolvedPlugin));
-	}).pipe(Effect.withConfigProvider(provider));
+	}).pipe(Effect.provide(ConfigProvider.layer(provider)));
 
 	return BunRuntime.runMain(program);
 }

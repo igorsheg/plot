@@ -4,6 +4,7 @@ import {
 	Duration,
 	Effect,
 	Fiber,
+	Layer,
 	Mailbox,
 	Match,
 	Option,
@@ -38,7 +39,7 @@ import {
 export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 	"Orchestrator",
 	{
-		effect: Effect.gen(function* () {
+		make: Effect.gen(function* () {
 			const stateRef =
 				yield* SubscriptionRef.make<OrchestratorState>(initialState);
 			const pendingPollTickRef = yield* Ref.make(false);
@@ -160,7 +161,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 								yield* Ref.set(pendingPollTickRef, false);
 							}
 							yield* tickRuntime.runTick.pipe(
-								Effect.catchAll((e) =>
+								Effect.catch((e) =>
 									Effect.logError("tick_failed").pipe(
 										Effect.annotateLogs({
 											reason: cmd.reason,
@@ -179,7 +180,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 					),
 					Match.discriminator("_tag")("worker_exit", (cmd) =>
 						dispatchRuntime.handleWorkerExit(cmd).pipe(
-							Effect.catchAll((e) =>
+							Effect.catch((e) =>
 								Effect.logError("worker_exit_failed").pipe(
 									Effect.annotateLogs({
 										issue_id: cmd.issueId,
@@ -229,7 +230,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			const start = Effect.fnUntraced(function* (workflowPath: string) {
 				yield* workflowLoader
 					.load(workflowPath)
-					.pipe(Effect.catchAll((e) => Effect.die(e)));
+					.pipe(Effect.catch((e) => Effect.die(e)));
 
 				yield* syncConfig;
 
@@ -274,6 +275,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 				configStream,
 			};
 		}),
-		dependencies: [WorkflowLoader.Default, WorkspaceManager.Default],
 	},
-) {}
+) {
+	static layer = Layer.effect(this, this.make);
+}

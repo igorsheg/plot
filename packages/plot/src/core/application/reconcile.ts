@@ -171,7 +171,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 
     yield* reconcile(config);
     yield* validateForDispatch(config).pipe(
-      Effect.catchAll((e) =>
+      Effect.catch((e) =>
         Effect.logError("dispatch_validation_failed").pipe(
           Effect.annotateLogs({ error: e.message }),
         ),
@@ -190,7 +190,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
       const currentState = yield* Ref.get(deps.stateRef);
       if (!isEligible(issue, currentState, config)) continue;
       yield* deps.dispatchIssue(issue, config, null).pipe(
-        Effect.catchAll((e) =>
+        Effect.catch((e) =>
           Effect.logError("dispatch_failed").pipe(
             Effect.annotateLogs({
               identifier: issue.identifier,
@@ -230,7 +230,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
       }
 
       yield* deps.processRetry(command.issueId, retryEntry).pipe(
-        Effect.catchAll((e) =>
+        Effect.catch((e) =>
           Effect.logError("retry_due_failed").pipe(
             Effect.annotateLogs({
               issue_id: command.issueId,

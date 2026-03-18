@@ -86,11 +86,9 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
 async function boot(env: Record<string, string>) {
 	try {
 		redirectProcessOutput(env["PLOT_TUI_SERVER_LOG_PATH"]);
-		const provider = ConfigProvider.fromMap(new Map(Object.entries(env)), {
-			pathDelim: "_",
-		});
+		const provider = ConfigProvider.fromEnv({ env });
 		const config = await Effect.runPromise(
-			ServerConfig.pipe(Effect.withConfigProvider(provider)),
+			ServerConfig.pipe(Effect.provide(ConfigProvider.layer(provider))),
 		);
 		const content = readFileSync(config.workflowPath, "utf-8");
 		const workflowConfig = parseWorkflowFrontmatter(content);

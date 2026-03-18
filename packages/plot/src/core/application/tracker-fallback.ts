@@ -35,7 +35,7 @@ export const withTrackerFallback = <A>(
 	fallback: A,
 ): Effect.Effect<A> =>
 	effect.pipe(
-		Effect.catchAll((error) => {
+		Effect.catch((error) => {
 			if (isFatal(error)) {
 				const errorTag = getErrorTag(error);
 				return Effect.logError("tracker_fatal_error").pipe(

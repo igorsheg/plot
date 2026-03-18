@@ -69,14 +69,14 @@ export function toServerOptions(
 }
 
 function toServerLogLevel(logLevel: LogLevel.LogLevel): ServerOptions["log-level"] {
-  switch (logLevel._tag) {
+  switch (logLevel) {
     case "All":
     case "Trace":
     case "Debug":
       return "debug";
     case "Info":
       return "info";
-    case "Warning":
+    case "Warn":
       return "warning";
     case "Error":
     case "Fatal":

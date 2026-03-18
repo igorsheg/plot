@@ -130,7 +130,7 @@ function mapSessionEvent(
 	issueId: string,
 	issueIdentifier: string,
 ): readonly [MapperState, ReadonlyArray<AgentRuntimeEvent>] {
-	const now = DateTime.unsafeNow();
+	const now = DateTime.nowUnsafe();
 	const base = {
 		agentPid: null,
 		issueId,
@@ -480,7 +480,7 @@ const createEventStream = (
 											message: `Agent turn timed out after ${config.turnTimeoutMs}ms`,
 										}),
 								}),
-								Effect.catchAll((error) => Effect.sync(() => emit.fail(error))),
+								Effect.catch((error) => Effect.sync(() => emit.fail(error))),
 							),
 						);
 					}),
@@ -531,7 +531,7 @@ const createEventStream = (
 									Effect.flatMap((cont) =>
 										cont ? Effect.void : abortSession("issue no longer active"),
 									),
-									Effect.catchAll(() =>
+									Effect.catch(() =>
 										abortSession("issue state check failed"),
 									),
 								),

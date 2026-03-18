@@ -13,7 +13,7 @@ const makeEvent = (
 ) =>
   new AgentRuntimeEvent({
     event: overrides.event ?? "notification",
-    timestamp: DateTime.unsafeMake(overrides.timestamp ?? Date.now()),
+    timestamp: DateTime.makeUnsafe(overrides.timestamp ?? Date.now()),
     agentPid: null,
     issueId: overrides.issueId ?? "issue-1",
     issueIdentifier: "#1",

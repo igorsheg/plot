@@ -1,4 +1,4 @@
-import { Effect, FileSystem, ServiceMap } from "effect";
+import { Effect, FileSystem, Layer, ServiceMap } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { WorkspaceError } from "../schemas/errors.js";
 import type { ResolvedConfig } from "./config-service.js";
@@ -10,7 +10,7 @@ const sanitizeWorkspaceKey = (identifier: string): string =>
 export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()(
 	"WorkspaceManager",
 	{
-		effect: Effect.gen(function* () {
+		make: Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem;
 			const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
@@ -22,7 +22,7 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()(
 				Effect.scoped(
 					spawner
 						.spawn(
-							ChildProcess.make({ command: "sh", args: ["-lc", script], cwd }),
+							ChildProcess.make("sh", ["-lc", script], { cwd }),
 						)
 						.pipe(
 							Effect.flatMap((process) => process.exitCode),
@@ -91,7 +91,7 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()(
 							wsPath,
 							config.hooksTimeoutMs,
 						).pipe(
-							Effect.catchAll(
+							Effect.catch(
 								Effect.fnUntraced(function* (e) {
 									yield* fs
 										.remove(wsPath, { recursive: true })
@@ -175,4 +175,6 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()(
 			return { ensureWorkspace, removeWorkspace, runHook };
 		}),
 	},
-) {}
+) {
+	static layer = Layer.effect(this, this.make);
+}

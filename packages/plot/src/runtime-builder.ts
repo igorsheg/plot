@@ -2,7 +2,15 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BunServices } from "@effect/platform-bun";
-import { DateTime, Effect, Layer, Logger, LogLevel, ManagedRuntime } from "effect";
+import {
+	DateTime,
+	Effect,
+	Layer,
+	Logger,
+	LogLevel,
+	ManagedRuntime,
+	References,
+} from "effect";
 import {
 	type PlainTrackerClient,
 	type TrackerPluginDefinition,
@@ -38,24 +46,26 @@ import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
 export function parseServerLogLevel(s: string): LogLevel.LogLevel {
 	switch (s.toLowerCase()) {
 		case "debug":
-			return LogLevel.Debug;
+			return "Debug";
 		case "info":
-			return LogLevel.Info;
+			return "Info";
 		case "warning":
-			return LogLevel.Warning;
+			return "Warn";
 		case "error":
-			return LogLevel.Error;
+			return "Error";
 		case "none":
-			return LogLevel.None;
+			return "None";
 		default:
-			return LogLevel.Info;
+			return "Info";
 	}
 }
 
 export function makeLoggingLayer(config: ServerConfig) {
+	const logger =
+		config.logFormat === "json" ? Logger.consoleJson : Logger.consolePretty();
 	return Layer.mergeAll(
-		config.logFormat === "json" ? Logger.json : Logger.pretty,
-		Logger.minimumLogLevel(parseServerLogLevel(config.logLevel)),
+		Logger.layer([logger]),
+		Layer.succeed(References.MinimumLogLevel, parseServerLogLevel(config.logLevel)),
 	);
 }
 
@@ -96,7 +106,7 @@ function toDateTime(
 ): DateTime.Utc | null {
 	if (value == null) return null;
 	const date = typeof value === "string" ? new Date(value) : value;
-	return DateTime.unsafeFromDate(date);
+	return DateTime.fromDateUnsafe(date);
 }
 
 function normalizeIssue(plain: IssueLike): Issue {
@@ -124,9 +134,7 @@ function normalizeIssue(plain: IssueLike): Issue {
 	});
 }
 
-function normalizeIssueStateEntry(
-	plain: IssueStateEntryLike,
-): IssueStateEntry {
+function normalizeIssueStateEntry(plain: IssueStateEntryLike): IssueStateEntry {
 	return new IssueStateEntry({ id: plain.id, state: plain.state });
 }
 
@@ -158,23 +166,18 @@ function adaptTrackerClient(
 				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
 			fetchIssuesByStates: (states) =>
 				Effect.tryPromise({
-					try: () =>
-						plain.fetchIssuesByStates?.(states) ?? Promise.resolve([]),
+					try: () => plain.fetchIssuesByStates?.(states) ?? Promise.resolve([]),
 					catch: (e) => mapPluginError(e, "fetchIssuesByStates"),
 				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
 			fetchIssueStatesByIds: (ids) =>
 				Effect.tryPromise({
-					try: () =>
-						plain.fetchIssueStatesByIds?.(ids) ?? Promise.resolve([]),
+					try: () => plain.fetchIssueStatesByIds?.(ids) ?? Promise.resolve([]),
 					catch: (e) => mapPluginError(e, "fetchIssueStatesByIds"),
-				}).pipe(
-					Effect.map((entries) => entries.map(normalizeIssueStateEntry)),
-				),
+				}).pipe(Effect.map((entries) => entries.map(normalizeIssueStateEntry))),
 			fetchRunContext: (issueId, state) =>
 				Effect.tryPromise({
 					try: () =>
-						plain.fetchRunContext?.(issueId, state) ??
-						Promise.resolve(null),
+						plain.fetchRunContext?.(issueId, state) ?? Promise.resolve(null),
 					catch: (e) => mapPluginError(e, "fetchRunContext"),
 				}).pipe(Effect.map(normalizeRunContext)),
 		}),
@@ -299,8 +302,7 @@ export function resolvePlugin(
 	return Effect.gen(function* () {
 		const kind = resolved.trackerKind;
 		const mod = yield* Effect.tryPromise({
-			try: () =>
-				import(kind) as Promise<{ default?: AnyPluginDefinition }>,
+			try: () => import(kind) as Promise<{ default?: AnyPluginDefinition }>,
 			catch: (cause) =>
 				new Error(
 					`Failed to load tracker plugin "${kind}": ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -339,18 +341,21 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		makeTrackerLayer(resolvedPlugin),
 		PiAgentLive,
 		BunServices.layer,
-		Layer.succeed(PluginContext, {
-			skillPaths: resolvedPlugin.skillPaths,
-		}),
+		Layer.succeed(
+			PluginContext,
+			PluginContext.of({
+				skillPaths: resolvedPlugin.skillPaths,
+			}),
+		),
 	);
 }
 
 export function makeOrchestratorLayer(resolvedPlugin: ResolvedPlugin) {
-	return Orchestrator.Default.pipe(Layer.provide(makeAppLayer(resolvedPlugin)));
+	return Orchestrator.layer.pipe(Layer.provide(makeAppLayer(resolvedPlugin)));
 }
 
 export function makeObservabilityLayer(resolvedPlugin: ResolvedPlugin) {
-	return ObservabilityApi.Default.pipe(
+	return ObservabilityApi.layer.pipe(
 		Layer.provide(makeOrchestratorLayer(resolvedPlugin)),
 	);
 }
@@ -359,7 +364,7 @@ export function makeStartupLayer(
 	config: ServerConfig,
 	resolvedPlugin: ResolvedPlugin,
 ) {
-	return Layer.scopedDiscard(
+	return Layer.effectDiscard(
 		Effect.gen(function* () {
 			const orchestrator = yield* Orchestrator;
 			yield* orchestrator.start(config.workflowPath);
