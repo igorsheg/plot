@@ -29,12 +29,13 @@ export function makeServer(
 	const ObservabilityLive = makeObservabilityLayer(resolvedPlugin);
 	const StartupLive = makeStartupLayer(config, resolvedPlugin);
 
-	const RpcLayer = RpcServer.layer(PlotRpcs).pipe(
+	const RpcRouteLive = RpcServer.layerHttp({
+		group: PlotRpcs,
+		path: "/rpc",
+		protocol: "http",
+	}).pipe(
 		Layer.provide(RpcHandlersLive),
 		Layer.provide(ObservabilityLive),
-	);
-
-	const HttpProtocol = RpcServer.layerProtocolHttp({ path: "/rpc" }).pipe(
 		Layer.provide(RpcSerialization.layerNdjson),
 	);
 
@@ -139,13 +140,12 @@ export function makeServer(
 		),
 	);
 
-	let routeLayers = Layer.mergeAll(SseRouteLive, HttpProtocol, HealthzLive);
+	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, HealthzLive);
 	if (config.webEnabled) {
 		routeLayers = Layer.mergeAll(routeLayers, StaticLive as unknown as typeof routeLayers);
 	}
 
 	const app = HttpRouter.serve(routeLayers).pipe(
-		Layer.provide(RpcLayer),
 		Layer.provide(BunHttpServer.layer({ port: config.port, idleTimeout: 120 })),
 		Layer.provide(StartupLive),
 		Layer.provide(LoggingLive),
