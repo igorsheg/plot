@@ -11,8 +11,8 @@ import {
 	Ref,
 	ServiceMap,
 	Stream,
-	SubscriptionRef,
 } from "effect";
+import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 import { type AgentRuntimeEvent, TrackerClient } from "@plot/sdk";
 import { ResolvedConfig } from "./config-service.js";
 import { AgentService } from "../agent/agent-service.js";
@@ -39,8 +39,9 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 	"Orchestrator",
 	{
 		make: Effect.gen(function* () {
-			const stateRef =
-				yield* SubscriptionRef.make<OrchestratorState>(initialState);
+			const registry = yield* AtomRegistry.AtomRegistry;
+			const stateAtom = Atom.make(initialState);
+			registry.mount(stateAtom);
 			const pendingPollTickRef = yield* Ref.make(false);
 			const retryTimerFibersRef = yield* Ref.make(
 				new Map<string, Fiber.Fiber<void, never>>(),
@@ -57,16 +58,15 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 				Config.nested("PLOT"),
 			);
 
-			const configRef = yield* SubscriptionRef.make<ResolvedConfig | null>(
-				null,
-			);
+			const configAtom = Atom.make<ResolvedConfig | null>(null);
+			registry.mount(configAtom);
 
-			const getState = SubscriptionRef.get(stateRef);
+			const getState = Effect.sync(() => registry.get(stateAtom));
 
-			const getConfig = SubscriptionRef.get(configRef);
+			const getConfig = Effect.sync(() => registry.get(configAtom));
 
 			const updateState = (fn: (s: OrchestratorState) => OrchestratorState) =>
-				SubscriptionRef.update(stateRef, fn);
+				Effect.sync(() => registry.update(stateAtom, fn));
 
 			const incrementCommandQueuePressure = (queueSize: number) =>
 				updateState((s) => incrementCommandQueuePressureInState(s, queueSize));
@@ -120,7 +120,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			});
 
 			const dispatchRuntime = makeDispatchRuntime({
-				stateRef,
+				getState,
 				retryTimerFibersRef,
 				workflowLoader,
 				tracker,
@@ -134,7 +134,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			});
 
 			const tickRuntime = makeTickRuntime({
-				stateRef,
+				getState,
 				tracker,
 				removeWorkspace: (identifier, config) =>
 					workspaceManager.removeWorkspace(identifier, config),
@@ -215,7 +215,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 				const wf = yield* workflowLoader.getCurrent;
 				if (!wf) return;
 				const resolved = new ResolvedConfig(wf.config, overrides);
-				yield* SubscriptionRef.set(configRef, resolved);
+				yield* Effect.sync(() => registry.set(configAtom, resolved));
 			});
 
 			const start = Effect.fnUntraced(function* (workflowPath: string) {
@@ -252,8 +252,8 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			const tick = requestTick("manual");
 
 			const eventStream = Stream.fromPubSub(eventPubSub);
-			const stateStream = SubscriptionRef.changes(stateRef);
-			const configStream = SubscriptionRef.changes(configRef);
+			const stateStream = AtomRegistry.toStream(registry, stateAtom);
+			const configStream = AtomRegistry.toStream(registry, configAtom);
 
 			return {
 				start,

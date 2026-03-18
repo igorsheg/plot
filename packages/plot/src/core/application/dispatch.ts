@@ -9,7 +9,6 @@ import {
 	Ref,
 	Scope,
 	Stream,
-	SubscriptionRef,
 } from "effect";
 import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
 import { compilePrompt, compileResearchPrompt } from "../prompt-compiler.js";
@@ -37,7 +36,7 @@ import {
 import { withTrackerFallback } from "./tracker-fallback.js";
 
 export interface DispatchDeps {
-	readonly stateRef: SubscriptionRef.SubscriptionRef<OrchestratorState>;
+	readonly getState: Effect.Effect<OrchestratorState>;
 	readonly retryTimerFibersRef: Ref.Ref<
 		Map<string, Fiber.Fiber<void, never>>
 	>;
@@ -582,7 +581,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				return;
 			}
 
-			const currentState = yield* SubscriptionRef.get(deps.stateRef);
+			const currentState = yield* deps.getState;
 			if (availableSlots(currentState, config) <= 0) {
 				yield* scheduleRetry(
 					issueId,

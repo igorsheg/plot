@@ -17,6 +17,7 @@ export class Issue extends Schema.Class<Issue>("Issue")({
 	url: Schema.NullOr(Schema.String),
 	labels: Schema.Array(Schema.String),
 	blockedBy: Schema.optional(Schema.Array(BlockerRef)),
+	autoMerge: Schema.optional(Schema.Boolean),
 	metadata: Schema.optional(
 		Schema.Record(Schema.String, Schema.Unknown ),
 	),
