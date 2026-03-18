@@ -141,14 +141,13 @@ export function makeServer(
 		}),
 	).pipe(Layer.provide(BunServices.layer));
 
-	let routeLayers = Layer.mergeAll(SseRouteLive, HealthzLive);
+	let routeLayers = Layer.mergeAll(SseRouteLive, HealthzLive, HttpProtocol);
 	if (config.webEnabled) {
-		routeLayers = Layer.mergeAll(routeLayers, StaticLive as typeof routeLayers);
+		routeLayers = Layer.mergeAll(routeLayers, StaticLive as unknown as typeof routeLayers);
 	}
 
 	const app = HttpRouter.serve(routeLayers).pipe(
 		Layer.provide(RpcLayer),
-		Layer.provide(HttpProtocol),
 		Layer.provide(BunHttpServer.layer({ port: config.port, idleTimeout: 120 })),
 		Layer.provide(StartupLive),
 		Layer.provide(LoggingLive),

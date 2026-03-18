@@ -38,6 +38,8 @@ import {
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
 import { Orchestrator } from "./core/index.js";
+import { WorkflowLoader } from "./core/workflow-loader.js";
+import { WorkspaceManager } from "./core/workspace-manager.js";
 import { PluginContext } from "./core/plugin-context.js";
 import { type ResolvedConfig } from "./core/config-service.js";
 import { ObservabilityApi } from "./observability-service.js";
@@ -337,10 +339,13 @@ export function makeTrackerLayer(resolvedPlugin: ResolvedPlugin) {
 }
 
 export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
+	const platformDeps = BunServices.layer;
 	return Layer.mergeAll(
 		makeTrackerLayer(resolvedPlugin),
 		PiAgentLive,
-		BunServices.layer,
+		platformDeps,
+		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
+		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
 		Layer.succeed(
 			PluginContext,
 			PluginContext.of({
