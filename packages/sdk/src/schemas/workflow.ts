@@ -43,6 +43,9 @@ export class AgentConfig extends Schema.Class<AgentConfig>("AgentConfig")({
 	modelByState: Schema.optional(
 		Schema.Record(Schema.String, Schema.String ),
 	),
+	modelByLabel: Schema.optional(
+		Schema.Record(Schema.String, Schema.String ),
+	),
 }) {}
 
 export class AgentRuntimeConfig extends Schema.Class<AgentRuntimeConfig>("AgentRuntimeConfig",

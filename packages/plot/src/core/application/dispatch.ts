@@ -33,6 +33,7 @@ import {
 	type RetryReason,
 	type RunningEntry,
 } from "../domain/orchestrator-state.js";
+import { MERGE_CONFLICT_INSTRUCTION } from "../git-flow.js";
 import { withTrackerFallback } from "./tracker-fallback.js";
 
 export interface DispatchDeps {
@@ -125,7 +126,7 @@ const runResearchPhase = Effect.fnUntraced(function* (
 			maxTurns: Math.min(config.maxTurns, 10),
 			turnTimeoutMs: config.turnTimeoutMs,
 			stallTimeoutMs: config.stallTimeoutMs,
-			modelSpec: config.resolveModelSpec(issue.state),
+			modelSpec: config.resolveModelSpec(issue.state, issue.labels),
 			shouldContinue,
 		};
 
@@ -370,19 +371,32 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			} else {
 				const error = exitErrorString ?? "unknown";
 				const isStall = error.includes("runner_stalled");
-				yield* Effect.logError(isStall ? "agent_stalled" : "agent_failed").pipe(
+				const isMergeConflict =
+					error.includes("merge conflict") ||
+					error.includes("CONFLICT") ||
+					error.includes("rebase --abort");
+				yield* Effect.logError(
+					isStall
+						? "agent_stalled"
+						: isMergeConflict
+							? "merge_conflict"
+							: "agent_failed",
+				).pipe(
 					Effect.annotateLogs({ issue_id: issueId, identifier, error }),
 				);
 				const nextAttempt = (attempt ?? 0) + 1;
+				const retryError = isStall
+					? `Previous attempt stalled (no output). The task may need to be broken into smaller pieces. Original error: ${error}`
+					: isMergeConflict
+						? `${MERGE_CONFLICT_INSTRUCTION} Original error: ${error}`
+						: error;
 				yield* scheduleRetry(
 					issueId,
 					identifier,
 					nextAttempt,
 					retryDelay(nextAttempt, config.maxRetryBackoffMs),
-					isStall
-						? `Previous attempt stalled (no output). The task may need to be broken into smaller pieces. Original error: ${error}`
-						: error,
-					isStall ? "stall" : "failure",
+					retryError,
+					isStall ? "stall" : isMergeConflict ? "merge_conflict" : "failure",
 				);
 			}
 		});
@@ -474,7 +488,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				maxTurns: config.maxTurns,
 				turnTimeoutMs: config.turnTimeoutMs,
 				stallTimeoutMs: config.stallTimeoutMs,
-				modelSpec: config.resolveModelSpec(issue.state),
+				modelSpec: config.resolveModelSpec(issue.state, issue.labels),
 				shouldContinue,
 			};
 

@@ -49,6 +49,7 @@ export class ResolvedConfig {
 	readonly maxConcurrentAgentsByState: ReadonlyMap<string, number>;
 	readonly model: string | undefined;
 	readonly modelByState: ReadonlyMap<string, string>;
+	readonly modelByLabel: ReadonlyMap<string, string>;
 	readonly agentCommand: string;
 	readonly turnTimeoutMs: number;
 	readonly readTimeoutMs: number;
@@ -112,6 +113,15 @@ export class ResolvedConfig {
 			}
 		}
 		this.modelByState = byStateModel;
+		const byLabelModel = new Map<string, string>();
+		if (wf.agent?.modelByLabel) {
+			for (const [k, v] of Object.entries(wf.agent.modelByLabel)) {
+				if (typeof v === "string" && v.length > 0) {
+					byLabelModel.set(k.trim().toLowerCase(), v);
+				}
+			}
+		}
+		this.modelByLabel = byLabelModel;
 		this.agentCommand = wf.codex?.command ?? "pi";
 		this.turnTimeoutMs = wf.codex?.turnTimeoutMs ?? 3_600_000;
 		this.readTimeoutMs = wf.codex?.readTimeoutMs ?? 5_000;
@@ -121,7 +131,13 @@ export class ResolvedConfig {
 		this.githubRepo = overrides?.githubRepo ?? "";
 	}
 
-	resolveModelSpec(issueState: string): string | undefined {
+	resolveModelSpec(issueState: string, labels?: ReadonlyArray<string>): string | undefined {
+		if (labels) {
+			for (const label of labels) {
+				const match = this.modelByLabel.get(label.trim().toLowerCase());
+				if (match) return match;
+			}
+		}
 		const normalized = issueState.trim().toLowerCase();
 		return this.modelByState.get(normalized) ?? this.model;
 	}
