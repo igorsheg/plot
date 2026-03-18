@@ -1,16 +1,15 @@
 ---
 tracker:
-  kind: beads
+  kind: github
   dispatch_states:
-    - open
-    - in_progress
+    - plot:todo
+    - plot:in-progress
     - plot:rework
     - plot:merging
   parked_states:
-    - blocked
-    - deferred
+    - plot:human-review
   terminal_states:
-    - closed
+    - plot:done
 polling:
   interval_ms: 15000
 workspace:
@@ -25,7 +24,7 @@ agent:
   model_by_state:
     plot:merging: anthropic/claude-sonnet-4-20250514
     plot:rework: anthropic/claude-opus-4-6
-  max_concurrent_agents: 5
+  max_concurrent_agents: 1
   max_turns: 50
   max_retry_backoff_ms: 60000
   turn_timeout_ms: 1800000
@@ -53,18 +52,22 @@ this section is workflow policy. plot compiles it into the stable system prompt.
 
 ## state model
 
-beads uses a hybrid state model:
+github uses a label-based state model. all states are labels prefixed with `plot:`.
 
-- **status** (native beads lifecycle): `open`, `in_progress`, `blocked`, `deferred`, `closed`
-- **labels** (orchestrator sub-states): `plot:rework`, `plot:merging`
-
-the orchestrator routes by whichever is more specific: if a configured label exists, it wins over status. otherwise status is the state.
+| label             | meaning                    |
+| ----------------- | -------------------------- |
+| plot:todo         | queued for work            |
+| plot:in-progress  | implementation underway    |
+| plot:human-review | PR open, waiting on human  |
+| plot:rework       | reviewer requested changes |
+| plot:merging      | human approved             |
+| plot:done         | terminal                   |
 
 ## workpad contract
 
-keep exactly one current `## Plot Workpad` comment per issue. structure it so both humans and later runs can parse it quickly.
+keep exactly one `## Plot Workpad` comment per issue. structure it so both humans and later runs can parse it quickly.
 
-beads comments are append-only. the current workpad is always the **latest** comment whose body starts with `## Plot Workpad`. when updating, add a new full workpad comment — do not attempt to edit old comments.
+find the existing workpad comment or create one. on continuation runs, update the existing comment in place — do not create duplicates.
 
 required sections:
 
@@ -76,8 +79,8 @@ required sections:
 
 rules:
 
-- treat the latest `## Plot Workpad` comment as canonical
-- never rely on older workpad comments once a newer one exists
+- exactly one workpad comment per issue, identified by `## Plot Workpad` header
+- reuse existing comment on continuation runs — do not create duplicates
 - when a checklist item is done, mark it done immediately
 - keep `Latest Attempt Summary` short and factual
 - if a retry changed the plan, update the workpad before large edits
@@ -87,7 +90,7 @@ rules:
 
 use these project skills during execution. load each skill when you reach its step.
 
-- `plot-beads-tracker` — issue state transitions (status + labels), workpad comment lifecycle, bd queries
+- `plot-github-tracker` — issue state transitions via labels, workpad comment lifecycle, gh CLI queries
 - `plot-commit` — session-aware conventional commits
 - `plot-push-pr` — push branch and create/update PR with template compliance
 - `plot-pull-main` — sync branch with origin/main, conflict resolution
@@ -96,32 +99,31 @@ use these project skills during execution. load each skill when you reach its st
 
 ## status map
 
-| state            | agent action                                           |
-| ---------------- | ------------------------------------------------------ |
-| open             | move to in_progress, then run implementation flow      |
-| in_progress      | continue implementation flow                           |
-| blocked          | do nothing — wait for human to change state            |
-| deferred         | do nothing — wait for human to undefer                 |
-| plot:rework      | run rework flow                                        |
-| plot:merging     | run `plot-land` skill                                  |
-| closed           | do nothing, shut down                                  |
+| state             | agent action                                           |
+| ----------------- | ------------------------------------------------------ |
+| plot:todo         | move to plot:in-progress, then run implementation flow |
+| plot:in-progress  | continue implementation flow                           |
+| plot:human-review | do nothing — wait for human to review                  |
+| plot:rework       | run rework flow                                        |
+| plot:merging      | run `plot-land` skill                                  |
+| plot:done         | do nothing, shut down                                  |
 
 ## step 0: route by current state
 
-1. determine the current issue state (label match first, then beads status).
+1. determine the current issue state from its `plot:*` labels.
 2. route to the matching flow:
-   - `open` → use `plot-beads-tracker` to move to `in_progress`, then implementation flow
-   - `in_progress` → continue implementation flow
-   - `blocked` / `deferred` → do nothing, stop
+   - `plot:todo` → use `plot-github-tracker` to move to `plot:in-progress`, then implementation flow
+   - `plot:in-progress` → continue implementation flow
+   - `plot:human-review` → do nothing, stop
    - `plot:rework` → rework flow
    - `plot:merging` → load `plot-land` skill, execute merge flow
-   - `closed` → do nothing, stop
+   - `plot:done` → do nothing, stop
 3. check whether a PR already exists for the current branch.
    - if branch PR is `CLOSED` or `MERGED`, create a fresh branch from `origin/main` and restart.
 
 ## implementation flow (open / in_progress)
 
-1. use `plot-beads-tracker` to find or create the workpad comment.
+1. use `plot-github-tracker` to find or create the workpad comment.
 2. write a hierarchical plan with acceptance criteria in the workpad.
 3. use `plot-pull-main` to sync with `origin/main` before code edits.
 4. implement the changes against the plan. keep diffs minimal and focused.
@@ -130,11 +132,11 @@ use these project skills during execution. load each skill when you reach its st
 7. use `plot-commit` to create well-formed commits.
 8. use `plot-push-pr` to push and create/update the PR.
 9. update workpad with final checklist status and validation notes.
-10. use `plot-beads-tracker` to move issue to `blocked` (waiting for human review).
+10. use `plot-github-tracker` to move issue to `plot:human-review`.
 
 ## rework flow (plot:rework)
 
-1. use `plot-beads-tracker` to load the workpad.
+1. use `plot-github-tracker` to load the workpad.
 2. read all PR feedback (load `plot-land` skill for the review sweep protocol):
    - top-level PR comments
    - inline review comments
@@ -145,9 +147,9 @@ use these project skills during execution. load each skill when you reach its st
 6. use `plot-commit` to commit fixes.
 7. use `plot-push-pr` to push updates.
 8. update workpad with feedback resolution status.
-9. use `plot-beads-tracker` to remove `plot:rework` label and move issue to `blocked`.
+9. use `plot-github-tracker` to remove `plot:rework` label and move issue to `plot:human-review`.
 
-## completion bar (before blocked)
+## completion bar (before human-review)
 
 - plan checklist is fully complete in workpad
 - acceptance criteria satisfied
@@ -161,10 +163,10 @@ use these project skills during execution. load each skill when you reach its st
 - if branch PR is closed/merged, do not reuse — fresh branch from `origin/main`
 - do not edit the issue body for planning — use workpad comment only
 - one current workpad per issue (latest `## Plot Workpad` comment)
-- do not move to `blocked` unless completion bar is satisfied
-- while `blocked`, do not make changes
-- if `closed`, do nothing and shut down
-- if out-of-scope improvements are discovered, file a separate issue via `bd create` instead of expanding scope
+- do not move to `plot:human-review` unless completion bar is satisfied
+- while `plot:human-review`, do not make changes
+- if `plot:done`, do nothing and shut down
+- if out-of-scope improvements are discovered, file a separate issue via `gh issue create` instead of expanding scope
 - prefer targeted reads/searches over broad dumps — avoid commands that produce huge output
 - prefer minimal diffs; do not refactor or clean up code beyond what the issue requires
 - if uncertain about a change, inspect more before editing
