@@ -44,6 +44,7 @@ import { WorkspaceManager } from "./core/workspace-manager.js";
 import { PluginContext } from "./core/plugin-context.js";
 import { type ResolvedConfig } from "./core/config-service.js";
 import { ObservabilityApi } from "./observability-service.js";
+import { HealthService } from "./core/health-service.js";
 import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
 
 export function parseServerLogLevel(s: string): LogLevel.LogLevel {
@@ -378,6 +379,7 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		platformDeps,
 		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
 		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
+		HealthService.layer.pipe(Layer.provide(platformDeps)),
 		Layer.succeed(
 			PluginContext,
 			PluginContext.of({}),

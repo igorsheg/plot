@@ -19,6 +19,7 @@ import {
 	makeStartupLayer,
 } from "./runtime-builder.js";
 import type { ResolvedPlugin } from "./runtime-builder.js";
+import { HealthService } from "./core/health-service.js";
 
 export function makeServer(
 	config: ServerConfig,
@@ -134,11 +135,14 @@ export function makeServer(
 		router.add(
 			"GET",
 			"/healthz",
-			HttpServerResponse.json({
-				status: "ok" as const,
-				uptime: Math.floor((Date.now() - startedAt) / 1000),
+			Effect.gen(function* () {
+				const healthService = yield* HealthService;
+				const healthResponse = yield* healthService.performHealthCheck(startedAt);
+				return yield* HttpServerResponse.json(healthResponse);
 			}),
 		),
+	).pipe(
+		Layer.provide(HealthService.layer.pipe(Layer.provide(BunServices.layer))),
 	);
 
 	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, HealthzLive);
