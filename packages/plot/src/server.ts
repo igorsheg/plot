@@ -1,11 +1,11 @@
+import { FileSystem } from "effect";
 import {
-	FileSystem,
 	HttpRouter,
 	HttpServerRequest,
 	HttpServerResponse,
-} from "@effect/platform";
-import { BunContext, BunHttpServer } from "@effect/platform-bun";
-import { RpcSerialization, RpcServer } from "@effect/rpc";
+} from "effect/unstable/http";
+import { BunServices, BunHttpServer } from "@effect/platform-bun";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
 import { AgentRuntimeEvent, PlotRpcs } from "@plot/sdk";
 import { ObservabilityApi } from "./observability-service.js";
@@ -143,7 +143,7 @@ export function makeServer(
 				}),
 			);
 		}),
-	).pipe(Layer.provide(BunContext.layer));
+	).pipe(Layer.provide(BunServices.layer));
 
 	let app = HttpRouter.Default.serve().pipe(
 		Layer.provide(RpcLayer),

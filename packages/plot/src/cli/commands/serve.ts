@@ -1,4 +1,4 @@
-import { Command } from "@effect/cli";
+import { Command } from "effect/unstable/cli";
 import { Effect, FiberRef } from "effect";
 import { createCliOutput } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";

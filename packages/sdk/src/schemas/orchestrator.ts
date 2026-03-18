@@ -9,13 +9,7 @@ export class ToolExecution extends Schema.Class<ToolExecution>("ToolExecution")(
 	},
 ) {}
 
-export const AgentPhase = Schema.Literal(
-	"idle",
-	"thinking",
-	"tool_execution",
-	"compacting",
-	"retrying",
-);
+export const AgentPhase = Schema.Literals(["idle", "thinking", "tool_execution", "compacting", "retrying"]);
 export type AgentPhase = typeof AgentPhase.Type;
 
 export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
@@ -52,7 +46,7 @@ export class RetryEntry extends Schema.Class<RetryEntry>("RetryEntry")({
 	error: Schema.NullOr(Schema.String),
 }) {}
 
-export const PromptSectionKind = Schema.Literal("system", "user");
+export const PromptSectionKind = Schema.Literals(["system", "user"]);
 export type PromptSectionKind = typeof PromptSectionKind.Type;
 
 export class PromptSection extends Schema.Class<PromptSection>("PromptSection")(
@@ -65,8 +59,7 @@ export class PromptSection extends Schema.Class<PromptSection>("PromptSection")(
 	},
 ) {}
 
-export class PromptSnapshot extends Schema.Class<PromptSnapshot>(
-	"PromptSnapshot",
+export class PromptSnapshot extends Schema.Class<PromptSnapshot>("PromptSnapshot",
 )({
 	system: Schema.String,
 	user: Schema.String,
@@ -85,8 +78,7 @@ export class TokenTotals extends Schema.Class<TokenTotals>("TokenTotals")({
 	secondsRunning: Schema.Number,
 }) {}
 
-export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
-	"RuntimeObservability",
+export class RuntimeObservability extends Schema.Class<RuntimeObservability>("RuntimeObservability",
 )({
 	commandQueueDepth: Schema.Number,
 	commandQueuePeak: Schema.Number,
@@ -109,11 +101,10 @@ export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
 	}),
 }) {}
 
-export const IssueStatus = Schema.Literal("running", "retrying");
+export const IssueStatus = Schema.Literals(["running", "retrying"]);
 export type IssueStatus = typeof IssueStatus.Type;
 
-export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>(
-	"RuntimeSnapshot",
+export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>("RuntimeSnapshot",
 )({
 	generatedAt: Schema.DateTimeUtc,
 	counts: Schema.Struct({

@@ -18,8 +18,7 @@ export class PollingConfig extends Schema.Class<PollingConfig>("PollingConfig")(
 	},
 ) {}
 
-export class WorkspaceConfig extends Schema.Class<WorkspaceConfig>(
-	"WorkspaceConfig",
+export class WorkspaceConfig extends Schema.Class<WorkspaceConfig>("WorkspaceConfig",
 )({
 	root: Schema.optional(Schema.String),
 }) {}
@@ -37,17 +36,16 @@ export class AgentConfig extends Schema.Class<AgentConfig>("AgentConfig")({
 	maxTurns: Schema.optional(Schema.Number),
 	maxRetryBackoffMs: Schema.optional(Schema.Number),
 	maxConcurrentAgentsByState: Schema.optional(
-		Schema.Record({ key: Schema.String, value: Schema.Number }),
+		Schema.Record(Schema.String, Schema.Number ),
 	),
 	model: Schema.optional(Schema.String),
 	researchAgent: Schema.optional(Schema.Boolean),
 	modelByState: Schema.optional(
-		Schema.Record({ key: Schema.String, value: Schema.String }),
+		Schema.Record(Schema.String, Schema.String ),
 	),
 }) {}
 
-export class AgentRuntimeConfig extends Schema.Class<AgentRuntimeConfig>(
-	"AgentRuntimeConfig",
+export class AgentRuntimeConfig extends Schema.Class<AgentRuntimeConfig>("AgentRuntimeConfig",
 )({
 	command: Schema.optional(Schema.String),
 	approvalPolicy: Schema.optional(Schema.String),
@@ -60,8 +58,7 @@ export class ServerConfig extends Schema.Class<ServerConfig>("ServerConfig")({
 	port: Schema.optional(Schema.Number),
 }) {}
 
-export class WorkflowConfig extends Schema.Class<WorkflowConfig>(
-	"WorkflowConfig",
+export class WorkflowConfig extends Schema.Class<WorkflowConfig>("WorkflowConfig",
 )({
 	tracker: Schema.optional(TrackerConfig),
 	polling: Schema.optional(PollingConfig),
@@ -72,8 +69,7 @@ export class WorkflowConfig extends Schema.Class<WorkflowConfig>(
 	server: Schema.optional(ServerConfig),
 }) {}
 
-export class WorkflowDefinition extends Schema.Class<WorkflowDefinition>(
-	"WorkflowDefinition",
+export class WorkflowDefinition extends Schema.Class<WorkflowDefinition>("WorkflowDefinition",
 )({
 	config: WorkflowConfig,
 	promptTemplate: Schema.String,

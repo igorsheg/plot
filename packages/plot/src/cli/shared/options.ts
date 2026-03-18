@@ -1,34 +1,34 @@
-import { Options } from "@effect/cli";
+import { Flag } from "effect/unstable/cli";
 import { LogLevel, Option } from "effect";
 
 export const cliCommandOptions = {
-  json: Options.boolean("json").pipe(
-    Options.withDescription("emit machine-readable ndjson on stdout"),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("emit machine-readable ndjson on stdout"),
   ),
-  verbose: Options.boolean("verbose").pipe(
-    Options.withDescription("enable non-error human output (quiet by default)"),
+  verbose: Flag.boolean("verbose").pipe(
+    Flag.withDescription("enable non-error human output (quiet by default)"),
   ),
-  port: Options.integer("port").pipe(
-    Options.withDescription("server port"),
-    Options.withDefault(3000),
+  port: Flag.integer("port").pipe(
+    Flag.withDescription("server port"),
+    Flag.withDefault(3000),
   ),
-  workflow: Options.text("workflow").pipe(
-    Options.withDescription("path to WORKFLOW.md"),
-    Options.withDefault("./WORKFLOW.md"),
+  workflow: Flag.string("workflow").pipe(
+    Flag.withDescription("path to WORKFLOW.md"),
+    Flag.withDefault("./WORKFLOW.md"),
   ),
-  tracker: Options.text("tracker").pipe(
-    Options.withDescription(
+  tracker: Flag.string("tracker").pipe(
+    Flag.withDescription(
       "tracker plugin: built-in name or package specifier (overrides WORKFLOW.md)",
     ),
-    Options.optional,
+    Flag.optional,
   ),
-  "github-repo": Options.text("github-repo").pipe(
-    Options.withDescription("github repo (owner/repo) for github tracker"),
-    Options.optional,
+  "github-repo": Flag.string("github-repo").pipe(
+    Flag.withDescription("github repo (owner/repo) for github tracker"),
+    Flag.optional,
   ),
-  "log-format": Options.choice("log-format", ["pretty", "json"] as const).pipe(
-    Options.withDescription("server log format"),
-    Options.withDefault("pretty"),
+  "log-format": Flag.choice("log-format", ["pretty", "json"] as const).pipe(
+    Flag.withDescription("server log format"),
+    Flag.withDefault("pretty"),
   ),
 } as const;
 

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export class IssueNotFound extends Schema.TaggedError<IssueNotFound>()(
+export class IssueNotFound extends Schema.TaggedErrorClass<IssueNotFound>()(
 	"IssueNotFound",
 	{
 		identifier: Schema.String,
@@ -8,19 +8,19 @@ export class IssueNotFound extends Schema.TaggedError<IssueNotFound>()(
 	},
 ) {}
 
-export class OrchestratorUnavailable extends Schema.TaggedError<OrchestratorUnavailable>()(
+export class OrchestratorUnavailable extends Schema.TaggedErrorClass<OrchestratorUnavailable>()(
 	"OrchestratorUnavailable",
 	{
 		message: Schema.String,
 	},
 ) {}
 
-export class TrackerAuthError extends Schema.TaggedError<TrackerAuthError>()(
+export class TrackerAuthError extends Schema.TaggedErrorClass<TrackerAuthError>()(
 	"TrackerAuthError",
 	{ message: Schema.String },
 ) {}
 
-export class TrackerRateLimitError extends Schema.TaggedError<TrackerRateLimitError>()(
+export class TrackerRateLimitError extends Schema.TaggedErrorClass<TrackerRateLimitError>()(
 	"TrackerRateLimitError",
 	{
 		message: Schema.String,
@@ -28,7 +28,7 @@ export class TrackerRateLimitError extends Schema.TaggedError<TrackerRateLimitEr
 	},
 ) {}
 
-export class TrackerNotFoundError extends Schema.TaggedError<TrackerNotFoundError>()(
+export class TrackerNotFoundError extends Schema.TaggedErrorClass<TrackerNotFoundError>()(
 	"TrackerNotFoundError",
 	{
 		message: Schema.String,
@@ -36,12 +36,12 @@ export class TrackerNotFoundError extends Schema.TaggedError<TrackerNotFoundErro
 	},
 ) {}
 
-export class TrackerNetworkError extends Schema.TaggedError<TrackerNetworkError>()(
+export class TrackerNetworkError extends Schema.TaggedErrorClass<TrackerNetworkError>()(
 	"TrackerNetworkError",
 	{ message: Schema.String },
 ) {}
 
-export class TrackerValidationError extends Schema.TaggedError<TrackerValidationError>()(
+export class TrackerValidationError extends Schema.TaggedErrorClass<TrackerValidationError>()(
 	"TrackerValidationError",
 	{
 		message: Schema.String,
@@ -56,8 +56,5 @@ export type TrackerError =
 	| TrackerNetworkError
 	| TrackerValidationError;
 
-export const PlotApiError = Schema.Union(
-	IssueNotFound,
-	OrchestratorUnavailable,
-);
+export const PlotApiError = Schema.Union([IssueNotFound, OrchestratorUnavailable]);
 export type PlotApiError = typeof PlotApiError.Type;

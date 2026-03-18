@@ -1,5 +1,5 @@
-import { Effect } from "effect";
-import { FileSystem, Command, CommandExecutor } from "@effect/platform";
+import { Effect, FileSystem, ServiceMap } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { WorkspaceError } from "../schemas/errors.js";
 import type { ResolvedConfig } from "./config-service.js";
 import { resolve } from "node:path";
@@ -7,12 +7,12 @@ import { resolve } from "node:path";
 const sanitizeWorkspaceKey = (identifier: string): string =>
 	identifier.replace(/[^A-Za-z0-9._-]/g, "_");
 
-export class WorkspaceManager extends Effect.Service<WorkspaceManager>()(
+export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()(
 	"WorkspaceManager",
 	{
 		effect: Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem;
-			const executor = yield* CommandExecutor.CommandExecutor;
+			const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
 			const runHook = (
 				script: string,
@@ -20,11 +20,9 @@ export class WorkspaceManager extends Effect.Service<WorkspaceManager>()(
 				timeoutMs: number,
 			): Effect.Effect<void, WorkspaceError> =>
 				Effect.scoped(
-					executor
-						.start(
-							Command.make("sh", "-lc", script).pipe(
-								Command.workingDirectory(cwd),
-							),
+					spawner
+						.spawn(
+							ChildProcess.make({ command: "sh", args: ["-lc", script], cwd }),
 						)
 						.pipe(
 							Effect.flatMap((process) => process.exitCode),

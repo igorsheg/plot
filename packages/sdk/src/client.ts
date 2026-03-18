@@ -1,5 +1,5 @@
-import { FetchHttpClient } from "@effect/platform";
-import { RpcClient, RpcSerialization } from "@effect/rpc";
+import { FetchHttpClient } from "effect/unstable/http";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type {
 	IssueDetail,

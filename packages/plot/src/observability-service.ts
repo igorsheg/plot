@@ -1,4 +1,4 @@
-import { Effect, DateTime, Stream } from "effect";
+import { Effect, DateTime, ServiceMap, Stream } from "effect";
 import {
 	IssueDetail,
 	IssueEventLog,
@@ -244,7 +244,7 @@ export const makeObservabilityApi = Effect.gen(function* () {
 	};
 });
 
-export class ObservabilityApi extends Effect.Service<ObservabilityApi>()(
+export class ObservabilityApi extends ServiceMap.Service<ObservabilityApi>()(
 	"ObservabilityApi",
 	{
 		effect: makeObservabilityApi,

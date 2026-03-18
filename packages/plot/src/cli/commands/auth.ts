@@ -1,19 +1,12 @@
-import { Args, Command } from "@effect/cli";
+import { Argument, Command } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
 import { loginWithPlotAuth, logoutWithPlotAuth, printPlotAuthStatus } from "../shared/auth.js";
 
 export const AuthCommand = Command.make(
   "auth",
   {
-    action: Args.choice(
-      [
-        ["status", "status"],
-        ["login", "login"],
-        ["logout", "logout"],
-      ] as const,
-      { name: "action" },
-    ),
-    provider: Args.text({ name: "provider" }).pipe(Args.optional),
+    action: Argument.choice("action", ["status", "login", "logout"] as const),
+    provider: Argument.string("provider").pipe(Argument.optional),
   },
   Effect.fnUntraced(function* ({ action, provider }) {
       const providerId = Option.getOrUndefined(provider);

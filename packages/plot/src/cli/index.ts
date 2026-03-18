@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
 
-import { Command, HelpDoc } from "@effect/cli";
-import * as Span from "@effect/cli/HelpDoc/Span";
-import { BunContext } from "@effect/platform-bun";
+import { Command, CliError as FrameworkCliError } from "effect/unstable/cli";
+import { BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
-import * as ValidationError from "@effect/cli/ValidationError";
 import { runServerMain } from "../index.js";
 import { CliError, createCliOutput, resolveRequestedOutputMode } from "./shared/io.js";
 import { normalizeCliProcessArgv, resolveCliArgs } from "./shared/runtime.js";
@@ -25,25 +23,14 @@ if (internalCommand === "__internal-server") {
   await runServerMain(process.env as Record<string, string | undefined>);
   await new Promise(() => {});
 } else {
-  const cli = createTuiCommand(CLI_NAME).pipe(
+  const command = createTuiCommand(CLI_NAME).pipe(
     Command.withSubcommands([ServeCommand, WebCommand, LoginCommand, LogoutCommand, AuthCommand]),
-    Command.run({
-      name: CLI_NAME,
-      version: VERSION,
-      summary: Span.text("orchestrate coding agents against an issue tracker"),
-      footer: HelpDoc.blocks([
-        HelpDoc.h1("EXAMPLES"),
-        HelpDoc.p(Span.code(CLI_NAME)),
-        HelpDoc.p(Span.code(`${CLI_NAME} serve --workflow ./WORKFLOW.md`)),
-        HelpDoc.p(Span.code(`${CLI_NAME} web --port 4000`)),
-      ]),
-    }),
   );
 
-  await cli(normalizeCliProcessArgv(process.argv)).pipe(
-    Effect.provide(BunContext.layer),
+  await Command.runWith(command, { version: VERSION })(normalizeCliProcessArgv(process.argv)).pipe(
+    Effect.provide(BunServices.layer),
     Effect.catchAll((error: unknown) => {
-      if (ValidationError.isValidationError(error)) {
+      if (FrameworkCliError.isCliError(error)) {
         return Effect.void;
       }
       if (isCliError(error)) {

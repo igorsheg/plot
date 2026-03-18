@@ -1,7 +1,6 @@
 import { Schema } from "effect";
 
-export const AgentEventType = Schema.Literal(
-  // pi-mono core lifecycle (AgentEvent.type)
+export const AgentEventType = Schema.Literals([
   "agent_start",
   "agent_end",
   "turn_start",
@@ -12,14 +11,11 @@ export const AgentEventType = Schema.Literal(
   "tool_execution_start",
   "tool_execution_update",
   "tool_execution_end",
-  // pi-mono session lifecycle (AgentSessionEvent.type)
   "auto_compaction_start",
   "auto_compaction_end",
   "auto_retry_start",
   "auto_retry_end",
-  // plot transport
-  "notification",
-);
+  "notification"]);
 export type AgentEventType = typeof AgentEventType.Type;
 
 export class AgentRuntimeEvent extends Schema.Class<AgentRuntimeEvent>("AgentRuntimeEvent")({
@@ -37,7 +33,6 @@ export class AgentRuntimeEvent extends Schema.Class<AgentRuntimeEvent>("AgentRun
       totalTokens: Schema.Number,
     }),
   ),
-  // tool lifecycle (present on tool_execution_* events)
   toolCallId: Schema.optional(Schema.String),
   toolName: Schema.optional(Schema.String),
   isError: Schema.optional(Schema.Boolean),

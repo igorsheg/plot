@@ -9,6 +9,7 @@ import {
 	Option,
 	PubSub,
 	Ref,
+	ServiceMap,
 	Stream,
 	SubscriptionRef,
 } from "effect";
@@ -34,7 +35,7 @@ import {
 	type OrchestratorState,
 } from "./domain/orchestrator-state.js";
 
-export class Orchestrator extends Effect.Service<Orchestrator>()(
+export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 	"Orchestrator",
 	{
 		effect: Effect.gen(function* () {

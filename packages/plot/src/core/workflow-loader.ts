@@ -1,10 +1,9 @@
-import { Duration, Effect, Ref, Schema } from "effect";
-import { FileSystem } from "@effect/platform";
+import { Duration, Effect, FileSystem, Ref, Schema, ServiceMap } from "effect";
 import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
 import { WorkflowFileNotFound, WorkflowParseError } from "../schemas/errors.js";
 import { extractFrontmatter } from "./workflow-parse.js";
 
-export class WorkflowLoader extends Effect.Service<WorkflowLoader>()(
+export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 	"WorkflowLoader",
 	{
 		effect: Effect.gen(function* () {

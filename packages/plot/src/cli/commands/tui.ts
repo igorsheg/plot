@@ -1,4 +1,4 @@
-import { Command } from "@effect/cli";
+import { Command } from "effect/unstable/cli";
 import { Effect, FiberRef } from "effect";
 import { runTui } from "@plot/tui";
 import { ensureJsonSupported, ensureTuiSupported } from "../shared/io.js";

@@ -1,17 +1,15 @@
-import { Context, Effect, Schema } from "effect";
+import { Effect, Schema, ServiceMap } from "effect";
 import type { Issue, IssueStateEntry } from "./issue.js";
 import type { TrackerError } from "../errors.js";
 
-export class WorkpadSection extends Schema.Class<WorkpadSection>(
-	"WorkpadSection",
+export class WorkpadSection extends Schema.Class<WorkpadSection>("WorkpadSection",
 )({
 	title: Schema.String,
 	body: Schema.String,
 	itemCount: Schema.Number,
 }) {}
 
-export class TrackerRunContext extends Schema.Class<TrackerRunContext>(
-	"TrackerRunContext",
+export class TrackerRunContext extends Schema.Class<TrackerRunContext>("TrackerRunContext",
 )({
 	raw: Schema.NullOr(Schema.String),
 	promptContext: Schema.NullOr(Schema.String),
@@ -39,10 +37,7 @@ export interface TrackerClientShape {
 	) => Effect.Effect<TrackerRunContext | null, TrackerError>;
 }
 
-export class TrackerClient extends Context.Tag("TrackerClient")<
-	TrackerClient,
-	TrackerClientShape
->() {}
+export class TrackerClient extends ServiceMap.Service<TrackerClient, TrackerClientShape>()("TrackerClient") {}
 
 export interface TrackerPluginConfig {
 	readonly kind: string;

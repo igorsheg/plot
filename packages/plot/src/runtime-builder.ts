@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BunContext } from "@effect/platform-bun";
+import { BunServices } from "@effect/platform-bun";
 import { DateTime, Effect, Layer, Logger, LogLevel, ManagedRuntime } from "effect";
 import {
 	type PlainTrackerClient,
@@ -338,7 +338,7 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 	return Layer.mergeAll(
 		makeTrackerLayer(resolvedPlugin),
 		PiAgentLive,
-		BunContext.layer,
+		BunServices.layer,
 		Layer.succeed(PluginContext, {
 			skillPaths: resolvedPlugin.skillPaths,
 		}),

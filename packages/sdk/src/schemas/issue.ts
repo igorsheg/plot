@@ -18,14 +18,13 @@ export class Issue extends Schema.Class<Issue>("Issue")({
 	labels: Schema.Array(Schema.String),
 	blockedBy: Schema.optional(Schema.Array(BlockerRef)),
 	metadata: Schema.optional(
-		Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+		Schema.Record(Schema.String, Schema.Unknown ),
 	),
 	createdAt: Schema.NullOr(Schema.DateTimeUtc),
 	updatedAt: Schema.NullOr(Schema.DateTimeUtc),
 }) {}
 
-export class IssueStateEntry extends Schema.Class<IssueStateEntry>(
-	"IssueStateEntry",
+export class IssueStateEntry extends Schema.Class<IssueStateEntry>("IssueStateEntry",
 )({
 	id: Schema.String,
 	state: Schema.String,

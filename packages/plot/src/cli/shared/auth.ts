@@ -1,6 +1,5 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import * as Doc from "@effect/printer/Doc";
 import type { OAuthLoginCallbacks, OAuthProviderInterface } from "@mariozechner/pi-ai";
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
 import { getPlotAuthPath } from "../../schemas/plot-agent-config.js";
@@ -143,15 +142,6 @@ export function printPlotAuthStatus() {
 }
 
 function writeBlock(title: string, lines: ReadonlyArray<string>) {
-  const doc = Doc.vsep([Doc.text(title), ...lines.map((line) => Doc.text(`  ${line}`))]);
-  process.stderr.write(`${renderDoc(doc)}\n`);
-}
-
-function renderDoc(doc: Doc.Doc<never>) {
-  return Doc.render(doc, {
-    style: "pretty",
-    options: {
-      lineWidth: Math.min(100, process.stderr.columns ?? 80),
-    },
-  });
+  const text = [title, ...lines.map((line) => `  ${line}`)].join("\n");
+  process.stderr.write(`${text}\n`);
 }
