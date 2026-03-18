@@ -38,7 +38,7 @@ import {
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
 import { Orchestrator } from "./core/index.js";
-import { PersistenceLayer } from "./persistence.js";
+
 import { WorkflowLoader } from "./core/workflow-loader.js";
 import { WorkspaceManager } from "./core/workspace-manager.js";
 import { PluginContext } from "./core/plugin-context.js";
@@ -376,7 +376,6 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		makeTrackerLayer(resolvedPlugin),
 		PiAgentLive,
 		platformDeps,
-		PersistenceLayer,
 		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
 		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
 		Layer.succeed(
