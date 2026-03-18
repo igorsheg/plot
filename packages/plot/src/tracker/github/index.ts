@@ -17,6 +17,59 @@ const execFileAsync = promisify(execFile);
 
 const normalizeState = (s: string): string => s.trim().toLowerCase();
 
+interface EtagCacheEntry {
+	readonly etag: string;
+	readonly stdout: string;
+}
+
+const etagCache = new Map<string, EtagCacheEntry>();
+
+function isGhApiGet(args: ReadonlyArray<string>): boolean {
+	if (args[0] !== "api") return false;
+	for (let i = 0; i < args.length; i++) {
+		if (
+			(args[i] === "-X" || args[i] === "--method") &&
+			args[i + 1]?.toUpperCase() !== "GET"
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function ghApiCacheKey(args: ReadonlyArray<string>): string {
+	return args.join("\0");
+}
+
+function parseIncludeResponse(raw: string): {
+	statusCode: number;
+	headers: Record<string, string>;
+	body: string;
+} {
+	const sep = raw.indexOf("\r\n\r\n");
+	const [headerPart, body] =
+		sep >= 0
+			? [raw.slice(0, sep), raw.slice(sep + 4)]
+			: (() => {
+					const s = raw.indexOf("\n\n");
+					return s >= 0 ? [raw.slice(0, s), raw.slice(s + 2)] : ["", raw];
+				})();
+	const lines = headerPart.split(/\r?\n/);
+	const statusLine = lines[0] ?? "";
+	const statusCode = Number.parseInt(statusLine.split(" ")[1] ?? "200", 10);
+	const headers: Record<string, string> = {};
+	for (let i = 1; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line) continue;
+		const colon = line.indexOf(":");
+		if (colon > 0) {
+			headers[line.slice(0, colon).toLowerCase()] =
+				line.slice(colon + 1).trim();
+		}
+	}
+	return { statusCode, headers, body };
+}
+
 interface GithubTrackerConfig {
 	kind: string;
 	githubRepo?: string;
@@ -85,6 +138,40 @@ function createGithubOps(config: {
 		args: ReadonlyArray<string>,
 		options?: { resourceId?: string },
 	): Promise<{ stdout: string; stderr: string }> => {
+		if (isGhApiGet(args)) {
+			const cacheKey = ghApiCacheKey(args);
+			const cached = etagCache.get(cacheKey);
+			const extraArgs: string[] = ["--include"];
+			if (cached) {
+				extraArgs.push("-H", `If-None-Match: ${cached.etag}`);
+			}
+			try {
+				const result = await execFileAsync(
+					"gh",
+					[...args, ...extraArgs] as string[],
+					{ maxBuffer: 50 * 1024 * 1024 },
+				);
+				const parsed = parseIncludeResponse(result.stdout);
+				if (parsed.statusCode === 304 && cached) {
+					return { stdout: cached.stdout, stderr: result.stderr };
+				}
+				const etag = parsed.headers["etag"];
+				if (etag) {
+					etagCache.set(cacheKey, { etag, stdout: parsed.body });
+				}
+				return { stdout: parsed.body, stderr: result.stderr };
+			} catch (error) {
+				const stderr =
+					typeof error === "object" && error !== null && "stderr" in error
+						? String((error as { stderr?: unknown }).stderr ?? "")
+						: "";
+				if (stderr.includes("304") && cached) {
+					return { stdout: cached.stdout, stderr: "" };
+				}
+				throw mapGhFailure(error, options?.resourceId);
+			}
+		}
+
 		try {
 			return await execFileAsync("gh", args as string[], {
 				maxBuffer: 50 * 1024 * 1024,

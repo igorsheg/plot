@@ -15,8 +15,7 @@ export const AuthCommand = Command.make(
     ),
     provider: Args.text({ name: "provider" }).pipe(Args.optional),
   },
-  ({ action, provider }) =>
-    Effect.gen(function* () {
+  Effect.fnUntraced(function* ({ action, provider }) {
       const providerId = Option.getOrUndefined(provider);
       switch (action) {
         case "status":

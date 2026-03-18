@@ -40,7 +40,7 @@ export interface IssueArtifact {
 	readonly lastError: string | null;
 }
 
-export type RetryReason = "continuation" | "failure" | "backpressure";
+export type RetryReason = "continuation" | "failure" | "stall" | "backpressure";
 
 export interface RetryEntry {
 	readonly issueId: string;
@@ -97,6 +97,7 @@ export const initialState: OrchestratorState = {
 	retriesScheduledByReason: {
 		continuation: 0,
 		failure: 0,
+		stall: 0,
 		backpressure: 0,
 	},
 	workerStopsByReason: {

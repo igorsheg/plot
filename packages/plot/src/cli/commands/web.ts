@@ -4,8 +4,8 @@ import { createCliOutput, ensureJsonSupported } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer, waitForServer } from "../shared/server-process.js";
 
-export const WebCommand = Command.make("web", cliCommandOptions, (args) =>
-  Effect.gen(function* () {
+export const WebCommand = Command.make("web", cliCommandOptions,
+  Effect.fnUntraced(function* (args) {
     ensureJsonSupported(args.json, "web");
     const output = createCliOutput(args);
     const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);

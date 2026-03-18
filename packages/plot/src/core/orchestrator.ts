@@ -79,49 +79,50 @@ export class Orchestrator extends Effect.Service<Orchestrator>()(
 				Effect.map(Option.getOrElse(() => 0)),
 			);
 
-			const enqueueCommand = (command: OrchestratorCommand) =>
-				Effect.gen(function* () {
-					const queueSize = yield* commandMailbox.size.pipe(
-						Effect.map(Option.getOrElse(() => 0)),
+			const enqueueCommand = Effect.fnUntraced(function* (
+				command: OrchestratorCommand,
+			) {
+				const queueSize = yield* commandMailbox.size.pipe(
+					Effect.map(Option.getOrElse(() => 0)),
+				);
+				yield* noteCommandQueueSize(queueSize);
+				if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
+					yield* incrementCommandQueuePressure(queueSize);
+					yield* Effect.logWarning("command_queue_pressure").pipe(
+						Effect.annotateLogs({
+							queue_size: String(queueSize),
+							queue_capacity: String(COMMAND_QUEUE_CAPACITY),
+							command_type: command._tag,
+						}),
 					);
-					yield* noteCommandQueueSize(queueSize);
-					if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
-						yield* incrementCommandQueuePressure(queueSize);
-						yield* Effect.logWarning("command_queue_pressure").pipe(
-							Effect.annotateLogs({
-								queue_size: String(queueSize),
-								queue_capacity: String(COMMAND_QUEUE_CAPACITY),
-								command_type: command._tag,
-							}),
-						);
-					}
-					yield* commandMailbox.offer(command);
-				}).pipe(Effect.asVoid);
+				}
+				yield* commandMailbox.offer(command);
+			});
 
-			const requestTick = (
+			const requestTick = Effect.fnUntraced(function* (
 				reason: string,
 				options?: { readonly coalesce?: boolean },
-			) =>
-				Effect.gen(function* () {
-					if (options?.coalesce) {
-						const shouldEnqueue = yield* Ref.modify(
-							pendingPollTickRef,
-							(pending) => (pending ? [false, pending] : [true, true]),
-						);
-						if (!shouldEnqueue) return;
-					}
-					yield* enqueueCommand({
-						_tag: "tick",
-						reason,
-						coalesced: options?.coalesce ?? false,
-					});
+			) {
+				if (options?.coalesce) {
+					const shouldEnqueue = yield* Ref.modify(
+						pendingPollTickRef,
+						(pending) => (pending ? [false, pending] : [true, true]),
+					);
+					if (!shouldEnqueue) return;
+				}
+				yield* enqueueCommand({
+					_tag: "tick",
+					reason,
+					coalesced: options?.coalesce ?? false,
 				});
+			});
 
-			const consumeEvent = (event: AgentRuntimeEvent) =>
-				Effect.gen(function* () {
-					const now = yield* Clock.currentTimeMillis;
-					yield* updateState((s) => consumeRuntimeEvent(s, event, now));
-				});
+			const consumeEvent = Effect.fnUntraced(function* (
+				event: AgentRuntimeEvent,
+			) {
+				const now = yield* Clock.currentTimeMillis;
+				yield* updateState((s) => consumeRuntimeEvent(s, event, now));
+			});
 
 			const dispatchRuntime = makeDispatchRuntime({
 				stateRef,
@@ -151,8 +152,9 @@ export class Orchestrator extends Effect.Service<Orchestrator>()(
 
 			const handleCommand = (command: OrchestratorCommand) =>
 				Match.value(command).pipe(
-					Match.discriminator("_tag")("tick", (cmd) =>
-						Effect.gen(function* () {
+					Match.discriminator("_tag")(
+						"tick",
+						Effect.fnUntraced(function* (cmd) {
 							if (cmd.coalesced) {
 								yield* Ref.set(pendingPollTickRef, false);
 							}
@@ -223,37 +225,36 @@ export class Orchestrator extends Effect.Service<Orchestrator>()(
 				yield* Ref.set(configRef, resolved);
 			});
 
-			const start = (workflowPath: string) =>
-				Effect.gen(function* () {
-					yield* workflowLoader
-						.load(workflowPath)
-						.pipe(Effect.catchAll((e) => Effect.die(e)));
+			const start = Effect.fnUntraced(function* (workflowPath: string) {
+				yield* workflowLoader
+					.load(workflowPath)
+					.pipe(Effect.catchAll((e) => Effect.die(e)));
 
-					yield* syncConfig;
+				yield* syncConfig;
 
-					const config = yield* getConfig;
+				const config = yield* getConfig;
 
-					yield* Effect.logInfo("orchestrator_started").pipe(
-						Effect.annotateLogs({ workflow: workflowPath }),
-					);
+				yield* Effect.logInfo("orchestrator_started").pipe(
+					Effect.annotateLogs({ workflow: workflowPath }),
+				);
 
-					if (config) {
-						yield* tickRuntime.startupTerminalCleanup(config);
-					}
+				if (config) {
+					yield* tickRuntime.startupTerminalCleanup(config);
+				}
 
-					yield* workflowLoader.startWatching(workflowPath);
+				yield* workflowLoader.startWatching(workflowPath);
 
-					const configWatchLoop = syncConfig.pipe(
-						Effect.delay(Duration.seconds(5)),
-						Effect.forever,
-						Effect.forkScoped,
-					);
-					yield* configWatchLoop;
+				const configWatchLoop = syncConfig.pipe(
+					Effect.delay(Duration.seconds(5)),
+					Effect.forever,
+					Effect.forkScoped,
+				);
+				yield* configWatchLoop;
 
-					yield* Effect.forkScoped(commandLoop);
-					yield* Effect.forkScoped(pollLoop);
-					yield* requestTick("startup");
-				});
+				yield* Effect.forkScoped(commandLoop);
+				yield* Effect.forkScoped(pollLoop);
+				yield* requestTick("startup");
+			});
 
 			const tick = requestTick("manual");
 

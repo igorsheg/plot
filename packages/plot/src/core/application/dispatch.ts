@@ -369,7 +369,8 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				);
 			} else {
 				const error = Exit.isFailure(exit) ? String(exit.cause) : "unknown";
-				yield* Effect.logError("agent_failed").pipe(
+				const isStall = error.includes("runner_stalled");
+				yield* Effect.logError(isStall ? "agent_stalled" : "agent_failed").pipe(
 					Effect.annotateLogs({ issue_id: issueId, identifier, error }),
 				);
 				const nextAttempt = (attempt ?? 0) + 1;
@@ -378,8 +379,10 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					identifier,
 					nextAttempt,
 					retryDelay(nextAttempt, config.maxRetryBackoffMs),
-					error,
-					"failure",
+					isStall
+						? `Previous attempt stalled (no output). The task may need to be broken into smaller pieces. Original error: ${error}`
+						: error,
+					isStall ? "stall" : "failure",
 				);
 			}
 		});

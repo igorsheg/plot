@@ -4,8 +4,8 @@ import { createCliOutput } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer } from "../shared/server-process.js";
 
-export const ServeCommand = Command.make("serve", cliCommandOptions, (args) =>
-  Effect.gen(function* () {
+export const ServeCommand = Command.make("serve", cliCommandOptions,
+  Effect.fnUntraced(function* (args) {
     const output = createCliOutput(args);
     const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
     const handle = startServer(toServerOptions(args, logLevel));

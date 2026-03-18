@@ -6,8 +6,8 @@ import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { createTuiRuntimeHandle } from "../shared/tui-runtime.js";
 
 export function createTuiCommand(name: string) {
-  return Command.make(name, cliCommandOptions, (args) =>
-    Effect.gen(function* () {
+  return Command.make(name, cliCommandOptions,
+    Effect.fnUntraced(function* (args) {
       ensureJsonSupported(args.json, "tui");
       ensureTuiSupported();
       const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);

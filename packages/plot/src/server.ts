@@ -62,8 +62,8 @@ export function makeServer(
 		});
 	};
 
-	const SseRouteLive = HttpRouter.Default.use((router) =>
-		Effect.gen(function* () {
+	const SseRouteLive = HttpRouter.Default.use(
+		Effect.fnUntraced(function* (router) {
 			const api = yield* ObservabilityApi;
 			yield* router.get(
 				"/rpc/events",
@@ -102,8 +102,8 @@ export function makeServer(
 		".woff2": "font/woff2",
 	};
 
-	const StaticLive = HttpRouter.Default.use((router) =>
-		Effect.gen(function* () {
+	const StaticLive = HttpRouter.Default.use(
+		Effect.fnUntraced(function* (router) {
 			const fs = yield* FileSystem.FileSystem;
 
 			yield* router.get(

@@ -163,8 +163,7 @@ export const makeObservabilityApi = Effect.gen(function* () {
 		orchestrator.getState.pipe(Effect.map(mapRuntimeSnapshot)),
 	);
 
-	const getIssue = (identifier: string) =>
-		Effect.gen(function* () {
+	const getIssue = Effect.fnUntraced(function* (identifier: string) {
 			const state = yield* withOrchestratorAvailability(orchestrator.getState);
 			const running = [...state.running.values()].find(
 				(r) => r.issueIdentifier === identifier,
@@ -205,8 +204,7 @@ export const makeObservabilityApi = Effect.gen(function* () {
 			});
 		});
 
-	const getEventLog = (identifier: string) =>
-		Effect.gen(function* () {
+	const getEventLog = Effect.fnUntraced(function* (identifier: string) {
 			const state = yield* withOrchestratorAvailability(orchestrator.getState);
 			const log = [...state.eventLogs.values()].find(
 				(l) => l.issueIdentifier === identifier,

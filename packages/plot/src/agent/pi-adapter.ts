@@ -440,8 +440,7 @@ const createEventStream = (
 
 			// --- abort helper (idempotent, ref-guarded) ---
 			const abortingRef = yield* Ref.make(false);
-			const abortSession = (reason: string) =>
-				Effect.gen(function* () {
+			const abortSession = Effect.fnUntraced(function* (reason: string) {
 					const alreadyAborting = yield* Ref.getAndSet(abortingRef, true);
 					if (alreadyAborting) return;
 					yield* Effect.logInfo("agent_abort").pipe(
@@ -458,8 +457,7 @@ const createEventStream = (
 
 			// --- bridge: thin callback→stream ---
 			const raw = Stream.asyncPush<AgentSessionEvent, AgentRunnerError>(
-				(emit) =>
-					Effect.gen(function* () {
+				Effect.fnUntraced(function* (emit) {
 						const unsub = session.subscribe((event: AgentSessionEvent) => {
 							emit.single(event);
 							if (event.type === "agent_end") emit.end();
@@ -488,10 +486,18 @@ const createEventStream = (
 					}),
 			);
 
-			// --- transform: pure mapping + control side-effects ---
+			// --- transform: stall detection + pure mapping + control side-effects ---
 			return raw.pipe(
-				Stream.mapAccumEffect(initialMapperState, (acc, event) =>
-					Effect.gen(function* () {
+				Stream.timeoutFail(
+					() =>
+						new AgentRunnerError({
+							code: "runner_stalled",
+							message: `Agent produced no output for ${config.stallTimeoutMs}ms`,
+						}),
+					`${config.stallTimeoutMs} millis`,
+				),
+				Stream.mapAccumEffect(initialMapperState,
+					Effect.fnUntraced(function* (acc, event) {
 						const [nextAcc, events] = mapSessionEvent(
 							acc,
 							event,
