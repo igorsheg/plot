@@ -117,7 +117,6 @@ export interface PlainTrackerClient {
 
 export interface TrackerPluginDefinition<TConfig = TrackerPluginConfig> {
 	readonly name: string;
-	readonly skillPaths?: ReadonlyArray<string>;
 	readonly validateConfig?: (
 		raw: TrackerPluginConfig,
 	) => TConfig | Promise<TConfig>;

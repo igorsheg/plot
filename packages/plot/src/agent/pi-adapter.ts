@@ -64,11 +64,9 @@ const PlotAgentDir = Config.string("CODING_AGENT_DIR").pipe(
 function resolvePlotSkillPaths(
 	workspacePath: string,
 	coreSkillsDir: string,
-	pluginSkillPaths: ReadonlyArray<string>,
 ) {
 	return [
 		coreSkillsDir,
-		...pluginSkillPaths,
 		...repoSkillDirectories
 			.map((relativePath) => join(workspacePath, relativePath))
 			.filter((path) => existsSync(path)),
@@ -389,13 +387,11 @@ const createEventStream = (
 			const skillPaths = resolvePlotSkillPaths(
 				config.workspacePath,
 				plotSkillsDir,
-				config.pluginSkillPaths,
 			);
 			yield* Effect.logDebug("agent_skill_paths").pipe(
 				Effect.annotateLogs({
 					issue_id: config.issueId,
 					skill_paths: JSON.stringify(skillPaths),
-					plugin_skill_paths: JSON.stringify(config.pluginSkillPaths),
 					core_skills_dir: plotSkillsDir,
 					workspace: config.workspacePath,
 				}),

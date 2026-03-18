@@ -1,15 +1,16 @@
 ---
 tracker:
-  kind: github
+  kind: beads
   dispatch_states:
-    - plot:todo
-    - plot:in-progress
+    - open
+    - in_progress
     - plot:rework
     - plot:merging
   parked_states:
-    - plot:human-review
+    - blocked
+    - deferred
   terminal_states:
-    - plot:done
+    - closed
 polling:
   interval_ms: 15000
 workspace:
@@ -42,7 +43,7 @@ this section is workflow policy. plot compiles it into the stable system prompt.
 3. only stop early for a true blocker (missing required auth/permissions/secrets). if blocked, record it in the workpad and move the issue according to workflow.
 4. final message must report completed actions and blockers only. do not include "next steps for user".
 5. work only in the provided repository copy. do not touch any other path.
-6. work only on the assigned issue. if you discover unrelated problems, file a separate issue via `gh issue create --repo "$GITHUB_REPO"` instead of expanding scope.
+6. work only on the assigned issue. if you discover unrelated problems, file a separate issue via `bd create "discovered: <title>" -t task -p 2 -d "<description>"` instead of expanding scope.
 7. reproduce first: confirm the current behavior before changing code.
 8. before editing, identify the exact files to change and the verification commands you will run.
 9. after each meaningful edit, run the narrowest relevant check before broader verification.
@@ -52,59 +53,69 @@ this section is workflow policy. plot compiles it into the stable system prompt.
 
 ## state model
 
-github uses a label-based state model. all states are labels prefixed with `plot:`.
+beads uses a hybrid model: native status for primary lifecycle, labels for orchestrator sub-states. the orchestrator checks labels first — if a configured label exists, it becomes the routing state. otherwise the native status is the state.
 
-| label             | meaning                    | agent action                                          |
-| ----------------- | -------------------------- | ----------------------------------------------------- |
-| plot:todo         | queued for work            | move to plot:in-progress, start execution             |
-| plot:in-progress  | implementation underway    | implement, verify, open PR, move to plot:human-review |
-| plot:human-review | PR open, waiting on human  | do nothing, wait                                      |
-| plot:rework       | reviewer requested changes | read feedback, fix, move to plot:human-review         |
-| plot:merging      | human approved             | merge PR, move to plot:done                           |
-| plot:done         | terminal                   | stop                                                  |
+| source | state          | meaning                     | agent action                                          |
+| ------ | -------------- | --------------------------- | ----------------------------------------------------- |
+| status | `open`         | queued for work             | move to `in_progress`, start implementation           |
+| status | `in_progress`  | implementation underway     | continue implementation, push PR, move to `blocked`   |
+| status | `blocked`      | waiting on human review     | do nothing, wait                                      |
+| status | `deferred`     | intentionally postponed     | do nothing, wait                                      |
+| label  | `plot:rework`  | reviewer requested changes  | address feedback, remove label, move to `blocked`     |
+| label  | `plot:merging` | human approved PR           | merge PR, remove label, close issue                   |
+| status | `closed`       | terminal                    | stop                                                  |
 
-transition by removing the previous `plot:*` label and adding the new one:
-
-```bash
-# todo -> in-progress
-gh issue edit <number> --repo "$GITHUB_REPO" --remove-label "plot:todo" --add-label "plot:in-progress"
-
-# in-progress -> human-review
-gh issue edit <number> --repo "$GITHUB_REPO" --remove-label "plot:in-progress" --add-label "plot:human-review"
-
-# rework -> human-review
-gh issue edit <number> --repo "$GITHUB_REPO" --remove-label "plot:rework" --add-label "plot:human-review"
-
-# merging -> done, then close
-gh issue edit <number> --repo "$GITHUB_REPO" --remove-label "plot:merging" --add-label "plot:done"
-gh issue close <number> --repo "$GITHUB_REPO"
-```
-
-to reopen a terminal issue:
+state transitions via `bd`:
 
 ```bash
-gh issue reopen <number> --repo "$GITHUB_REPO"
-gh issue edit <number> --repo "$GITHUB_REPO" --remove-label "plot:done" --add-label "plot:rework"
+# open → in_progress
+bd update <id> --status in_progress
+
+# in_progress → blocked (PR ready for review)
+bd update <id> --status blocked
+
+# plot:rework → blocked (rework complete)
+bd label remove <id> plot:rework
+bd update <id> --status blocked
+
+# plot:merging → closed (PR merged)
+bd label remove <id> plot:merging
+bd close <id> -r "completed"
+
+# reopen closed → in_progress
+bd reopen <id> -r "needs rework"
 ```
 
 ## workpad contract
 
-keep exactly one `## Plot Workpad` comment per issue. on continuation runs, update the existing comment in place — do not create duplicates.
+beads comments are append-only — no edit-in-place. the current workpad is the latest comment whose body starts with `## Plot Workpad`. on continuation runs, add a new full workpad comment rather than trying to edit.
 
 ### find or create
 
 ```bash
-# find existing workpad comment id
-gh api repos/$GITHUB_REPO/issues/<number>/comments \
-  --jq '.[] | select(.body | startswith("## Plot Workpad")) | .id' | head -1
+# list all comments (scan for latest ## Plot Workpad)
+bd comments <id> --json
 
-# create new workpad (only if none exists)
-gh api repos/$GITHUB_REPO/issues/<number>/comments -X POST -f body='## Plot Workpad
-...workpad body...'
+# create workpad (write to temp file, then add as comment)
+cat > /tmp/workpad.md <<'WORKPAD'
+## Plot Workpad
+...workpad body...
+WORKPAD
 
-# update existing workpad in place
-gh api repos/$GITHUB_REPO/issues/comments/<id> -X PATCH -f body='## Plot Workpad
-...full updated workpad body...'
+bd comments add <id> -f /tmp/workpad.md
+```
+
+### update workpad
+
+add a new complete workpad comment. do not try to edit an old one:
+
+```bash
+cat > /tmp/workpad.md <<'WORKPAD'
+## Plot Workpad
+...full updated workpad body...
+WORKPAD
+
+bd comments add <id> -f /tmp/workpad.md
 ```
 
 ### required sections
@@ -117,11 +128,10 @@ gh api repos/$GITHUB_REPO/issues/comments/<id> -X PATCH -f body='## Plot Workpad
 
 ### rules
 
-- exactly one workpad comment per issue, identified by `## Plot Workpad` header
-- reuse existing comment on continuation runs — do not create duplicates
-- when a checklist item is done, mark it done immediately
-- keep `Latest Attempt Summary` short and factual
-- if a retry changed the plan, update the workpad before large edits
+- treat the latest `## Plot Workpad` comment as canonical
+- never rely on older workpad comments once a newer one exists
+- update the workpad after every meaningful milestone
+- never leave completed items unchecked
 - keep the full workpad body in each update so the latest comment is self-contained
 - include workspace id and short sha at top: `<workspace-id>@<short-sha>`
 
@@ -159,11 +169,29 @@ gh api repos/$GITHUB_REPO/issues/comments/<id> -X PATCH -f body='## Plot Workpad
 ## issue queries
 
 ```bash
-# view issue details
-gh issue view <number> --repo "$GITHUB_REPO" --json title,body,state,labels,comments
+# full issue details
+bd show <id> --json
 
-# list open issues by label
-gh issue list --repo "$GITHUB_REPO" --label "plot:in-progress" --state open
+# all comments (for workpad lookup)
+bd comments <id> --json
+
+# list by status
+bd list --status open --json
+bd list --status in_progress --json
+bd list --status blocked --json
+
+# list by label
+bd list --label plot:rework --json
+bd list --label plot:merging --json
+
+# ready work
+bd ready --json
+
+# complex filters
+bd query "status=open AND priority<=1" --json
+
+# text search
+bd search "keyword" --json
 ```
 
 ## skills
@@ -178,29 +206,31 @@ load each skill when you reach its step.
 
 ## status map
 
-| state             | agent action                                           |
-| ----------------- | ------------------------------------------------------ |
-| plot:todo         | move to plot:in-progress, then run implementation flow |
-| plot:in-progress  | continue implementation flow                           |
-| plot:human-review | do nothing — wait for human to review                  |
-| plot:rework       | run rework flow                                        |
-| plot:merging      | run `plot-land` skill                                  |
-| plot:done         | do nothing, shut down                                  |
+| state          | agent action                                        |
+| -------------- | --------------------------------------------------- |
+| open           | move to in_progress, then run implementation flow   |
+| in_progress    | continue implementation flow                        |
+| blocked        | do nothing — wait for human to review               |
+| deferred       | do nothing — wait                                   |
+| plot:rework    | run rework flow                                     |
+| plot:merging   | run `plot-land` skill                               |
+| closed         | do nothing, shut down                               |
 
 ## step 0: route by current state
 
-1. determine the current issue state from its `plot:*` labels.
+1. determine the current issue state (check labels first, then native status).
 2. route to the matching flow:
-   - `plot:todo` → transition to `plot:in-progress`, then implementation flow
-   - `plot:in-progress` → continue implementation flow
-   - `plot:human-review` → do nothing, stop
+   - `open` → transition to `in_progress`, then implementation flow
+   - `in_progress` → continue implementation flow
+   - `blocked` → do nothing, stop
+   - `deferred` → do nothing, stop
    - `plot:rework` → rework flow
    - `plot:merging` → load `plot-land` skill, execute merge flow
-   - `plot:done` → do nothing, stop
+   - `closed` → do nothing, stop
 3. check whether a PR already exists for the current branch.
    - if branch PR is `CLOSED` or `MERGED`, create a fresh branch from `origin/main` and restart.
 
-## implementation flow (plot:todo / plot:in-progress)
+## implementation flow (open / in_progress)
 
 1. find or create the workpad comment (see workpad contract above).
 2. write a hierarchical plan with acceptance criteria in the workpad.
@@ -211,11 +241,11 @@ load each skill when you reach its step.
 7. use `plot-commit` to create well-formed commits.
 8. use `plot-push-pr` to push and create/update the PR. ensure PR body includes `Resolves #<number>`.
 9. update workpad with final checklist status and validation notes.
-10. transition issue to `plot:human-review`.
+10. transition issue to `blocked` (waiting for human review).
 
 ## rework flow (plot:rework)
 
-1. load the workpad comment.
+1. load the workpad comment (latest `## Plot Workpad` from `bd comments <id> --json`).
 2. read all PR feedback (load `plot-land` skill for the review sweep protocol):
    - top-level PR comments
    - inline review comments
@@ -226,9 +256,9 @@ load each skill when you reach its step.
 6. use `plot-commit` to commit fixes.
 7. use `plot-push-pr` to push updates.
 8. update workpad with feedback resolution status.
-9. transition: remove `plot:rework`, add `plot:human-review`.
+9. transition: remove `plot:rework` label, move to `blocked`.
 
-## completion bar (before human-review)
+## completion bar (before blocked)
 
 - plan checklist is fully complete in workpad
 - acceptance criteria satisfied
@@ -242,9 +272,9 @@ load each skill when you reach its step.
 - if branch PR is closed/merged, do not reuse — fresh branch from `origin/main`
 - do not edit the issue body for planning — use workpad comment only
 - one current workpad per issue (latest `## Plot Workpad` comment)
-- do not move to `plot:human-review` unless completion bar is satisfied
-- while `plot:human-review`, do not make changes
-- if `plot:done`, do nothing and shut down
+- do not move to `blocked` unless completion bar is satisfied
+- while `blocked`, do not make changes
+- if `closed`, do nothing and shut down
 - prefer targeted reads/searches over broad dumps — avoid commands that produce huge output
 - prefer minimal diffs; do not refactor or clean up code beyond what the issue requires
 - if uncertain about a change, inspect more before editing

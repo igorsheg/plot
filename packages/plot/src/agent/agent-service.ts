@@ -8,7 +8,6 @@ export interface AgentRunConfig {
 	readonly workspacePath: string;
 	readonly issueId: string;
 	readonly issueIdentifier: string;
-	readonly pluginSkillPaths: ReadonlyArray<string>;
 	readonly maxTurns: number;
 	readonly turnTimeoutMs: number;
 	readonly stallTimeoutMs: number;

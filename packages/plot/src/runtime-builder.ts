@@ -1,6 +1,3 @@
-import { existsSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { BunServices } from "@effect/platform-bun";
 import {
 	DateTime,
@@ -78,7 +75,6 @@ export function makeLoggingLayer(config: ServerConfig) {
 export interface ResolvedPlugin {
 	readonly name: string;
 	readonly trackerLayer: Layer.Layer<TrackerClient>;
-	readonly skillPaths: ReadonlyArray<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,29 +268,9 @@ function adaptTrackerClient(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyPluginDefinition = TrackerPluginDefinition<any>;
 
-const builtinTrackers: Record<
-	string,
-	{
-		readonly definition: AnyPluginDefinition;
-		readonly moduleDir: string;
-	}
-> = {
-	beads: {
-		definition: beadsTrackerPlugin,
-		moduleDir: join(
-			dirname(fileURLToPath(import.meta.url)),
-			"tracker",
-			"beads",
-		),
-	},
-	github: {
-		definition: githubTrackerPlugin,
-		moduleDir: join(
-			dirname(fileURLToPath(import.meta.url)),
-			"tracker",
-			"github",
-		),
-	},
+const builtinTrackers: Record<string, AnyPluginDefinition> = {
+	beads: beadsTrackerPlugin,
+	github: githubTrackerPlugin,
 };
 
 function buildPluginConfig(resolved: ResolvedConfig) {
@@ -311,20 +287,6 @@ function syncGithubRepoEnv(resolved: ResolvedConfig) {
 		return;
 	}
 	delete process.env["GITHUB_REPO"];
-}
-
-function discoverSkillPaths(moduleDir: string): ReadonlyArray<string> {
-	const skillsDir = join(moduleDir, "skills");
-	if (!existsSync(skillsDir)) return [];
-
-	try {
-		return readdirSync(skillsDir, { withFileTypes: true })
-			.filter((entry) => entry.isDirectory())
-			.map((entry) => join(skillsDir, entry.name))
-			.filter((dir) => existsSync(join(dir, "SKILL.md")));
-	} catch {
-		return [];
-	}
 }
 
 function resolveDefinitionConfig(
@@ -344,11 +306,7 @@ function resolveDefinitionConfig(
 function makeResolvedPlugin(
 	definition: AnyPluginDefinition,
 	config: unknown,
-	moduleDir?: string,
 ): Effect.Effect<ResolvedPlugin> {
-	const autoSkillPaths = moduleDir ? discoverSkillPaths(moduleDir) : [];
-	const explicitSkillPaths = definition.skillPaths ?? [];
-
 	return Effect.tryPromise({
 		try: () => Promise.resolve(definition.factory(config)),
 		catch: (error) =>
@@ -360,7 +318,6 @@ function makeResolvedPlugin(
 		Effect.map((plain) => ({
 			name: definition.name,
 			trackerLayer: adaptTrackerClient(plain),
-			skillPaths: [...new Set([...autoSkillPaths, ...explicitSkillPaths])],
 		})),
 	);
 }
@@ -373,9 +330,9 @@ export function resolvePlugin(
 	const builtin = builtinTrackers[resolved.trackerKind];
 
 	if (builtin) {
-		return resolveDefinitionConfig(builtin.definition, rawConfig).pipe(
+		return resolveDefinitionConfig(builtin, rawConfig).pipe(
 			Effect.flatMap((config) =>
-				makeResolvedPlugin(builtin.definition, config, builtin.moduleDir),
+				makeResolvedPlugin(builtin, config),
 			),
 		);
 	}
@@ -404,12 +361,7 @@ export function resolvePlugin(
 		}
 
 		const config = yield* resolveDefinitionConfig(definition, rawConfig);
-		const moduleDir =
-			kind.startsWith("./") || kind.startsWith("../") || kind.startsWith("/")
-				? dirname(resolve(kind))
-				: undefined;
-
-		return yield* makeResolvedPlugin(definition, config, moduleDir);
+		return yield* makeResolvedPlugin(definition, config);
 	});
 }
 
@@ -429,9 +381,7 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
 		Layer.succeed(
 			PluginContext,
-			PluginContext.of({
-				skillPaths: resolvedPlugin.skillPaths,
-			}),
+			PluginContext.of({}),
 		),
 	);
 }

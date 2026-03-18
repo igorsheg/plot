@@ -94,7 +94,6 @@ const makeDeps = async (
 		enqueueCommand: overrides?.enqueueCommand ?? (() => Effect.void),
 		getConfig: overrides?.getConfig ?? Effect.succeed(makeConfig()),
 		updateState: (fn) => Ref.update(stateRef, fn),
-		pluginSkillPaths: [],
 	};
 
 	return { stateRef, runtime: makeDispatchRuntime(deps) };

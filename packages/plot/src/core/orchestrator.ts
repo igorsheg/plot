@@ -26,7 +26,6 @@ import {
 } from "./application/orchestrator-command.js";
 import { makeDispatchRuntime } from "./application/dispatch.js";
 import { makeTickRuntime } from "./application/reconcile.js";
-import { PluginContext } from "./plugin-context.js";
 import {
 	incrementCommandQueuePressureInState,
 	initialState,
@@ -51,7 +50,6 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			const agentService = yield* AgentService;
 			const workspaceManager = yield* WorkspaceManager;
 			const eventPubSub = yield* PubSub.bounded<AgentRuntimeEvent>(512);
-			const pluginContext = yield* PluginContext;
 			const commandMailbox = yield* Queue.bounded<OrchestratorCommand>(
 				COMMAND_QUEUE_CAPACITY,
 			);
@@ -132,7 +130,6 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 				enqueueCommand,
 				getConfig,
 				updateState,
-				pluginSkillPaths: pluginContext.skillPaths,
 			});
 
 			const tickRuntime = makeTickRuntime({

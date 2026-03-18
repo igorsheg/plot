@@ -82,7 +82,6 @@ export interface DispatchDeps {
 	readonly updateState: (
 		fn: (s: OrchestratorState) => OrchestratorState,
 	) => Effect.Effect<void>;
-	readonly pluginSkillPaths: ReadonlyArray<string>;
 }
 
 
@@ -107,7 +106,6 @@ const runResearchPhase = Effect.fnUntraced(function* (
 			workspacePath,
 			issueId: issue.id,
 			issueIdentifier: issue.identifier,
-			pluginSkillPaths: deps.pluginSkillPaths,
 			maxTurns: Math.min(config.maxTurns, 10),
 			turnTimeoutMs: config.turnTimeoutMs,
 			stallTimeoutMs: config.stallTimeoutMs,
@@ -455,8 +453,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				workspacePath: ws.path,
 				issueId: issue.id,
 				issueIdentifier: issue.identifier,
-				pluginSkillPaths: deps.pluginSkillPaths,
-				maxTurns: config.maxTurns,
+					maxTurns: config.maxTurns,
 				turnTimeoutMs: config.turnTimeoutMs,
 				stallTimeoutMs: config.stallTimeoutMs,
 				modelSpec: config.resolveModelSpec(issue.state, issue.labels),
