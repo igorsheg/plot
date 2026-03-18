@@ -20,6 +20,7 @@ hooks:
   before_remove: 'WS=$PWD && cd ../.. && git worktree remove "$WS" --force || true'
   timeout_ms: 120000
 agent:
+  research_agent: false
   model: anthropic/claude-sonnet-4-20250514
   model_by_state:
     plot:merging: anthropic/claude-sonnet-4-20250514

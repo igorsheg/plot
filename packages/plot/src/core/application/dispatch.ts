@@ -11,7 +11,7 @@ import {
 	Stream,
 } from "effect";
 import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
-import { compilePrompt } from "../prompt-compiler.js";
+import { compilePrompt, compileResearchPrompt } from "../prompt-compiler.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../../agent/agent-service.js";
 import type {
@@ -86,6 +86,60 @@ export interface DispatchDeps {
 	readonly pluginSkillPaths: ReadonlyArray<string>;
 }
 
+
+const runResearchPhase = Effect.fnUntraced(function* (
+	wf: { promptTemplate: string },
+	issue: Issue,
+	runContext: TrackerRunContext | null,
+	workspacePath: string,
+	config: ResolvedConfig,
+	deps: DispatchDeps,
+) {
+		const compiled = yield* compileResearchPrompt(
+			wf.promptTemplate ||
+				"Work the assigned issue using the workflow policy.",
+			issue,
+			runContext,
+		);
+
+		const shouldContinue = () =>
+			deps.tracker.fetchIssueStatesByIds([issue.id]).pipe(
+				Effect.catchAll(() => Effect.succeed([] as const)),
+				Effect.map((result) => {
+					const entry = result.find((c) => c.id === issue.id);
+					if (!entry) return false;
+					return (
+						isDispatchable(entry.state, config) &&
+						!isTerminal(entry.state, config)
+					);
+				}),
+			);
+
+		const researchConfig: AgentRunConfig = {
+			systemPrompt: compiled.systemPrompt,
+			prompt: compiled.userPrompt,
+			workspacePath,
+			issueId: issue.id,
+			issueIdentifier: issue.identifier,
+			pluginSkillPaths: deps.pluginSkillPaths,
+			maxTurns: Math.min(config.maxTurns, 10),
+			turnTimeoutMs: config.turnTimeoutMs,
+			stallTimeoutMs: config.stallTimeoutMs,
+			modelSpec: config.resolveModelSpec(issue.state),
+			shouldContinue,
+		};
+
+		const result = yield* deps.agentService.run(researchConfig).pipe(
+			Stream.runFold("", (acc, event) =>
+				event.event === "message_end" && event.message
+					? acc + event.message
+					: acc,
+			),
+		);
+
+		return result || null;
+	});
+
 export function makeDispatchRuntime(deps: DispatchDeps) {
 	const releaseClaim = (issueId: string) =>
 		deps.updateState((s) => releaseClaimFromState(s, issueId));
@@ -109,8 +163,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			return [previous, next] as const;
 		});
 
-	const clearRetryAttempt = (issueId: string) =>
-		Effect.gen(function* () {
+	const clearRetryAttempt = Effect.fnUntraced(function* (issueId: string) {
 			const timerFiber = yield* takeRetryTimerFiber(issueId);
 			if (timerFiber) {
 				yield* Fiber.interrupt(timerFiber);
@@ -131,23 +184,21 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					)
 			: Effect.void;
 
-	const removeRunningEntry = (issueId: string) =>
-		Effect.gen(function* () {
+	const removeRunningEntry = Effect.fnUntraced(function* (issueId: string) {
 			const now = yield* Clock.currentTimeMillis;
 			yield* deps.updateState((s) =>
 				removeRunningEntryFromState(s, issueId, now),
 			);
 		});
 
-	const scheduleRetry = (
+	const scheduleRetry = Effect.fnUntraced(function* (
 		issueId: string,
 		identifier: string,
 		attempt: number,
 		delay: Duration.Duration,
 		error: string | null,
 		reason: RetryReason,
-	): Effect.Effect<void, never, Scope.Scope> =>
-		Effect.gen(function* () {
+	) {
 			const now = yield* Clock.currentTimeMillis;
 			const dueAtMs = now + Duration.toMillis(delay);
 			yield* deps.updateState((s) => {
@@ -197,9 +248,9 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			if (previousTimerFiber) {
 				yield* Fiber.interrupt(previousTimerFiber);
 			}
-		}).pipe(Effect.asVoid);
+		});
 
-	const stopRunningIssue = (
+	const stopRunningIssue = Effect.fnUntraced(function* (
 		entry: RunningEntry,
 		config: ResolvedConfig,
 		options: {
@@ -208,8 +259,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			readonly releaseClaim: boolean;
 			readonly log: Record<string, string>;
 		},
-	): Effect.Effect<void> =>
-		Effect.gen(function* () {
+	) {
 			if (entry.fiber) {
 				yield* Fiber.interrupt(entry.fiber);
 			}
@@ -249,15 +299,14 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			);
 		});
 
-	const handleWorkerExit = ({
+	const handleWorkerExit = Effect.fnUntraced(function* ({
 		issueId,
 		identifier,
 		attempt,
 		config,
 		workspacePath,
 		exit,
-	}: WorkerExitCommand): Effect.Effect<void, never, Scope.Scope> =>
-		Effect.gen(function* () {
+	}: WorkerExitCommand) {
 			const now = yield* Clock.currentTimeMillis;
 			const exitReason: "success" | "interrupted" | "failure" = Exit.isSuccess(
 				exit,
@@ -360,12 +409,33 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				.fetchRunContext(issue.id, issue.state)
 				.pipe(Effect.catchAll(() => Effect.succeed(null)));
 
+			let researchReport: string | null = null;
+			if (config.researchAgent && attempt === null) {
+				researchReport = yield* runResearchPhase(
+					wf,
+					issue,
+					runContext,
+					ws.path,
+					config,
+					deps,
+				).pipe(
+					Effect.catchAll((e) =>
+						Effect.logWarning("research_phase_failed").pipe(
+							Effect.annotateLogs({ error: String(e) }),
+							Effect.map(() => null as string | null),
+						),
+					),
+					Effect.timeout(Duration.millis(config.stallTimeoutMs)),
+				);
+			}
+
 			const compiled = yield* compilePrompt(
 				wf.promptTemplate ||
 					"Work the assigned issue using the workflow policy.",
 				issue,
 				attempt,
 				runContext,
+				researchReport,
 			).pipe(Effect.tapError(() => runAfterRunHook(config, ws.path)));
 
 			yield* Effect.logInfo("dispatch").pipe(
@@ -400,6 +470,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				pluginSkillPaths: deps.pluginSkillPaths,
 				maxTurns: config.maxTurns,
 				turnTimeoutMs: config.turnTimeoutMs,
+				stallTimeoutMs: config.stallTimeoutMs,
 				modelSpec: config.resolveModelSpec(issue.state),
 				shouldContinue,
 			};
@@ -472,11 +543,10 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			}),
 		);
 
-	const processRetry = (
+	const processRetry = Effect.fnUntraced(function* (
 		issueId: string,
 		entry: RetryEntry,
-	): Effect.Effect<void, never, Scope.Scope> =>
-		Effect.gen(function* () {
+	) {
 			yield* takeRetryTimerFiber(issueId);
 			yield* deps.updateState((s) => {
 				const retryAttempts = new Map(s.retryAttempts);

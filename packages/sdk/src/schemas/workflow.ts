@@ -40,6 +40,7 @@ export class AgentConfig extends Schema.Class<AgentConfig>("AgentConfig")({
 		Schema.Record({ key: Schema.String, value: Schema.Number }),
 	),
 	model: Schema.optional(Schema.String),
+	researchAgent: Schema.optional(Schema.Boolean),
 	modelByState: Schema.optional(
 		Schema.Record({ key: Schema.String, value: Schema.String }),
 	),

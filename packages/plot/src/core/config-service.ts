@@ -54,6 +54,7 @@ export class ResolvedConfig {
 	readonly readTimeoutMs: number;
 	readonly stallTimeoutMs: number;
 	readonly serverPort: number | undefined;
+	readonly researchAgent: boolean;
 	readonly githubRepo: string;
 
 	constructor(wf: WorkflowConfig, overrides?: WorkflowOverrides) {
@@ -115,6 +116,7 @@ export class ResolvedConfig {
 		this.turnTimeoutMs = wf.codex?.turnTimeoutMs ?? 3_600_000;
 		this.readTimeoutMs = wf.codex?.readTimeoutMs ?? 5_000;
 		this.stallTimeoutMs = wf.codex?.stallTimeoutMs ?? 300_000;
+		this.researchAgent = wf.agent?.researchAgent ?? false;
 		this.serverPort = wf.server?.port;
 		this.githubRepo = overrides?.githubRepo ?? "";
 	}
@@ -125,10 +127,9 @@ export class ResolvedConfig {
 	}
 }
 
-export const validateForDispatch = (
+export const validateForDispatch = Effect.fnUntraced(function* (
 	config: ResolvedConfig,
-): Effect.Effect<void, ConfigValidationError> =>
-	Effect.gen(function* () {
+) {
 		if (!config.trackerKind) {
 			return yield* new ConfigValidationError({
 				message: "tracker.kind is required",
