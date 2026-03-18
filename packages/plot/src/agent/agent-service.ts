@@ -1,4 +1,4 @@
-import { Effect, ServiceMap, type Stream } from "effect";
+import { ServiceMap, type Stream } from "effect";
 import type { AgentRuntimeEvent } from "@plot/sdk";
 import type { AgentRunnerError } from "../schemas/errors.js";
 
@@ -13,7 +13,6 @@ export interface AgentRunConfig {
 	readonly turnTimeoutMs: number;
 	readonly stallTimeoutMs: number;
 	readonly modelSpec?: string;
-	readonly shouldContinue?: () => Effect.Effect<boolean>;
 }
 
 export interface AgentServiceShape {

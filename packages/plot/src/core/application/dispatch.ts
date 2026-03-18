@@ -24,8 +24,6 @@ import {
 	clearEventLog,
 	clearRetryAttemptFromState,
 	createRunningEntry,
-	isDispatchable,
-	isTerminal,
 	removeRunningEntryFromState,
 	releaseClaimFromState,
 	type OrchestratorState,
@@ -103,19 +101,6 @@ const runResearchPhase = Effect.fnUntraced(function* (
 			runContext,
 		);
 
-		const shouldContinue = () =>
-			deps.tracker.fetchIssueStatesByIds([issue.id]).pipe(
-				Effect.catch(() => Effect.succeed([] as const)),
-				Effect.map((result) => {
-					const entry = result.find((c) => c.id === issue.id);
-					if (!entry) return false;
-					return (
-						isDispatchable(entry.state, config) &&
-						!isTerminal(entry.state, config)
-					);
-				}),
-			);
-
 		const researchConfig: AgentRunConfig = {
 			systemPrompt: compiled.systemPrompt,
 			prompt: compiled.userPrompt,
@@ -127,7 +112,6 @@ const runResearchPhase = Effect.fnUntraced(function* (
 			turnTimeoutMs: config.turnTimeoutMs,
 			stallTimeoutMs: config.stallTimeoutMs,
 			modelSpec: config.resolveModelSpec(issue.state, issue.labels),
-			shouldContinue,
 		};
 
 		const result = yield* deps.agentService.run(researchConfig).pipe(
@@ -465,19 +449,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				}),
 			);
 
-			const shouldContinue = () =>
-				deps.tracker.fetchIssueStatesByIds([issue.id]).pipe(
-					Effect.catch(() => Effect.succeed([] as const)),
-					Effect.map((result) => {
-						const entry = result.find((candidate) => candidate.id === issue.id);
-						if (!entry) return false;
-						return (
-							isDispatchable(entry.state, config) &&
-							!isTerminal(entry.state, config)
-						);
-					}),
-				);
-
 			const agentConfig: AgentRunConfig = {
 				systemPrompt: compiled.systemPrompt,
 				prompt: compiled.userPrompt,
@@ -489,7 +460,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				turnTimeoutMs: config.turnTimeoutMs,
 				stallTimeoutMs: config.stallTimeoutMs,
 				modelSpec: config.resolveModelSpec(issue.state, issue.labels),
-				shouldContinue,
 			};
 
 			// --- Phase 2: fork worker ---

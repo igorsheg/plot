@@ -386,15 +386,25 @@ const createEventStream = (
 				available,
 			);
 
+			const skillPaths = resolvePlotSkillPaths(
+				config.workspacePath,
+				plotSkillsDir,
+				config.pluginSkillPaths,
+			);
+			yield* Effect.logDebug("agent_skill_paths").pipe(
+				Effect.annotateLogs({
+					issue_id: config.issueId,
+					skill_paths: JSON.stringify(skillPaths),
+					plugin_skill_paths: JSON.stringify(config.pluginSkillPaths),
+					core_skills_dir: plotSkillsDir,
+					workspace: config.workspacePath,
+				}),
+			);
 			const loader = new DefaultResourceLoader({
 				cwd: config.workspacePath,
 				systemPromptOverride: () => config.systemPrompt,
 				noSkills: true,
-				additionalSkillPaths: resolvePlotSkillPaths(
-					config.workspacePath,
-					plotSkillsDir,
-					config.pluginSkillPaths,
-				),
+				additionalSkillPaths: skillPaths,
 			});
 			yield* Effect.tryPromise({
 				try: () => loader.reload(),
@@ -404,6 +414,18 @@ const createEventStream = (
 						message: `Resource loader reload failed: ${e}`,
 					}),
 			});
+			const { skills: loadedSkills } = loader.getSkills();
+			yield* Effect.logInfo("agent_skills_loaded").pipe(
+				Effect.annotateLogs({
+					issue_id: config.issueId,
+					skill_count: String(loadedSkills.length),
+					skill_names: JSON.stringify(
+						loadedSkills.map((s) => s.name),
+					),
+					system_prompt_length: String(config.systemPrompt.length),
+					system_prompt_first_200: config.systemPrompt.slice(0, 200),
+				}),
+			);
 
 			const { session } = yield* Effect.tryPromise({
 				try: () =>
@@ -513,24 +535,6 @@ const createEventStream = (
 								nextAcc.turnCount >= config.maxTurns
 							) {
 								yield* abortSession(`max_turns reached (${config.maxTurns})`);
-							}
-
-							// shouldContinue: scoped fire-and-forget check after each turn
-							if (
-								event.type === "turn_end" &&
-								nextAcc.turnCount < config.maxTurns &&
-								config.shouldContinue
-							) {
-								yield* Effect.forkDetach(
-									config.shouldContinue().pipe(
-										Effect.flatMap((cont) =>
-											cont ? Effect.void : abortSession("issue no longer active"),
-										),
-										Effect.catch(() =>
-											abortSession("issue state check failed"),
-										),
-									),
-								);
 							}
 
 							return [nextAcc, events] as const;
