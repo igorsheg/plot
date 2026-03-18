@@ -70,19 +70,6 @@ export function makeServer(
 
 	const startedAt = Date.now();
 
-	const HealthzLive = HttpRouter.use((router) =>
-		router.add("GET",
-			"/healthz",
-			Effect.flatMap(
-				Effect.sync(() => ({
-					status: "ok" as const,
-					uptime: Math.floor((Date.now() - startedAt) / 1000),
-				})),
-				(body) => HttpServerResponse.json(body),
-			),
-		),
-	);
-
 	const webDistDir = config.webDistDir;
 
 	const contentTypes: Record<string, string> = {
@@ -109,7 +96,7 @@ export function makeServer(
 					const url = new URL(req.url, "http://localhost");
 					const pathname = url.pathname;
 
-					if (pathname.startsWith("/rpc") || pathname.startsWith("/api/")) {
+					if (pathname.startsWith("/rpc") || pathname.startsWith("/api/") || pathname === "/healthz") {
 						return HttpServerResponse.empty({ status: 404 });
 					}
 
@@ -141,7 +128,18 @@ export function makeServer(
 		}),
 	).pipe(Layer.provide(BunServices.layer));
 
-	let routeLayers = Layer.mergeAll(SseRouteLive, HealthzLive, HttpProtocol);
+	const HealthzLive = HttpRouter.use((router) =>
+		router.add(
+			"GET",
+			"/healthz",
+			HttpServerResponse.json({
+				status: "ok" as const,
+				uptime: Math.floor((Date.now() - startedAt) / 1000),
+			}),
+		),
+	);
+
+	let routeLayers = Layer.mergeAll(SseRouteLive, HttpProtocol, HealthzLive);
 	if (config.webEnabled) {
 		routeLayers = Layer.mergeAll(routeLayers, StaticLive as unknown as typeof routeLayers);
 	}
