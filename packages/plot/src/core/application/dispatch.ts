@@ -31,7 +31,9 @@ import {
 	type RetryReason,
 	type RunningEntry,
 } from "../domain/orchestrator-state.js";
-import { MERGE_CONFLICT_INSTRUCTION } from "../git-flow.js";
+const MERGE_CONFLICT_INSTRUCTION =
+	"A previous attempt at this task resulted in merge conflicts. " +
+	"Please try implementing the task again from scratch on a clean branch.";
 import { withTrackerFallback } from "./tracker-fallback.js";
 
 export interface DispatchDeps {
