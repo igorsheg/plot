@@ -17,6 +17,7 @@
     "fmt:check": "oxfmt --check",
     "typecheck": "turbo run typecheck",
     "check": "bun run typecheck && bun run lint && bun run fmt:check",
+    "check:lockfile": "bun install --frozen-lockfile --dry-run",
     "test": "turbo run test",
     "dev": "turbo run dev --filter=@plot/plot --filter=@plot/web --parallel",
     "dev:server": "turbo run dev --filter=@plot/plot",
