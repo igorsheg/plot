@@ -34,10 +34,13 @@ import {
 	Issue,
 	IssueStateEntry,
 	BlockerRef,
+	AgentPreset,
+	UpdateIssueOptions,
 } from "@plot/sdk";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
 import { Orchestrator } from "./core/index.js";
+import { PersistenceLayer } from "./persistence.js";
 import { WorkflowLoader } from "./core/workflow-loader.js";
 import { WorkspaceManager } from "./core/workspace-manager.js";
 import { PluginContext } from "./core/plugin-context.js";
@@ -131,6 +134,7 @@ function normalizeIssue(plain: IssueLike): Issue {
 				}),
 		),
 		metadata: plain.metadata,
+		autoMerge: plain.autoMerge,
 		createdAt: toDateTime(plain.createdAt),
 		updatedAt: toDateTime(plain.updatedAt),
 	});
@@ -182,6 +186,80 @@ function adaptTrackerClient(
 						plain.fetchRunContext?.(issueId, state) ?? Promise.resolve(null),
 					catch: (e) => mapPluginError(e, "fetchRunContext"),
 				}).pipe(Effect.map(normalizeRunContext)),
+			...(plain.updateIssue && {
+				updateIssue: (options: UpdateIssueOptions) =>
+					Effect.tryPromise({
+						try: () => plain.updateIssue!(options),
+						catch: (e) => mapPluginError(e, "updateIssue"),
+					}),
+			}),
+			...(plain.cancelIssue && {
+				cancelIssue: (issueId: string) =>
+					Effect.tryPromise({
+						try: () => plain.cancelIssue!(issueId),
+						catch: (e) => mapPluginError(e, "cancelIssue"),
+					}),
+			}),
+			...(plain.ensureInProgress && {
+				ensureInProgress: (issueId: string) =>
+					Effect.tryPromise({
+						try: () => plain.ensureInProgress!(issueId),
+						catch: (e) => mapPluginError(e, "ensureInProgress"),
+					}),
+			}),
+			...(plain.issueAgentPreset && {
+				issueAgentPreset: (issue: Issue) =>
+					Effect.tryPromise({
+						try: () =>
+							plain.issueAgentPreset!({
+								...issue,
+								description: issue.description ?? undefined,
+								url: issue.url ?? undefined,
+								blockedBy: issue.blockedBy?.map((b) => ({
+									id: b.id,
+									identifier: b.identifier,
+									state: b.state,
+								})),
+								createdAt: issue.createdAt
+									? new Date(DateTime.toEpochMillis(issue.createdAt))
+									: undefined,
+								updatedAt: issue.updatedAt
+									? new Date(DateTime.toEpochMillis(issue.updatedAt))
+									: undefined,
+							}),
+						catch: (e) => mapPluginError(e, "issueAgentPreset"),
+					}).pipe(
+						Effect.map((p) => (p ? new AgentPreset(p) : null)),
+					),
+			}),
+			...(plain.updateAgentPreset && {
+				updateAgentPreset: (preset: AgentPreset) =>
+					Effect.tryPromise({
+						try: () => plain.updateAgentPreset!(preset),
+						catch: (e) => mapPluginError(e, "updateAgentPreset"),
+					}).pipe(Effect.map((p) => new AgentPreset(p))),
+			}),
+			...(plain.agentPresetInfo && {
+				agentPresetInfo: (preset: AgentPreset) =>
+					Effect.tryPromise({
+						try: () => plain.agentPresetInfo!(preset),
+						catch: (e) => mapPluginError(e, "agentPresetInfo"),
+					}),
+			}),
+			...(plain.reset && {
+				reset: () =>
+					Effect.tryPromise({
+						try: () => plain.reset!(),
+						catch: (e) => mapPluginError(e, "reset"),
+					}),
+			}),
+			...(plain.settings && {
+				settings: (projectId: string) =>
+					Effect.tryPromise({
+						try: () => plain.settings!(projectId),
+						catch: (e) => mapPluginError(e, "settings"),
+					}),
+			}),
 		}),
 	);
 }
