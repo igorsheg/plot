@@ -422,6 +422,7 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		makeTrackerLayer(resolvedPlugin),
 		PiAgentLive,
 		platformDeps,
+		PersistenceLayer,
 		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
 		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
 		Layer.succeed(
