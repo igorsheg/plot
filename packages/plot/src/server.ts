@@ -29,11 +29,12 @@ export function makeServer(
 	const ObservabilityLive = makeObservabilityLayer(resolvedPlugin);
 	const StartupLive = makeStartupLayer(config, resolvedPlugin);
 
-	const RpcRouteLive = RpcServer.layerHttp({
-		group: PlotRpcs,
-		path: "/rpc",
-		protocol: "http",
-	}).pipe(
+	const RpcRouteLive = HttpRouter.use(
+		Effect.fnUntraced(function* (router) {
+			const handler = yield* RpcServer.toHttpEffect(PlotRpcs);
+			yield* router.add("POST", "/rpc", handler);
+		}),
+	).pipe(
 		Layer.provide(RpcHandlersLive),
 		Layer.provide(ObservabilityLive),
 		Layer.provide(RpcSerialization.layerNdjson),
