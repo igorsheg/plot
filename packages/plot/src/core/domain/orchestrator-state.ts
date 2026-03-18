@@ -9,7 +9,7 @@ export interface RunningEntry {
 	readonly issue: Issue;
 	readonly state: string;
 	readonly startedAt: number;
-	readonly fiber: Fiber.RuntimeFiber<void, unknown> | null;
+	readonly fiber: Fiber.Fiber<void, unknown> | null;
 	readonly turnCount: number;
 	readonly lastEventAt: number;
 	readonly sessionId: string | null;
@@ -201,7 +201,7 @@ export const createRunningEntry = (
 	workspacePath: string,
 	startedAt: number,
 	options?: {
-		readonly fiber?: Fiber.RuntimeFiber<void, unknown> | null;
+		readonly fiber?: Fiber.Fiber<void, unknown> | null;
 		readonly promptSnapshot?: PromptSnapshot | null;
 		readonly runContext?: TrackerRunContext | null;
 	},

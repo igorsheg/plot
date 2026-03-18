@@ -1,10 +1,8 @@
-import { Config, ConfigError, Either, Option, Schema } from "effect";
+import { Config, Effect, Option, Schema } from "effect";
 import { WorkflowConfig } from "@plot/sdk";
 import { WorkflowParseError } from "./schemas/errors.js";
 import { extractFrontmatter } from "./core/workflow-parse.js";
 
-const LogFormat = Schema.Literal("pretty", "json");
-const LogLevel = Schema.Literal("debug", "info", "warning", "error", "none");
 
 export interface WorkflowOverrides {
 	readonly trackerKind?: string;
@@ -36,26 +34,33 @@ export const ServerConfig: Config.Config<ServerConfig> = Config.all({
 	workflowPath: Config.string("WORKFLOW").pipe(
 		Config.withDefault("./WORKFLOW.md"),
 	),
-	port: Config.integer("PORT").pipe(
+	port: Config.int("PORT").pipe(
 		Config.withDefault(3000),
 		Config.mapOrFail((port) =>
 			port >= 0 && port <= 65535
-				? Either.right(port)
-				: Either.left(
-						ConfigError.InvalidData(
-							["PORT"],
-							`port must be 0-65535, got ${port}`,
-						),
-					),
+				? Effect.succeed(port)
+				: Effect.die(`port must be 0-65535, got ${port}`),
 		),
 	),
 	webDistDir: Config.string("WEB_DIST_DIR").pipe(Config.withDefault("")),
 	webEnabled: Config.boolean("WEB_ENABLED").pipe(Config.withDefault(false)),
-	logFormat: Schema.Config("LOG_FORMAT", LogFormat).pipe(
-		Config.withDefault("pretty" as const),
+	logFormat: Config.string("LOG_FORMAT").pipe(
+		Config.withDefault("pretty"),
+		Config.mapOrFail((s) => {
+			const valid = ["pretty", "json"] as const;
+			type T = (typeof valid)[number];
+			if ((valid as readonly string[]).includes(s)) return Effect.succeed(s as T);
+			return Effect.die(`invalid LOG_FORMAT: ${s}`);
+		}),
 	),
-	logLevel: Schema.Config("LOG_LEVEL", LogLevel).pipe(
-		Config.withDefault("info" as const),
+	logLevel: Config.string("LOG_LEVEL").pipe(
+		Config.withDefault("info"),
+		Config.mapOrFail((s) => {
+			const valid = ["debug", "info", "warning", "error", "none"] as const;
+			type T = (typeof valid)[number];
+			if ((valid as readonly string[]).includes(s)) return Effect.succeed(s as T);
+			return Effect.die(`invalid LOG_LEVEL: ${s}`);
+		}),
 	),
 	overrides: WorkflowOverridesConfig,
 }).pipe(Config.nested("PLOT"));

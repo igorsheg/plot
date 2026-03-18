@@ -1,4 +1,4 @@
-import { Context, Effect, type Stream } from "effect";
+import { Effect, ServiceMap, type Stream } from "effect";
 import type { AgentRuntimeEvent } from "@plot/sdk";
 import type { AgentRunnerError } from "../schemas/errors.js";
 
@@ -22,7 +22,4 @@ export interface AgentServiceShape {
 	) => Stream.Stream<AgentRuntimeEvent, AgentRunnerError>;
 }
 
-export class AgentService extends Context.Tag("AgentService")<
-	AgentService,
-	AgentServiceShape
->() {}
+export class AgentService extends ServiceMap.Service<AgentService, AgentServiceShape>()("AgentService") {}

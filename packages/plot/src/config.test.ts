@@ -8,7 +8,7 @@ import { ResolvedConfig } from "./core/config-service.js";
 function resolveConfig(env: Record<string, string>) {
 	const provider = ConfigProvider.fromEnv({ env });
 	return Effect.runPromise(
-		ServerConfig.pipe(Effect.provide(ConfigProvider.layer(provider))),
+		Effect.gen(function* () { return yield* ServerConfig; }).pipe(Effect.provide(ConfigProvider.layer(provider))),
 	);
 }
 

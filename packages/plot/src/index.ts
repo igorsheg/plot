@@ -65,5 +65,5 @@ export async function runServerMain(
 		yield* Layer.launch(makeServer(config, resolvedPlugin));
 	}).pipe(Effect.provide(ConfigProvider.layer(provider)));
 
-	return BunRuntime.runMain(program);
+	BunRuntime.runMain(program as Effect.Effect<void>);
 }

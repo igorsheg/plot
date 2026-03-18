@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { Config, DateTime, Effect, Layer, Ref, Stream } from "effect";
+import { Cause, Config, DateTime, Effect, Layer, Queue, Ref, Stream } from "effect";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, TextContent, Usage } from "@mariozechner/pi-ai";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
@@ -357,16 +357,16 @@ function mapSessionEvent(
 const createEventStream = (
 	config: AgentRunConfig,
 ): Stream.Stream<AgentRuntimeEvent, AgentRunnerError> =>
-	Stream.unwrapScoped(
+	Stream.unwrap(
 		Effect.gen(function* () {
 			// --- resolve config ---
-			const plotAgentDir = yield* PlotAgentDir.pipe(
+			const plotAgentDir = yield* PlotAgentDir.asEffect().pipe(
 				Effect.mapError(
 					(e) =>
 						new AgentRunnerError({ code: "config_error", message: String(e) }),
 				),
 			);
-			const plotSkillsDir = yield* PlotPiSkillsDir.pipe(
+			const plotSkillsDir = yield* PlotPiSkillsDir.asEffect().pipe(
 				Effect.mapError(
 					(e) =>
 						new AgentRunnerError({ code: "config_error", message: String(e) }),
@@ -456,11 +456,11 @@ const createEventStream = (
 			const threadId = crypto.randomUUID();
 
 			// --- bridge: thin callback→stream ---
-			const raw = Stream.asyncPush<AgentSessionEvent, AgentRunnerError>(
-				Effect.fnUntraced(function* (emit) {
+			const raw = Stream.callback<AgentSessionEvent, AgentRunnerError>(
+				Effect.fnUntraced(function* (queue) {
 						const unsub = session.subscribe((event: AgentSessionEvent) => {
-							emit.single(event);
-							if (event.type === "agent_end") emit.end();
+							Queue.offerUnsafe(queue, event);
+							if (event.type === "agent_end") Queue.endUnsafe(queue);
 						});
 						yield* Effect.addFinalizer(() => Effect.sync(() => unsub()));
 						yield* Effect.forkScoped(
@@ -472,15 +472,15 @@ const createEventStream = (
 										message: `Agent prompt failed: ${e}`,
 									}),
 							}).pipe(
-								Effect.timeoutFail({
+								Effect.timeoutOrElse({
 									duration: `${config.turnTimeoutMs} millis`,
 									onTimeout: () =>
-										new AgentRunnerError({
+										Effect.fail(new AgentRunnerError({
 											code: "agent_turn_timeout",
 											message: `Agent turn timed out after ${config.turnTimeoutMs}ms`,
-										}),
+										})),
 								}),
-								Effect.catch((error) => Effect.sync(() => emit.fail(error))),
+								Effect.catch((error) => Effect.sync(() => Queue.failCauseUnsafe(queue, Cause.fail(error)))),
 							),
 						);
 					}),
@@ -488,67 +488,59 @@ const createEventStream = (
 
 			// --- transform: stall detection + pure mapping + control side-effects ---
 			return raw.pipe(
-				Stream.timeoutFail(
-					() =>
-						new AgentRunnerError({
-							code: "runner_stalled",
-							message: `Agent produced no output for ${config.stallTimeoutMs}ms`,
-						}),
-					`${config.stallTimeoutMs} millis`,
-				),
-				Stream.mapAccumEffect(initialMapperState,
-					Effect.fnUntraced(function* (acc, event) {
-						const [nextAcc, events] = mapSessionEvent(
-							acc,
-							event,
-							threadId,
-							config.issueId,
-							config.issueIdentifier,
-						);
-
-						// max_turns: abort after the turn that hits the limit
-						if (
-							event.type === "turn_start" &&
-							nextAcc.turnCount > config.maxTurns
-						) {
-							yield* abortSession(`max_turns reached (${config.maxTurns})`);
-						}
-						if (
-							event.type === "turn_end" &&
-							nextAcc.turnCount >= config.maxTurns
-						) {
-							yield* abortSession(`max_turns reached (${config.maxTurns})`);
-						}
-
-						// shouldContinue: scoped fire-and-forget check after each turn
-						if (
-							event.type === "turn_end" &&
-							nextAcc.turnCount < config.maxTurns &&
-							config.shouldContinue
-						) {
-							yield* Effect.fork(
-								config.shouldContinue().pipe(
-									Effect.flatMap((cont) =>
-										cont ? Effect.void : abortSession("issue no longer active"),
-									),
-									Effect.catch(() =>
-										abortSession("issue state check failed"),
-									),
-								),
+				Stream.timeout(`${config.stallTimeoutMs} millis`),
+				Stream.mapAccumEffect(
+					() => initialMapperState,
+					(acc: MapperState, event: AgentSessionEvent) =>
+						Effect.gen(function* () {
+							const [nextAcc, events] = mapSessionEvent(
+								acc,
+								event,
+								threadId,
+								config.issueId,
+								config.issueIdentifier,
 							);
-						}
 
-						return [nextAcc, events] as const;
-					}),
+							// max_turns: abort after the turn that hits the limit
+							if (
+								event.type === "turn_start" &&
+								nextAcc.turnCount > config.maxTurns
+							) {
+								yield* abortSession(`max_turns reached (${config.maxTurns})`);
+							}
+							if (
+								event.type === "turn_end" &&
+								nextAcc.turnCount >= config.maxTurns
+							) {
+								yield* abortSession(`max_turns reached (${config.maxTurns})`);
+							}
+
+							// shouldContinue: scoped fire-and-forget check after each turn
+							if (
+								event.type === "turn_end" &&
+								nextAcc.turnCount < config.maxTurns &&
+								config.shouldContinue
+							) {
+								yield* Effect.forkDetach(
+									config.shouldContinue().pipe(
+										Effect.flatMap((cont) =>
+											cont ? Effect.void : abortSession("issue no longer active"),
+										),
+										Effect.catch(() =>
+											abortSession("issue state check failed"),
+										),
+									),
+								);
+							}
+
+							return [nextAcc, events] as const;
+						}),
 				),
-				Stream.flatMap((events) => Stream.fromIterable(events)),
 			);
 		}),
 	);
 
 export const PiAgentLive: Layer.Layer<AgentService> = Layer.succeed(
 	AgentService,
-	AgentService.of({
-		run: (config) => createEventStream(config),
-	}),
+	{ run: (config) => createEventStream(config) } as AgentService["Service"],
 );

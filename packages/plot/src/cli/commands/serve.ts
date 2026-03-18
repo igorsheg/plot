@@ -1,5 +1,5 @@
 import { Command } from "effect/unstable/cli";
-import { Effect, FiberRef } from "effect";
+import { Effect, References } from "effect";
 import { createCliOutput } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer } from "../shared/server-process.js";
@@ -7,7 +7,7 @@ import { startServer } from "../shared/server-process.js";
 export const ServeCommand = Command.make("serve", cliCommandOptions,
   Effect.fnUntraced(function* (args) {
     const output = createCliOutput(args);
-    const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
+    const logLevel = yield* References.MinimumLogLevel;
     const handle = startServer(toServerOptions(args, logLevel));
     output.ready({ command: "serve", url: handle.url, pid: handle.pid });
 
@@ -19,7 +19,7 @@ export const ServeCommand = Command.make("serve", cliCommandOptions,
 ).pipe(Command.withDescription("start the plot orchestrator server (headless)"));
 
 function waitForShutdown(onShutdown: (signal: NodeJS.Signals) => void) {
-  return Effect.async<void>((resume) => {
+  return Effect.callback<void>((resume) => {
     const shutdown = (signal: NodeJS.Signals) => {
       onShutdown(signal);
       resume(Effect.void);

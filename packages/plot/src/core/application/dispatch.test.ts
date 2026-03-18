@@ -7,7 +7,7 @@ import {
 	WorkflowConfig,
 	type AgentRuntimeEvent,
 } from "@plot/sdk";
-import { Duration, Effect, PubSub, Ref } from "effect";
+import { Duration, Effect, PubSub, Ref, SubscriptionRef } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
 	createRunningEntry,
@@ -60,13 +60,13 @@ const makeDeps = async (
 		readonly enqueueCommand?: DispatchDeps["enqueueCommand"];
 	},
 ) => {
-	const stateRef = await Effect.runPromise(Ref.make(state));
+	const stateRef = await Effect.runPromise(SubscriptionRef.make(state));
 	const eventPubSub = await Effect.runPromise(
 		PubSub.bounded<AgentRuntimeEvent>(16),
 	);
 	const retryTimerFibersRef = await Effect.runPromise(
 		Ref.make(
-			new Map<string, import("effect").Fiber.RuntimeFiber<void, never>>(),
+			new Map<string, import("effect").Fiber.Fiber<void, never>>(),
 		),
 	);
 	const deps: DispatchDeps = {
@@ -93,7 +93,7 @@ const makeDeps = async (
 		eventPubSub,
 		enqueueCommand: overrides?.enqueueCommand ?? (() => Effect.void),
 		getConfig: overrides?.getConfig ?? Effect.succeed(makeConfig()),
-		updateState: (fn) => Ref.update(stateRef, fn),
+		updateState: (fn) => SubscriptionRef.update(stateRef, fn),
 		pluginSkillPaths: [],
 	};
 
@@ -117,7 +117,7 @@ describe("makeDispatchRuntime", () => {
 				),
 			),
 		);
-		const afterFirst = await Effect.runPromise(Ref.get(stateRef));
+		const afterFirst = await Effect.runPromise(SubscriptionRef.get(stateRef));
 		expect(afterFirst.retryAttempts.get(issueId)?.attempt).toBe(1);
 
 		await Effect.runPromise(
@@ -132,14 +132,14 @@ describe("makeDispatchRuntime", () => {
 				),
 			),
 		);
-		const afterSecond = await Effect.runPromise(Ref.get(stateRef));
+		const afterSecond = await Effect.runPromise(SubscriptionRef.get(stateRef));
 		const scheduled = afterSecond.retryAttempts.get(issueId);
 		expect(scheduled?.attempt).toBe(2);
 		expect(scheduled?.reason).toBe("failure");
 		expect(scheduled?.error).toBe("boom");
 
 		await Effect.runPromise(Effect.scoped(runtime.clearRetryAttempt(issueId)));
-		const finalState = await Effect.runPromise(Ref.get(stateRef));
+		const finalState = await Effect.runPromise(SubscriptionRef.get(stateRef));
 		expect(finalState.retryAttempts.has(issueId)).toBeFalse();
 	});
 
@@ -171,7 +171,7 @@ describe("makeDispatchRuntime", () => {
 			Effect.scoped(runtime.processRetry(retryEntry.issueId, retryEntry)),
 		);
 
-		const nextState = await Effect.runPromise(Ref.get(stateRef));
+		const nextState = await Effect.runPromise(SubscriptionRef.get(stateRef));
 		expect(nextState.claimed.has(retryEntry.issueId)).toBeFalse();
 		expect(nextState.retryAttempts.has(retryEntry.issueId)).toBeFalse();
 	});
@@ -222,7 +222,7 @@ describe("makeDispatchRuntime", () => {
 			Effect.scoped(runtime.processRetry(retryEntry.issueId, retryEntry)),
 		);
 
-		const nextState = await Effect.runPromise(Ref.get(stateRef));
+		const nextState = await Effect.runPromise(SubscriptionRef.get(stateRef));
 		const scheduled = nextState.retryAttempts.get(retryEntry.issueId);
 		expect(scheduled).toBeDefined();
 		expect(scheduled?.attempt).toBe(retryEntry.attempt);

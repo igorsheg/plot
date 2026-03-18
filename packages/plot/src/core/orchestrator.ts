@@ -5,10 +5,9 @@ import {
 	Effect,
 	Fiber,
 	Layer,
-	Mailbox,
 	Match,
-	Option,
 	PubSub,
+	Queue,
 	Ref,
 	ServiceMap,
 	Stream,
@@ -44,7 +43,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 				yield* SubscriptionRef.make<OrchestratorState>(initialState);
 			const pendingPollTickRef = yield* Ref.make(false);
 			const retryTimerFibersRef = yield* Ref.make(
-				new Map<string, Fiber.RuntimeFiber<void, never>>(),
+				new Map<string, Fiber.Fiber<void, never>>(),
 			);
 			const workflowLoader = yield* WorkflowLoader;
 			const tracker = yield* TrackerClient;
@@ -52,9 +51,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			const workspaceManager = yield* WorkspaceManager;
 			const eventPubSub = yield* PubSub.bounded<AgentRuntimeEvent>(512);
 			const pluginContext = yield* PluginContext;
-			const commandMailbox = yield* Mailbox.make<OrchestratorCommand>({
-				capacity: COMMAND_QUEUE_CAPACITY,
-			});
+			const commandMailbox = yield* Queue.bounded<OrchestratorCommand>(COMMAND_QUEUE_CAPACITY);
 
 			const overrides = yield* WorkflowOverridesConfig.pipe(
 				Config.nested("PLOT"),
@@ -64,12 +61,12 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 				null,
 			);
 
-			const getState = Ref.get(stateRef);
+			const getState = SubscriptionRef.get(stateRef);
 
-			const getConfig = Ref.get(configRef);
+			const getConfig = SubscriptionRef.get(configRef);
 
 			const updateState = (fn: (s: OrchestratorState) => OrchestratorState) =>
-				Ref.update(stateRef, fn);
+				SubscriptionRef.update(stateRef, fn);
 
 			const incrementCommandQueuePressure = (queueSize: number) =>
 				updateState((s) => incrementCommandQueuePressureInState(s, queueSize));
@@ -77,16 +74,12 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			const noteCommandQueueSize = (queueSize: number) =>
 				updateState((s) => noteCommandQueueSizeInState(s, queueSize));
 
-			const getCommandQueueDepth = commandMailbox.size.pipe(
-				Effect.map(Option.getOrElse(() => 0)),
-			);
+			const getCommandQueueDepth = Queue.size(commandMailbox);
 
 			const enqueueCommand = Effect.fnUntraced(function* (
 				command: OrchestratorCommand,
 			) {
-				const queueSize = yield* commandMailbox.size.pipe(
-					Effect.map(Option.getOrElse(() => 0)),
-				);
+				const queueSize = yield* Queue.size(commandMailbox);
 				yield* noteCommandQueueSize(queueSize);
 				if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
 					yield* incrementCommandQueuePressure(queueSize);
@@ -98,7 +91,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 						}),
 					);
 				}
-				yield* commandMailbox.offer(command);
+				yield* Queue.offer(commandMailbox, command);
 			});
 
 			const requestTick = Effect.fnUntraced(function* (
@@ -195,10 +188,8 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 
 			const commandLoop = Effect.gen(function* () {
 				while (true) {
-					const command = yield* commandMailbox.take;
-					const queueSize = yield* commandMailbox.size.pipe(
-						Effect.map(Option.getOrElse(() => 0)),
-					);
+					const command = yield* Queue.take(commandMailbox);
+					const queueSize = yield* Queue.size(commandMailbox);
 					yield* noteCommandQueueSize(queueSize);
 					if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
 						yield* Effect.logWarning("command_queue_backlog").pipe(
@@ -224,7 +215,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 				const wf = yield* workflowLoader.getCurrent;
 				if (!wf) return;
 				const resolved = new ResolvedConfig(wf.config, overrides);
-				yield* Ref.set(configRef, resolved);
+				yield* SubscriptionRef.set(configRef, resolved);
 			});
 
 			const start = Effect.fnUntraced(function* (workflowPath: string) {
@@ -261,8 +252,8 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			const tick = requestTick("manual");
 
 			const eventStream = Stream.fromPubSub(eventPubSub);
-			const stateStream = stateRef.changes;
-			const configStream = configRef.changes;
+			const stateStream = SubscriptionRef.changes(stateRef);
+			const configStream = SubscriptionRef.changes(configRef);
 
 			return {
 				start,

@@ -38,7 +38,7 @@ const encodeIssueEventLog = Schema.encodeSync(IssueEventLog);
 let started = false;
 let runtime: ManagedRuntime.ManagedRuntime<ObservabilityApi, never> | null =
 	null;
-let api: ObservabilityApi | null = null;
+let api: ObservabilityApi["Service"] | null = null;
 let currentSnapshot: RuntimeSnapshot | null = null;
 let resyncTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -88,7 +88,7 @@ async function boot(env: Record<string, string>) {
 		redirectProcessOutput(env["PLOT_TUI_SERVER_LOG_PATH"]);
 		const provider = ConfigProvider.fromEnv({ env });
 		const config = await Effect.runPromise(
-			ServerConfig.pipe(Effect.provide(ConfigProvider.layer(provider))),
+			Effect.gen(function* () { return yield* ServerConfig; }).pipe(Effect.provide(ConfigProvider.layer(provider))),
 		);
 		const content = readFileSync(config.workflowPath, "utf-8");
 		const workflowConfig = parseWorkflowFrontmatter(content);

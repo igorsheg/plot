@@ -9,6 +9,7 @@ import {
 	Ref,
 	Scope,
 	Stream,
+	SubscriptionRef,
 } from "effect";
 import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
 import { compilePrompt, compileResearchPrompt } from "../prompt-compiler.js";
@@ -36,9 +37,9 @@ import {
 import { withTrackerFallback } from "./tracker-fallback.js";
 
 export interface DispatchDeps {
-	readonly stateRef: Ref.Ref<OrchestratorState>;
+	readonly stateRef: SubscriptionRef.SubscriptionRef<OrchestratorState>;
 	readonly retryTimerFibersRef: Ref.Ref<
-		Map<string, Fiber.RuntimeFiber<void, never>>
+		Map<string, Fiber.Fiber<void, never>>
 	>;
 	readonly workflowLoader: {
 		readonly getCurrent: Effect.Effect<{ promptTemplate: string } | null>;
@@ -130,7 +131,7 @@ const runResearchPhase = Effect.fnUntraced(function* (
 		};
 
 		const result = yield* deps.agentService.run(researchConfig).pipe(
-			Stream.runFold("", (acc, event) =>
+			Stream.runFold(() => "", (acc, event) =>
 				event.event === "message_end" && event.message
 					? acc + event.message
 					: acc,
@@ -154,7 +155,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 	const replaceRetryTimerFiber = (
 		issueId: string,
-		fiber: Fiber.RuntimeFiber<void, never>,
+		fiber: Fiber.Fiber<void, never>,
 	) =>
 		Ref.modify(deps.retryTimerFibersRef, (timers) => {
 			const next = new Map(timers);
@@ -236,7 +237,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			);
 
 			const timerFiber = yield* Effect.sleep(delay).pipe(
-				Effect.zipRight(
+				Effect.andThen(
 					deps.enqueueCommand({ _tag: "retry_due", issueId, attempt }),
 				),
 				Effect.forkScoped,
@@ -312,9 +313,14 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				exit,
 			)
 				? "success"
-				: Exit.isInterrupted(exit)
+				: Exit.hasInterrupts(exit)
 					? "interrupted"
 					: "failure";
+
+			const exitErrorString: string | null =
+				exitReason === "failure" && Exit.isFailure(exit)
+					? String(exit.cause)
+					: null;
 
 			yield* deps.updateState((s) => {
 				const runningEntry = s.running.get(issueId) ?? null;
@@ -334,12 +340,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 						null,
 					runContext:
 						runningEntry?.runContext ?? previousArtifact?.runContext ?? null,
-					lastError:
-						exitReason === "failure"
-							? Exit.isFailure(exit)
-								? String(exit.cause)
-								: "unknown"
-							: null,
+					lastError: exitErrorString,
 				});
 				return {
 					...after,
@@ -353,7 +354,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 			yield* runAfterRunHook(config, workspacePath);
 
-			if (Exit.isSuccess(exit)) {
+			if (exitReason === "success") {
 				yield* scheduleRetry(
 					issueId,
 					identifier,
@@ -362,13 +363,13 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					null,
 					"continuation",
 				);
-			} else if (Exit.isInterrupted(exit)) {
+			} else if (exitReason === "interrupted") {
 				yield* releaseClaim(issueId);
 				yield* Effect.logInfo("worker_interrupted").pipe(
 					Effect.annotateLogs({ issue_id: issueId, identifier }),
 				);
 			} else {
-				const error = Exit.isFailure(exit) ? String(exit.cause) : "unknown";
+				const error = exitErrorString ?? "unknown";
 				const isStall = error.includes("runner_stalled");
 				yield* Effect.logError(isStall ? "agent_stalled" : "agent_failed").pipe(
 					Effect.annotateLogs({ issue_id: issueId, identifier, error }),
@@ -482,13 +483,13 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			const now = yield* Clock.currentTimeMillis;
 			const registered = yield* Deferred.make<void>();
 
-			const fiber = yield* Effect.fork(
+			const fiber = yield* Effect.forkScoped(
 				Deferred.await(registered).pipe(
 					Effect.flatMap(() =>
 						deps.agentService.run(agentConfig).pipe(
 							Stream.tap((event) =>
 								Effect.all([
-									deps.eventPubSub.publish(event),
+									PubSub.publish(deps.eventPubSub, event),
 									deps.enqueueCommand({ _tag: "runtime_event", event }),
 								]),
 							),
@@ -581,7 +582,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				return;
 			}
 
-			const currentState = yield* Ref.get(deps.stateRef);
+			const currentState = yield* SubscriptionRef.get(deps.stateRef);
 			if (availableSlots(currentState, config) <= 0) {
 				yield* scheduleRetry(
 					issueId,

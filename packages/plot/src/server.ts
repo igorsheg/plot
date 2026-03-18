@@ -143,7 +143,7 @@ export function makeServer(
 
 	let routeLayers = Layer.mergeAll(SseRouteLive, HealthzLive);
 	if (config.webEnabled) {
-		routeLayers = Layer.mergeAll(routeLayers, StaticLive);
+		routeLayers = Layer.mergeAll(routeLayers, StaticLive as typeof routeLayers);
 	}
 
 	const app = HttpRouter.serve(routeLayers).pipe(

@@ -26,7 +26,7 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 					catch: (e) => new WorkflowParseError({ message: String(e) }),
 				});
 
-				const config = yield* Schema.decodeUnknown(WorkflowConfig)(
+				const config = yield* Schema.decodeUnknownEffect(WorkflowConfig)(
 					configRaw,
 				).pipe(
 					Effect.mapError(

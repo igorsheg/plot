@@ -1,5 +1,5 @@
 import { Command } from "effect/unstable/cli";
-import { Effect, FiberRef } from "effect";
+import { Effect, References } from "effect";
 import { runTui } from "@plot/tui";
 import { ensureJsonSupported, ensureTuiSupported } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
@@ -10,7 +10,7 @@ export function createTuiCommand(name: string) {
     Effect.fnUntraced(function* (args) {
       ensureJsonSupported(args.json, "tui");
       ensureTuiSupported();
-      const logLevel = yield* FiberRef.get(FiberRef.currentMinimumLogLevel);
+      const logLevel = yield* References.MinimumLogLevel;
       const runtime = yield* Effect.promise(() =>
         createTuiRuntimeHandle(toServerOptions(args, logLevel)),
       ).pipe(
