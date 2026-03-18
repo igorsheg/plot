@@ -5,7 +5,7 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { runServerMain } from "../index.js";
 import { CliError, createCliOutput, resolveRequestedOutputMode } from "./shared/io.js";
-import { normalizeCliProcessArgv, resolveCliArgs } from "./shared/runtime.js";
+import { resolveCliArgs } from "./shared/runtime.js";
 import { createTuiCommand } from "./commands/tui.js";
 import { ServeCommand } from "./commands/serve.js";
 import { WebCommand } from "./commands/web.js";
@@ -27,7 +27,7 @@ if (internalCommand === "__internal-server") {
     Command.withSubcommands([ServeCommand, WebCommand, LoginCommand, LogoutCommand, AuthCommand]),
   );
 
-  await Command.runWith(command, { version: VERSION })(normalizeCliProcessArgv(process.argv)).pipe(
+  await Command.runWith(command, { version: VERSION })(argv).pipe(
     Effect.provide(BunServices.layer),
     Effect.catch((error: unknown) => {
       if (FrameworkCliError.isCliError(error)) {
