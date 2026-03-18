@@ -6,7 +6,7 @@ import {
 	TrackerConfig,
 	WorkflowConfig,
 } from "@plot/sdk";
-import { Effect, SubscriptionRef } from "effect";
+import { Effect, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
 	createRunningEntry,
@@ -64,9 +64,9 @@ const makeDeps = async (
 		readonly getConfig?: ReconcileDeps["getConfig"];
 	},
 ) => {
-	const stateRef = await Effect.runPromise(SubscriptionRef.make(state));
+	const stateRef = await Effect.runPromise(Ref.make(state));
 	const deps: ReconcileDeps = {
-		stateRef,
+		getState: Ref.get(stateRef),
 		tracker: overrides?.tracker ?? {
 			fetchIssueStatesByIds: () => Effect.succeed([]),
 			fetchIssuesByStates: () => Effect.succeed([]),
@@ -74,7 +74,7 @@ const makeDeps = async (
 		},
 		removeWorkspace: () => Effect.void,
 		getConfig: overrides?.getConfig ?? Effect.succeed(makeConfig()),
-		updateState: (fn) => SubscriptionRef.update(stateRef, fn),
+		updateState: (fn) => Ref.update(stateRef, fn),
 		stopRunningIssue: overrides?.stopRunningIssue ?? (() => Effect.void),
 		processRetry: overrides?.processRetry ?? (() => Effect.void),
 		dispatchIssue: overrides?.dispatchIssue ?? (() => Effect.void),
@@ -117,7 +117,7 @@ describe("makeTickRuntime", () => {
 			),
 		);
 
-		const nextState = await Effect.runPromise(SubscriptionRef.get(stateRef));
+		const nextState = await Effect.runPromise(Ref.get(stateRef));
 		expect(nextState.staleRetryDropCount).toBe(1);
 		expect(processCalls).toEqual([]);
 	});

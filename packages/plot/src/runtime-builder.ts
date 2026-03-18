@@ -11,6 +11,7 @@ import {
 	ManagedRuntime,
 	References,
 } from "effect";
+import { AtomRegistry } from "effect/unstable/reactivity";
 import {
 	type PlainTrackerClient,
 	type TrackerPluginDefinition,
@@ -419,6 +420,7 @@ export function makeTrackerLayer(resolvedPlugin: ResolvedPlugin) {
 export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 	const platformDeps = BunServices.layer;
 	return Layer.mergeAll(
+		AtomRegistry.layer,
 		makeTrackerLayer(resolvedPlugin),
 		PiAgentLive,
 		platformDeps,

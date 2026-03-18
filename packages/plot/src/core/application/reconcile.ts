@@ -1,4 +1,4 @@
-import { Clock, Effect, SubscriptionRef, type Scope } from "effect";
+import { Clock, Effect, type Scope } from "effect";
 import type { Issue } from "@plot/sdk";
 import { validateForDispatch, type ResolvedConfig } from "../config-service.js";
 import {
@@ -25,7 +25,7 @@ type StopOptions = {
 };
 
 export interface ReconcileDeps {
-  readonly stateRef: SubscriptionRef.SubscriptionRef<OrchestratorState>;
+  readonly getState: Effect.Effect<OrchestratorState>;
   readonly tracker: {
     readonly fetchIssueStatesByIds: (
       ids: readonly string[],
@@ -61,7 +61,7 @@ export interface ReconcileDeps {
 
 export function makeTickRuntime(deps: ReconcileDeps) {
   const reconcile = Effect.fnUntraced(function* (config: ResolvedConfig) {
-      const state = yield* SubscriptionRef.get(deps.stateRef);
+      const state = yield* deps.getState;
       const runningIds = [...state.running.keys()];
       if (runningIds.length === 0) return;
 
@@ -187,7 +187,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
     const sorted = sortCandidates(candidates);
     let dispatchedCount = 0;
     for (const issue of sorted) {
-      const currentState = yield* SubscriptionRef.get(deps.stateRef);
+      const currentState = yield* deps.getState;
       if (!isEligible(issue, currentState, config)) continue;
       yield* deps.dispatchIssue(issue, config, null).pipe(
         Effect.catch((e) =>
@@ -202,7 +202,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
       dispatchedCount++;
     }
 
-    const currentState = yield* SubscriptionRef.get(deps.stateRef);
+    const currentState = yield* deps.getState;
     yield* Effect.logInfo("tick").pipe(
       Effect.annotateLogs({
         candidates: String(sorted.length),
@@ -214,7 +214,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
   }).pipe(Effect.withLogSpan("tick"));
 
   const handleRetryDue = Effect.fnUntraced(function* (command: Extract<OrchestratorCommand, { _tag: "retry_due" }>) {
-      const retryEntry = (yield* SubscriptionRef.get(deps.stateRef)).retryAttempts.get(command.issueId);
+      const retryEntry = (yield* deps.getState).retryAttempts.get(command.issueId);
       if (!retryEntry) {
         yield* deps.updateState(incrementStaleRetryDropCount);
         return;
