@@ -52,7 +52,9 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 			const workspaceManager = yield* WorkspaceManager;
 			const eventPubSub = yield* PubSub.bounded<AgentRuntimeEvent>(512);
 			const pluginContext = yield* PluginContext;
-			const commandMailbox = yield* Queue.bounded<OrchestratorCommand>(COMMAND_QUEUE_CAPACITY);
+			const commandMailbox = yield* Queue.bounded<OrchestratorCommand>(
+				COMMAND_QUEUE_CAPACITY,
+			);
 
 			const overrides = yield* WorkflowOverridesConfig.pipe(
 				Config.nested("PLOT"),
@@ -181,6 +183,14 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 									}),
 								),
 							),
+						),
+					),
+					Match.discriminator("_tag")("steer", (cmd) =>
+						Effect.logInfo("task_steer_received").pipe(
+							Effect.annotateLogs({
+								issue_id: cmd.issueId,
+								message_length: String(cmd.message.length),
+							}),
 						),
 					),
 					Match.exhaustive,
