@@ -23,11 +23,6 @@ export interface WorkerExitCommand {
 	readonly exit: Exit.Exit<void, unknown>;
 }
 
-export interface SteerCommand {
-	readonly _tag: "steer";
-	readonly issueId: string;
-	readonly message: string;
-}
 export interface RetryDueCommand {
 	readonly _tag: "retry_due";
 	readonly issueId: string;
@@ -38,8 +33,7 @@ export type OrchestratorCommand =
 	| TickCommand
 	| RuntimeEventCommand
 	| WorkerExitCommand
-	| RetryDueCommand
-	| SteerCommand;
+	| RetryDueCommand;
 
 export const CONTINUATION_DELAY = Duration.seconds(5);
 export const COMMAND_QUEUE_CAPACITY = 1_024;

@@ -182,14 +182,6 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()(
 							),
 						),
 					),
-					Match.discriminator("_tag")("steer", (cmd) =>
-						Effect.logInfo("task_steer_received").pipe(
-							Effect.annotateLogs({
-								issue_id: cmd.issueId,
-								message_length: String(cmd.message.length),
-							}),
-						),
-					),
 					Match.exhaustive,
 				);
 
