@@ -1,25 +1,20 @@
 import { Schema } from "effect";
 
-export class TrackerConfig extends Schema.Class<TrackerConfig>("TrackerConfig")(
-	{
-		kind: Schema.String,
-		endpoint: Schema.optional(Schema.String),
-		apiKey: Schema.optional(Schema.String),
-		projectSlug: Schema.optional(Schema.String),
-		dispatchStates: Schema.optional(Schema.Array(Schema.String)),
-		parkedStates: Schema.optional(Schema.Array(Schema.String)),
-		terminalStates: Schema.optional(Schema.Array(Schema.String)),
-	},
-) {}
+export class TrackerConfig extends Schema.Class<TrackerConfig>("TrackerConfig")({
+	kind: Schema.String,
+	endpoint: Schema.optional(Schema.String),
+	apiKey: Schema.optional(Schema.String),
+	projectSlug: Schema.optional(Schema.String),
+	dispatchStates: Schema.optional(Schema.Array(Schema.String)),
+	parkedStates: Schema.optional(Schema.Array(Schema.String)),
+	terminalStates: Schema.optional(Schema.Array(Schema.String)),
+}) {}
 
-export class PollingConfig extends Schema.Class<PollingConfig>("PollingConfig")(
-	{
-		intervalMs: Schema.optional(Schema.Number),
-	},
-) {}
+export class PollingConfig extends Schema.Class<PollingConfig>("PollingConfig")({
+	intervalMs: Schema.optional(Schema.Number),
+}) {}
 
-export class WorkspaceConfig extends Schema.Class<WorkspaceConfig>("WorkspaceConfig",
-)({
+export class WorkspaceConfig extends Schema.Class<WorkspaceConfig>("WorkspaceConfig")({
 	root: Schema.optional(Schema.String),
 }) {}
 
@@ -35,21 +30,13 @@ export class AgentConfig extends Schema.Class<AgentConfig>("AgentConfig")({
 	maxConcurrentAgents: Schema.optional(Schema.Number),
 	maxTurns: Schema.optional(Schema.Number),
 	maxRetryBackoffMs: Schema.optional(Schema.Number),
-	maxConcurrentAgentsByState: Schema.optional(
-		Schema.Record(Schema.String, Schema.Number ),
-	),
+	maxConcurrentAgentsByState: Schema.optional(Schema.Record(Schema.String, Schema.Number)),
 	model: Schema.optional(Schema.String),
-	researchAgent: Schema.optional(Schema.Boolean),
-	modelByState: Schema.optional(
-		Schema.Record(Schema.String, Schema.String ),
-	),
-	modelByLabel: Schema.optional(
-		Schema.Record(Schema.String, Schema.String ),
-	),
+	modelByState: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+	modelByLabel: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 }) {}
 
-export class AgentRuntimeConfig extends Schema.Class<AgentRuntimeConfig>("AgentRuntimeConfig",
-)({
+export class AgentRuntimeConfig extends Schema.Class<AgentRuntimeConfig>("AgentRuntimeConfig")({
 	command: Schema.optional(Schema.String),
 	approvalPolicy: Schema.optional(Schema.String),
 	turnTimeoutMs: Schema.optional(Schema.Number),
@@ -61,8 +48,7 @@ export class ServerConfig extends Schema.Class<ServerConfig>("ServerConfig")({
 	port: Schema.optional(Schema.Number),
 }) {}
 
-export class WorkflowConfig extends Schema.Class<WorkflowConfig>("WorkflowConfig",
-)({
+export class WorkflowConfig extends Schema.Class<WorkflowConfig>("WorkflowConfig")({
 	tracker: Schema.optional(TrackerConfig),
 	polling: Schema.optional(PollingConfig),
 	workspace: Schema.optional(WorkspaceConfig),
@@ -72,8 +58,7 @@ export class WorkflowConfig extends Schema.Class<WorkflowConfig>("WorkflowConfig
 	server: Schema.optional(ServerConfig),
 }) {}
 
-export class WorkflowDefinition extends Schema.Class<WorkflowDefinition>("WorkflowDefinition",
-)({
+export class WorkflowDefinition extends Schema.Class<WorkflowDefinition>("WorkflowDefinition")({
 	config: WorkflowConfig,
 	promptTemplate: Schema.String,
 }) {}

@@ -19,7 +19,6 @@ hooks:
   before_remove: 'WS=$PWD && cd ../.. && git worktree remove "$WS" --force || true'
   timeout_ms: 120000
 agent:
-  research_agent: false
   model: anthropic/claude-sonnet-4-20250514
   model_by_state:
     plot:merging: anthropic/claude-sonnet-4-20250514
@@ -135,24 +134,29 @@ gh api repos/$GITHUB_REPO/issues/comments/<id> -X PATCH -f body='## Plot Workpad
 ```
 
 ### Plan
+
 - [ ] 1. Parent task
   - [ ] 1.1 Child task
 - [ ] 2. Parent task
 
 ### Acceptance Criteria
+
 - [ ] Criterion 1
 - [ ] Criterion 2
 
 ### Validation
+
 - [ ] targeted tests: `<command>`
 
 ### Latest Attempt Summary
+
 - changed: <files or none>
 - validated: <commands + outcome>
 - failed: <remaining failure or none>
 - blocked: <blocker or none>
 
 ### Notes
+
 - <short durable context>
 ````
 

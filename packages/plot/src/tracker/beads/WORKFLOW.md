@@ -20,7 +20,6 @@ hooks:
   before_remove: 'WS=$PWD && cd ../.. && git worktree remove "$WS" --force || true'
   timeout_ms: 120000
 agent:
-  research_agent: false
   model: anthropic/claude-sonnet-4-20250514
   model_by_state:
     plot:merging: anthropic/claude-sonnet-4-20250514
@@ -55,15 +54,15 @@ this section is workflow policy. plot compiles it into the stable system prompt.
 
 beads uses a hybrid model: native status for primary lifecycle, labels for orchestrator sub-states. the orchestrator checks labels first — if a configured label exists, it becomes the routing state. otherwise the native status is the state.
 
-| source | state          | meaning                     | agent action                                          |
-| ------ | -------------- | --------------------------- | ----------------------------------------------------- |
-| status | `open`         | queued for work             | move to `in_progress`, start implementation           |
-| status | `in_progress`  | implementation underway     | continue implementation, push PR, move to `blocked`   |
-| status | `blocked`      | waiting on human review     | do nothing, wait                                      |
-| status | `deferred`     | intentionally postponed     | do nothing, wait                                      |
-| label  | `plot:rework`  | reviewer requested changes  | address feedback, remove label, move to `blocked`     |
-| label  | `plot:merging` | human approved PR           | merge PR, remove label, close issue                   |
-| status | `closed`       | terminal                    | stop                                                  |
+| source | state          | meaning                    | agent action                                        |
+| ------ | -------------- | -------------------------- | --------------------------------------------------- |
+| status | `open`         | queued for work            | move to `in_progress`, start implementation         |
+| status | `in_progress`  | implementation underway    | continue implementation, push PR, move to `blocked` |
+| status | `blocked`      | waiting on human review    | do nothing, wait                                    |
+| status | `deferred`     | intentionally postponed    | do nothing, wait                                    |
+| label  | `plot:rework`  | reviewer requested changes | address feedback, remove label, move to `blocked`   |
+| label  | `plot:merging` | human approved PR          | merge PR, remove label, close issue                 |
+| status | `closed`       | terminal                   | stop                                                |
 
 state transitions via `bd`:
 
@@ -145,24 +144,29 @@ bd comments add <id> -f /tmp/workpad.md
 ```
 
 ### Plan
+
 - [ ] 1. Parent task
   - [ ] 1.1 Child task
 - [ ] 2. Parent task
 
 ### Acceptance Criteria
+
 - [ ] Criterion 1
 - [ ] Criterion 2
 
 ### Validation
+
 - [ ] targeted tests: `<command>`
 
 ### Latest Attempt Summary
+
 - changed: <files or none>
 - validated: <commands + outcome>
 - failed: <remaining failure or none>
 - blocked: <blocker or none>
 
 ### Notes
+
 - <short durable context>
 ````
 
@@ -206,15 +210,15 @@ load each skill when you reach its step.
 
 ## status map
 
-| state          | agent action                                        |
-| -------------- | --------------------------------------------------- |
-| open           | move to in_progress, then run implementation flow   |
-| in_progress    | continue implementation flow                        |
-| blocked        | do nothing — wait for human to review               |
-| deferred       | do nothing — wait                                   |
-| plot:rework    | run rework flow                                     |
-| plot:merging   | run `plot-land` skill                               |
-| closed         | do nothing, shut down                               |
+| state        | agent action                                      |
+| ------------ | ------------------------------------------------- |
+| open         | move to in_progress, then run implementation flow |
+| in_progress  | continue implementation flow                      |
+| blocked      | do nothing — wait for human to review             |
+| deferred     | do nothing — wait                                 |
+| plot:rework  | run rework flow                                   |
+| plot:merging | run `plot-land` skill                             |
+| closed       | do nothing, shut down                             |
 
 ## step 0: route by current state
 

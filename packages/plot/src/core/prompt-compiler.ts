@@ -27,18 +27,6 @@ const OUTPUT_CONTRACT = [
 	"4. workpad updates that now reflect the current state",
 ].join("\n");
 
-
-const RESEARCH_INSTRUCTION = [
-	"Your job is to gather all the necessary information and details to complete the task described below. Do not make any code changes, your job is just to research and gather information.",
-	"",
-	"In the final report:",
-	"",
-	"- Include key file names, line numbers, and code snippets that are relevant to the task.",
-	"- Any key discoveries that will help with implementing the task.",
-	"- Any challenges or edge cases you anticipate.",
-	"- You DO NOT need to update the tracker workpad, just include findings in your final output.",
-].join("\n");
-
 function normalizeBlock(value: string | null | undefined): string {
 	return (value ?? "").replace(/\r\n/g, "\n").trim();
 }
@@ -134,152 +122,75 @@ export const compilePrompt = Effect.fnUntraced(function* (
 	issue: Issue,
 	attempt: number | null,
 	runContext: TrackerRunContext | null,
-	researchReport?: string | null,
 ) {
-		const workflowPolicy = yield* renderPrompt(
-			template,
-			issue,
-			attempt,
-			runContext?.promptContext ?? null,
-		);
-
-		const systemSections = [
-			buildSection(
-				"plot-contract",
-				"plot operating contract",
-				"system",
-				PLOT_CONTRACT,
-			),
-			buildSection(
-				"workflow-policy",
-				"workflow policy",
-				"system",
-				workflowPolicy,
-			),
-			buildSection(
-				"output-contract",
-				"output contract",
-				"system",
-				OUTPUT_CONTRACT,
-			),
-		];
-
-		const userSections = [
-			buildSection(
-				"issue-payload",
-				"issue payload",
-				"user",
-				renderIssuePayload(issue),
-			),
-			...(researchReport
-				? [
-						buildSection(
-							"research-report",
-							"research report",
-							"user",
-							`You have already researched this task. AVOID DOING MORE RESEARCH unless information is missing. Have a bias for action.\n\nHere is your research report:\n\n${researchReport}`,
-						),
-					]
-				: []),
-			buildSection(
-				"tracker-context",
-				"tracker workpad context",
-				"user",
-				renderWorkpadContext(runContext),
-			),
-			buildSection(
-				"retry-context",
-				"retry context",
-				"user",
-				renderRetryContext(attempt),
-			),
-		];
-
-		const systemPrompt = joinSections(systemSections);
-		const userPrompt = joinSections(userSections);
-		const stablePrefix = joinSections(systemSections.slice(0, 2));
-		const stablePrefixHash = createHash("sha1")
-			.update(stablePrefix)
-			.digest("hex");
-
-		return {
-			systemPrompt,
-			userPrompt,
-			snapshot: new PromptSnapshotSchema({
-				system: systemPrompt,
-				user: userPrompt,
-				stablePrefix,
-				stablePrefixHash,
-				systemCharCount: systemPrompt.length,
-				userCharCount: userPrompt.length,
-				systemSections,
-				userSections,
-			}),
-		} satisfies CompiledPrompt;
-	});
-
-
-export const compileResearchPrompt = Effect.fnUntraced(function* (
-	template: string,
-	issue: Issue,
-	runContext: TrackerRunContext | null,
-) {
-		const workflowPolicy = yield* renderPrompt(
-			template,
-			issue,
-			null,
-			runContext?.promptContext ?? null,
-		);
-
-		const systemSections = [
-			buildSection(
-				"plot-contract",
-				"plot operating contract",
-				"system",
-				PLOT_CONTRACT,
-			),
-			buildSection(
-				"workflow-policy",
-				"workflow policy",
-				"system",
-				workflowPolicy,
-			),
-			buildSection(
-				"output-contract",
-				"output contract",
-				"system",
-				OUTPUT_CONTRACT,
-			),
-		];
-
-		const userSections = [
-			buildSection(
-				"issue-payload",
-				"issue payload",
-				"user",
-				renderIssuePayload(issue),
-			),
-			buildSection(
-				"research-instruction",
-				"research instruction",
-				"user",
-				RESEARCH_INSTRUCTION,
-			),
-		];
-
-		return {
-			systemPrompt: joinSections(systemSections),
-			userPrompt: joinSections(userSections),
-		};
-	});
-
-export async function compilePromptSnapshot(
-	template: string,
-	issue: Issue,
-	attempt: number | null,
-	runContext: TrackerRunContext | null,
-): Promise<CompiledPrompt> {
-	return await Effect.runPromise(
-		compilePrompt(template, issue, attempt, runContext),
+	const workflowPolicy = yield* renderPrompt(
+		template,
+		issue,
+		attempt,
+		runContext?.promptContext ?? null,
 	);
-}
+
+	const systemSections = [
+		buildSection(
+			"plot-contract",
+			"plot operating contract",
+			"system",
+			PLOT_CONTRACT,
+		),
+		buildSection(
+			"workflow-policy",
+			"workflow policy",
+			"system",
+			workflowPolicy,
+		),
+		buildSection(
+			"output-contract",
+			"output contract",
+			"system",
+			OUTPUT_CONTRACT,
+		),
+	];
+
+	const userSections = [
+		buildSection(
+			"issue-payload",
+			"issue payload",
+			"user",
+			renderIssuePayload(issue),
+		),
+		buildSection(
+			"tracker-context",
+			"tracker workpad context",
+			"user",
+			renderWorkpadContext(runContext),
+		),
+		buildSection(
+			"retry-context",
+			"retry context",
+			"user",
+			renderRetryContext(attempt),
+		),
+	];
+
+	const systemPrompt = joinSections(systemSections);
+	const userPrompt = joinSections(userSections);
+	const stablePrefix = joinSections(systemSections.slice(0, 2));
+	const stablePrefixHash = createHash("sha1")
+		.update(stablePrefix)
+		.digest("hex");
+
+	return {
+		systemPrompt,
+		userPrompt,
+		snapshot: new PromptSnapshotSchema({
+			system: systemPrompt,
+			user: userPrompt,
+			stablePrefix,
+			stablePrefixHash,
+			systemCharCount: systemPrompt.length,
+			userCharCount: userPrompt.length,
+			systemSections,
+			userSections,
+		}),
+	} satisfies CompiledPrompt;
+});
