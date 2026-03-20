@@ -118,35 +118,12 @@ async function createBeadsOps(config: {
 		}
 	};
 
-	const listIssues = async (status: string) => {
-		const daemonResult = await runDaemon((transport) =>
-			transport.listAllIssues<ReadonlyArray<BdIssue>>(),
-		);
-		if (daemonResult) {
-			if (status === "all") return daemonResult;
-			return daemonResult.filter(
-				(issue) => normalizeState(issue.status) === normalizeState(status),
-			);
-		}
-		const result = await runBd(["list", "--json", "--status", status]);
-		return parseIssueList(JSON.parse(result.stdout));
-	};
-
 	const listAllIssues = async () => {
 		const daemonResult = await runDaemon((transport) =>
 			transport.listAllIssues<ReadonlyArray<BdIssue>>(),
 		);
 		if (daemonResult) return daemonResult;
 		const result = await runBd(["list", "--json", "--status", "all"]);
-		return parseIssueList(JSON.parse(result.stdout));
-	};
-
-	const listOpenIssues = async () => {
-		const daemonResult = await runDaemon((transport) =>
-			transport.listOpenIssues<ReadonlyArray<BdIssue>>(),
-		);
-		if (daemonResult) return daemonResult;
-		const result = await runBd(["list", "--json", "--limit", "0"]);
 		return parseIssueList(JSON.parse(result.stdout));
 	};
 
@@ -204,10 +181,7 @@ async function createBeadsOps(config: {
 	};
 
 	return {
-		runBd,
-		listIssues,
 		listAllIssues,
-		listOpenIssues,
 		viewIssue,
 		mapState,
 		mapIssue,
