@@ -92,10 +92,9 @@ function mapPluginError(error: unknown, operation: string): TrackerError {
 	return new TrackerNetworkError({ message: `${operation}: ${message}` });
 }
 
-function toDateTime(value: Date | string | null | undefined): DateTime.Utc | null {
+function toDateTime(value: string | null): DateTime.Utc | null {
 	if (value == null) return null;
-	const date = typeof value === "string" ? new Date(value) : value;
-	return DateTime.fromDateUnsafe(date);
+	return DateTime.fromDateUnsafe(new Date(value));
 }
 
 function normalizeIssue(plain: IssueLike): Issue {
@@ -190,19 +189,19 @@ function adaptTrackerClient(plain: PlainTrackerClient): Layer.Layer<TrackerClien
 						try: () =>
 							plain.issueAgentPreset!({
 								...issue,
-								description: issue.description ?? undefined,
-								url: issue.url ?? undefined,
+								description: issue.description,
+								url: issue.url,
 								blockedBy: issue.blockedBy?.map((b) => ({
 									id: b.id,
 									identifier: b.identifier,
 									state: b.state,
 								})),
 								createdAt: issue.createdAt
-									? new Date(DateTime.toEpochMillis(issue.createdAt))
-									: undefined,
+									? DateTime.formatIso(issue.createdAt)
+									: null,
 								updatedAt: issue.updatedAt
-									? new Date(DateTime.toEpochMillis(issue.updatedAt))
-									: undefined,
+									? DateTime.formatIso(issue.updatedAt)
+									: null,
 							}),
 						catch: (e) => mapPluginError(e, "issueAgentPreset"),
 					}).pipe(Effect.map((p) => (p ? new AgentPreset(p) : null))),
