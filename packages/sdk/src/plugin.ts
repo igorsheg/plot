@@ -36,12 +36,33 @@ export class PluginValidationError extends Error {
 	}
 }
 
+/**
+ * Encoded issue data suitable for plugin consumption — derived from Issue.Encoded
+ * to provide a serializable representation that plugin authors can work with
+ * without depending on the full Effect Schema machinery.
+ */
 export type IssueLike = typeof Issue.Encoded;
 
+/**
+ * Encoded state entry data for tracking issue state changes — derived from IssueStateEntry.Encoded
+ * to provide plugins a lightweight way to handle issue state transitions without
+ * depending on the full schema infrastructure.
+ */
 export type IssueStateEntryLike = typeof IssueStateEntry.Encoded;
 
+/**
+ * Encoded run context containing workpad, review feedback, and parsed sections — derived from TrackerRunContext.Encoded
+ * to allow plugins to access execution context data for agent runs while maintaining
+ * serialization compatibility and schema independence.
+ */
 export type TrackerRunContextLike = typeof TrackerRunContext.Encoded;
 
+/**
+ * Plugin-facing tracker client interface using plain Promises instead of Effect — provides
+ * a simpler API for plugin authors who don't need Effect's advanced error handling.
+ * Only `fetchCandidateIssues` is required; all other methods are optional and allow
+ * plugins to implement only the functionality they need.
+ */
 export interface PlainTrackerClient {
 	readonly fetchCandidateIssues: (
 		dispatchStates: ReadonlyArray<string>,
@@ -97,6 +118,12 @@ export interface PlainTrackerClient {
 	readonly settings?: (projectId: string) => Promise<void>;
 }
 
+/**
+ * Plugin definition following the two-phase lifecycle: validateConfig → factory.
+ * The validateConfig phase allows plugins to transform raw config into a typed form,
+ * while the factory phase creates the client instance with the validated config.
+ * This separation enables early validation and type safety.
+ */
 export interface TrackerPluginDefinition<TConfig = TrackerPluginConfig> {
 	readonly name: string;
 	readonly validateConfig?: (raw: TrackerPluginConfig) => TConfig | Promise<TConfig>;
@@ -111,6 +138,11 @@ function countChecklistItems(body: string): number {
 	return (body.match(/^\s*[-*]\s+\[[ xX]\]/gm) ?? []).length;
 }
 
+/**
+ * Parse workpad sections from markdown text expecting ### headings format — extracts
+ * titled sections with body content and checklist item counts for structured processing.
+ * Handles the standard workpad format used in plot issue tracking.
+ */
 export function parseWorkpadSectionsPlain(
 	workpad: string | null,
 ): ReadonlyArray<{ title: string; body: string; itemCount: number }> {
@@ -149,8 +181,14 @@ export function parseWorkpadSectionsPlain(
 	return sections;
 }
 
+/** Normalize state strings for consistent comparison by removing whitespace and forcing lowercase. */
 export const normalizeState = (s: string): string => s.trim().toLowerCase();
 
+/**
+ * Assemble TrackerRunContext from workpad and review feedback inputs — combines
+ * raw text into a structured context object with parsed sections for agent consumption.
+ * Returns null when no meaningful context can be extracted from the inputs.
+ */
 export function buildRunContext(input: {
 	workpad: string | null;
 	reviewFeedback?: string | null;
