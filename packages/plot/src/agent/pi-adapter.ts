@@ -25,6 +25,13 @@ function parseModelSpec(spec: string): { provider: string; modelId: string } | n
 	return { provider: spec.slice(0, slashIndex), modelId: spec.slice(slashIndex + 1) };
 }
 
+/** Ordered model preferences — first match wins. Prefix entries use startsWith. */
+const DEFAULT_MODEL_PREFERENCE = [
+	{ id: "claude-opus-4-6", prefix: false },
+	{ id: "claude-opus-4", prefix: true },
+	{ id: "claude-sonnet-4-20250514", prefix: false },
+] as const;
+
 function resolveModel(
 	modelSpec: string | undefined,
 	registry: ModelRegistry,
@@ -38,10 +45,13 @@ function resolveModel(
 			return getModel(parsed.provider as never, parsed.modelId as never);
 		}
 	}
+	const preferred = DEFAULT_MODEL_PREFERENCE.reduce<Model<Api> | undefined>(
+		(found, pref) =>
+			found ?? available.find((m) => (pref.prefix ? m.id.startsWith(pref.id) : m.id === pref.id)),
+		undefined,
+	);
 	return (
-		available.find((m) => m.id === "claude-opus-4-6") ??
-		available.find((m) => m.id.startsWith("claude-opus-4")) ??
-		available.find((m) => m.id === "claude-sonnet-4-20250514") ??
+		preferred ??
 		available.find((m) => !m.id.includes("haiku")) ??
 		available[0] ??
 		getModel("anthropic", "claude-opus-4-6")
@@ -61,10 +71,7 @@ const PlotAgentDir = Config.string("CODING_AGENT_DIR").pipe(
 	Config.withDefault(join(homedir(), ".plot", "agent")),
 );
 
-function resolvePlotSkillPaths(
-	workspacePath: string,
-	coreSkillsDir: string,
-) {
+function resolvePlotSkillPaths(workspacePath: string, coreSkillsDir: string) {
 	return [
 		coreSkillsDir,
 		...repoSkillDirectories
@@ -73,9 +80,7 @@ function resolvePlotSkillPaths(
 	];
 }
 
-function isAssistantMessage(
-	message: AgentMessage,
-): message is AssistantMessage {
+function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
 	return message.role === "assistant";
 }
 
@@ -359,35 +364,19 @@ const createEventStream = (
 		Effect.gen(function* () {
 			// --- resolve config ---
 			const plotAgentDir = yield* PlotAgentDir.asEffect().pipe(
-				Effect.mapError(
-					(e) =>
-						new AgentRunnerError({ code: "config_error", message: String(e) }),
-				),
+				Effect.mapError((e) => new AgentRunnerError({ code: "config_error", message: String(e) })),
 			);
 			const plotSkillsDir = yield* PlotPiSkillsDir.asEffect().pipe(
-				Effect.mapError(
-					(e) =>
-						new AgentRunnerError({ code: "config_error", message: String(e) }),
-				),
+				Effect.mapError((e) => new AgentRunnerError({ code: "config_error", message: String(e) })),
 			);
 
 			// --- create session ---
 			const authStorage = AuthStorage.create(join(plotAgentDir, "auth.json"));
-			const modelRegistry = new ModelRegistry(
-				authStorage,
-				join(plotAgentDir, "models.json"),
-			);
+			const modelRegistry = new ModelRegistry(authStorage, join(plotAgentDir, "models.json"));
 			const available = modelRegistry.getAvailable();
-			const model = resolveModel(
-				config.modelSpec,
-				modelRegistry,
-				available,
-			);
+			const model = resolveModel(config.modelSpec, modelRegistry, available);
 
-			const skillPaths = resolvePlotSkillPaths(
-				config.workspacePath,
-				plotSkillsDir,
-			);
+			const skillPaths = resolvePlotSkillPaths(config.workspacePath, plotSkillsDir);
 			yield* Effect.logDebug("agent_skill_paths").pipe(
 				Effect.annotateLogs({
 					issue_id: config.issueId,
@@ -415,9 +404,7 @@ const createEventStream = (
 				Effect.annotateLogs({
 					issue_id: config.issueId,
 					skill_count: String(loadedSkills.length),
-					skill_names: JSON.stringify(
-						loadedSkills.map((s) => s.name),
-					),
+					skill_names: JSON.stringify(loadedSkills.map((s) => s.name)),
 					system_prompt_length: String(config.systemPrompt.length),
 					system_prompt_first_200: config.systemPrompt.slice(0, 200),
 				}),
@@ -459,49 +446,53 @@ const createEventStream = (
 			// --- abort helper (idempotent, ref-guarded) ---
 			const abortingRef = yield* Ref.make(false);
 			const abortSession = Effect.fnUntraced(function* (reason: string) {
-					const alreadyAborting = yield* Ref.getAndSet(abortingRef, true);
-					if (alreadyAborting) return;
-					yield* Effect.logInfo("agent_abort").pipe(
-						Effect.annotateLogs({
-							issue_id: config.issueId,
-							identifier: config.issueIdentifier,
-							reason,
-						}),
-					);
-					yield* Effect.promise(() => session.abort().catch(() => {}));
-				});
+				const alreadyAborting = yield* Ref.getAndSet(abortingRef, true);
+				if (alreadyAborting) return;
+				yield* Effect.logInfo("agent_abort").pipe(
+					Effect.annotateLogs({
+						issue_id: config.issueId,
+						identifier: config.issueIdentifier,
+						reason,
+					}),
+				);
+				yield* Effect.promise(() => session.abort().catch(() => {}));
+			});
 
 			const threadId = crypto.randomUUID();
 
 			// --- bridge: thin callback→stream ---
 			const raw = Stream.callback<AgentSessionEvent, AgentRunnerError>(
 				Effect.fnUntraced(function* (queue) {
-						const unsub = session.subscribe((event: AgentSessionEvent) => {
-							Queue.offerUnsafe(queue, event);
-							if (event.type === "agent_end") Queue.endUnsafe(queue);
-						});
-						yield* Effect.addFinalizer(() => Effect.sync(() => unsub()));
-						yield* Effect.forkScoped(
-							Effect.tryPromise({
-								try: () => session.prompt(config.prompt),
-								catch: (e) =>
-									new AgentRunnerError({
-										code: "agent_prompt_failed",
-										message: `Agent prompt failed: ${e}`,
-									}),
-							}).pipe(
-								Effect.timeoutOrElse({
-									duration: `${config.turnTimeoutMs} millis`,
-									onTimeout: () =>
-										Effect.fail(new AgentRunnerError({
+					const unsub = session.subscribe((event: AgentSessionEvent) => {
+						Queue.offerUnsafe(queue, event);
+						if (event.type === "agent_end") Queue.endUnsafe(queue);
+					});
+					yield* Effect.addFinalizer(() => Effect.sync(() => unsub()));
+					yield* Effect.forkScoped(
+						Effect.tryPromise({
+							try: () => session.prompt(config.prompt),
+							catch: (e) =>
+								new AgentRunnerError({
+									code: "agent_prompt_failed",
+									message: `Agent prompt failed: ${e}`,
+								}),
+						}).pipe(
+							Effect.timeoutOrElse({
+								duration: `${config.turnTimeoutMs} millis`,
+								onTimeout: () =>
+									Effect.fail(
+										new AgentRunnerError({
 											code: "agent_turn_timeout",
 											message: `Agent turn timed out after ${config.turnTimeoutMs}ms`,
-										})),
-								}),
-								Effect.catch((error) => Effect.sync(() => Queue.failCauseUnsafe(queue, Cause.fail(error)))),
+										}),
+									),
+							}),
+							Effect.catch((error) =>
+								Effect.sync(() => Queue.failCauseUnsafe(queue, Cause.fail(error))),
 							),
-						);
-					}),
+						),
+					);
+				}),
 			);
 
 			// --- transform: stall detection + pure mapping + control side-effects ---
@@ -520,16 +511,10 @@ const createEventStream = (
 							);
 
 							// max_turns: abort after the turn that hits the limit
-							if (
-								event.type === "turn_start" &&
-								nextAcc.turnCount > config.maxTurns
-							) {
+							if (event.type === "turn_start" && nextAcc.turnCount > config.maxTurns) {
 								yield* abortSession(`max_turns reached (${config.maxTurns})`);
 							}
-							if (
-								event.type === "turn_end" &&
-								nextAcc.turnCount >= config.maxTurns
-							) {
+							if (event.type === "turn_end" && nextAcc.turnCount >= config.maxTurns) {
 								yield* abortSession(`max_turns reached (${config.maxTurns})`);
 							}
 
@@ -540,7 +525,6 @@ const createEventStream = (
 		}),
 	);
 
-export const PiAgentLive: Layer.Layer<AgentService> = Layer.succeed(
-	AgentService,
-	{ run: (config) => createEventStream(config) } as AgentService["Service"],
-);
+export const PiAgentLive: Layer.Layer<AgentService> = Layer.succeed(AgentService, {
+	run: (config) => createEventStream(config),
+} as AgentService["Service"]);

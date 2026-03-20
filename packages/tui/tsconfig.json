@@ -1,13 +1,13 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
-    "types": ["bun-types"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "@opentui/react",
-    "lib": ["ESNext", "DOM"]
-  },
-  "include": ["src"],
-  "references": [{ "path": "../sdk" }]
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "dist",
+		"rootDir": "src",
+		"types": ["bun-types"],
+		"jsx": "react-jsx",
+		"jsxImportSource": "@opentui/react",
+		"lib": ["ESNext", "DOM"]
+	},
+	"include": ["src"],
+	"references": [{ "path": "../sdk" }]
 }

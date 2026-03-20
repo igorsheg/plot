@@ -20,39 +20,39 @@ const output = createCliOutput(resolveRequestedOutputMode(argv));
 const [internalCommand] = argv;
 
 if (internalCommand === "__internal-server") {
-  await runServerMain(process.env as Record<string, string | undefined>);
-  await new Promise(() => {});
+	await runServerMain(process.env as Record<string, string | undefined>);
+	await new Promise(() => {});
 } else {
-  const command = createTuiCommand(CLI_NAME).pipe(
-    Command.withSubcommands([ServeCommand, WebCommand, LoginCommand, LogoutCommand, AuthCommand]),
-  );
+	const command = createTuiCommand(CLI_NAME).pipe(
+		Command.withSubcommands([ServeCommand, WebCommand, LoginCommand, LogoutCommand, AuthCommand]),
+	);
 
-  await Command.runWith(command, { version: VERSION })(argv).pipe(
-    Effect.provide(BunServices.layer),
-    Effect.catch((error: unknown) => {
-      if (FrameworkCliError.isCliError(error)) {
-        return Effect.void;
-      }
-      if (isCliError(error)) {
-        return Effect.sync(() => {
-          output.error({
-            kind: error.kind,
-            message: error.message,
-            exitCode: error.exitCode,
-          });
-          process.exit(error.exitCode);
-        });
-      }
-      return Effect.sync(() => {
-        const message = error instanceof Error ? error.message : String(error);
-        output.error({ kind: "runtime", message, exitCode: 1 });
-        process.exit(1);
-      });
-    }),
-    Effect.runPromise,
-  );
+	await Command.runWith(command, { version: VERSION })(argv).pipe(
+		Effect.provide(BunServices.layer),
+		Effect.catch((error: unknown) => {
+			if (FrameworkCliError.isCliError(error)) {
+				return Effect.void;
+			}
+			if (isCliError(error)) {
+				return Effect.sync(() => {
+					output.error({
+						kind: error.kind,
+						message: error.message,
+						exitCode: error.exitCode,
+					});
+					process.exit(error.exitCode);
+				});
+			}
+			return Effect.sync(() => {
+				const message = error instanceof Error ? error.message : String(error);
+				output.error({ kind: "runtime", message, exitCode: 1 });
+				process.exit(1);
+			});
+		}),
+		Effect.runPromise,
+	);
 }
 
 function isCliError(error: unknown): error is CliError {
-  return error instanceof CliError;
+	return error instanceof CliError;
 }

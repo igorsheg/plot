@@ -7,11 +7,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-function walkUp(
-	startDir: string,
-	filename: string,
-	globalFallback = false,
-): string | null {
+function walkUp(startDir: string, filename: string, globalFallback = false): string | null {
 	let dir = startDir;
 	while (true) {
 		const candidate = join(dir, ".beads", filename);
@@ -70,10 +66,7 @@ export class BeadsDaemonTransport {
 		return this.send<T>("show", { id });
 	}
 
-	private async send<T>(
-		operation: string,
-		args: Record<string, unknown>,
-	): Promise<T> {
+	private async send<T>(operation: string, args: Record<string, unknown>): Promise<T> {
 		const socketPath = await this.ensureRunning();
 		return await new Promise<T>((resolve, reject) => {
 			const socket = createConnection(socketPath);
@@ -118,9 +111,7 @@ export class BeadsDaemonTransport {
 				socket.destroy();
 				settle(
 					reject as (value: T | Error) => void,
-					new Error(
-						`beads daemon request timed out after ${this.requestTimeoutMs}ms`,
-					),
+					new Error(`beads daemon request timed out after ${this.requestTimeoutMs}ms`),
 				);
 			}, this.requestTimeoutMs);
 
@@ -199,11 +190,7 @@ export class BeadsDaemonTransport {
 				}
 				if (Date.now() - startedAt >= this.requestTimeoutMs) {
 					clearInterval(timer);
-					reject(
-						new Error(
-							`beads daemon socket did not appear within ${this.requestTimeoutMs}ms`,
-						),
-					);
+					reject(new Error(`beads daemon socket did not appear within ${this.requestTimeoutMs}ms`));
 				}
 			}, 100);
 		});

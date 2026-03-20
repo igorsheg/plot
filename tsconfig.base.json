@@ -1,28 +1,28 @@
 {
-  "compilerOptions": {
-    "strict": true,
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "verbatimModuleSyntax": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "noUncheckedIndexedAccess": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "baseUrl": ".",
-    "paths": {
-      "@plot/plot": ["packages/plot/src/index.ts"],
-      "@plot/sdk": ["packages/sdk/src/index.ts"],
-      "@plot/tui": ["packages/tui/src/index.ts"]
-    },
-    "outDir": "dist",
-    "rootDir": "src",
-    "composite": true
-  }
+	"compilerOptions": {
+		"strict": true,
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"verbatimModuleSyntax": true,
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"noPropertyAccessFromIndexSignature": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"baseUrl": ".",
+		"paths": {
+			"@plot/plot": ["packages/plot/src/index.ts"],
+			"@plot/sdk": ["packages/sdk/src/index.ts"],
+			"@plot/tui": ["packages/tui/src/index.ts"]
+		},
+		"outDir": "dist",
+		"rootDir": "src",
+		"composite": true
+	}
 }

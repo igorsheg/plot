@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
 	buildRunContext,
+	normalizeState,
 	PluginAuthError,
 	PluginNotFoundError,
 	PluginRateLimitError,
@@ -12,22 +13,18 @@ import {
 	type TrackerPluginDefinition,
 	type TrackerRunContextLike,
 } from "@plot/sdk";
+import { BeadsDaemonTransport, tryCreateBeadsDaemonTransport } from "./daemon-transport.js";
 import {
-	BeadsDaemonTransport,
-	tryCreateBeadsDaemonTransport,
-} from "./daemon-transport.js";
+	type CommonTrackerConfig,
+	deriveAllStates,
+	fetchPrReviewFeedback,
+	validateCommonTrackerFields,
+} from "../shared.js";
 
 const execFileAsync = promisify(execFile);
 
-const normalizeState = (s: string): string => s.trim().toLowerCase();
-
-interface BeadsTrackerConfig {
-	kind: string;
+interface BeadsTrackerConfig extends CommonTrackerConfig {
 	beadsDir?: string;
-	githubRepo?: string;
-	dispatchStates?: ReadonlyArray<string>;
-	parkedStates?: ReadonlyArray<string>;
-	terminalStates?: ReadonlyArray<string>;
 }
 
 interface BdIssue {
@@ -73,10 +70,7 @@ function mapBdFailure(error: unknown, resourceId?: string): Error {
 			normalized.includes("no issue found") ||
 			normalized.includes("no such issue"))
 	) {
-		return new PluginNotFoundError(
-			`beads issue not found: ${details}`,
-			resourceId,
-		);
+		return new PluginNotFoundError(`beads issue not found: ${details}`, resourceId);
 	}
 
 	return new Error(`bd command failed: ${details}`);
@@ -124,20 +118,6 @@ async function createBeadsOps(config: {
 		}
 	};
 
-	const listIssues = async (status: string) => {
-		const daemonResult = await runDaemon((transport) =>
-			transport.listAllIssues<ReadonlyArray<BdIssue>>(),
-		);
-		if (daemonResult) {
-			if (status === "all") return daemonResult;
-			return daemonResult.filter(
-				(issue) => normalizeState(issue.status) === normalizeState(status),
-			);
-		}
-		const result = await runBd(["list", "--json", "--status", status]);
-		return parseIssueList(JSON.parse(result.stdout));
-	};
-
 	const listAllIssues = async () => {
 		const daemonResult = await runDaemon((transport) =>
 			transport.listAllIssues<ReadonlyArray<BdIssue>>(),
@@ -147,28 +127,14 @@ async function createBeadsOps(config: {
 		return parseIssueList(JSON.parse(result.stdout));
 	};
 
-	const listOpenIssues = async () => {
-		const daemonResult = await runDaemon((transport) =>
-			transport.listOpenIssues<ReadonlyArray<BdIssue>>(),
-		);
-		if (daemonResult) return daemonResult;
-		const result = await runBd(["list", "--json", "--limit", "0"]);
-		return parseIssueList(JSON.parse(result.stdout));
-	};
-
 	const viewIssue = async (id: string) => {
-		const daemonResult = await runDaemon((transport) =>
-			transport.viewIssue<BdIssueDetailed>(id),
-		);
+		const daemonResult = await runDaemon((transport) => transport.viewIssue<BdIssueDetailed>(id));
 		if (daemonResult) return parseDetailedIssue(daemonResult, id);
 		const result = await runBd(["show", id, "--json"], { resourceId: id });
 		return parseDetailedIssue(JSON.parse(result.stdout), id);
 	};
 
-	const mapState = (bd: {
-		status: string;
-		labels?: ReadonlyArray<string>;
-	}): string => {
+	const mapState = (bd: { status: string; labels?: ReadonlyArray<string> }): string => {
 		const labelNames = (bd.labels ?? []).map((l) => normalizeState(l));
 		for (const s of config.allStates) {
 			if (labelNames.includes(normalizeState(s))) return s;
@@ -188,77 +154,6 @@ async function createBeadsOps(config: {
 		updatedAt: bd.updated_at || null,
 	});
 
-	const runGh = async (
-		args: ReadonlyArray<string>,
-	): Promise<{ stdout: string; stderr: string }> => {
-		return await execFileAsync("gh", args as string[], {
-			maxBuffer: 50 * 1024 * 1024,
-			cwd: workspaceRoot,
-		});
-	};
-
-	const fetchPrReviews = async (issueId: string): Promise<string | null> => {
-		const repoArgs = config.githubRepo
-			? ["--repo", config.githubRepo]
-			: [];
-		try {
-			const prSearchResult = await runGh([
-				"pr",
-				"list",
-				...repoArgs,
-				"--state",
-				"open",
-				"--json",
-				"number,headRefName,body",
-				"--limit",
-				"50",
-			]);
-
-			const prs = JSON.parse(prSearchResult.stdout) as ReadonlyArray<{
-				number: number;
-				body: string;
-			}>;
-			const linkedPr = prs.find((pr) => pr.body?.includes(issueId));
-			if (!linkedPr) return null;
-
-			const reviewResult = await runGh([
-				"pr",
-				"view",
-				String(linkedPr.number),
-				...repoArgs,
-				"--json",
-				"reviews,comments",
-			]);
-
-			const prData = JSON.parse(reviewResult.stdout) as {
-				reviews?: ReadonlyArray<{
-					body: string;
-					state: string;
-					author: { login: string };
-				}>;
-				comments?: ReadonlyArray<{
-					body: string;
-					author: { login: string };
-				}>;
-			};
-			const parts: string[] = [];
-			if (prData.reviews?.length) {
-				for (const r of prData.reviews) {
-					if (r.body)
-						parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
-				}
-			}
-			if (prData.comments?.length) {
-				for (const c of prData.comments) {
-					if (c.body) parts.push(`**${c.author.login}**:\n${c.body}`);
-				}
-			}
-			return parts.length > 0 ? parts.join("\n\n---\n\n") : null;
-		} catch {
-			return null;
-		}
-	};
-
 	const fetchRunContext = async (
 		issueId: string,
 		state: string,
@@ -272,25 +167,21 @@ async function createBeadsOps(config: {
 		}
 
 		let workpad: string | null = null;
-		const workpadComment = comments.find((c) =>
-			c.text.startsWith("## Plot Workpad"),
-		);
+		const workpadComment = comments.find((c) => c.text.startsWith("## Plot Workpad"));
 		if (workpadComment) workpad = workpadComment.text;
 
 		let reviews: string | null = null;
 		const normalizedDispatch = config.dispatchStates.map(normalizeState);
 		if (normalizedDispatch.includes(normalizeState(state))) {
-			reviews = await fetchPrReviews(issueId);
+			const repoArgs = config.githubRepo ? ["--repo", config.githubRepo] : [];
+			reviews = await fetchPrReviewFeedback(issueId, repoArgs, workspaceRoot);
 		}
 
 		return buildRunContext({ workpad, reviewFeedback: reviews });
 	};
 
 	return {
-		runBd,
-		listIssues,
 		listAllIssues,
-		listOpenIssues,
 		viewIssue,
 		mapState,
 		mapIssue,
@@ -302,28 +193,16 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 	name: "beads",
 	validateConfig(raw: TrackerPluginConfig): BeadsTrackerConfig {
 		return {
-			kind: String(raw.kind),
-			beadsDir:
-				typeof raw["beadsDir"] === "string" ? raw["beadsDir"] : undefined,
-			githubRepo:
-				typeof raw["githubRepo"] === "string" ? raw["githubRepo"] : undefined,
-			dispatchStates: Array.isArray(raw["dispatchStates"])
-				? raw["dispatchStates"]
-				: undefined,
-			parkedStates: Array.isArray(raw["parkedStates"])
-				? raw["parkedStates"]
-				: undefined,
-			terminalStates: Array.isArray(raw["terminalStates"])
-				? raw["terminalStates"]
-				: undefined,
+			...validateCommonTrackerFields(raw),
+			beadsDir: typeof raw["beadsDir"] === "string" ? raw["beadsDir"] : undefined,
 		};
 	},
 	async factory(config): Promise<PlainTrackerClient> {
-		const allStates = [
-			...(config.dispatchStates ?? []),
-			...(config.parkedStates ?? []),
-			...(config.terminalStates ?? []),
-		].filter((s, i, arr) => arr.indexOf(s) === i);
+		const allStates = deriveAllStates(
+			config.dispatchStates,
+			config.parkedStates,
+			config.terminalStates,
+		);
 
 		const ops = await createBeadsOps({
 			beadsDir: config.beadsDir,

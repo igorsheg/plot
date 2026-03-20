@@ -151,11 +151,6 @@ describe("connectSse", () => {
 
 		expect(fetchCalls).toBe(1);
 		expect(cleared).toHaveLength(1);
-		expect(statuses).toEqual([
-			"connecting",
-			"disconnected",
-			"reconnecting",
-			"disconnected",
-		]);
+		expect(statuses).toEqual(["connecting", "disconnected", "reconnecting", "disconnected"]);
 	});
 });

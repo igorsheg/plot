@@ -1,10 +1,6 @@
 import { connectSse, type SseStatus, type SseConnection } from "./sse.js";
 import { makePlotClient } from "./client.js";
-import {
-	RuntimeSnapshot,
-	type IssueDetail,
-	type IssueEventLog,
-} from "./schemas/orchestrator.js";
+import { RuntimeSnapshot, type IssueDetail, type IssueEventLog } from "./schemas/orchestrator.js";
 import type { AgentRuntimeEvent } from "./schemas/events.js";
 import type { RefreshResult } from "./rpc.js";
 import { applyRuntimeEvent } from "./snapshot-reducer.js";
@@ -56,8 +52,7 @@ export class RuntimeStream {
 
 	triggerRefresh = (): Promise<RefreshResult> => this.#client.triggerRefresh();
 
-	getIssue = (identifier: string): Promise<IssueDetail> =>
-		this.#client.getIssue(identifier);
+	getIssue = (identifier: string): Promise<IssueDetail> => this.#client.getIssue(identifier);
 
 	getEventLog = (identifier: string): Promise<IssueEventLog> =>
 		this.#client.getEventLog(identifier);

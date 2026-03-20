@@ -1,5 +1,5 @@
 import { DateTime, Fiber } from "effect";
-import { AgentRuntimeEvent, reducePhase } from "@plot/sdk";
+import { AgentRuntimeEvent, normalizeState, reducePhase } from "@plot/sdk";
 import type { Issue, PromptSnapshot, TrackerRunContext } from "@plot/sdk";
 import type { ResolvedConfig } from "../config-service.js";
 
@@ -19,12 +19,7 @@ export interface RunningEntry {
 	readonly workspacePath: string;
 	readonly lastMessage: string | null;
 	readonly eventTail: ReadonlyArray<AgentRuntimeEvent>;
-	readonly phase:
-		| "idle"
-		| "thinking"
-		| "tool_execution"
-		| "compacting"
-		| "retrying";
+	readonly phase: "idle" | "thinking" | "tool_execution" | "compacting" | "retrying";
 	readonly activeTools: ReadonlyArray<{ toolCallId: string; toolName: string }>;
 	readonly lastAssistantMessage: string | null;
 	readonly promptSnapshot: PromptSnapshot | null;
@@ -41,12 +36,7 @@ export interface IssueArtifact {
 	readonly lastError: string | null;
 }
 
-export type RetryReason =
-	| "continuation"
-	| "failure"
-	| "stall"
-	| "backpressure"
-	| "merge_conflict";
+export type RetryReason = "continuation" | "failure" | "stall" | "backpressure" | "merge_conflict";
 
 export interface RetryEntry {
 	readonly issueId: string;
@@ -76,14 +66,8 @@ export interface OrchestratorState {
 	readonly commandQueuePressureCount: number;
 	readonly staleRetryDropCount: number;
 	readonly retriesScheduledByReason: Record<RetryReason, number>;
-	readonly workerStopsByReason: Record<
-		"terminal" | "inactive" | "stalled",
-		number
-	>;
-	readonly workerExitsByReason: Record<
-		"success" | "interrupted" | "failure",
-		number
-	>;
+	readonly workerStopsByReason: Record<"terminal" | "inactive" | "stalled", number>;
+	readonly workerExitsByReason: Record<"success" | "interrupted" | "failure", number>;
 	readonly eventLogs: Map<string, IssueEventLogEntry>;
 	readonly issueArtifacts: Map<string, IssueArtifact>;
 }
@@ -121,36 +105,26 @@ export const initialState: OrchestratorState = {
 	issueArtifacts: new Map(),
 };
 
-export const normalizeState = (s: string) => s.trim().toLowerCase();
-
 export const isDispatchable = (state: string, config: ResolvedConfig) =>
 	config.dispatchStates.some(
 		(dispatchState) => normalizeState(dispatchState) === normalizeState(state),
 	);
 
 export const isParked = (state: string, config: ResolvedConfig) =>
-	config.parkedStates.some(
-		(parkedState) => normalizeState(parkedState) === normalizeState(state),
-	);
+	config.parkedStates.some((parkedState) => normalizeState(parkedState) === normalizeState(state));
 
 export const isTerminal = (state: string, config: ResolvedConfig) =>
-	config.terminalStates.some(
-		(t) => normalizeState(t) === normalizeState(state),
-	);
+	config.terminalStates.some((t) => normalizeState(t) === normalizeState(state));
 
-export const availableSlots = (
-	state: OrchestratorState,
-	config: ResolvedConfig,
-): number => Math.max(config.maxConcurrentAgents - state.running.size, 0);
+export const availableSlots = (state: OrchestratorState, config: ResolvedConfig): number =>
+	Math.max(config.maxConcurrentAgents - state.running.size, 0);
 
 export const perStateSlots = (
 	issueState: string,
 	state: OrchestratorState,
 	config: ResolvedConfig,
 ): number => {
-	const limit = config.maxConcurrentAgentsByState.get(
-		normalizeState(issueState),
-	);
+	const limit = config.maxConcurrentAgentsByState.get(normalizeState(issueState));
 	if (limit === undefined) return availableSlots(state, config);
 	const current = [...state.running.values()].filter(
 		(r) => normalizeState(r.state) === normalizeState(issueState),
@@ -158,49 +132,34 @@ export const perStateSlots = (
 	return Math.max(limit - current, 0);
 };
 
-export const hasNonTerminalBlockers = (
-	issue: Issue,
-	config: ResolvedConfig,
-): boolean =>
-	(issue.blockedBy ?? []).some(
-		(b) => b.state !== null && !isTerminal(b.state, config),
-	);
+export const hasNonTerminalBlockers = (issue: Issue, config: ResolvedConfig): boolean =>
+	(issue.blockedBy ?? []).some((b) => b.state !== null && !isTerminal(b.state, config));
 
 export const isEligible = (
 	issue: Issue,
 	state: OrchestratorState,
 	config: ResolvedConfig,
 ): boolean => {
-	if (!issue.id || !issue.identifier || !issue.title || !issue.state)
-		return false;
+	if (!issue.id || !issue.identifier || !issue.title || !issue.state) return false;
 	if (!isDispatchable(issue.state, config)) return false;
 	if (isTerminal(issue.state, config)) return false;
 	if (state.running.has(issue.id)) return false;
 	if (state.claimed.has(issue.id)) return false;
 	if (availableSlots(state, config) <= 0) return false;
 	if (perStateSlots(issue.state, state, config) <= 0) return false;
-	if (
-		normalizeState(issue.state) === "todo" &&
-		hasNonTerminalBlockers(issue, config)
-	) {
+	if (normalizeState(issue.state) === "todo" && hasNonTerminalBlockers(issue, config)) {
 		return false;
 	}
 	return true;
 };
 
-export const sortCandidates = (
-	issues: ReadonlyArray<Issue>,
-): ReadonlyArray<Issue> =>
+export const sortCandidates = (issues: ReadonlyArray<Issue>): ReadonlyArray<Issue> =>
 	[...issues].sort((a, b) => {
 		const pa = a.priority ?? 999;
 		const pb = b.priority ?? 999;
 		if (pa !== pb) return pa - pb;
-		const ca = a.createdAt
-			? Number(DateTime.toEpochMillis(a.createdAt))
-			: Infinity;
-		const cb = b.createdAt
-			? Number(DateTime.toEpochMillis(b.createdAt))
-			: Infinity;
+		const ca = a.createdAt ? Number(DateTime.toEpochMillis(a.createdAt)) : Infinity;
+		const cb = b.createdAt ? Number(DateTime.toEpochMillis(b.createdAt)) : Infinity;
 		if (ca !== cb) return ca - cb;
 		return a.identifier.localeCompare(b.identifier);
 	});
@@ -370,9 +329,7 @@ export const incrementCommandQueuePressureInState = (
 	commandQueuePeak: Math.max(state.commandQueuePeak, queueSize),
 });
 
-export const incrementStaleRetryDropCount = (
-	state: OrchestratorState,
-): OrchestratorState => ({
+export const incrementStaleRetryDropCount = (state: OrchestratorState): OrchestratorState => ({
 	...state,
 	staleRetryDropCount: state.staleRetryDropCount + 1,
 });
@@ -385,8 +342,7 @@ const coalesceNotification = (
 ): ReadonlyArray<AgentRuntimeEvent> | null => {
 	if (event.event !== "notification" || prev.length === 0) return null;
 	const last = prev[prev.length - 1]!;
-	if (last.event !== "notification" || last.issueId !== event.issueId)
-		return null;
+	if (last.event !== "notification" || last.issueId !== event.issueId) return null;
 	const merged = new AgentRuntimeEvent({
 		...last,
 		timestamp: event.timestamp,
@@ -417,10 +373,7 @@ export const appendToEventLog = (
 	return { ...state, eventLogs: logs };
 };
 
-export const clearEventLog = (
-	state: OrchestratorState,
-	issueId: string,
-): OrchestratorState => {
+export const clearEventLog = (state: OrchestratorState, issueId: string): OrchestratorState => {
 	if (!state.eventLogs.has(issueId)) return state;
 	const logs = new Map(state.eventLogs);
 	logs.delete(issueId);

@@ -1,23 +1,9 @@
-import {
-	Clock,
-	Deferred,
-	Duration,
-	Effect,
-	Exit,
-	Fiber,
-	PubSub,
-	Ref,
-	Scope,
-	Stream,
-} from "effect";
+import { Clock, Deferred, Duration, Effect, Exit, Fiber, PubSub, Ref, Scope, Stream } from "effect";
 import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
 import { compilePrompt } from "../prompt-compiler.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../../agent/agent-service.js";
-import type {
-	OrchestratorCommand,
-	WorkerExitCommand,
-} from "./orchestrator-command.js";
+import type { OrchestratorCommand, WorkerExitCommand } from "./orchestrator-command.js";
 import { CONTINUATION_DELAY, retryDelay } from "./orchestrator-command.js";
 import {
 	availableSlots,
@@ -55,9 +41,7 @@ export interface DispatchDeps {
 		) => Effect.Effect<TrackerRunContext | null, unknown>;
 	};
 	readonly agentService: {
-		readonly run: (
-			config: AgentRunConfig,
-		) => Stream.Stream<AgentRuntimeEvent, unknown>;
+		readonly run: (config: AgentRunConfig) => Stream.Stream<AgentRuntimeEvent, unknown>;
 	};
 	readonly workspaceManager: {
 		readonly ensureWorkspace: (
@@ -79,9 +63,7 @@ export interface DispatchDeps {
 		command: OrchestratorCommand,
 	) => Effect.Effect<void, never, Scope.Scope>;
 	readonly getConfig: Effect.Effect<ResolvedConfig | null>;
-	readonly updateState: (
-		fn: (s: OrchestratorState) => OrchestratorState,
-	) => Effect.Effect<void>;
+	readonly updateState: (fn: (s: OrchestratorState) => OrchestratorState) => Effect.Effect<void>;
 }
 
 export function makeDispatchRuntime(deps: DispatchDeps) {
@@ -96,10 +78,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			return [fiber, next] as const;
 		});
 
-	const replaceRetryTimerFiber = (
-		issueId: string,
-		fiber: Fiber.Fiber<void, never>,
-	) =>
+	const replaceRetryTimerFiber = (issueId: string, fiber: Fiber.Fiber<void, never>) =>
 		Ref.modify(deps.retryTimerFibersRef, (timers) => {
 			const next = new Map(timers);
 			const previous = next.get(issueId) ?? null;
@@ -130,9 +109,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 	const removeRunningEntry = Effect.fnUntraced(function* (issueId: string) {
 		const now = yield* Clock.currentTimeMillis;
-		yield* deps.updateState((s) =>
-			removeRunningEntryFromState(s, issueId, now),
-		);
+		yield* deps.updateState((s) => removeRunningEntryFromState(s, issueId, now));
 	});
 
 	const scheduleRetry = Effect.fnUntraced(function* (
@@ -180,15 +157,10 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		);
 
 		const timerFiber = yield* Effect.sleep(delay).pipe(
-			Effect.andThen(
-				deps.enqueueCommand({ _tag: "retry_due", issueId, attempt }),
-			),
+			Effect.andThen(deps.enqueueCommand({ _tag: "retry_due", issueId, attempt })),
 			Effect.forkScoped,
 		);
-		const previousTimerFiber = yield* replaceRetryTimerFiber(
-			issueId,
-			timerFiber,
-		);
+		const previousTimerFiber = yield* replaceRetryTimerFiber(issueId, timerFiber);
 		if (previousTimerFiber) {
 			yield* Fiber.interrupt(previousTimerFiber);
 		}
@@ -252,18 +224,14 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		exit,
 	}: WorkerExitCommand) {
 		const now = yield* Clock.currentTimeMillis;
-		const exitReason: "success" | "interrupted" | "failure" = Exit.isSuccess(
-			exit,
-		)
+		const exitReason: "success" | "interrupted" | "failure" = Exit.isSuccess(exit)
 			? "success"
 			: Exit.hasInterrupts(exit)
 				? "interrupted"
 				: "failure";
 
 		const exitErrorString: string | null =
-			exitReason === "failure" && Exit.isFailure(exit)
-				? String(exit.cause)
-				: null;
+			exitReason === "failure" && Exit.isFailure(exit) ? String(exit.cause) : null;
 
 		yield* deps.updateState((s) => {
 			const runningEntry = s.running.get(issueId) ?? null;
@@ -274,15 +242,9 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				issueId,
 				issueIdentifier: identifier,
 				workspacePath:
-					runningEntry?.workspacePath ??
-					previousArtifact?.workspacePath ??
-					workspacePath,
-				promptSnapshot:
-					runningEntry?.promptSnapshot ??
-					previousArtifact?.promptSnapshot ??
-					null,
-				runContext:
-					runningEntry?.runContext ?? previousArtifact?.runContext ?? null,
+					runningEntry?.workspacePath ?? previousArtifact?.workspacePath ?? workspacePath,
+				promptSnapshot: runningEntry?.promptSnapshot ?? previousArtifact?.promptSnapshot ?? null,
+				runContext: runningEntry?.runContext ?? previousArtifact?.runContext ?? null,
 				lastError: exitErrorString,
 			});
 			return {
@@ -298,14 +260,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		yield* runAfterRunHook(config, workspacePath);
 
 		if (exitReason === "success") {
-			yield* scheduleRetry(
-				issueId,
-				identifier,
-				1,
-				CONTINUATION_DELAY,
-				null,
-				"continuation",
-			);
+			yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY, null, "continuation");
 		} else if (exitReason === "interrupted") {
 			yield* releaseClaim(issueId);
 			yield* Effect.logInfo("worker_interrupted").pipe(
@@ -319,11 +274,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				error.includes("CONFLICT") ||
 				error.includes("rebase --abort");
 			yield* Effect.logError(
-				isStall
-					? "agent_stalled"
-					: isMergeConflict
-						? "merge_conflict"
-						: "agent_failed",
+				isStall ? "agent_stalled" : isMergeConflict ? "merge_conflict" : "agent_failed",
 			).pipe(Effect.annotateLogs({ issue_id: issueId, identifier, error }));
 			const nextAttempt = (attempt ?? 0) + 1;
 			const retryError = isStall
@@ -342,17 +293,10 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		}
 	});
 
-	const dispatchIssue = (
-		issue: Issue,
-		config: ResolvedConfig,
-		attempt: number | null,
-	) =>
+	const dispatchIssue = (issue: Issue, config: ResolvedConfig, attempt: number | null) =>
 		Effect.gen(function* () {
 			// --- Phase 1: all fallible work, no state mutations ---
-			const ws = yield* deps.workspaceManager.ensureWorkspace(
-				issue.identifier,
-				config,
-			);
+			const ws = yield* deps.workspaceManager.ensureWorkspace(issue.identifier, config);
 
 			if (config.hooksBeforeRun) {
 				yield* deps.workspaceManager
@@ -368,8 +312,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				.pipe(Effect.catch(() => Effect.succeed(null)));
 
 			const compiled = yield* compilePrompt(
-				wf.promptTemplate ||
-					"Work the assigned issue using the workflow policy.",
+				wf.promptTemplate || "Work the assigned issue using the workflow policy.",
 				issue,
 				attempt,
 				runContext,
@@ -465,10 +408,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			}),
 		);
 
-	const processRetry = Effect.fnUntraced(function* (
-		issueId: string,
-		entry: RetryEntry,
-	) {
+	const processRetry = Effect.fnUntraced(function* (issueId: string, entry: RetryEntry) {
 		yield* takeRetryTimerFiber(issueId);
 		yield* deps.updateState((s) => {
 			const retryAttempts = new Map(s.retryAttempts);

@@ -1,60 +1,58 @@
 {
-  "name": "@plot/plot",
-  "version": "0.0.1",
-  "private": true,
-  "description": "orchestrate coding agents against an issue tracker",
-  "keywords": [
-    "agents",
-    "ai",
-    "cli",
-    "github",
-    "orchestrator"
-  ],
-  "author": "Igor Sheg <igorsheg@gmail.com>",
-  "homepage": "https://github.com/igorsheg/plot",
-  "bugs": {
-    "url": "https://github.com/igorsheg/plot/issues"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/igorsheg/plot.git",
-    "directory": "packages/plot"
-  },
-  "bin": {
-    "plot-ai": "./src/cli/index.ts"
-  },
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "scripts": {
-    "dev": "bun run --watch src/main.ts",
-    "typecheck": "tsc -b tsconfig.json",
-    "lint": "oxlint src --tsconfig ../../tsconfig.json",
-    "test": "bun test src"
-  },
-  "dependencies": {
-    "@effect/platform-bun": "4.0.0-beta.34",
-    "@mariozechner/pi-ai": "^0.57.1",
-    "@mariozechner/pi-coding-agent": "^0.57.1",
-    "@plot/sdk": "workspace:*",
-    "@plot/tui": "workspace:*",
-    "@sinclair/typebox": "^0.34.48",
-    "effect": "4.0.0-beta.34",
-    "eta": "^4.5.1",
-    "gray-matter": "^4.0.3",
-    "octokit": "^5.0.5",
-    "yaml": "^2.8.2"
-  },
-  "devDependencies": {
-    "@mariozechner/pi-agent-core": "^0.57.1",
-    "bun-types": "^1.3.10"
-  },
-  "engines": {
-    "node": ">=18"
-  }
+	"name": "@plot/plot",
+	"version": "0.0.1",
+	"private": true,
+	"description": "orchestrate coding agents against an issue tracker",
+	"keywords": [
+		"agents",
+		"ai",
+		"cli",
+		"github",
+		"orchestrator"
+	],
+	"homepage": "https://github.com/igorsheg/plot",
+	"bugs": {
+		"url": "https://github.com/igorsheg/plot/issues"
+	},
+	"license": "MIT",
+	"author": "Igor Sheg <igorsheg@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/igorsheg/plot.git",
+		"directory": "packages/plot"
+	},
+	"bin": {
+		"plot-ai": "./src/cli/index.ts"
+	},
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"dev": "bun run --watch src/main.ts",
+		"typecheck": "tsc -b tsconfig.json",
+		"lint": "oxlint src --tsconfig ../../tsconfig.json",
+		"test": "bun test src"
+	},
+	"dependencies": {
+		"@effect/platform-bun": "4.0.0-beta.34",
+		"@mariozechner/pi-ai": "^0.57.1",
+		"@mariozechner/pi-coding-agent": "^0.57.1",
+		"@plot/sdk": "workspace:*",
+		"@plot/tui": "workspace:*",
+		"effect": "4.0.0-beta.34",
+		"eta": "^4.5.1",
+		"gray-matter": "^4.0.3",
+		"yaml": "^2.8.2"
+	},
+	"devDependencies": {
+		"@mariozechner/pi-agent-core": "^0.57.1",
+		"bun-types": "^1.3.10"
+	},
+	"engines": {
+		"node": ">=18"
+	}
 }

@@ -15,9 +15,9 @@ export interface AgentRunConfig {
 }
 
 export interface AgentServiceShape {
-	readonly run: (
-		config: AgentRunConfig,
-	) => Stream.Stream<AgentRuntimeEvent, AgentRunnerError>;
+	readonly run: (config: AgentRunConfig) => Stream.Stream<AgentRuntimeEvent, AgentRunnerError>;
 }
 
-export class AgentService extends ServiceMap.Service<AgentService, AgentServiceShape>()("AgentService") {}
+export class AgentService extends ServiceMap.Service<AgentService, AgentServiceShape>()(
+	"AgentService",
+) {}

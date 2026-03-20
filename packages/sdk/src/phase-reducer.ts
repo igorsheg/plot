@@ -34,18 +34,13 @@ export function reducePhase(
 			break;
 		case "tool_execution_start":
 			if (event.toolCallId && event.toolName) {
-				activeTools = [
-					...activeTools,
-					{ toolCallId: event.toolCallId, toolName: event.toolName },
-				];
+				activeTools = [...activeTools, { toolCallId: event.toolCallId, toolName: event.toolName }];
 			}
 			phase = "tool_execution";
 			break;
 		case "tool_execution_end":
 			if (event.toolCallId) {
-				activeTools = activeTools.filter(
-					(t) => t.toolCallId !== event.toolCallId,
-				);
+				activeTools = activeTools.filter((t) => t.toolCallId !== event.toolCallId);
 			}
 			phase = activeTools.length > 0 ? "tool_execution" : "idle";
 			break;

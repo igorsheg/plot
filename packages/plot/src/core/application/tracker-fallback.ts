@@ -1,10 +1,7 @@
 import { Effect } from "effect";
 
-
 const getErrorTag = (error: unknown): string | undefined =>
-	typeof error === "object" && error !== null && "_tag" in error
-		? String(error._tag)
-		: undefined;
+	typeof error === "object" && error !== null && "_tag" in error ? String(error._tag) : undefined;
 
 const isTransient = (error: unknown): boolean => {
 	const tag = getErrorTag(error);
@@ -16,9 +13,7 @@ const isTransient = (error: unknown): boolean => {
 const isFatal = (error: unknown): boolean => {
 	const tag = getErrorTag(error);
 	return (
-		tag === "TrackerAuthError" ||
-		tag === "TrackerValidationError" ||
-		tag === "TrackerNotFoundError"
+		tag === "TrackerAuthError" || tag === "TrackerValidationError" || tag === "TrackerNotFoundError"
 	);
 };
 

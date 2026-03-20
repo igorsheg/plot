@@ -8,7 +8,9 @@ import { ResolvedConfig } from "./core/config-service.js";
 function resolveConfig(env: Record<string, string>) {
 	const provider = ConfigProvider.fromEnv({ env });
 	return Effect.runPromise(
-		Effect.gen(function* () { return yield* ServerConfig; }).pipe(Effect.provide(ConfigProvider.layer(provider))),
+		Effect.gen(function* () {
+			return yield* ServerConfig;
+		}).pipe(Effect.provide(ConfigProvider.layer(provider))),
 	);
 }
 
@@ -79,10 +81,7 @@ template content`;
 
 		const config = parseWorkflowFrontmatter(content);
 		expect(config.tracker?.kind).toBe("github");
-		expect(config.tracker?.dispatchStates).toEqual([
-			"plot:todo",
-			"plot:in-progress",
-		]);
+		expect(config.tracker?.dispatchStates).toEqual(["plot:todo", "plot:in-progress"]);
 	});
 
 	test("parses crlf frontmatter without leaking carriage returns", () => {
@@ -100,9 +99,9 @@ template content`;
 	});
 
 	test("throws typed parse errors for invalid frontmatter", () => {
-		expect(() =>
-			parseWorkflowFrontmatter("---\ntracker: [github\nbody"),
-		).toThrow(WorkflowParseError);
+		expect(() => parseWorkflowFrontmatter("---\ntracker: [github\nbody")).toThrow(
+			WorkflowParseError,
+		);
 	});
 });
 
@@ -129,9 +128,8 @@ describe("ResolvedConfig", () => {
 		});
 
 		expect(new ResolvedConfig(workflowConfig).githubRepo).toBe("");
-		expect(
-			new ResolvedConfig(workflowConfig, { githubRepo: "override/repo" })
-				.githubRepo,
-		).toBe("override/repo");
+		expect(new ResolvedConfig(workflowConfig, { githubRepo: "override/repo" }).githubRepo).toBe(
+			"override/repo",
+		);
 	});
 });

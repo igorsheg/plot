@@ -1,9 +1,5 @@
 import { FileSystem } from "effect";
-import {
-	HttpRouter,
-	HttpServerRequest,
-	HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { BunServices, BunHttpServer } from "@effect/platform-bun";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
@@ -20,10 +16,7 @@ import {
 } from "./runtime-builder.js";
 import type { ResolvedPlugin } from "./runtime-builder.js";
 
-export function makeServer(
-	config: ServerConfig,
-	resolvedPlugin: ResolvedPlugin,
-) {
+export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
 	const LoggingLive = makeLoggingLayer(config);
 	const AppLayer = makeAppLayer(resolvedPlugin);
 	const ObservabilityLive = makeObservabilityLayer(resolvedPlugin);
@@ -35,6 +28,13 @@ export function makeServer(
 			yield* router.add("POST", "/rpc", handler);
 		}),
 	).pipe(
+		Layer.provide(RpcHandlersLive),
+		Layer.provide(ObservabilityLive),
+		Layer.provide(RpcSerialization.layerNdjson),
+	);
+
+	const WsRpcLive = RpcServer.layer(PlotRpcs).pipe(
+		Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
 		Layer.provide(RpcHandlersLive),
 		Layer.provide(ObservabilityLive),
 		Layer.provide(RpcSerialization.layerNdjson),
@@ -56,7 +56,8 @@ export function makeServer(
 				Stream.succeed(encoder.encode(": heartbeat\n\n")),
 				Schedule.fixed("5 seconds"),
 			);
-			yield* router.add("GET",
+			yield* router.add(
+				"GET",
 				"/rpc/events",
 				HttpServerResponse.stream(Stream.merge(events, heartbeat), {
 					contentType: "text/event-stream",
@@ -91,21 +92,24 @@ export function makeServer(
 		Effect.fnUntraced(function* (router) {
 			const fs = yield* FileSystem.FileSystem;
 
-			yield* router.add("GET",
+			yield* router.add(
+				"GET",
 				"/*",
 				Effect.gen(function* () {
 					const req = yield* HttpServerRequest.HttpServerRequest;
 					const url = new URL(req.url, "http://localhost");
 					const pathname = url.pathname;
 
-					if (pathname.startsWith("/rpc") || pathname.startsWith("/api/") || pathname === "/healthz") {
+					if (
+						pathname.startsWith("/rpc") ||
+						pathname.startsWith("/api/") ||
+						pathname === "/healthz"
+					) {
 						return HttpServerResponse.empty({ status: 404 });
 					}
 
 					const filePath = join(webDistDir, pathname);
-					const exists = yield* fs
-						.exists(filePath)
-						.pipe(Effect.orElseSucceed(() => false));
+					const exists = yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => false));
 					if (exists && pathname !== "/") {
 						const ext = extname(filePath);
 						const ct = contentTypes[ext] ?? "application/octet-stream";
@@ -114,9 +118,7 @@ export function makeServer(
 					}
 
 					const indexPath = join(webDistDir, "index.html");
-					const indexExists = yield* fs
-						.exists(indexPath)
-						.pipe(Effect.orElseSucceed(() => false));
+					const indexExists = yield* fs.exists(indexPath).pipe(Effect.orElseSucceed(() => false));
 					if (indexExists) {
 						const content = yield* fs.readFile(indexPath);
 						return HttpServerResponse.uint8Array(content, {
@@ -125,7 +127,11 @@ export function makeServer(
 					}
 
 					return HttpServerResponse.empty({ status: 404 });
-				}),
+				}).pipe(
+					Effect.catchTag("PlatformError", () =>
+						Effect.succeed(HttpServerResponse.empty({ status: 500 })),
+					),
+				),
 			);
 		}),
 	).pipe(Layer.provide(BunServices.layer));
@@ -141,9 +147,9 @@ export function makeServer(
 		),
 	);
 
-	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, HealthzLive);
+	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, WsRpcLive, HealthzLive);
 	if (config.webEnabled) {
-		routeLayers = Layer.mergeAll(routeLayers, StaticLive as unknown as typeof routeLayers);
+		routeLayers = Layer.mergeAll(routeLayers, StaticLive);
 	}
 
 	const app = HttpRouter.serve(routeLayers).pipe(

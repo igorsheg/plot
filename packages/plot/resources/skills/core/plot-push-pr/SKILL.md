@@ -67,6 +67,7 @@ description: "push branch and create/update pull request for plot. handles PR cr
    ```
 
 7. update existing PR if scope changed:
+
    ```bash
    gh pr edit --title "#<number>: <updated title>" --body-file /tmp/pr-body.md --repo "$GITHUB_REPO"
    ```

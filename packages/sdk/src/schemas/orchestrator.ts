@@ -2,14 +2,18 @@ import { Schema } from "effect";
 import { AgentRuntimeEvent } from "./events.js";
 import { TrackerRunContext } from "./tracker.js";
 
-export class ToolExecution extends Schema.Class<ToolExecution>("ToolExecution")(
-	{
-		toolCallId: Schema.String,
-		toolName: Schema.String,
-	},
-) {}
+export class ToolExecution extends Schema.Class<ToolExecution>("ToolExecution")({
+	toolCallId: Schema.String,
+	toolName: Schema.String,
+}) {}
 
-export const AgentPhase = Schema.Literals(["idle", "thinking", "tool_execution", "compacting", "retrying"]);
+export const AgentPhase = Schema.Literals([
+	"idle",
+	"thinking",
+	"tool_execution",
+	"compacting",
+	"retrying",
+]);
 export type AgentPhase = typeof AgentPhase.Type;
 
 export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
@@ -49,18 +53,15 @@ export class RetryEntry extends Schema.Class<RetryEntry>("RetryEntry")({
 export const PromptSectionKind = Schema.Literals(["system", "user"]);
 export type PromptSectionKind = typeof PromptSectionKind.Type;
 
-export class PromptSection extends Schema.Class<PromptSection>("PromptSection")(
-	{
-		id: Schema.String,
-		title: Schema.String,
-		kind: PromptSectionKind,
-		content: Schema.String,
-		charCount: Schema.Number,
-	},
-) {}
+export class PromptSection extends Schema.Class<PromptSection>("PromptSection")({
+	id: Schema.String,
+	title: Schema.String,
+	kind: PromptSectionKind,
+	content: Schema.String,
+	charCount: Schema.Number,
+}) {}
 
-export class PromptSnapshot extends Schema.Class<PromptSnapshot>("PromptSnapshot",
-)({
+export class PromptSnapshot extends Schema.Class<PromptSnapshot>("PromptSnapshot")({
 	system: Schema.String,
 	user: Schema.String,
 	stablePrefix: Schema.String,
@@ -78,7 +79,8 @@ export class TokenTotals extends Schema.Class<TokenTotals>("TokenTotals")({
 	secondsRunning: Schema.Number,
 }) {}
 
-export class RuntimeObservability extends Schema.Class<RuntimeObservability>("RuntimeObservability",
+export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
+	"RuntimeObservability",
 )({
 	commandQueueDepth: Schema.Number,
 	commandQueuePeak: Schema.Number,
@@ -104,8 +106,7 @@ export class RuntimeObservability extends Schema.Class<RuntimeObservability>("Ru
 export const IssueStatus = Schema.Literals(["running", "retrying"]);
 export type IssueStatus = typeof IssueStatus.Type;
 
-export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>("RuntimeSnapshot",
-)({
+export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>("RuntimeSnapshot")({
 	generatedAt: Schema.DateTimeUtcFromString,
 	counts: Schema.Struct({
 		running: Schema.Number,
@@ -131,10 +132,8 @@ export class IssueDetail extends Schema.Class<IssueDetail>("IssueDetail")({
 	runContext: Schema.NullOr(TrackerRunContext),
 }) {}
 
-export class IssueEventLog extends Schema.Class<IssueEventLog>("IssueEventLog")(
-	{
-		issueId: Schema.String,
-		issueIdentifier: Schema.String,
-		events: Schema.Array(AgentRuntimeEvent),
-	},
-) {}
+export class IssueEventLog extends Schema.Class<IssueEventLog>("IssueEventLog")({
+	issueId: Schema.String,
+	issueIdentifier: Schema.String,
+	events: Schema.Array(AgentRuntimeEvent),
+}) {}

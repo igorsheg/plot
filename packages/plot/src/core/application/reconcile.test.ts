@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-	AgentConfig,
-	AgentRuntimeConfig,
-	Issue,
-	TrackerConfig,
-	WorkflowConfig,
-} from "@plot/sdk";
+import { AgentConfig, AgentRuntimeConfig, Issue, TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { Effect, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
@@ -138,8 +132,7 @@ describe("makeTickRuntime", () => {
 			},
 			{
 				tracker: {
-					fetchIssueStatesByIds: () =>
-						Effect.succeed([{ id: issue.id, state: "plot:done" }]),
+					fetchIssueStatesByIds: () => Effect.succeed([{ id: issue.id, state: "plot:done" }]),
 					fetchIssuesByStates: () => Effect.succeed([]),
 					fetchCandidateIssues: () => Effect.succeed([]),
 				},

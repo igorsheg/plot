@@ -105,23 +105,23 @@ add your own tracker type as:
 import type { TrackerPluginDefinition } from "@plot/sdk";
 
 const plugin: TrackerPluginDefinition = {
-  name: "acme",
-  async factory() {
-    return {
-      async fetchCandidateIssues() {
-        return [];
-      },
-      async fetchIssuesByStates() {
-        return [];
-      },
-      async fetchIssueStatesByIds() {
-        return [];
-      },
-      async fetchRunContext() {
-        return null;
-      },
-    };
-  },
+	name: "acme",
+	async factory() {
+		return {
+			async fetchCandidateIssues() {
+				return [];
+			},
+			async fetchIssuesByStates() {
+				return [];
+			},
+			async fetchIssueStatesByIds() {
+				return [];
+			},
+			async fetchRunContext() {
+				return null;
+			},
+		};
+	},
 };
 
 export default plugin;

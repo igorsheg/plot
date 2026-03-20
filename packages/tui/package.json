@@ -1,33 +1,33 @@
 {
-  "name": "@plot/tui",
-  "version": "0.0.1",
-  "description": "terminal ui for the plot agent dashboard",
-  "author": "Igor Sheg <igorsheg@gmail.com>",
-  "private": true,
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/igorsheg/plot.git",
-    "directory": "packages/tui"
-  },
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "scripts": {
-    "dev": "bun run src/main.tsx",
-    "build": "bun build src/main.tsx --outdir dist --target bun",
-    "typecheck": "tsc -b tsconfig.json",
-    "lint": "oxlint src --tsconfig ../../tsconfig.json"
-  },
-  "dependencies": {
-    "@opentui/core": "0.1.87",
-    "@opentui/react": "^0.1.87",
-    "@plot/sdk": "workspace:*",
-    "effect": "4.0.0-beta.34",
-    "react": "^19.2.4"
-  },
-  "devDependencies": {
-    "@types/react": "^19.2.14",
-    "bun-types": "^1.3.10"
-  }
+	"name": "@plot/tui",
+	"version": "0.0.1",
+	"private": true,
+	"description": "terminal ui for the plot agent dashboard",
+	"author": "Igor Sheg <igorsheg@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/igorsheg/plot.git",
+		"directory": "packages/tui"
+	},
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"dev": "bun run src/main.tsx",
+		"build": "bun build src/main.tsx --outdir dist --target bun",
+		"typecheck": "tsc -b tsconfig.json",
+		"lint": "oxlint src --tsconfig ../../tsconfig.json"
+	},
+	"dependencies": {
+		"@opentui/core": "0.1.87",
+		"@opentui/react": "^0.1.87",
+		"@plot/sdk": "workspace:*",
+		"effect": "4.0.0-beta.34",
+		"react": "^19.2.4"
+	},
+	"devDependencies": {
+		"@types/react": "^19.2.14",
+		"bun-types": "^1.3.10"
+	}
 }

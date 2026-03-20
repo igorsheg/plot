@@ -1,26 +1,26 @@
 {
-  "name": "@plot/sdk",
-  "version": "0.0.1",
-  "description": "shared api surface: schemas, rpc groups, client helpers, sse utilities",
-  "author": "Igor Sheg <igorsheg@gmail.com>",
-  "private": true,
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/igorsheg/plot.git",
-    "directory": "packages/sdk"
-  },
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "scripts": {
-    "typecheck": "tsc -b tsconfig.json",
-    "lint": "oxlint src --tsconfig ../../tsconfig.json"
-  },
-  "dependencies": {
-    "effect": "4.0.0-beta.34"
-  },
-  "devDependencies": {
-    "bun-types": "^1.3.10"
-  }
+	"name": "@plot/sdk",
+	"version": "0.0.1",
+	"private": true,
+	"description": "shared api surface: schemas, rpc groups, client helpers, sse utilities",
+	"author": "Igor Sheg <igorsheg@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/igorsheg/plot.git",
+		"directory": "packages/sdk"
+	},
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc -b tsconfig.json",
+		"lint": "oxlint src --tsconfig ../../tsconfig.json"
+	},
+	"dependencies": {
+		"effect": "4.0.0-beta.34"
+	},
+	"devDependencies": {
+		"bun-types": "^1.3.10"
+	}
 }

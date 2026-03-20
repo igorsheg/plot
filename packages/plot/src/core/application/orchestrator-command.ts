@@ -39,11 +39,5 @@ export const CONTINUATION_DELAY = Duration.seconds(5);
 export const COMMAND_QUEUE_CAPACITY = 1_024;
 export const COMMAND_QUEUE_PRESSURE_WARN_AT = 768;
 
-export const retryDelay = (
-	attempt: number,
-	maxBackoffMs: number,
-): Duration.Duration =>
-	Duration.min(
-		Duration.millis(10_000 * Math.pow(2, attempt - 1)),
-		Duration.millis(maxBackoffMs),
-	);
+export const retryDelay = (attempt: number, maxBackoffMs: number): Duration.Duration =>
+	Duration.min(Duration.millis(10_000 * Math.pow(2, attempt - 1)), Duration.millis(maxBackoffMs));
