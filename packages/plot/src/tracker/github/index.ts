@@ -1,4 +1,3 @@
-import { Effect, RcMap, Scope } from "effect";
 import {
 	buildRunContext,
 	normalizeState,
@@ -12,42 +11,73 @@ import {
 	type TrackerPluginDefinition,
 	type TrackerRunContextLike,
 } from "@plot/sdk";
-import type { Octokit } from "octokit";
 import {
 	detectRepo,
 	getAuthToken,
-	makeClientMap,
+	ghApiJson,
 	parseRepoSlug,
 } from "./client.js";
 import {
 	type CommonTrackerConfig,
 	deriveAllStates,
+	fetchPrReviewFeedback,
 	validateCommonTrackerFields,
 } from "../shared.js";
 
-function mapOctokitFailure(error: unknown, resourceId?: string): Error {
-	const status =
-		typeof error === "object" && error !== null && "status" in error
-			? (error as { status: number }).status
-			: undefined;
+function mapGhFailure(error: unknown, resourceId?: string): Error {
 	const message = error instanceof Error ? error.message : String(error);
+	const stderr =
+		typeof error === "object" && error !== null && "stderr" in error
+			? String((error as { stderr?: unknown }).stderr ?? "")
+			: "";
+	const details = [message, stderr].filter(Boolean).join("\n");
+	const normalized = details.toLowerCase();
 
-	if (status === 401 || status === 403) {
-		return new PluginAuthError(`github authentication failed: ${message}`);
+	if (
+		normalized.includes("authentication") ||
+		normalized.includes("auth") ||
+		normalized.includes("401") ||
+		normalized.includes("403")
+	) {
+		return new PluginAuthError(`github authentication failed: ${details}`);
 	}
 
-	if (status === 429) {
-		return new PluginRateLimitError(`github rate limited: ${message}`);
+	if (normalized.includes("rate limit") || normalized.includes("429")) {
+		return new PluginRateLimitError(`github rate limited: ${details}`);
 	}
 
-	if (status === 404 && resourceId) {
+	if (
+		resourceId &&
+		(normalized.includes("not found") || normalized.includes("404"))
+	) {
 		return new PluginNotFoundError(
-			`github issue not found: ${message}`,
+			`github issue not found: ${details}`,
 			resourceId,
 		);
 	}
 
-	return new Error(`github API failed: ${message}`);
+	return new Error(`github API failed: ${details}`);
+}
+
+interface GhIssue {
+	readonly number: number;
+	readonly title: string;
+	readonly body: string;
+	readonly state: string;
+	readonly labels: ReadonlyArray<{ name: string }>;
+	readonly url: string;
+	readonly createdAt: string;
+	readonly updatedAt: string;
+}
+
+interface GhIssueView {
+	readonly number: number;
+	readonly state: string;
+	readonly labels: ReadonlyArray<{ name: string }>;
+}
+
+interface GhComment {
+	readonly body: string;
 }
 
 interface GithubOpsConfig {
@@ -59,10 +89,7 @@ interface GithubOpsConfig {
 	terminalStates?: ReadonlyArray<string>;
 }
 
-function createGithubOps(
-	getClient: () => Promise<Octokit>,
-	config: GithubOpsConfig,
-) {
+function createGithubOps(config: GithubOpsConfig) {
 	const allStates =
 		config.allStates ??
 		deriveAllStates(
@@ -71,65 +98,62 @@ function createGithubOps(
 			config.terminalStates,
 		);
 
-	const withClient = async <T>(
-		fn: (client: Octokit) => Promise<T>,
+	const repoFlag = `${config.owner}/${config.repo}`;
+
+	const withGh = async <T>(
+		fn: () => Promise<T>,
 		resourceId?: string,
 	): Promise<T> => {
-		const client = await getClient();
 		try {
-			return await fn(client);
+			return await fn();
 		} catch (error) {
-			throw mapOctokitFailure(error, resourceId);
+			throw mapGhFailure(error, resourceId);
 		}
 	};
 
 	const listIssues = async (ghState: "open" | "closed" | "all") => {
-		return withClient(async (client) => {
-			const params = {
-				owner: config.owner,
-				repo: config.repo,
-				per_page: 100,
-				...(ghState !== "all"
-					? { state: ghState as "open" | "closed" }
-					: { state: "all" as const }),
-			};
+		return withGh(async () => {
+			const issues = await ghApiJson<GhIssue[]>([
+				"issue",
+				"list",
+				"--repo",
+				repoFlag,
+				"--state",
+				ghState === "closed" ? "closed" : ghState === "all" ? "all" : "open",
+				"--json",
+				"number,title,body,state,labels,url,createdAt,updatedAt",
+				"--limit",
+				"500",
+			]);
 
-			const issues = await client.paginate(
-				client.rest.issues.listForRepo,
-				params,
-			);
-
-			return issues
-				.filter((issue) => !issue.pull_request)
-				.slice(0, 500)
-				.map((issue) => ({
-					number: issue.number,
-					title: issue.title,
-					body: issue.body ?? null,
-					state: issue.state.toUpperCase(),
-					labels: (issue.labels ?? []).map((l) =>
-						typeof l === "string" ? { name: l } : { name: l.name ?? "" },
-					),
-					url: issue.html_url,
-					createdAt: issue.created_at,
-					updatedAt: issue.updated_at,
-				}));
+			return issues.map((issue) => ({
+				number: issue.number,
+				title: issue.title,
+				body: issue.body || null,
+				state: issue.state.toUpperCase(),
+				labels: (issue.labels ?? []).map((l) => ({ name: l.name ?? "" })),
+				url: issue.url,
+				createdAt: issue.createdAt,
+				updatedAt: issue.updatedAt,
+			}));
 		});
 	};
 
 	const viewIssue = async (issueNumber: string) => {
-		return withClient(async (client) => {
-			const { data } = await client.rest.issues.get({
-				owner: config.owner,
-				repo: config.repo,
-				issue_number: Number(issueNumber),
-			});
+		return withGh(async () => {
+			const issue = await ghApiJson<GhIssueView>([
+				"issue",
+				"view",
+				issueNumber,
+				"--repo",
+				repoFlag,
+				"--json",
+				"number,state,labels",
+			]);
 			return {
-				number: data.number,
-				state: data.state.toUpperCase(),
-				labels: (data.labels ?? []).map((l) =>
-					typeof l === "string" ? { name: l } : { name: l.name ?? "" },
-				),
+				number: issue.number,
+				state: issue.state.toUpperCase(),
+				labels: (issue.labels ?? []).map((l) => ({ name: l.name ?? "" })),
 			};
 		}, issueNumber);
 	};
@@ -172,18 +196,16 @@ function createGithubOps(
 	): Promise<TrackerRunContextLike | null> => {
 		let commentsRaw: ReadonlyArray<{ body: string }> = [];
 		try {
-			commentsRaw = await withClient(async (client) => {
-				const comments = await client.paginate(
-					client.rest.issues.listComments,
-					{
-						owner: config.owner,
-						repo: config.repo,
-						issue_number: Number(issueId),
-						per_page: 100,
-					},
-				);
-				return comments.map((c) => ({ body: c.body ?? "" }));
-			});
+			const data = await ghApiJson<{ comments: GhComment[] }>([
+				"issue",
+				"view",
+				issueId,
+				"--repo",
+				repoFlag,
+				"--json",
+				"comments",
+			]);
+			commentsRaw = data.comments ?? [];
 		} catch {
 			commentsRaw = [];
 		}
@@ -201,54 +223,10 @@ function createGithubOps(
 					normalizeState(dispatchState) === normalizeState(state),
 			)
 		) {
-			try {
-				const prs = await withClient(async (client) => {
-					return client.paginate(client.rest.pulls.list, {
-						owner: config.owner,
-						repo: config.repo,
-						state: "open",
-						per_page: 50,
-					});
-				});
-
-				const linkedPr = prs.find((pr) => pr.body?.includes(`#${issueId}`));
-				if (linkedPr) {
-					try {
-						const [prReviews, prComments] = await withClient(async (client) => {
-							const [revs, comms] = await Promise.all([
-								client.rest.pulls.listReviews({
-									owner: config.owner,
-									repo: config.repo,
-									pull_number: linkedPr.number,
-								}),
-								client.rest.issues.listComments({
-									owner: config.owner,
-									repo: config.repo,
-									issue_number: linkedPr.number,
-								}),
-							]);
-							return [revs.data, comms.data] as const;
-						});
-
-						const parts: string[] = [];
-						for (const r of prReviews) {
-							if (r.body)
-								parts.push(
-									`**${r.user?.login ?? "unknown"}** (${r.state}):\n${r.body}`,
-								);
-						}
-						for (const c of prComments) {
-							if (c.body)
-								parts.push(`**${c.user?.login ?? "unknown"}**:\n${c.body}`);
-						}
-						reviews = parts.length > 0 ? parts.join("\n\n---\n\n") : null;
-					} catch {
-						// ignore PR review fetch failures
-					}
-				}
-			} catch {
-				// ignore PR search failures
-			}
+			reviews = await fetchPrReviewFeedback(
+				`#${issueId}`,
+				["--repo", repoFlag],
+			);
 		}
 
 		return buildRunContext({ workpad, reviewFeedback: reviews });
@@ -271,21 +249,12 @@ const plugin: TrackerPluginDefinition<GithubTrackerConfig> = {
 		return validateCommonTrackerFields(raw);
 	},
 	async factory(config): Promise<PlainTrackerClient> {
-		const token = await getAuthToken();
+		await getAuthToken();
 		const { owner, repo } = config.githubRepo
 			? parseRepoSlug(config.githubRepo)
 			: await detectRepo();
 
-		const scope = Scope.makeUnsafe();
-		const clients = await Effect.runPromise(
-			Scope.provide(makeClientMap(), scope),
-		);
-
-		const getClient = async (): Promise<Octokit> => {
-			return Effect.runPromise(RcMap.get(clients, token).pipe(Effect.scoped));
-		};
-
-		const ops = createGithubOps(getClient, {
+		const ops = createGithubOps({
 			owner,
 			repo,
 			dispatchStates: config.dispatchStates,

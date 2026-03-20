@@ -20,6 +20,7 @@ import {
 import {
 	type CommonTrackerConfig,
 	deriveAllStates,
+	fetchPrReviewFeedback,
 	validateCommonTrackerFields,
 } from "../shared.js";
 
@@ -187,75 +188,6 @@ async function createBeadsOps(config: {
 		updatedAt: bd.updated_at || null,
 	});
 
-	const runGh = async (
-		args: ReadonlyArray<string>,
-	): Promise<{ stdout: string; stderr: string }> => {
-		return await execFileAsync("gh", args as string[], {
-			maxBuffer: 50 * 1024 * 1024,
-			cwd: workspaceRoot,
-		});
-	};
-
-	const fetchPrReviews = async (issueId: string): Promise<string | null> => {
-		const repoArgs = config.githubRepo ? ["--repo", config.githubRepo] : [];
-		try {
-			const prSearchResult = await runGh([
-				"pr",
-				"list",
-				...repoArgs,
-				"--state",
-				"open",
-				"--json",
-				"number,headRefName,body",
-				"--limit",
-				"50",
-			]);
-
-			const prs = JSON.parse(prSearchResult.stdout) as ReadonlyArray<{
-				number: number;
-				body: string;
-			}>;
-			const linkedPr = prs.find((pr) => pr.body?.includes(issueId));
-			if (!linkedPr) return null;
-
-			const reviewResult = await runGh([
-				"pr",
-				"view",
-				String(linkedPr.number),
-				...repoArgs,
-				"--json",
-				"reviews,comments",
-			]);
-
-			const prData = JSON.parse(reviewResult.stdout) as {
-				reviews?: ReadonlyArray<{
-					body: string;
-					state: string;
-					author: { login: string };
-				}>;
-				comments?: ReadonlyArray<{
-					body: string;
-					author: { login: string };
-				}>;
-			};
-			const parts: string[] = [];
-			if (prData.reviews?.length) {
-				for (const r of prData.reviews) {
-					if (r.body)
-						parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
-				}
-			}
-			if (prData.comments?.length) {
-				for (const c of prData.comments) {
-					if (c.body) parts.push(`**${c.author.login}**:\n${c.body}`);
-				}
-			}
-			return parts.length > 0 ? parts.join("\n\n---\n\n") : null;
-		} catch {
-			return null;
-		}
-	};
-
 	const fetchRunContext = async (
 		issueId: string,
 		state: string,
@@ -277,7 +209,10 @@ async function createBeadsOps(config: {
 		let reviews: string | null = null;
 		const normalizedDispatch = config.dispatchStates.map(normalizeState);
 		if (normalizedDispatch.includes(normalizeState(state))) {
-			reviews = await fetchPrReviews(issueId);
+			const repoArgs = config.githubRepo
+				? ["--repo", config.githubRepo]
+				: [];
+			reviews = await fetchPrReviewFeedback(issueId, repoArgs, workspaceRoot);
 		}
 
 		return buildRunContext({ workpad, reviewFeedback: reviews });
