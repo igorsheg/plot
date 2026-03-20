@@ -1,21 +1,15 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { Schema } from "effect";
 import { PlotApiError } from "./errors.js";
-import {
-	IssueDetail,
-	IssueEventLog,
-	RuntimeSnapshot,
-} from "./schemas/orchestrator.js";
+import { IssueDetail, IssueEventLog, RuntimeSnapshot } from "./schemas/orchestrator.js";
 import { AgentRuntimeEvent } from "./schemas/events.js";
 
-export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")(
-	{
-		queued: Schema.Boolean,
-		coalesced: Schema.Boolean,
-		requestedAt: Schema.DateTimeUtcFromString,
-		operations: Schema.Array(Schema.String),
-	},
-) {}
+export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")({
+	queued: Schema.Boolean,
+	coalesced: Schema.Boolean,
+	requestedAt: Schema.DateTimeUtcFromString,
+	operations: Schema.Array(Schema.String),
+}) {}
 
 export class PlotRpcs extends RpcGroup.make(
 	Rpc.make("GetState", {

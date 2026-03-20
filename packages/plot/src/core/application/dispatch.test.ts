@@ -61,13 +61,9 @@ const makeDeps = async (
 	},
 ) => {
 	const stateRef = await Effect.runPromise(Ref.make(state));
-	const eventPubSub = await Effect.runPromise(
-		PubSub.bounded<AgentRuntimeEvent>(16),
-	);
+	const eventPubSub = await Effect.runPromise(PubSub.bounded<AgentRuntimeEvent>(16));
 	const retryTimerFibersRef = await Effect.runPromise(
-		Ref.make(
-			new Map<string, import("effect").Fiber.Fiber<void, never>>(),
-		),
+		Ref.make(new Map<string, import("effect").Fiber.Fiber<void, never>>()),
 	);
 	const deps: DispatchDeps = {
 		getState: Ref.get(stateRef),
@@ -106,14 +102,7 @@ describe("makeDispatchRuntime", () => {
 
 		await Effect.runPromise(
 			Effect.scoped(
-				runtime.scheduleRetry(
-					issueId,
-					"plot-1",
-					1,
-					Duration.millis(60_000),
-					null,
-					"continuation",
-				),
+				runtime.scheduleRetry(issueId, "plot-1", 1, Duration.millis(60_000), null, "continuation"),
 			),
 		);
 		const afterFirst = await Effect.runPromise(Ref.get(stateRef));
@@ -121,14 +110,7 @@ describe("makeDispatchRuntime", () => {
 
 		await Effect.runPromise(
 			Effect.scoped(
-				runtime.scheduleRetry(
-					issueId,
-					"plot-1",
-					2,
-					Duration.millis(60_000),
-					"boom",
-					"failure",
-				),
+				runtime.scheduleRetry(issueId, "plot-1", 2, Duration.millis(60_000), "boom", "failure"),
 			),
 		);
 		const afterSecond = await Effect.runPromise(Ref.get(stateRef));
@@ -166,9 +148,7 @@ describe("makeDispatchRuntime", () => {
 			},
 		);
 
-		await Effect.runPromise(
-			Effect.scoped(runtime.processRetry(retryEntry.issueId, retryEntry)),
-		);
+		await Effect.runPromise(Effect.scoped(runtime.processRetry(retryEntry.issueId, retryEntry)));
 
 		const nextState = await Effect.runPromise(Ref.get(stateRef));
 		expect(nextState.claimed.has(retryEntry.issueId)).toBeFalse();
@@ -200,10 +180,7 @@ describe("makeDispatchRuntime", () => {
 				...initialState,
 				claimed: new Set([retryEntry.issueId]),
 				running: new Map([
-					[
-						blockedIssue.id,
-						createRunningEntry(blockedIssue, "/tmp/plot-2", Date.now()),
-					],
+					[blockedIssue.id, createRunningEntry(blockedIssue, "/tmp/plot-2", Date.now())],
 				]),
 				retryAttempts: new Map([[retryEntry.issueId, retryEntry]]),
 			},
@@ -217,9 +194,7 @@ describe("makeDispatchRuntime", () => {
 			},
 		);
 
-		await Effect.runPromise(
-			Effect.scoped(runtime.processRetry(retryEntry.issueId, retryEntry)),
-		);
+		await Effect.runPromise(Effect.scoped(runtime.processRetry(retryEntry.issueId, retryEntry)));
 
 		const nextState = await Effect.runPromise(Ref.get(stateRef));
 		const scheduled = nextState.retryAttempts.get(retryEntry.issueId);

@@ -88,6 +88,7 @@ description: "merge an approved PR for plot. monitors CI, resolves conflicts, ha
    ```
 
 7. transition issue to `plot:done`:
+
    ```bash
    # extract issue number from PR body (Resolves #N)
    issue_number=$(gh pr view "$pr_number" --repo "$GITHUB_REPO" --json body -q '.body | capture("Resolves #(\d+)").["1"]')

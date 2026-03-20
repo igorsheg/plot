@@ -1,10 +1,10 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
-    "types": ["bun-types"]
-  },
-  "include": ["src"],
-  "references": [{ "path": "../sdk" }, { "path": "../tui" }]
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "dist",
+		"rootDir": "src",
+		"types": ["bun-types"]
+	},
+	"include": ["src"],
+	"references": [{ "path": "../sdk" }, { "path": "../tui" }]
 }

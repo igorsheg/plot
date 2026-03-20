@@ -22,9 +22,7 @@ function createOctokitWithCache(token: string): Octokit {
 
 		const key = `${method}:${options.url ?? ""}:${String(options.headers?.accept ?? "")}`;
 		const cached = etagCache.get(key);
-		const headers = cached
-			? { ...options.headers, "if-none-match": cached.etag }
-			: options.headers;
+		const headers = cached ? { ...options.headers, "if-none-match": cached.etag } : options.headers;
 
 		try {
 			const response = await request({ ...options, headers });
@@ -60,14 +58,9 @@ function createOctokitWithCache(token: string): Octokit {
 	return octokit;
 }
 
-export function makeClientMap(): Effect.Effect<
-	RcMap.RcMap<string, Octokit>,
-	never,
-	Scope.Scope
-> {
+export function makeClientMap(): Effect.Effect<RcMap.RcMap<string, Octokit>, never, Scope.Scope> {
 	return RcMap.make({
-		lookup: (token: string) =>
-			Effect.sync(() => createOctokitWithCache(token)),
+		lookup: (token: string) => Effect.sync(() => createOctokitWithCache(token)),
 		idleTimeToLive: "1 minute",
 	});
 }
@@ -86,12 +79,7 @@ export function parseRepoSlug(slug: string): { owner: string; repo: string } {
 }
 
 export async function detectRepo(): Promise<{ owner: string; repo: string }> {
-	const { stdout } = await execFileAsync("gh", [
-		"repo",
-		"view",
-		"--json",
-		"nameWithOwner",
-	]);
+	const { stdout } = await execFileAsync("gh", ["repo", "view", "--json", "nameWithOwner"]);
 	const data = JSON.parse(stdout) as { nameWithOwner: string };
 	return parseRepoSlug(data.nameWithOwner);
 }

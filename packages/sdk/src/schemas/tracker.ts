@@ -2,22 +2,19 @@ import { Effect, Schema, ServiceMap } from "effect";
 import type { Issue, IssueStateEntry } from "./issue.js";
 import type { TrackerError } from "../errors.js";
 
-export class WorkpadSection extends Schema.Class<WorkpadSection>("WorkpadSection",
-)({
+export class WorkpadSection extends Schema.Class<WorkpadSection>("WorkpadSection")({
 	title: Schema.String,
 	body: Schema.String,
 	itemCount: Schema.Number,
 }) {}
 
-export class TrackerRunContext extends Schema.Class<TrackerRunContext>("TrackerRunContext",
-)({
+export class TrackerRunContext extends Schema.Class<TrackerRunContext>("TrackerRunContext")({
 	raw: Schema.NullOr(Schema.String),
 	promptContext: Schema.NullOr(Schema.String),
 	workpad: Schema.NullOr(Schema.String),
 	reviewFeedback: Schema.NullOr(Schema.String),
 	workpadSections: Schema.Array(WorkpadSection),
 }) {}
-
 
 export class AgentPreset extends Schema.Class<AgentPreset>("AgentPreset")({
 	id: Schema.String,
@@ -55,38 +52,26 @@ export interface TrackerClientShape {
 		state: string,
 	) => Effect.Effect<TrackerRunContext | null, TrackerError>;
 
-	readonly updateIssue?: (
-		options: UpdateIssueOptions,
-	) => Effect.Effect<void, TrackerError>;
+	readonly updateIssue?: (options: UpdateIssueOptions) => Effect.Effect<void, TrackerError>;
 
-	readonly cancelIssue?: (
-		issueId: string,
-	) => Effect.Effect<void, TrackerError>;
+	readonly cancelIssue?: (issueId: string) => Effect.Effect<void, TrackerError>;
 
-	readonly ensureInProgress?: (
-		issueId: string,
-	) => Effect.Effect<void, TrackerError>;
+	readonly ensureInProgress?: (issueId: string) => Effect.Effect<void, TrackerError>;
 
-	readonly issueAgentPreset?: (
-		issue: Issue,
-	) => Effect.Effect<AgentPreset | null, TrackerError>;
+	readonly issueAgentPreset?: (issue: Issue) => Effect.Effect<AgentPreset | null, TrackerError>;
 
-	readonly updateAgentPreset?: (
-		preset: AgentPreset,
-	) => Effect.Effect<AgentPreset, TrackerError>;
+	readonly updateAgentPreset?: (preset: AgentPreset) => Effect.Effect<AgentPreset, TrackerError>;
 
-	readonly agentPresetInfo?: (
-		preset: AgentPreset,
-	) => Effect.Effect<void, TrackerError>;
+	readonly agentPresetInfo?: (preset: AgentPreset) => Effect.Effect<void, TrackerError>;
 
 	readonly reset?: () => Effect.Effect<void, TrackerError>;
 
-	readonly settings?: (
-		projectId: string,
-	) => Effect.Effect<void, TrackerError>;
+	readonly settings?: (projectId: string) => Effect.Effect<void, TrackerError>;
 }
 
-export class TrackerClient extends ServiceMap.Service<TrackerClient, TrackerClientShape>()("TrackerClient") {}
+export class TrackerClient extends ServiceMap.Service<TrackerClient, TrackerClientShape>()(
+	"TrackerClient",
+) {}
 
 export interface TrackerPluginConfig {
 	readonly kind: string;

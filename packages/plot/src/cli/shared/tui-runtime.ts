@@ -7,6 +7,7 @@ import {
 	RuntimeSnapshot,
 	type SseStatus,
 } from "@plot/sdk";
+import type { RuntimeApi } from "@plot/tui";
 import type { ServerOptions } from "./options.js";
 import { resolveTuiServerLogPath, resolveTuiWorkerUrl, toTuiServerEnv } from "./runtime.js";
 
@@ -32,19 +33,6 @@ const decodeEvent = Schema.decodeUnknownSync(AgentRuntimeEvent);
 const decodeRefreshResult = Schema.decodeUnknownSync(RefreshResult);
 const decodeIssueDetail = Schema.decodeUnknownSync(IssueDetail);
 const decodeIssueEventLog = Schema.decodeUnknownSync(IssueEventLog);
-
-type RuntimeApi = {
-	triggerRefresh: () => Promise<RefreshResult>;
-	getIssue: (identifier: string) => Promise<IssueDetail>;
-	getEventLog: (identifier: string) => Promise<IssueEventLog>;
-	connectSnapshots: (
-		handleSnapshot: (snapshot: RuntimeSnapshot) => void,
-		handleStatus: (status: SseStatus) => void,
-	) => () => void;
-	connectEvents: (
-		handleEvent: (event: AgentRuntimeEvent) => void,
-	) => () => void;
-};
 
 export interface TuiRuntimeHandle {
 	api: RuntimeApi;
@@ -137,10 +125,8 @@ export async function createTuiRuntimeHandle(
 
 	return {
 		api: {
-			triggerRefresh: async () =>
-				decodeRefreshResult(await call("triggerRefresh")),
-			getIssue: async (identifier: string) =>
-				decodeIssueDetail(await call("getIssue", identifier)),
+			triggerRefresh: async () => decodeRefreshResult(await call("triggerRefresh")),
+			getIssue: async (identifier: string) => decodeIssueDetail(await call("getIssue", identifier)),
 			getEventLog: async (identifier: string) =>
 				decodeIssueEventLog(await call("getEventLog", identifier)),
 			connectSnapshots: (handleSnapshot, handleStatus) => {

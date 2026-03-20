@@ -1,7 +1,7 @@
 import { Console } from "node:console";
 import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { ConfigProvider, Effect, ManagedRuntime, Schema, Stream } from "effect";
+import { Config, ConfigProvider, Effect, ManagedRuntime, Schema, Stream } from "effect";
 import {
 	AgentRuntimeEvent,
 	applyRuntimeEvent,
@@ -36,8 +36,7 @@ const encodeIssueDetail = Schema.encodeSync(IssueDetail);
 const encodeIssueEventLog = Schema.encodeSync(IssueEventLog);
 
 let started = false;
-let runtime: ManagedRuntime.ManagedRuntime<ObservabilityApi, never> | null =
-	null;
+let runtime: ManagedRuntime.ManagedRuntime<ObservabilityApi, Config.ConfigError> | null = null;
 let api: ObservabilityApi["Service"] | null = null;
 let currentSnapshot: RuntimeSnapshot | null = null;
 let resyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -88,7 +87,9 @@ async function boot(env: Record<string, string>) {
 		redirectProcessOutput(env["PLOT_TUI_SERVER_LOG_PATH"]);
 		const provider = ConfigProvider.fromEnv({ env });
 		const config = await Effect.runPromise(
-			Effect.gen(function* () { return yield* ServerConfig; }).pipe(Effect.provide(ConfigProvider.layer(provider))),
+			Effect.gen(function* () {
+				return yield* ServerConfig;
+			}).pipe(Effect.provide(ConfigProvider.layer(provider))),
 		);
 		const content = readFileSync(config.workflowPath, "utf-8");
 		const workflowConfig = parseWorkflowFrontmatter(content);
@@ -146,15 +147,9 @@ async function handleCall(message: CallMessage) {
 	try {
 		const result =
 			message.method === "getIssue"
-				? encodeIssueDetail(
-						await runtime.runPromise(api.getIssue(message.identifier ?? "")),
-					)
+				? encodeIssueDetail(await runtime.runPromise(api.getIssue(message.identifier ?? "")))
 				: message.method === "getEventLog"
-					? encodeIssueEventLog(
-							await runtime.runPromise(
-								api.getEventLog(message.identifier ?? ""),
-							),
-						)
+					? encodeIssueEventLog(await runtime.runPromise(api.getEventLog(message.identifier ?? "")))
 					: encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
 		postResponse({ type: "response", id: message.id, ok: true, result });
 		if (message.method === "triggerRefresh") {

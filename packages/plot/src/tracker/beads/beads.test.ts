@@ -18,14 +18,9 @@ afterEach(async () => {
 	await Promise.all(
 		servers
 			.splice(0)
-			.map(
-				(server) =>
-					new Promise<void>((resolve) => server.close(() => resolve())),
-			),
+			.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
 	);
-	await Promise.all(
-		tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
-	);
+	await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 const makeConfig = async (options: {
@@ -90,9 +85,7 @@ const setupFakeDaemon = async (issuesFixture: unknown) => {
 				args?: Record<string, unknown>;
 			};
 			if (parsed.operation === "list") {
-				socket.end(
-					JSON.stringify({ success: true, data: issuesFixture }) + "\n",
-				);
+				socket.end(JSON.stringify({ success: true, data: issuesFixture }) + "\n");
 				return;
 			}
 			if (parsed.operation === "show") {
@@ -105,15 +98,10 @@ const setupFakeDaemon = async (issuesFixture: unknown) => {
 						"id" in candidate &&
 						String(candidate.id) === issueId,
 				);
-				socket.end(
-					JSON.stringify({ success: true, data: issue ?? null }) + "\n",
-				);
+				socket.end(JSON.stringify({ success: true, data: issue ?? null }) + "\n");
 				return;
 			}
-			socket.end(
-				JSON.stringify({ success: false, error: "unexpected operation" }) +
-					"\n",
-			);
+			socket.end(JSON.stringify({ success: false, error: "unexpected operation" }) + "\n");
 		});
 	});
 	await new Promise<void>((resolve, reject) => {
@@ -170,9 +158,7 @@ describe("beads tracker", () => {
 			terminalStates: ["closed"],
 		});
 		const client = await plugin.factory(config);
-		const issues = await client.fetchCandidateIssues(
-			config.dispatchStates ?? [],
-		);
+		const issues = await client.fetchCandidateIssues(config.dispatchStates ?? []);
 
 		expect(issues.map((i) => i.id)).toEqual(["bd-a1b2", "bd-c3d4"]);
 		expect(issues[0]?.state).toBe("open");
@@ -224,15 +210,9 @@ describe("beads tracker", () => {
 			terminalStates: ["closed"],
 		});
 		const client = await plugin.factory(config);
-		const issues = await client.fetchCandidateIssues(
-			config.dispatchStates ?? [],
-		);
+		const issues = await client.fetchCandidateIssues(config.dispatchStates ?? []);
 
-		expect(issues.map((i) => i.id)).toEqual([
-			"bd-open1",
-			"bd-done1",
-			"bd-rework1",
-		]);
+		expect(issues.map((i) => i.id)).toEqual(["bd-open1", "bd-done1", "bd-rework1"]);
 		expect(issues[0]?.state).toBe("open");
 		expect(issues[1]?.state).toBe("done");
 		expect(issues[2]?.state).toBe("plot:rework");
@@ -257,9 +237,7 @@ describe("beads tracker", () => {
 
 		const config = await makeConfig({ dispatchStates: ["open"] });
 		const client = await plugin.factory(config);
-		const issues = await client.fetchCandidateIssues(
-			config.dispatchStates ?? [],
-		);
+		const issues = await client.fetchCandidateIssues(config.dispatchStates ?? []);
 
 		expect(issues).toHaveLength(1);
 		const issue = issues[0]!;
@@ -309,11 +287,7 @@ describe("beads tracker", () => {
 			terminalStates: ["closed"],
 		});
 		const client = await plugin.factory(config);
-		const states = await client.fetchIssueStatesByIds!([
-			"bd-1",
-			"bd-2",
-			"bd-missing",
-		]);
+		const states = await client.fetchIssueStatesByIds!(["bd-1", "bd-2", "bd-missing"]);
 
 		expect(states).toEqual([
 			{ id: "bd-1", state: "open" },
@@ -342,9 +316,7 @@ describe("beads tracker", () => {
 			dispatchStates: ["open"],
 		});
 		const client = await plugin.factory(config);
-		const issues = await client.fetchCandidateIssues(
-			config.dispatchStates ?? [],
-		);
+		const issues = await client.fetchCandidateIssues(config.dispatchStates ?? []);
 
 		expect(issues.map((issue) => issue.id)).toEqual(["bd-daemon-1"]);
 	});

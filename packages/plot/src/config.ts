@@ -3,22 +3,20 @@ import { WorkflowConfig } from "@plot/sdk";
 import { WorkflowParseError } from "./schemas/errors.js";
 import { extractFrontmatter } from "./core/workflow-parse.js";
 
-
 export interface WorkflowOverrides {
 	readonly trackerKind?: string;
 	readonly githubRepo?: string;
 }
 
-export const WorkflowOverridesConfig: Config.Config<WorkflowOverrides> =
-	Config.all({
-		trackerKind: Config.string("TRACKER_KIND").pipe(Config.option),
-		githubRepo: Config.string("GITHUB_REPO").pipe(Config.option),
-	}).pipe(
-		Config.map((raw) => ({
-			trackerKind: Option.getOrUndefined(raw.trackerKind),
-			githubRepo: Option.getOrUndefined(raw.githubRepo),
-		})),
-	);
+export const WorkflowOverridesConfig: Config.Config<WorkflowOverrides> = Config.all({
+	trackerKind: Config.string("TRACKER_KIND").pipe(Config.option),
+	githubRepo: Config.string("GITHUB_REPO").pipe(Config.option),
+}).pipe(
+	Config.map((raw) => ({
+		trackerKind: Option.getOrUndefined(raw.trackerKind),
+		githubRepo: Option.getOrUndefined(raw.githubRepo),
+	})),
+);
 
 export interface ServerConfig {
 	readonly workflowPath: string;
@@ -31,9 +29,7 @@ export interface ServerConfig {
 }
 
 export const ServerConfig: Config.Config<ServerConfig> = Config.all({
-	workflowPath: Config.string("WORKFLOW").pipe(
-		Config.withDefault("./WORKFLOW.md"),
-	),
+	workflowPath: Config.string("WORKFLOW").pipe(Config.withDefault("./WORKFLOW.md")),
 	port: Config.int("PORT").pipe(
 		Config.withDefault(3000),
 		Config.mapOrFail((port) =>
@@ -71,10 +67,7 @@ export function parseWorkflowFrontmatter(content: string): WorkflowConfig {
 		return Schema.decodeUnknownSync(WorkflowConfig)(configRaw);
 	} catch (error) {
 		throw new WorkflowParseError({
-			message:
-				error instanceof Error
-					? error.message
-					: `workflow parse failed: ${String(error)}`,
+			message: error instanceof Error ? error.message : `workflow parse failed: ${String(error)}`,
 		});
 	}
 }

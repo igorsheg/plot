@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
 	buildRunContext,
+	normalizeState,
 	PluginAuthError,
 	PluginNotFoundError,
 	PluginRateLimitError,
@@ -16,18 +17,16 @@ import {
 	BeadsDaemonTransport,
 	tryCreateBeadsDaemonTransport,
 } from "./daemon-transport.js";
+import {
+	type CommonTrackerConfig,
+	deriveAllStates,
+	validateCommonTrackerFields,
+} from "../shared.js";
 
 const execFileAsync = promisify(execFile);
 
-const normalizeState = (s: string): string => s.trim().toLowerCase();
-
-interface BeadsTrackerConfig {
-	kind: string;
+interface BeadsTrackerConfig extends CommonTrackerConfig {
 	beadsDir?: string;
-	githubRepo?: string;
-	dispatchStates?: ReadonlyArray<string>;
-	parkedStates?: ReadonlyArray<string>;
-	terminalStates?: ReadonlyArray<string>;
 }
 
 interface BdIssue {
@@ -198,9 +197,7 @@ async function createBeadsOps(config: {
 	};
 
 	const fetchPrReviews = async (issueId: string): Promise<string | null> => {
-		const repoArgs = config.githubRepo
-			? ["--repo", config.githubRepo]
-			: [];
+		const repoArgs = config.githubRepo ? ["--repo", config.githubRepo] : [];
 		try {
 			const prSearchResult = await runGh([
 				"pr",
@@ -302,28 +299,17 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 	name: "beads",
 	validateConfig(raw: TrackerPluginConfig): BeadsTrackerConfig {
 		return {
-			kind: String(raw.kind),
+			...validateCommonTrackerFields(raw),
 			beadsDir:
 				typeof raw["beadsDir"] === "string" ? raw["beadsDir"] : undefined,
-			githubRepo:
-				typeof raw["githubRepo"] === "string" ? raw["githubRepo"] : undefined,
-			dispatchStates: Array.isArray(raw["dispatchStates"])
-				? raw["dispatchStates"]
-				: undefined,
-			parkedStates: Array.isArray(raw["parkedStates"])
-				? raw["parkedStates"]
-				: undefined,
-			terminalStates: Array.isArray(raw["terminalStates"])
-				? raw["terminalStates"]
-				: undefined,
 		};
 	},
 	async factory(config): Promise<PlainTrackerClient> {
-		const allStates = [
-			...(config.dispatchStates ?? []),
-			...(config.parkedStates ?? []),
-			...(config.terminalStates ?? []),
-		].filter((s, i, arr) => arr.indexOf(s) === i);
+		const allStates = deriveAllStates(
+			config.dispatchStates,
+			config.parkedStates,
+			config.terminalStates,
+		);
 
 		const ops = await createBeadsOps({
 			beadsDir: config.beadsDir,

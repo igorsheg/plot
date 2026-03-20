@@ -6,22 +6,16 @@ import { fileURLToPath } from "node:url";
 import { ResolvedConfig } from "../core/config-service.js";
 import { makeTrackerLayer, resolvePlugin } from "../runtime-builder.js";
 
-const fixturesDir = join(
-	dirname(fileURLToPath(import.meta.url)),
-	"__fixtures__",
-);
+const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "__fixtures__");
 
 const makeMinimalConfig = (trackerKind: string): ResolvedConfig =>
 	new ResolvedConfig({ tracker: { kind: trackerKind } });
 
-const resolveTrackerPlugin = (config: ResolvedConfig) =>
-	Effect.runPromise(resolvePlugin(config));
+const resolveTrackerPlugin = (config: ResolvedConfig) => Effect.runPromise(resolvePlugin(config));
 
 describe("tracker plugin system", () => {
 	test("external plugin provides a working TrackerClient", async () => {
-		const config = makeMinimalConfig(
-			join(fixturesDir, "fake-jira-tracker/index.ts"),
-		);
+		const config = makeMinimalConfig(join(fixturesDir, "fake-jira-tracker/index.ts"));
 		const resolvedPlugin = await resolveTrackerPlugin(config);
 
 		const result = await Effect.runPromise(
@@ -59,9 +53,7 @@ describe("tracker plugin system", () => {
 			await resolveTrackerPlugin(workflowConfig);
 			expect(process.env["GITHUB_REPO"]).toBe("workflow/repo");
 
-			const emptyConfig = makeMinimalConfig(
-				join(fixturesDir, "fake-minimal-tracker/index.ts"),
-			);
+			const emptyConfig = makeMinimalConfig(join(fixturesDir, "fake-minimal-tracker/index.ts"));
 			await resolveTrackerPlugin(emptyConfig);
 			expect(process.env["GITHUB_REPO"]).toBeUndefined();
 		} finally {

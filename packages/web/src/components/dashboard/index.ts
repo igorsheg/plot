@@ -7,11 +7,11 @@ import { OpsPanel } from "./ops-panel";
 import { StatusDot } from "./status-dot";
 
 export const Dashboard = {
-  Root,
-  Header,
-  WorkRail,
-  AgentWorkspace,
-  ObservabilitySection,
-  OpsPanel,
-  StatusDot,
+	Root,
+	Header,
+	WorkRail,
+	AgentWorkspace,
+	ObservabilitySection,
+	OpsPanel,
+	StatusDot,
 };

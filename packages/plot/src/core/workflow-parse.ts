@@ -1,9 +1,9 @@
 import matter from "gray-matter";
 
-export const snakeToCamel = (s: string): string =>
+const snakeToCamel = (s: string): string =>
 	s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 
-export const transformKeys = (obj: unknown): unknown => {
+const transformKeys = (obj: unknown): unknown => {
 	if (Array.isArray(obj)) return obj.map(transformKeys);
 	if (obj !== null && typeof obj === "object") {
 		const result: Record<string, unknown> = {};

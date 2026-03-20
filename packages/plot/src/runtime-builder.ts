@@ -1,13 +1,5 @@
 import { BunServices } from "@effect/platform-bun";
-import {
-	DateTime,
-	Effect,
-	Layer,
-	Logger,
-	LogLevel,
-	ManagedRuntime,
-	References,
-} from "effect";
+import { DateTime, Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import {
 	type PlainTrackerClient,
@@ -41,7 +33,6 @@ import { Orchestrator } from "./core/index.js";
 
 import { WorkflowLoader } from "./core/workflow-loader.js";
 import { WorkspaceManager } from "./core/workspace-manager.js";
-import { PluginContext } from "./core/plugin-context.js";
 import { type ResolvedConfig } from "./core/config-service.js";
 import { ObservabilityApi } from "./observability-service.js";
 import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
@@ -64,8 +55,7 @@ export function parseServerLogLevel(s: string): LogLevel.LogLevel {
 }
 
 export function makeLoggingLayer(config: ServerConfig) {
-	const logger =
-		config.logFormat === "json" ? Logger.consoleJson : Logger.consolePretty();
+	const logger = config.logFormat === "json" ? Logger.consoleJson : Logger.consolePretty();
 	return Layer.mergeAll(
 		Logger.layer([logger]),
 		Layer.succeed(References.MinimumLogLevel, parseServerLogLevel(config.logLevel)),
@@ -82,8 +72,7 @@ export interface ResolvedPlugin {
 // ---------------------------------------------------------------------------
 
 function mapPluginError(error: unknown, operation: string): TrackerError {
-	if (error instanceof PluginAuthError)
-		return new TrackerAuthError({ message: error.message });
+	if (error instanceof PluginAuthError) return new TrackerAuthError({ message: error.message });
 	if (error instanceof PluginRateLimitError)
 		return new TrackerRateLimitError({
 			message: error.message,
@@ -103,9 +92,7 @@ function mapPluginError(error: unknown, operation: string): TrackerError {
 	return new TrackerNetworkError({ message: `${operation}: ${message}` });
 }
 
-function toDateTime(
-	value: Date | string | null | undefined,
-): DateTime.Utc | null {
+function toDateTime(value: Date | string | null | undefined): DateTime.Utc | null {
 	if (value == null) return null;
 	const date = typeof value === "string" ? new Date(value) : value;
 	return DateTime.fromDateUnsafe(date);
@@ -141,24 +128,18 @@ function normalizeIssueStateEntry(plain: IssueStateEntryLike): IssueStateEntry {
 	return new IssueStateEntry({ id: plain.id, state: plain.state });
 }
 
-function normalizeRunContext(
-	plain: TrackerRunContextLike | null,
-): TrackerRunContext | null {
+function normalizeRunContext(plain: TrackerRunContextLike | null): TrackerRunContext | null {
 	if (plain == null) return null;
 	return new TrackerRunContext({
 		raw: plain.raw ?? null,
 		promptContext: plain.promptContext ?? null,
 		workpad: plain.workpad ?? null,
 		reviewFeedback: plain.reviewFeedback ?? null,
-		workpadSections: (plain.workpadSections ?? []).map(
-			(s) => new WorkpadSection(s),
-		),
+		workpadSections: (plain.workpadSections ?? []).map((s) => new WorkpadSection(s)),
 	});
 }
 
-function adaptTrackerClient(
-	plain: PlainTrackerClient,
-): Layer.Layer<TrackerClient> {
+function adaptTrackerClient(plain: PlainTrackerClient): Layer.Layer<TrackerClient> {
 	return Layer.succeed(
 		TrackerClient,
 		TrackerClient.of({
@@ -179,8 +160,7 @@ function adaptTrackerClient(
 				}).pipe(Effect.map((entries) => entries.map(normalizeIssueStateEntry))),
 			fetchRunContext: (issueId, state) =>
 				Effect.tryPromise({
-					try: () =>
-						plain.fetchRunContext?.(issueId, state) ?? Promise.resolve(null),
+					try: () => plain.fetchRunContext?.(issueId, state) ?? Promise.resolve(null),
 					catch: (e) => mapPluginError(e, "fetchRunContext"),
 				}).pipe(Effect.map(normalizeRunContext)),
 			...(plain.updateIssue && {
@@ -225,9 +205,7 @@ function adaptTrackerClient(
 									: undefined,
 							}),
 						catch: (e) => mapPluginError(e, "issueAgentPreset"),
-					}).pipe(
-						Effect.map((p) => (p ? new AgentPreset(p) : null)),
-					),
+					}).pipe(Effect.map((p) => (p ? new AgentPreset(p) : null))),
 			}),
 			...(plain.updateAgentPreset && {
 				updateAgentPreset: (preset: AgentPreset) =>
@@ -322,18 +300,14 @@ function makeResolvedPlugin(
 	);
 }
 
-export function resolvePlugin(
-	resolved: ResolvedConfig,
-): Effect.Effect<ResolvedPlugin> {
+export function resolvePlugin(resolved: ResolvedConfig): Effect.Effect<ResolvedPlugin> {
 	syncGithubRepoEnv(resolved);
 	const rawConfig = buildPluginConfig(resolved);
 	const builtin = builtinTrackers[resolved.trackerKind];
 
 	if (builtin) {
 		return resolveDefinitionConfig(builtin, rawConfig).pipe(
-			Effect.flatMap((config) =>
-				makeResolvedPlugin(builtin, config),
-			),
+			Effect.flatMap((config) => makeResolvedPlugin(builtin, config)),
 		);
 	}
 
@@ -378,10 +352,6 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		platformDeps,
 		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
 		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
-		Layer.succeed(
-			PluginContext,
-			PluginContext.of({}),
-		),
 	);
 }
 
@@ -390,15 +360,10 @@ export function makeOrchestratorLayer(resolvedPlugin: ResolvedPlugin) {
 }
 
 export function makeObservabilityLayer(resolvedPlugin: ResolvedPlugin) {
-	return ObservabilityApi.layer.pipe(
-		Layer.provide(makeOrchestratorLayer(resolvedPlugin)),
-	);
+	return ObservabilityApi.layer.pipe(Layer.provide(makeOrchestratorLayer(resolvedPlugin)));
 }
 
-export function makeStartupLayer(
-	config: ServerConfig,
-	resolvedPlugin: ResolvedPlugin,
-) {
+export function makeStartupLayer(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
 	return Layer.effectDiscard(
 		Effect.gen(function* () {
 			const orchestrator = yield* Orchestrator;
@@ -414,15 +379,12 @@ export function makeStartupLayer(
 	).pipe(Layer.provide(makeOrchestratorLayer(resolvedPlugin)));
 }
 
-export function makeObservabilityRuntime(
-	config: ServerConfig,
-	resolvedPlugin: ResolvedPlugin,
-) {
+export function makeObservabilityRuntime(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
 	return ManagedRuntime.make(
 		Layer.mergeAll(
 			makeObservabilityLayer(resolvedPlugin),
 			makeStartupLayer(config, resolvedPlugin),
 			makeLoggingLayer(config),
-		) as Layer.Layer<ObservabilityApi, never, never>,
+		),
 	);
 }

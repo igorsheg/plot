@@ -1,12 +1,9 @@
 import { Schema } from "effect";
 
-export class IssueNotFound extends Schema.TaggedErrorClass<IssueNotFound>()(
-	"IssueNotFound",
-	{
-		identifier: Schema.String,
-		message: Schema.String,
-	},
-) {}
+export class IssueNotFound extends Schema.TaggedErrorClass<IssueNotFound>()("IssueNotFound", {
+	identifier: Schema.String,
+	message: Schema.String,
+}) {}
 
 export class OrchestratorUnavailable extends Schema.TaggedErrorClass<OrchestratorUnavailable>()(
 	"OrchestratorUnavailable",

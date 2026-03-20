@@ -1,6 +1,7 @@
 import { Effect, RcMap, Scope } from "effect";
 import {
 	buildRunContext,
+	normalizeState,
 	PluginAuthError,
 	PluginNotFoundError,
 	PluginRateLimitError,
@@ -18,8 +19,11 @@ import {
 	makeClientMap,
 	parseRepoSlug,
 } from "./client.js";
-
-const normalizeState = (s: string): string => s.trim().toLowerCase();
+import {
+	type CommonTrackerConfig,
+	deriveAllStates,
+	validateCommonTrackerFields,
+} from "../shared.js";
 
 function mapOctokitFailure(error: unknown, resourceId?: string): Error {
 	const status =
@@ -61,11 +65,11 @@ function createGithubOps(
 ) {
 	const allStates =
 		config.allStates ??
-		[
-			...(config.dispatchStates ?? []),
-			...(config.parkedStates ?? []),
-			...(config.terminalStates ?? []),
-		].filter((state, index, states) => states.indexOf(state) === index);
+		deriveAllStates(
+			config.dispatchStates,
+			config.parkedStates,
+			config.terminalStates,
+		);
 
 	const withClient = async <T>(
 		fn: (client: Octokit) => Promise<T>,
@@ -85,7 +89,9 @@ function createGithubOps(
 				owner: config.owner,
 				repo: config.repo,
 				per_page: 100,
-				...(ghState !== "all" ? { state: ghState as "open" | "closed" } : { state: "all" as const }),
+				...(ghState !== "all"
+					? { state: ghState as "open" | "closed" }
+					: { state: "all" as const }),
 			};
 
 			const issues = await client.paginate(
@@ -205,28 +211,24 @@ function createGithubOps(
 					});
 				});
 
-				const linkedPr = prs.find((pr) =>
-					pr.body?.includes(`#${issueId}`),
-				);
+				const linkedPr = prs.find((pr) => pr.body?.includes(`#${issueId}`));
 				if (linkedPr) {
 					try {
-						const [prReviews, prComments] = await withClient(
-							async (client) => {
-								const [revs, comms] = await Promise.all([
-									client.rest.pulls.listReviews({
-										owner: config.owner,
-										repo: config.repo,
-										pull_number: linkedPr.number,
-									}),
-									client.rest.issues.listComments({
-										owner: config.owner,
-										repo: config.repo,
-										issue_number: linkedPr.number,
-									}),
-								]);
-								return [revs.data, comms.data] as const;
-							},
-						);
+						const [prReviews, prComments] = await withClient(async (client) => {
+							const [revs, comms] = await Promise.all([
+								client.rest.pulls.listReviews({
+									owner: config.owner,
+									repo: config.repo,
+									pull_number: linkedPr.number,
+								}),
+								client.rest.issues.listComments({
+									owner: config.owner,
+									repo: config.repo,
+									issue_number: linkedPr.number,
+								}),
+							]);
+							return [revs.data, comms.data] as const;
+						});
 
 						const parts: string[] = [];
 						for (const r of prReviews) {
@@ -237,9 +239,7 @@ function createGithubOps(
 						}
 						for (const c of prComments) {
 							if (c.body)
-								parts.push(
-									`**${c.user?.login ?? "unknown"}**:\n${c.body}`,
-								);
+								parts.push(`**${c.user?.login ?? "unknown"}**:\n${c.body}`);
 						}
 						reviews = parts.length > 0 ? parts.join("\n\n---\n\n") : null;
 					} catch {
@@ -263,31 +263,12 @@ function createGithubOps(
 	};
 }
 
-interface GithubTrackerConfig {
-	kind: string;
-	githubRepo?: string;
-	dispatchStates?: ReadonlyArray<string>;
-	parkedStates?: ReadonlyArray<string>;
-	terminalStates?: ReadonlyArray<string>;
-}
+type GithubTrackerConfig = CommonTrackerConfig;
 
 const plugin: TrackerPluginDefinition<GithubTrackerConfig> = {
 	name: "github",
 	validateConfig(raw: TrackerPluginConfig): GithubTrackerConfig {
-		return {
-			kind: String(raw.kind),
-			githubRepo:
-				typeof raw["githubRepo"] === "string" ? raw["githubRepo"] : undefined,
-			dispatchStates: Array.isArray(raw["dispatchStates"])
-				? raw["dispatchStates"]
-				: undefined,
-			parkedStates: Array.isArray(raw["parkedStates"])
-				? raw["parkedStates"]
-				: undefined,
-			terminalStates: Array.isArray(raw["terminalStates"])
-				? raw["terminalStates"]
-				: undefined,
-		};
+		return validateCommonTrackerFields(raw);
 	},
 	async factory(config): Promise<PlainTrackerClient> {
 		const token = await getAuthToken();
@@ -301,9 +282,7 @@ const plugin: TrackerPluginDefinition<GithubTrackerConfig> = {
 		);
 
 		const getClient = async (): Promise<Octokit> => {
-			return Effect.runPromise(
-				RcMap.get(clients, token).pipe(Effect.scoped),
-			);
+			return Effect.runPromise(RcMap.get(clients, token).pipe(Effect.scoped));
 		};
 
 		const ops = createGithubOps(getClient, {

@@ -98,7 +98,14 @@ export interface PlainTrackerClient {
 	readonly ensureInProgress?: (issueId: string) => Promise<void>;
 	readonly issueAgentPreset?: (
 		issue: IssueLike,
-	) => Promise<{ id: string; labels: ReadonlyArray<string>; model?: string; commandPrefix?: ReadonlyArray<string>; extraArgs?: ReadonlyArray<string>; metadata?: Record<string, unknown> } | null>;
+	) => Promise<{
+		id: string;
+		labels: ReadonlyArray<string>;
+		model?: string;
+		commandPrefix?: ReadonlyArray<string>;
+		extraArgs?: ReadonlyArray<string>;
+		metadata?: Record<string, unknown>;
+	} | null>;
 	readonly updateAgentPreset?: (preset: {
 		readonly id: string;
 		readonly labels: ReadonlyArray<string>;
@@ -106,7 +113,14 @@ export interface PlainTrackerClient {
 		readonly commandPrefix?: ReadonlyArray<string>;
 		readonly extraArgs?: ReadonlyArray<string>;
 		readonly metadata?: Record<string, unknown>;
-	}) => Promise<{ id: string; labels: ReadonlyArray<string>; model?: string; commandPrefix?: ReadonlyArray<string>; extraArgs?: ReadonlyArray<string>; metadata?: Record<string, unknown> }>;
+	}) => Promise<{
+		id: string;
+		labels: ReadonlyArray<string>;
+		model?: string;
+		commandPrefix?: ReadonlyArray<string>;
+		extraArgs?: ReadonlyArray<string>;
+		metadata?: Record<string, unknown>;
+	}>;
 	readonly agentPresetInfo?: (preset: {
 		readonly id: string;
 		readonly labels: ReadonlyArray<string>;
@@ -117,12 +131,8 @@ export interface PlainTrackerClient {
 
 export interface TrackerPluginDefinition<TConfig = TrackerPluginConfig> {
 	readonly name: string;
-	readonly validateConfig?: (
-		raw: TrackerPluginConfig,
-	) => TConfig | Promise<TConfig>;
-	readonly factory: (
-		config: TConfig,
-	) => PlainTrackerClient | Promise<PlainTrackerClient>;
+	readonly validateConfig?: (raw: TrackerPluginConfig) => TConfig | Promise<TConfig>;
+	readonly factory: (config: TConfig) => PlainTrackerClient | Promise<PlainTrackerClient>;
 }
 
 function normalizeBlock(value: string | null | undefined): string {
@@ -140,8 +150,7 @@ export function parseWorkpadSectionsPlain(
 	if (!source) return [];
 
 	const lines = source.split("\n");
-	const sections: Array<{ title: string; body: string; itemCount: number }> =
-		[];
+	const sections: Array<{ title: string; body: string; itemCount: number }> = [];
 	let currentTitle: string | null = null;
 	let currentBody: string[] = [];
 
@@ -171,6 +180,8 @@ export function parseWorkpadSectionsPlain(
 	flush();
 	return sections;
 }
+
+export const normalizeState = (s: string): string => s.trim().toLowerCase();
 
 export function buildRunContext(input: {
 	workpad: string | null;
