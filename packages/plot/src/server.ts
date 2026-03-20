@@ -1,5 +1,9 @@
 import { FileSystem } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+	HttpRouter,
+	HttpServerRequest,
+	HttpServerResponse,
+} from "effect/unstable/http";
 import { BunServices, BunHttpServer } from "@effect/platform-bun";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
@@ -16,7 +20,10 @@ import {
 } from "./runtime-builder.js";
 import type { ResolvedPlugin } from "./runtime-builder.js";
 
-export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
+export function makeServer(
+	config: ServerConfig,
+	resolvedPlugin: ResolvedPlugin,
+) {
 	const LoggingLive = makeLoggingLayer(config);
 	const AppLayer = makeAppLayer(resolvedPlugin);
 	const ObservabilityLive = makeObservabilityLayer(resolvedPlugin);
@@ -109,7 +116,9 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 					}
 
 					const filePath = join(webDistDir, pathname);
-					const exists = yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => false));
+					const exists = yield* fs
+						.exists(filePath)
+						.pipe(Effect.orElseSucceed(() => false));
 					if (exists && pathname !== "/") {
 						const ext = extname(filePath);
 						const ct = contentTypes[ext] ?? "application/octet-stream";
@@ -118,7 +127,9 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 					}
 
 					const indexPath = join(webDistDir, "index.html");
-					const indexExists = yield* fs.exists(indexPath).pipe(Effect.orElseSucceed(() => false));
+					const indexExists = yield* fs
+						.exists(indexPath)
+						.pipe(Effect.orElseSucceed(() => false));
 					if (indexExists) {
 						const content = yield* fs.readFile(indexPath);
 						return HttpServerResponse.uint8Array(content, {
@@ -147,7 +158,12 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 		),
 	);
 
-	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, WsRpcLive, HealthzLive);
+	let routeLayers = Layer.mergeAll(
+		SseRouteLive,
+		RpcRouteLive,
+		WsRpcLive,
+		HealthzLive,
+	);
 	if (config.webEnabled) {
 		routeLayers = Layer.mergeAll(routeLayers, StaticLive);
 	}
