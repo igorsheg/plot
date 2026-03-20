@@ -12,22 +12,13 @@ export interface CommonTrackerConfig {
 	terminalStates?: ReadonlyArray<string>;
 }
 
-export function validateCommonTrackerFields(
-	raw: TrackerPluginConfig,
-): CommonTrackerConfig {
+export function validateCommonTrackerFields(raw: TrackerPluginConfig): CommonTrackerConfig {
 	return {
 		kind: String(raw.kind),
-		githubRepo:
-			typeof raw["githubRepo"] === "string" ? raw["githubRepo"] : undefined,
-		dispatchStates: Array.isArray(raw["dispatchStates"])
-			? raw["dispatchStates"]
-			: undefined,
-		parkedStates: Array.isArray(raw["parkedStates"])
-			? raw["parkedStates"]
-			: undefined,
-		terminalStates: Array.isArray(raw["terminalStates"])
-			? raw["terminalStates"]
-			: undefined,
+		githubRepo: typeof raw["githubRepo"] === "string" ? raw["githubRepo"] : undefined,
+		dispatchStates: Array.isArray(raw["dispatchStates"]) ? raw["dispatchStates"] : undefined,
+		parkedStates: Array.isArray(raw["parkedStates"]) ? raw["parkedStates"] : undefined,
+		terminalStates: Array.isArray(raw["terminalStates"]) ? raw["terminalStates"] : undefined,
 	};
 }
 
@@ -103,8 +94,7 @@ export async function fetchPrReviewFeedback(
 		const parts: string[] = [];
 		if (prData.reviews?.length) {
 			for (const r of prData.reviews) {
-				if (r.body)
-					parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
+				if (r.body) parts.push(`**${r.author.login}** (${r.state}):\n${r.body}`);
 			}
 		}
 		if (prData.comments?.length) {

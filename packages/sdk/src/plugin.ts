@@ -66,9 +66,7 @@ export interface PlainTrackerClient {
 	}) => Promise<void>;
 	readonly cancelIssue?: (issueId: string) => Promise<void>;
 	readonly ensureInProgress?: (issueId: string) => Promise<void>;
-	readonly issueAgentPreset?: (
-		issue: IssueLike,
-	) => Promise<{
+	readonly issueAgentPreset?: (issue: IssueLike) => Promise<{
 		id: string;
 		labels: ReadonlyArray<string>;
 		model?: string;

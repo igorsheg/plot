@@ -47,8 +47,7 @@ function resolveModel(
 	}
 	const preferred = DEFAULT_MODEL_PREFERENCE.reduce<Model<Api> | undefined>(
 		(found, pref) =>
-			found ??
-			available.find((m) => (pref.prefix ? m.id.startsWith(pref.id) : m.id === pref.id)),
+			found ?? available.find((m) => (pref.prefix ? m.id.startsWith(pref.id) : m.id === pref.id)),
 		undefined,
 	);
 	return (

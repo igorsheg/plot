@@ -105,7 +105,6 @@ export const initialState: OrchestratorState = {
 	issueArtifacts: new Map(),
 };
 
-
 export const isDispatchable = (state: string, config: ResolvedConfig) =>
 	config.dispatchStates.some(
 		(dispatchState) => normalizeState(dispatchState) === normalizeState(state),

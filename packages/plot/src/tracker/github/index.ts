@@ -11,12 +11,7 @@ import {
 	type TrackerPluginDefinition,
 	type TrackerRunContextLike,
 } from "@plot/sdk";
-import {
-	detectRepo,
-	getAuthToken,
-	ghApiJson,
-	parseRepoSlug,
-} from "./client.js";
+import { detectRepo, getAuthToken, ghApiJson, parseRepoSlug } from "./client.js";
 import {
 	type CommonTrackerConfig,
 	deriveAllStates,
@@ -46,14 +41,8 @@ function mapGhFailure(error: unknown, resourceId?: string): Error {
 		return new PluginRateLimitError(`github rate limited: ${details}`);
 	}
 
-	if (
-		resourceId &&
-		(normalized.includes("not found") || normalized.includes("404"))
-	) {
-		return new PluginNotFoundError(
-			`github issue not found: ${details}`,
-			resourceId,
-		);
+	if (resourceId && (normalized.includes("not found") || normalized.includes("404"))) {
+		return new PluginNotFoundError(`github issue not found: ${details}`, resourceId);
 	}
 
 	return new Error(`github API failed: ${details}`);
@@ -92,18 +81,11 @@ interface GithubOpsConfig {
 function createGithubOps(config: GithubOpsConfig) {
 	const allStates =
 		config.allStates ??
-		deriveAllStates(
-			config.dispatchStates,
-			config.parkedStates,
-			config.terminalStates,
-		);
+		deriveAllStates(config.dispatchStates, config.parkedStates, config.terminalStates);
 
 	const repoFlag = `${config.owner}/${config.repo}`;
 
-	const withGh = async <T>(
-		fn: () => Promise<T>,
-		resourceId?: string,
-	): Promise<T> => {
+	const withGh = async <T>(fn: () => Promise<T>, resourceId?: string): Promise<T> => {
 		try {
 			return await fn();
 		} catch (error) {
@@ -158,10 +140,7 @@ function createGithubOps(config: GithubOpsConfig) {
 		}, issueNumber);
 	};
 
-	const mapState = (gh: {
-		labels: ReadonlyArray<{ readonly name: string }>;
-		state: string;
-	}) => {
+	const mapState = (gh: { labels: ReadonlyArray<{ readonly name: string }>; state: string }) => {
 		const labelNames = gh.labels.map((l) => normalizeState(l.name));
 		for (const s of allStates) {
 			if (labelNames.includes(normalizeState(s))) return s;
@@ -211,22 +190,16 @@ function createGithubOps(config: GithubOpsConfig) {
 		}
 
 		let workpad: string | null = null;
-		const workpadComment = commentsRaw.find((c) =>
-			c.body.startsWith("## Plot Workpad"),
-		);
+		const workpadComment = commentsRaw.find((c) => c.body.startsWith("## Plot Workpad"));
 		if (workpadComment) workpad = workpadComment.body;
 
 		let reviews: string | null = null;
 		if (
 			(config.dispatchStates ?? []).some(
-				(dispatchState) =>
-					normalizeState(dispatchState) === normalizeState(state),
+				(dispatchState) => normalizeState(dispatchState) === normalizeState(state),
 			)
 		) {
-			reviews = await fetchPrReviewFeedback(
-				`#${issueId}`,
-				["--repo", repoFlag],
-			);
+			reviews = await fetchPrReviewFeedback(`#${issueId}`, ["--repo", repoFlag]);
 		}
 
 		return buildRunContext({ workpad, reviewFeedback: reviews });
@@ -280,9 +253,7 @@ const plugin: TrackerPluginDefinition<GithubTrackerConfig> = {
 					ids.map(async (id) => {
 						try {
 							const gh = await ops.viewIssue(id);
-							return [
-								{ id: String(gh.number), state: ops.mapState(gh) },
-							] as IssueStateEntryLike[];
+							return [{ id: String(gh.number), state: ops.mapState(gh) }] as IssueStateEntryLike[];
 						} catch (e) {
 							if (e instanceof PluginNotFoundError) return [];
 							throw e;

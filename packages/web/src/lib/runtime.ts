@@ -20,4 +20,3 @@ export function useTriggerRefresh() {
 		mutationFn: () => stream.triggerRefresh(),
 	});
 }
-

@@ -1,11 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import type {
-	Issue,
-	PromptSection,
-	PromptSnapshot,
-	TrackerRunContext,
-} from "@plot/sdk";
+import type { Issue, PromptSection, PromptSnapshot, TrackerRunContext } from "@plot/sdk";
 import {
 	PromptSection as PromptSectionSchema,
 	PromptSnapshot as PromptSnapshotSchema,
@@ -48,11 +43,7 @@ function buildSection(
 }
 
 function renderIssuePayload(issue: Issue): string {
-	const lines = [
-		`issue: ${issue.identifier}`,
-		`title: ${issue.title}`,
-		`state: ${issue.state}`,
-	];
+	const lines = [`issue: ${issue.identifier}`, `title: ${issue.title}`, `state: ${issue.state}`];
 
 	if (issue.labels.length > 0) {
 		lines.push(`labels: ${issue.labels.join(", ")}`);
@@ -86,19 +77,14 @@ function renderWorkpadContext(runContext: TrackerRunContext | null): string {
 	if (!runContext) return "no tracker workpad context available.";
 
 	const sections = runContext.workpadSections.map((section) => {
-		const itemSuffix =
-			section.itemCount > 0 ? ` (${section.itemCount} checklist items)` : "";
+		const itemSuffix = section.itemCount > 0 ? ` (${section.itemCount} checklist items)` : "";
 		return `### ${section.title}${itemSuffix}\n\n${section.body}`.trim();
 	});
 
 	const blocks = [
 		runContext.workpad ? `## Workpad\n\n${runContext.workpad}` : null,
-		runContext.reviewFeedback
-			? `## Review Feedback\n\n${runContext.reviewFeedback}`
-			: null,
-		sections.length > 0
-			? `## Parsed Workpad Sections\n\n${sections.join("\n\n")}`
-			: null,
+		runContext.reviewFeedback ? `## Review Feedback\n\n${runContext.reviewFeedback}` : null,
+		sections.length > 0 ? `## Parsed Workpad Sections\n\n${sections.join("\n\n")}` : null,
 	].filter((value): value is string => Boolean(value));
 
 	return blocks.join("\n\n");
@@ -131,53 +117,26 @@ export const compilePrompt = Effect.fnUntraced(function* (
 	);
 
 	const systemSections = [
-		buildSection(
-			"plot-contract",
-			"plot operating contract",
-			"system",
-			PLOT_CONTRACT,
-		),
-		buildSection(
-			"workflow-policy",
-			"workflow policy",
-			"system",
-			workflowPolicy,
-		),
-		buildSection(
-			"output-contract",
-			"output contract",
-			"system",
-			OUTPUT_CONTRACT,
-		),
+		buildSection("plot-contract", "plot operating contract", "system", PLOT_CONTRACT),
+		buildSection("workflow-policy", "workflow policy", "system", workflowPolicy),
+		buildSection("output-contract", "output contract", "system", OUTPUT_CONTRACT),
 	];
 
 	const userSections = [
-		buildSection(
-			"issue-payload",
-			"issue payload",
-			"user",
-			renderIssuePayload(issue),
-		),
+		buildSection("issue-payload", "issue payload", "user", renderIssuePayload(issue)),
 		buildSection(
 			"tracker-context",
 			"tracker workpad context",
 			"user",
 			renderWorkpadContext(runContext),
 		),
-		buildSection(
-			"retry-context",
-			"retry context",
-			"user",
-			renderRetryContext(attempt),
-		),
+		buildSection("retry-context", "retry context", "user", renderRetryContext(attempt)),
 	];
 
 	const systemPrompt = joinSections(systemSections);
 	const userPrompt = joinSections(userSections);
 	const stablePrefix = joinSections(systemSections.slice(0, 2));
-	const stablePrefixHash = createHash("sha1")
-		.update(stablePrefix)
-		.digest("hex");
+	const stablePrefixHash = createHash("sha1").update(stablePrefix).digest("hex");
 
 	return {
 		systemPrompt,

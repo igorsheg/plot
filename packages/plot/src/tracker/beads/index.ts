@@ -13,10 +13,7 @@ import {
 	type TrackerPluginDefinition,
 	type TrackerRunContextLike,
 } from "@plot/sdk";
-import {
-	BeadsDaemonTransport,
-	tryCreateBeadsDaemonTransport,
-} from "./daemon-transport.js";
+import { BeadsDaemonTransport, tryCreateBeadsDaemonTransport } from "./daemon-transport.js";
 import {
 	type CommonTrackerConfig,
 	deriveAllStates,
@@ -73,10 +70,7 @@ function mapBdFailure(error: unknown, resourceId?: string): Error {
 			normalized.includes("no issue found") ||
 			normalized.includes("no such issue"))
 	) {
-		return new PluginNotFoundError(
-			`beads issue not found: ${details}`,
-			resourceId,
-		);
+		return new PluginNotFoundError(`beads issue not found: ${details}`, resourceId);
 	}
 
 	return new Error(`bd command failed: ${details}`);
@@ -157,18 +151,13 @@ async function createBeadsOps(config: {
 	};
 
 	const viewIssue = async (id: string) => {
-		const daemonResult = await runDaemon((transport) =>
-			transport.viewIssue<BdIssueDetailed>(id),
-		);
+		const daemonResult = await runDaemon((transport) => transport.viewIssue<BdIssueDetailed>(id));
 		if (daemonResult) return parseDetailedIssue(daemonResult, id);
 		const result = await runBd(["show", id, "--json"], { resourceId: id });
 		return parseDetailedIssue(JSON.parse(result.stdout), id);
 	};
 
-	const mapState = (bd: {
-		status: string;
-		labels?: ReadonlyArray<string>;
-	}): string => {
+	const mapState = (bd: { status: string; labels?: ReadonlyArray<string> }): string => {
 		const labelNames = (bd.labels ?? []).map((l) => normalizeState(l));
 		for (const s of config.allStates) {
 			if (labelNames.includes(normalizeState(s))) return s;
@@ -201,17 +190,13 @@ async function createBeadsOps(config: {
 		}
 
 		let workpad: string | null = null;
-		const workpadComment = comments.find((c) =>
-			c.text.startsWith("## Plot Workpad"),
-		);
+		const workpadComment = comments.find((c) => c.text.startsWith("## Plot Workpad"));
 		if (workpadComment) workpad = workpadComment.text;
 
 		let reviews: string | null = null;
 		const normalizedDispatch = config.dispatchStates.map(normalizeState);
 		if (normalizedDispatch.includes(normalizeState(state))) {
-			const repoArgs = config.githubRepo
-				? ["--repo", config.githubRepo]
-				: [];
+			const repoArgs = config.githubRepo ? ["--repo", config.githubRepo] : [];
 			reviews = await fetchPrReviewFeedback(issueId, repoArgs, workspaceRoot);
 		}
 
@@ -235,8 +220,7 @@ const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
 	validateConfig(raw: TrackerPluginConfig): BeadsTrackerConfig {
 		return {
 			...validateCommonTrackerFields(raw),
-			beadsDir:
-				typeof raw["beadsDir"] === "string" ? raw["beadsDir"] : undefined,
+			beadsDir: typeof raw["beadsDir"] === "string" ? raw["beadsDir"] : undefined,
 		};
 	},
 	async factory(config): Promise<PlainTrackerClient> {

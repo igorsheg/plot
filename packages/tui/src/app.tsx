@@ -18,9 +18,7 @@ export interface RuntimeApi {
 		handleSnapshot: (snapshot: RuntimeSnapshot) => void,
 		handleStatus: (status: SseStatus) => void,
 	) => () => void;
-	connectEvents: (
-		handleEvent: (event: AgentRuntimeEvent) => void,
-	) => () => void;
+	connectEvents: (handleEvent: (event: AgentRuntimeEvent) => void) => () => void;
 }
 
 type PaneFocus = "issues" | "events";
@@ -137,12 +135,8 @@ function Header({
 		`● ${sseStatus}`,
 		`${runningCount} active`,
 		retryingCount > 0 ? `${retryingCount} retrying` : null,
-		snapshot
-			? `tokens ${formatTokens(snapshot.codexTotals.totalTokens)}`
-			: null,
-		snapshot
-			? `up ${formatDuration(snapshot.codexTotals.secondsRunning)}`
-			: null,
+		snapshot ? `tokens ${formatTokens(snapshot.codexTotals.totalTokens)}` : null,
+		snapshot ? `up ${formatDuration(snapshot.codexTotals.secondsRunning)}` : null,
 	]
 		.filter(Boolean)
 		.join(" │ ");
@@ -216,9 +210,7 @@ function WorkRail({
 								{"  "}
 								{phaseStr(entry.session)} · t{entry.session.turnCount} ·{" "}
 								{formatTokens(entry.session.totalTokens)} ·{" "}
-								{entry.session.lastEventAt
-									? timeAgo(toEpochMs(entry.session.lastEventAt))
-									: "idle"}
+								{entry.session.lastEventAt ? timeAgo(toEpochMs(entry.session.lastEventAt)) : "idle"}
 							</text>
 						</box>
 					);
@@ -244,9 +236,7 @@ function WorkRail({
 									{entry.error && (
 										<text fg="#71717a">
 											{"  "}
-											{entry.error.length > 28
-												? entry.error.slice(0, 28) + "…"
-												: entry.error}
+											{entry.error.length > 28 ? entry.error.slice(0, 28) + "…" : entry.error}
 										</text>
 									)}
 								</box>
@@ -272,9 +262,7 @@ function EventList({
 	identifier: string | null;
 	isActive: boolean;
 }) {
-	const header = identifier
-		? `${identifier} · ${events.length} events`
-		: "select an issue";
+	const header = identifier ? `${identifier} · ${events.length} events` : "select an issue";
 
 	return (
 		<box
@@ -285,9 +273,7 @@ function EventList({
 		>
 			<text fg="#71717a">{header}</text>
 			{events.length === 0 ? (
-				<text fg="#71717a">
-					{identifier ? "loading trace…" : "select an issue to inspect"}
-				</text>
+				<text fg="#71717a">{identifier ? "loading trace…" : "select an issue to inspect"}</text>
 			) : (
 				<scrollbox focused={false} style={{ width: "100%", flexGrow: 1 }}>
 					{events.map((event, index) => {
@@ -314,31 +300,20 @@ function EventList({
 function DetailPane({ event }: { event: AgentRuntimeEvent | null }) {
 	if (!event) {
 		return (
-			<box
-				title="detail"
-				border
-				borderStyle="single"
-				style={{ width: 38, height: "100%" }}
-			>
+			<box title="detail" border borderStyle="single" style={{ width: 38, height: "100%" }}>
 				<text fg="#71717a">select an event</text>
 			</box>
 		);
 	}
 
 	const fields: Array<{ key: string; value: string; color: string }> = [];
-	if (event.message)
-		fields.push({ key: "message", value: event.message, color: "#e4e4e7" });
-	if (event.toolName)
-		fields.push({ key: "tool", value: event.toolName, color: "#e4e4e7" });
-	if (event.toolCallId)
-		fields.push({ key: "call", value: event.toolCallId, color: "#e4e4e7" });
+	if (event.message) fields.push({ key: "message", value: event.message, color: "#e4e4e7" });
+	if (event.toolName) fields.push({ key: "tool", value: event.toolName, color: "#e4e4e7" });
+	if (event.toolCallId) fields.push({ key: "call", value: event.toolCallId, color: "#e4e4e7" });
 	if (event.sessionId)
 		fields.push({
 			key: "session",
-			value:
-				event.sessionId.length > 18
-					? event.sessionId.slice(0, 18) + "…"
-					: event.sessionId,
+			value: event.sessionId.length > 18 ? event.sessionId.slice(0, 18) + "…" : event.sessionId,
 			color: "#e4e4e7",
 		});
 	if (event.isError !== undefined)
@@ -366,12 +341,7 @@ function DetailPane({ event }: { event: AgentRuntimeEvent | null }) {
 	}
 
 	return (
-		<box
-			title="detail"
-			border
-			borderStyle="single"
-			style={{ width: 38, height: "100%" }}
-		>
+		<box title="detail" border borderStyle="single" style={{ width: 38, height: "100%" }}>
 			<text fg="#e4e4e7">
 				<strong>{event.event}</strong>
 			</text>
@@ -397,12 +367,7 @@ function DetailPane({ event }: { event: AgentRuntimeEvent | null }) {
 function OpsPanel({ snapshot }: { snapshot: RuntimeSnapshot | null }) {
 	if (!snapshot) {
 		return (
-			<box
-				title="ops"
-				border
-				borderStyle="single"
-				style={{ width: 34, height: "100%" }}
-			>
+			<box title="ops" border borderStyle="single" style={{ width: 34, height: "100%" }}>
 				<text fg="#71717a">waiting for snapshot</text>
 			</box>
 		);
@@ -411,12 +376,7 @@ function OpsPanel({ snapshot }: { snapshot: RuntimeSnapshot | null }) {
 	const o = snapshot.observability;
 
 	return (
-		<box
-			title="ops"
-			border
-			borderStyle="single"
-			style={{ width: 34, height: "100%" }}
-		>
+		<box title="ops" border borderStyle="single" style={{ width: 34, height: "100%" }}>
 			<text fg="#e4e4e7">
 				<strong>retries</strong>
 			</text>
@@ -424,10 +384,7 @@ function OpsPanel({ snapshot }: { snapshot: RuntimeSnapshot | null }) {
 				<text fg="#71717a">none</text>
 			) : (
 				snapshot.retrying.map((retry) => {
-					const dueIn = Math.max(
-						0,
-						Math.round((toEpochMs(retry.dueAt) - Date.now()) / 1000),
-					);
+					const dueIn = Math.max(0, Math.round((toEpochMs(retry.dueAt) - Date.now()) / 1000));
 					return (
 						<box key={retry.issueId}>
 							<text fg="#fbbf24">
@@ -436,9 +393,7 @@ function OpsPanel({ snapshot }: { snapshot: RuntimeSnapshot | null }) {
 							{retry.error && (
 								<text fg="#71717a">
 									{"  "}
-									{retry.error.length > 44
-										? retry.error.slice(0, 44) + "…"
-										: retry.error}
+									{retry.error.length > 44 ? retry.error.slice(0, 44) + "…" : retry.error}
 								</text>
 							)}
 						</box>
@@ -457,19 +412,13 @@ function OpsPanel({ snapshot }: { snapshot: RuntimeSnapshot | null }) {
 			<text fg="#e4e4e7">
 				<strong>workers</strong>
 			</text>
-			<text fg="#71717a">
-				stops {summarizeReasonCounts(o.workerStopsByReason)}
-			</text>
-			<text fg="#71717a">
-				exits {summarizeReasonCounts(o.workerExitsByReason)}
-			</text>
+			<text fg="#71717a">stops {summarizeReasonCounts(o.workerStopsByReason)}</text>
+			<text fg="#71717a">exits {summarizeReasonCounts(o.workerExitsByReason)}</text>
 			<text> </text>
 			<text fg="#e4e4e7">
 				<strong>retry mix</strong>
 			</text>
-			<text fg="#71717a">
-				{summarizeReasonCounts(o.retriesScheduledByReason)}
-			</text>
+			<text fg="#71717a">{summarizeReasonCounts(o.retriesScheduledByReason)}</text>
 		</box>
 	);
 }
@@ -481,8 +430,7 @@ function Footer({ opsVisible }: { opsVisible: boolean }) {
 	return (
 		<box style={{ height: 1, width: "100%" }}>
 			<text fg="#71717a">
-				j/k move │ h/l focus │ tab switch │ o ops {opsLabel} │ r refresh │ q
-				quit
+				j/k move │ h/l focus │ tab switch │ o ops {opsLabel} │ r refresh │ q quit
 			</text>
 		</box>
 	);
@@ -493,9 +441,7 @@ function Footer({ opsVisible }: { opsVisible: boolean }) {
 export function App({ api }: { api: RuntimeApi }) {
 	const [snapshot, setSnapshot] = useState<RuntimeSnapshot | null>(null);
 	const [sseStatus, setSseStatus] = useState<SseStatus>("connecting");
-	const [focusedIdentifier, setFocusedIdentifier] = useState<string | null>(
-		null,
-	);
+	const [focusedIdentifier, setFocusedIdentifier] = useState<string | null>(null);
 	const [focusPane, setFocusPane] = useState<PaneFocus>("issues");
 	const [opsVisible, setOpsVisible] = useState(true);
 	const [selectedEventIndex, setSelectedEventIndex] = useState(0);
@@ -634,10 +580,7 @@ export function App({ api }: { api: RuntimeApi }) {
 			if (focusPane === "issues") {
 				const idx = railIdentifiers.indexOf(focusedIdentifier ?? "");
 				const next = Math.min(railIdentifiers.length - 1, idx + 1);
-				if (
-					railIdentifiers[next] &&
-					railIdentifiers[next] !== focusedIdentifier
-				) {
+				if (railIdentifiers[next] && railIdentifiers[next] !== focusedIdentifier) {
 					setFocusedIdentifier(railIdentifiers[next]!);
 					resetDetail();
 				}
@@ -649,10 +592,7 @@ export function App({ api }: { api: RuntimeApi }) {
 			if (focusPane === "issues") {
 				const idx = railIdentifiers.indexOf(focusedIdentifier ?? "");
 				const next = Math.max(0, idx - 1);
-				if (
-					railIdentifiers[next] &&
-					railIdentifiers[next] !== focusedIdentifier
-				) {
+				if (railIdentifiers[next] && railIdentifiers[next] !== focusedIdentifier) {
 					setFocusedIdentifier(railIdentifiers[next]!);
 					resetDetail();
 				}

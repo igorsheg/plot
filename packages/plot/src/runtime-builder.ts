@@ -196,12 +196,8 @@ function adaptTrackerClient(plain: PlainTrackerClient): Layer.Layer<TrackerClien
 									identifier: b.identifier,
 									state: b.state,
 								})),
-								createdAt: issue.createdAt
-									? DateTime.formatIso(issue.createdAt)
-									: null,
-								updatedAt: issue.updatedAt
-									? DateTime.formatIso(issue.updatedAt)
-									: null,
+								createdAt: issue.createdAt ? DateTime.formatIso(issue.createdAt) : null,
+								updatedAt: issue.updatedAt ? DateTime.formatIso(issue.updatedAt) : null,
 							}),
 						catch: (e) => mapPluginError(e, "issueAgentPreset"),
 					}).pipe(Effect.map((p) => (p ? new AgentPreset(p) : null))),

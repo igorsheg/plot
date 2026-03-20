@@ -70,7 +70,6 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()("Workfl
 
 		const getCurrent = Ref.get(currentRef);
 
-
 		return { load, startWatching, getCurrent };
 	}),
 }) {
