@@ -1,7 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "../../lib/exec.js";
 
 async function ghApi(args: ReadonlyArray<string>, cwd?: string): Promise<string> {
 	const { stdout } = await execFileAsync("gh", args as string[], {

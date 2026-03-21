@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { PluginAuthError, PluginNotFoundError, PluginRateLimitError, type TrackerPluginConfig } from "@plot/sdk";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "../lib/exec.js";
 
 export interface CommonTrackerConfig {
 	kind: string;

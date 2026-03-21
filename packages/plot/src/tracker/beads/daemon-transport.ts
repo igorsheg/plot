@@ -1,11 +1,9 @@
-import { execFile } from "node:child_process";
+import { execFileAsync } from "../../lib/exec.js";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createConnection } from "node:net";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
 
 function walkUp(startDir: string, filename: string, globalFallback = false): string | null {
 	let dir = startDir;

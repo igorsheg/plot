@@ -1,5 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execFileAsync } from "../../lib/exec.js";
 import {
 	buildRunContext,
 	normalizeState,
@@ -19,7 +18,6 @@ import {
 	mapCliFailure,
 } from "../shared.js";
 
-const execFileAsync = promisify(execFile);
 
 interface BeadsTrackerConfig extends CommonTrackerConfig {
 	beadsDir?: string;
