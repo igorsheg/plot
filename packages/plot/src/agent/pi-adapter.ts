@@ -62,7 +62,7 @@ const repoSkillDirectories = [".agent/skills", ".claude/skills"];
 
 const PlotPiSkillsDir = Config.string("PI_SKILLS_DIR").pipe(
 	Config.nested("PLOT"),
-	Config.withDefault(join(agentDir, "../../resources/skills/core")),
+	Config.withDefault(join(agentDir, "../../resources/skills")),
 );
 
 const PlotAgentDir = Config.string("CODING_AGENT_DIR").pipe(
