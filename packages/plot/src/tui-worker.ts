@@ -15,10 +15,10 @@ import {
 	RefreshResult,
 	RuntimeSnapshot,
 } from "@plot/sdk";
-import { ObservabilityApi } from "./observability-service.js";
+import { Orchestrator } from "./core/index.js";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { ResolvedConfig } from "./core/config-service.js";
-import { makeObservabilityRuntime, resolvePlugin } from "./runtime-builder.js";
+import { makeOrchestratorRuntime, resolvePlugin } from "./runtime-builder.js";
 
 type StartMessage = { type: "start"; env: Record<string, string> };
 type StopMessage = { type: "stop" };
@@ -41,10 +41,10 @@ const encodeIssueEventLog = Schema.encodeSync(IssueEventLog);
 
 let started = false;
 let runtime: ManagedRuntime.ManagedRuntime<
-	ObservabilityApi,
+	Orchestrator,
 	Config.ConfigError
 > | null = null;
-let api: ObservabilityApi["Service"] | null = null;
+let orchestrator: Orchestrator["Service"] | null = null;
 
 function postSnapshot(snapshot: RuntimeSnapshot) {
 	self.postMessage({ type: "snapshot", snapshot: encodeSnapshot(snapshot) });
@@ -88,15 +88,15 @@ async function boot(env: Record<string, string>) {
 		const workflowConfig = parseWorkflowFrontmatter(content);
 		const resolved = new ResolvedConfig(workflowConfig, config.overrides);
 		const resolvedPlugin = await Effect.runPromise(resolvePlugin(resolved));
-		runtime = makeObservabilityRuntime(config, resolvedPlugin);
-		api = await runtime.runPromise(
+		runtime = makeOrchestratorRuntime(config, resolvedPlugin);
+		orchestrator = await runtime.runPromise(
 			Effect.gen(function* () {
-				return yield* ObservabilityApi;
+				return yield* Orchestrator;
 			}),
 		);
 
 		runtime.runFork(
-			Stream.runForEach(api.stateStream, (snap) =>
+			Stream.runForEach(orchestrator.snapshotStream, (snap) =>
 				Effect.sync(() => {
 					postSnapshot(snap);
 				}),
@@ -104,14 +104,14 @@ async function boot(env: Record<string, string>) {
 		);
 
 		runtime.runFork(
-			Stream.runForEach(api.eventStream, (event) =>
+			Stream.runForEach(orchestrator.eventStream, (event) =>
 				Effect.sync(() => {
 					postEvent(event);
 				}),
 			),
 		);
 
-		postSnapshot(await runtime.runPromise(api.getState));
+		postSnapshot(await runtime.runPromise(orchestrator.getSnapshot));
 		self.postMessage({ type: "ready" });
 	} catch (error) {
 		self.postMessage({
@@ -125,7 +125,7 @@ async function boot(env: Record<string, string>) {
 }
 
 async function handleCall(message: CallMessage) {
-	if (!runtime || !api) {
+	if (!runtime || !orchestrator) {
 		postResponse({
 			type: "response",
 			id: message.id,
@@ -139,10 +139,10 @@ async function handleCall(message: CallMessage) {
 			message.method === "getEventLog"
 				? encodeIssueEventLog(
 						await runtime.runPromise(
-							api.getEventLog(message.identifier ?? ""),
+							orchestrator.getEventLog(message.identifier ?? ""),
 						),
 					)
-				: encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
+				: encodeRefreshResult(await runtime.runPromise(orchestrator.triggerRefresh));
 		postResponse({ type: "response", id: message.id, ok: true, result });
 	} catch (error) {
 		postResponse({

@@ -34,7 +34,6 @@ import { Orchestrator } from "./core/index.js";
 import { WorkflowLoader } from "./core/workflow-loader.js";
 import { WorkspaceManager } from "./core/workspace-manager.js";
 import { type ResolvedConfig } from "./core/config-service.js";
-import { ObservabilityApi } from "./observability-service.js";
 import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
 
 export function parseServerLogLevel(s: string): LogLevel.LogLevel {
@@ -354,10 +353,6 @@ export function makeOrchestratorLayer(resolvedPlugin: ResolvedPlugin) {
 	return Orchestrator.layer.pipe(Layer.provide(makeAppLayer(resolvedPlugin)));
 }
 
-export function makeObservabilityLayer(resolvedPlugin: ResolvedPlugin) {
-	return ObservabilityApi.layer.pipe(Layer.provide(makeOrchestratorLayer(resolvedPlugin)));
-}
-
 export function makeStartupLayer(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
 	return Layer.effectDiscard(
 		Effect.gen(function* () {
@@ -374,10 +369,10 @@ export function makeStartupLayer(config: ServerConfig, resolvedPlugin: ResolvedP
 	).pipe(Layer.provide(makeOrchestratorLayer(resolvedPlugin)));
 }
 
-export function makeObservabilityRuntime(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
+export function makeOrchestratorRuntime(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
 	return ManagedRuntime.make(
 		Layer.mergeAll(
-			makeObservabilityLayer(resolvedPlugin),
+			makeOrchestratorLayer(resolvedPlugin),
 			makeStartupLayer(config, resolvedPlugin),
 			makeLoggingLayer(config),
 		),

@@ -4,14 +4,14 @@ import { BunServices, BunHttpServer } from "@effect/platform-bun";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
 import { RuntimeSnapshot, PlotRpcs } from "@plot/sdk";
-import { ObservabilityApi } from "./observability-service.js";
+import { Orchestrator } from "./core/index.js";
 import { RpcHandlersLive } from "./rpc-handlers.js";
 import { join, extname } from "node:path";
 import type { ServerConfig } from "./config.js";
 import {
 	makeAppLayer,
 	makeLoggingLayer,
-	makeObservabilityLayer,
+	makeOrchestratorLayer,
 	makeStartupLayer,
 } from "./runtime-builder.js";
 import type { ResolvedPlugin } from "./runtime-builder.js";
@@ -19,7 +19,7 @@ import type { ResolvedPlugin } from "./runtime-builder.js";
 export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
 	const LoggingLive = makeLoggingLayer(config);
 	const AppLayer = makeAppLayer(resolvedPlugin);
-	const ObservabilityLive = makeObservabilityLayer(resolvedPlugin);
+	const OrchestratorLive = makeOrchestratorLayer(resolvedPlugin);
 	const StartupLive = makeStartupLayer(config, resolvedPlugin);
 
 	const RpcRouteLive = HttpRouter.use(
@@ -29,7 +29,7 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 		}),
 	).pipe(
 		Layer.provide(RpcHandlersLive),
-		Layer.provide(ObservabilityLive),
+		Layer.provide(OrchestratorLive),
 		Layer.provide(RpcSerialization.layerNdjson),
 	);
 
@@ -38,9 +38,9 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 
 	const SseRouteLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
-			const api = yield* ObservabilityApi;
-			const initial = Stream.make(api.getState).pipe(Stream.mapEffect((get) => get));
-			const changes = api.stateStream;
+			const orchestrator = yield* Orchestrator;
+			const initial = Stream.make(orchestrator.getSnapshot).pipe(Stream.mapEffect((get) => get));
+			const changes = orchestrator.snapshotStream;
 			const snapshots = Stream.concat(initial, changes).pipe(
 				Stream.map((snapshot) => {
 					const json = JSON.stringify(encodeSnapshot(snapshot));
@@ -64,7 +64,7 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 				}),
 			);
 		}),
-	).pipe(Layer.provide(ObservabilityLive));
+	).pipe(Layer.provide(OrchestratorLive));
 
 	const startedAt = Date.now();
 

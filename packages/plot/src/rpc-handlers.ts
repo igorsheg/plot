@@ -1,14 +1,14 @@
 import { Effect } from "effect";
 import { PlotRpcs } from "@plot/sdk";
-import { ObservabilityApi } from "./observability-service.js";
+import { Orchestrator } from "./core/index.js";
 
 export const RpcHandlersLive = PlotRpcs.toLayer(
 	Effect.gen(function* () {
-		const api = yield* ObservabilityApi;
+		const orchestrator = yield* Orchestrator;
 
 		return {
-			GetEventLog: ({ identifier }) => api.getEventLog(identifier),
-			TriggerRefresh: () => api.triggerRefresh,
+			GetEventLog: ({ identifier }) => orchestrator.getEventLog(identifier),
+			TriggerRefresh: () => orchestrator.triggerRefresh,
 		};
 	}),
 );

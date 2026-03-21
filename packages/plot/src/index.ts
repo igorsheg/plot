@@ -7,14 +7,12 @@ import { resolvePlugin } from "./runtime-builder.js";
 
 export { makeServer } from "./server.js";
 export { ServerConfig, parseWorkflowFrontmatter, type WorkflowOverrides } from "./config.js";
-export { ObservabilityApi, makeObservabilityApi } from "./observability-service.js";
 export { ResolvedConfig, validateForDispatch } from "./core/config-service.js";
 export {
 	makeAppLayer,
 	makeLoggingLayer,
-	makeObservabilityLayer,
-	makeObservabilityRuntime,
 	makeOrchestratorLayer,
+	makeOrchestratorRuntime,
 	makeStartupLayer,
 	makeTrackerLayer,
 	parseServerLogLevel,

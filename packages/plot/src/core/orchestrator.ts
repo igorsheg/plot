@@ -1,6 +1,7 @@
 import {
 	Clock,
 	Config,
+	DateTime,
 	Duration,
 	Effect,
 	Fiber,
@@ -13,7 +14,21 @@ import {
 	Stream,
 } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
-import { type AgentRuntimeEvent, TrackerClient } from "@plot/sdk";
+import {
+	type AgentRuntimeEvent,
+	IssueEventLog,
+	IssueNotFound,
+	OrchestratorUnavailable,
+	RefreshResult,
+	RetryEntry,
+	RunningEntry,
+	RuntimeObservability,
+	RuntimeSnapshot,
+	TokenTotals,
+	ToolExecution,
+	TrackerClient,
+	LiveSession,
+} from "@plot/sdk";
 import { ResolvedConfig } from "./config-service.js";
 import { AgentService } from "../agent/agent-service.js";
 import { WorkflowLoader } from "./workflow-loader.js";
@@ -33,6 +48,142 @@ import {
 	noteCommandQueueSizeInState,
 	type OrchestratorState,
 } from "./domain/orchestrator-state.js";
+
+const parseSessionId = (sid: string | null) => {
+	if (!sid) return { threadId: "", turnId: "" };
+	const idx = sid.lastIndexOf("-");
+	if (idx === -1) return { threadId: sid, turnId: "" };
+	return { threadId: sid.slice(0, idx), turnId: sid.slice(idx + 1) };
+};
+
+const mapRunningEntry = (r: {
+	issueId: string;
+	issueIdentifier: string;
+	state: string;
+	startedAt: number;
+	workspacePath: string;
+	sessionId: string | null;
+	lastEventAt: number;
+	lastMessage: string | null;
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	turnCount: number;
+	phase?: "idle" | "thinking" | "tool_execution" | "compacting" | "retrying";
+	activeTools?: ReadonlyArray<{ toolCallId: string; toolName: string }>;
+	lastAssistantMessage?: string | null;
+}) => {
+	const { threadId, turnId } = parseSessionId(r.sessionId);
+	return new RunningEntry({
+		issueId: r.issueId,
+		issueIdentifier: r.issueIdentifier,
+		state: r.state,
+		startedAt: DateTime.fromDateUnsafe(new Date(r.startedAt)),
+		workspacePath: r.workspacePath,
+		session: new LiveSession({
+			sessionId: r.sessionId ?? "",
+			threadId,
+			turnId,
+			agentPid: null,
+			lastEvent: null,
+			lastEventAt: r.lastEventAt ? DateTime.fromDateUnsafe(new Date(r.lastEventAt)) : null,
+			lastMessage: r.lastMessage,
+			inputTokens: r.inputTokens,
+			outputTokens: r.outputTokens,
+			totalTokens: r.totalTokens,
+			turnCount: r.turnCount,
+			phase: r.phase ?? "idle",
+			activeTools: (r.activeTools ?? []).map((t) => new ToolExecution(t)),
+			lastAssistantMessage: r.lastAssistantMessage ?? null,
+		}),
+	});
+};
+
+const mapRetryEntry = (r: {
+	issueId: string;
+	identifier: string;
+	attempt: number;
+	dueAtMs: number;
+	error: string | null;
+}) =>
+	new RetryEntry({
+		issueId: r.issueId,
+		identifier: r.identifier,
+		attempt: r.attempt,
+		dueAt: DateTime.fromDateUnsafe(new Date(r.dueAtMs)),
+		error: r.error,
+	});
+
+const withOrchestratorAvailability = <A, E>(
+	effect: Effect.Effect<A, E>,
+): Effect.Effect<A, OrchestratorUnavailable> =>
+	effect.pipe(
+		Effect.mapError(
+			() =>
+				new OrchestratorUnavailable({
+					message: "Orchestrator state is unavailable",
+				}),
+		),
+	);
+
+const mapRuntimeSnapshot = (state: {
+	running: Map<string, Parameters<typeof mapRunningEntry>[0]>;
+	retryAttempts: Map<string, Parameters<typeof mapRetryEntry>[0]>;
+	totalInputTokens: number;
+	totalOutputTokens: number;
+	totalTokens: number;
+	endedSessionSeconds: number;
+	commandQueueDepth: number;
+	commandQueuePeak: number;
+	commandQueuePressureCount: number;
+	staleRetryDropCount: number;
+	retriesScheduledByReason: {
+		continuation: number;
+		failure: number;
+		backpressure: number;
+	};
+	workerStopsByReason: {
+		terminal: number;
+		inactive: number;
+		stalled: number;
+	};
+	workerExitsByReason: {
+		success: number;
+		interrupted: number;
+		failure: number;
+	};
+}) => {
+	const running = [...state.running.values()].map(mapRunningEntry);
+	const retrying = [...state.retryAttempts.values()].map(mapRetryEntry);
+	const now = Date.now();
+	const activeSeconds = [...state.running.values()].reduce(
+		(acc, r) => acc + (now - r.startedAt) / 1000,
+		0,
+	);
+
+	return new RuntimeSnapshot({
+		generatedAt: DateTime.nowUnsafe(),
+		counts: { running: running.length, retrying: retrying.length },
+		running,
+		retrying,
+		codexTotals: new TokenTotals({
+			inputTokens: state.totalInputTokens,
+			outputTokens: state.totalOutputTokens,
+			totalTokens: state.totalTokens,
+			secondsRunning: state.endedSessionSeconds + activeSeconds,
+		}),
+		observability: new RuntimeObservability({
+			commandQueueDepth: state.commandQueueDepth,
+			commandQueuePeak: state.commandQueuePeak,
+			commandQueuePressureCount: state.commandQueuePressureCount,
+			staleRetryDropCount: state.staleRetryDropCount,
+			retriesScheduledByReason: state.retriesScheduledByReason,
+			workerStopsByReason: state.workerStopsByReason,
+			workerExitsByReason: state.workerExitsByReason,
+		}),
+		rateLimits: null,
+	});
+};
 
 export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrator", {
 	make: Effect.gen(function* () {
@@ -233,6 +384,40 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 		const eventStream = Stream.fromPubSub(eventPubSub);
 		const stateStream = AtomRegistry.toStream(registry, stateAtom);
 
+		const snapshotStream = stateStream.pipe(Stream.map(mapRuntimeSnapshot));
+
+		const getSnapshot = withOrchestratorAvailability(
+			getState.pipe(Effect.map(mapRuntimeSnapshot)),
+		);
+
+		const getEventLog = Effect.fnUntraced(function* (identifier: string) {
+			const state = yield* withOrchestratorAvailability(getState);
+			const log = [...state.eventLogs.values()].find((l) => l.issueIdentifier === identifier);
+			if (!log) {
+				return yield* Effect.fail(
+					new IssueNotFound({
+						identifier,
+						message: `Event log not found: ${identifier}`,
+					}),
+				);
+			}
+			return new IssueEventLog({
+				issueId: log.issueId,
+				issueIdentifier: log.issueIdentifier,
+				events: [...log.events],
+			});
+		});
+
+		const triggerRefresh = Effect.gen(function* () {
+			yield* withOrchestratorAvailability(tick);
+			return new RefreshResult({
+				queued: true,
+				coalesced: false,
+				requestedAt: DateTime.nowUnsafe(),
+				operations: ["poll", "reconcile"],
+			});
+		});
+
 		return {
 			start,
 			tick,
@@ -241,6 +426,10 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 			getCommandQueueDepth,
 			eventStream,
 			stateStream,
+			snapshotStream,
+			getSnapshot,
+			getEventLog,
+			triggerRefresh,
 		};
 	}),
 }) {
