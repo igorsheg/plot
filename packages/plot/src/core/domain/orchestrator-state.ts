@@ -92,7 +92,6 @@ export interface RunningEntry {
 	readonly lastAssistantMessage: string | null;
 	readonly promptSnapshot: PromptSnapshot | null;
 	readonly runContext: TrackerRunContext | null;
-	readonly lastKnownDescription: string | null;
 }
 
 export interface IssueArtifact {
@@ -262,7 +261,6 @@ export const createRunningEntry = (
 	lastAssistantMessage: null,
 	promptSnapshot: options?.promptSnapshot ?? null,
 	runContext: options?.runContext ?? null,
-	lastKnownDescription: issue.description ?? null,
 });
 
 export const consumeRuntimeEvent = (
