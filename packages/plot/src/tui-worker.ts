@@ -11,7 +11,6 @@ import {
 } from "effect";
 import {
 	AgentRuntimeEvent,
-	IssueDetail,
 	IssueEventLog,
 	RefreshResult,
 	RuntimeSnapshot,
@@ -26,7 +25,7 @@ type StopMessage = { type: "stop" };
 type CallMessage = {
 	type: "call";
 	id: number;
-	method: "triggerRefresh" | "getIssue" | "getEventLog";
+	method: "triggerRefresh" | "getEventLog";
 	identifier?: string;
 };
 type WorkerMessage = StartMessage | StopMessage | CallMessage;
@@ -38,7 +37,6 @@ type ResponseMessage =
 const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
 const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
 const encodeRefreshResult = Schema.encodeSync(RefreshResult);
-const encodeIssueDetail = Schema.encodeSync(IssueDetail);
 const encodeIssueEventLog = Schema.encodeSync(IssueEventLog);
 
 let started = false;
@@ -142,17 +140,13 @@ async function handleCall(message: CallMessage) {
 	}
 	try {
 		const result =
-			message.method === "getIssue"
-				? encodeIssueDetail(
-						await runtime.runPromise(api.getIssue(message.identifier ?? "")),
+			message.method === "getEventLog"
+				? encodeIssueEventLog(
+						await runtime.runPromise(
+							api.getEventLog(message.identifier ?? ""),
+						),
 					)
-				: message.method === "getEventLog"
-					? encodeIssueEventLog(
-							await runtime.runPromise(
-								api.getEventLog(message.identifier ?? ""),
-							),
-						)
-					: encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
+				: encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
 		postResponse({ type: "response", id: message.id, ok: true, result });
 	} catch (error) {
 		postResponse({

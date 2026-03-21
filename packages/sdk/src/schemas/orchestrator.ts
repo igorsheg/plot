@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 import { AgentRuntimeEvent } from "./events.js";
-import { TrackerRunContext } from "./tracker.js";
 
 export class ToolExecution extends Schema.Class<ToolExecution>("ToolExecution")({
 	toolCallId: Schema.String,
@@ -103,9 +102,6 @@ export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
 	}),
 }) {}
 
-export const IssueStatus = Schema.Literals(["running", "retrying"]);
-export type IssueStatus = typeof IssueStatus.Type;
-
 export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>("RuntimeSnapshot")({
 	generatedAt: Schema.DateTimeUtcFromString,
 	counts: Schema.Struct({
@@ -119,21 +115,10 @@ export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>("RuntimeSnaps
 	rateLimits: Schema.Null,
 }) {}
 
-export class IssueDetail extends Schema.Class<IssueDetail>("IssueDetail")({
-	issueIdentifier: Schema.String,
-	issueId: Schema.String,
-	status: IssueStatus,
-	workspacePath: Schema.NullOr(Schema.String),
-	running: Schema.NullOr(RunningEntry),
-	retry: Schema.NullOr(RetryEntry),
-	lastError: Schema.NullOr(Schema.String),
-	eventTail: Schema.Array(AgentRuntimeEvent),
-	promptSnapshot: Schema.NullOr(PromptSnapshot),
-	runContext: Schema.NullOr(TrackerRunContext),
-}) {}
-
 export class IssueEventLog extends Schema.Class<IssueEventLog>("IssueEventLog")({
 	issueId: Schema.String,
 	issueIdentifier: Schema.String,
 	events: Schema.Array(AgentRuntimeEvent),
 }) {}
+
+export type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";

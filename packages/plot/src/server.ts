@@ -33,13 +33,6 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 		Layer.provide(RpcSerialization.layerNdjson),
 	);
 
-	const WsRpcLive = RpcServer.layer(PlotRpcs).pipe(
-		Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
-		Layer.provide(RpcHandlersLive),
-		Layer.provide(ObservabilityLive),
-		Layer.provide(RpcSerialization.layerNdjson),
-	);
-
 	const encoder = new TextEncoder();
 	const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
 
@@ -149,7 +142,7 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 		),
 	);
 
-	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, WsRpcLive, HealthzLive);
+	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, HealthzLive);
 	if (config.webEnabled) {
 		routeLayers = Layer.mergeAll(routeLayers, StaticLive);
 	}

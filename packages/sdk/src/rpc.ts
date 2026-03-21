@@ -1,8 +1,7 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { Schema } from "effect";
 import { PlotApiError } from "./errors.js";
-import { IssueDetail, IssueEventLog, RuntimeSnapshot } from "./schemas/orchestrator.js";
-import { AgentRuntimeEvent } from "./schemas/events.js";
+import { IssueEventLog } from "./schemas/orchestrator.js";
 
 export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")({
 	queued: Schema.Boolean,
@@ -12,15 +11,6 @@ export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")(
 }) {}
 
 export class PlotRpcs extends RpcGroup.make(
-	Rpc.make("GetState", {
-		success: RuntimeSnapshot,
-		error: PlotApiError,
-	}),
-	Rpc.make("GetIssue", {
-		success: IssueDetail,
-		error: PlotApiError,
-		payload: { identifier: Schema.String },
-	}),
 	Rpc.make("TriggerRefresh", {
 		success: RefreshResult,
 		error: PlotApiError,
@@ -29,10 +19,5 @@ export class PlotRpcs extends RpcGroup.make(
 		success: IssueEventLog,
 		error: PlotApiError,
 		payload: { identifier: Schema.String },
-	}),
-	Rpc.make("Events", {
-		success: AgentRuntimeEvent,
-		error: PlotApiError,
-		stream: true,
 	}),
 ) {}

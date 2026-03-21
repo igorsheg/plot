@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
-import { Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { useMutation } from "@tanstack/react-query";
-import { RuntimeSnapshot } from "@plot/sdk";
-import { makePlotClient } from "@plot/sdk";
+import { FetchHttpClient } from "effect/unstable/http";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
+import { PlotRpcs, type RefreshResult, RuntimeSnapshot, type IssueEventLog } from "@plot/sdk";
 
 type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
@@ -47,7 +48,22 @@ function connect() {
 
 connect();
 
-export const rpcClient = makePlotClient("/rpc");
+const RpcProtocol = RpcClient.layerProtocolHttp({ url: "/rpc" }).pipe(
+	Layer.provide([FetchHttpClient.layer, RpcSerialization.layerNdjson]),
+);
+const rpcRuntime = ManagedRuntime.make(RpcProtocol);
+const rpcClientEffect = RpcClient.make(PlotRpcs);
+
+export const rpcClient = {
+	triggerRefresh: (): Promise<RefreshResult> =>
+		rpcRuntime.runPromise(
+			Effect.scoped(Effect.flatMap(rpcClientEffect, (c) => c.TriggerRefresh())),
+		),
+	getEventLog: (identifier: string): Promise<IssueEventLog> =>
+		rpcRuntime.runPromise(
+			Effect.scoped(Effect.flatMap(rpcClientEffect, (c) => c.GetEventLog({ identifier }))),
+		),
+};
 
 export function useRuntimeSnapshot(): RuntimeSnapshot | null {
 	return useSyncExternalStore(

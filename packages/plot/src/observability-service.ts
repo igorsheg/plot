@@ -1,6 +1,5 @@
 import { Effect, DateTime, Layer, ServiceMap, Stream } from "effect";
 import {
-	IssueDetail,
 	IssueEventLog,
 	IssueNotFound,
 	LiveSession,
@@ -159,40 +158,6 @@ export const makeObservabilityApi = Effect.gen(function* () {
 		orchestrator.getState.pipe(Effect.map(mapRuntimeSnapshot)),
 	);
 
-	const getIssue = Effect.fnUntraced(function* (identifier: string) {
-		const state = yield* withOrchestratorAvailability(orchestrator.getState);
-		const running = [...state.running.values()].find((r) => r.issueIdentifier === identifier);
-		const retry = [...state.retryAttempts.values()].find((r) => r.identifier === identifier);
-		const artifact = [...state.issueArtifacts.values()].find(
-			(r) => r.issueIdentifier === identifier,
-		);
-
-		if (!running && !retry && !artifact) {
-			return yield* Effect.fail(
-				new IssueNotFound({
-					identifier,
-					message: `Issue not found: ${identifier}`,
-				}),
-			);
-		}
-
-		return new IssueDetail({
-			issueIdentifier: identifier,
-			issueId: running?.issueId ?? retry?.issueId ?? artifact?.issueId ?? "",
-			status: running ? "running" : "retrying",
-			workspacePath: running?.workspacePath ?? artifact?.workspacePath ?? null,
-			running: running ? mapRunningEntry(running) : null,
-			retry: retry ? mapRetryEntry(retry) : null,
-			lastError: retry?.error ?? artifact?.lastError ?? null,
-			eventTail:
-				running?.eventTail ??
-				state.eventLogs.get(artifact?.issueId ?? retry?.issueId ?? "")?.events ??
-				[],
-			promptSnapshot: running?.promptSnapshot ?? artifact?.promptSnapshot ?? null,
-			runContext: running?.runContext ?? artifact?.runContext ?? null,
-		});
-	});
-
 	const getEventLog = Effect.fnUntraced(function* (identifier: string) {
 		const state = yield* withOrchestratorAvailability(orchestrator.getState);
 		const log = [...state.eventLogs.values()].find((l) => l.issueIdentifier === identifier);
@@ -223,7 +188,6 @@ export const makeObservabilityApi = Effect.gen(function* () {
 
 	return {
 		getState,
-		getIssue,
 		getEventLog,
 		triggerRefresh,
 		eventStream: orchestrator.eventStream,

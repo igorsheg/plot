@@ -3,7 +3,6 @@ import { useKeyboard } from "@opentui/react";
 import { DateTime } from "effect";
 import { AgentRuntimeEvent, IssueEventLog } from "@plot/sdk";
 import type {
-	IssueDetail,
 	RefreshResult,
 	RuntimeSnapshot,
 	SseStatus,
@@ -12,7 +11,6 @@ import type {
 
 export interface RuntimeApi {
 	triggerRefresh: () => Promise<RefreshResult>;
-	getIssue: (identifier: string) => Promise<IssueDetail>;
 	getEventLog: (identifier: string) => Promise<IssueEventLog>;
 	connectSnapshots: (
 		handleSnapshot: (snapshot: RuntimeSnapshot) => void,

@@ -1,7 +1,6 @@
 import { Schema } from "effect";
 import {
 	AgentRuntimeEvent,
-	IssueDetail,
 	IssueEventLog,
 	RefreshResult,
 	RuntimeSnapshot,
@@ -19,7 +18,7 @@ type WorkerResponseMessage =
 	| { type: "response"; id: number; ok: true; result: unknown }
 	| { type: "response"; id: number; ok: false; error: string };
 
-type WorkerMethod = "triggerRefresh" | "getIssue" | "getEventLog";
+type WorkerMethod = "triggerRefresh" | "getEventLog";
 
 type WorkerMessage =
 	| WorkerReadyMessage
@@ -31,7 +30,6 @@ type WorkerMessage =
 const decodeSnapshot = Schema.decodeUnknownSync(RuntimeSnapshot);
 const decodeEvent = Schema.decodeUnknownSync(AgentRuntimeEvent);
 const decodeRefreshResult = Schema.decodeUnknownSync(RefreshResult);
-const decodeIssueDetail = Schema.decodeUnknownSync(IssueDetail);
 const decodeIssueEventLog = Schema.decodeUnknownSync(IssueEventLog);
 
 export interface TuiRuntimeHandle {
@@ -126,7 +124,6 @@ export async function createTuiRuntimeHandle(
 	return {
 		api: {
 			triggerRefresh: async () => decodeRefreshResult(await call("triggerRefresh")),
-			getIssue: async (identifier: string) => decodeIssueDetail(await call("getIssue", identifier)),
 			getEventLog: async (identifier: string) =>
 				decodeIssueEventLog(await call("getEventLog", identifier)),
 			connectSnapshots: (handleSnapshot, handleStatus) => {
