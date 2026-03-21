@@ -1,11 +1,29 @@
 import { createHash } from "node:crypto";
-import { Effect } from "effect";
-import type { Issue, PromptSection, PromptSnapshot, TrackerRunContext } from "@plot/sdk";
-import {
-	PromptSection as PromptSectionSchema,
-	PromptSnapshot as PromptSnapshotSchema,
-} from "@plot/sdk";
+import { Effect, Schema } from "effect";
+import type { Issue, TrackerRunContext } from "@plot/sdk";
 import { renderPrompt } from "./prompt-renderer.js";
+
+export const PromptSectionKind = Schema.Literals(["system", "user"]);
+export type PromptSectionKind = typeof PromptSectionKind.Type;
+
+export class PromptSection extends Schema.Class<PromptSection>("PromptSection")({
+	id: Schema.String,
+	title: Schema.String,
+	kind: PromptSectionKind,
+	content: Schema.String,
+	charCount: Schema.Number,
+}) {}
+
+export class PromptSnapshot extends Schema.Class<PromptSnapshot>("PromptSnapshot")({
+	system: Schema.String,
+	user: Schema.String,
+	stablePrefix: Schema.String,
+	stablePrefixHash: Schema.String,
+	systemCharCount: Schema.Number,
+	userCharCount: Schema.Number,
+	systemSections: Schema.Array(PromptSection),
+	userSections: Schema.Array(PromptSection),
+}) {}
 
 const PLOT_CONTRACT = [
 	"you are a coding agent operating inside plot, an issue-driven orchestrator.",
@@ -33,7 +51,7 @@ function buildSection(
 	content: string,
 ): PromptSection {
 	const normalized = normalizeBlock(content);
-	return new PromptSectionSchema({
+	return new PromptSection({
 		id,
 		title,
 		kind,
@@ -141,7 +159,7 @@ export const compilePrompt = Effect.fnUntraced(function* (
 	return {
 		systemPrompt,
 		userPrompt,
-		snapshot: new PromptSnapshotSchema({
+		snapshot: new PromptSnapshot({
 			system: systemPrompt,
 			user: userPrompt,
 			stablePrefix,

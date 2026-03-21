@@ -98,7 +98,7 @@ function Stat({
 export function ObservabilitySection() {
 	const snapshot = useRuntimeSnapshot();
 	if (!snapshot) return null;
-	const { counts, observability } = snapshot;
+	const { observability, retrying } = snapshot;
 
 	return (
 		<section className="space-y-3">
@@ -132,7 +132,7 @@ export function ObservabilitySection() {
 					</CardHeader>
 					<CardContent className="space-y-4">
 						<div className="grid gap-3 sm:grid-cols-2">
-							<Stat label="queued" value={counts.retrying} />
+							<Stat label="queued" value={retrying.length} />
 							<Stat label="stale drops" value={observability.staleRetryDropCount} tone="warning" />
 						</div>
 						<ReasonList

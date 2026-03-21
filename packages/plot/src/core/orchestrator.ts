@@ -163,7 +163,6 @@ const mapRuntimeSnapshot = (state: {
 
 	return new RuntimeSnapshot({
 		generatedAt: DateTime.nowUnsafe(),
-		counts: { running: running.length, retrying: retrying.length },
 		running,
 		retrying,
 		codexTotals: new TokenTotals({
@@ -181,7 +180,6 @@ const mapRuntimeSnapshot = (state: {
 			workerStopsByReason: state.workerStopsByReason,
 			workerExitsByReason: state.workerExitsByReason,
 		}),
-		rateLimits: null,
 	});
 };
 

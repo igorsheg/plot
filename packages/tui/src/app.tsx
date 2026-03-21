@@ -5,9 +5,10 @@ import { AgentRuntimeEvent, IssueEventLog } from "@plot/sdk";
 import type {
 	RefreshResult,
 	RuntimeSnapshot,
-	SseStatus,
 	LiveSession,
 } from "@plot/sdk";
+
+type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
 export interface RuntimeApi {
 	triggerRefresh: () => Promise<RefreshResult>;
@@ -124,8 +125,8 @@ function Header({
 	snapshot: RuntimeSnapshot | null;
 	sseStatus: SseStatus;
 }) {
-	const runningCount = snapshot?.counts.running ?? 0;
-	const retryingCount = snapshot?.counts.retrying ?? 0;
+	const runningCount = snapshot?.running.length ?? 0;
+	const retryingCount = snapshot?.retrying.length ?? 0;
 	const dotColor = sseStatus === "connected" ? "#22c55e" : "#ef4444";
 
 	const parts = [

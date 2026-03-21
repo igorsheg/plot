@@ -1,6 +1,7 @@
 import { DateTime, Fiber } from "effect";
 import { AgentRuntimeEvent, normalizeState } from "@plot/sdk";
-import type { Issue, PromptSnapshot, TrackerRunContext } from "@plot/sdk";
+import type { Issue, TrackerRunContext } from "@plot/sdk";
+import type { PromptSnapshot } from "../prompt-compiler.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentEventType, AgentPhase } from "@plot/sdk";
 

@@ -4,8 +4,9 @@ import {
 	IssueEventLog,
 	RefreshResult,
 	RuntimeSnapshot,
-	type SseStatus,
 } from "@plot/sdk";
+
+type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 import type { RuntimeApi } from "@plot/tui";
 import type { ServerOptions } from "./options.js";
 import { resolveTuiServerLogPath, resolveTuiWorkerUrl, toTuiServerEnv } from "./runtime.js";
