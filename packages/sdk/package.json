@@ -11,7 +11,8 @@
 	},
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./plugin": "./src/plugin/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -b tsconfig.json",
