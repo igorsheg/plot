@@ -1,21 +1,10 @@
 import { Effect } from "effect";
+import { TrackerAuthError, TrackerValidationError, TrackerNotFoundError } from "@plot/sdk";
 
-const getErrorTag = (error: unknown): string | undefined =>
-	typeof error === "object" && error !== null && "_tag" in error ? String(error._tag) : undefined;
-
-const isTransient = (error: unknown): boolean => {
-	const tag = getErrorTag(error);
-	return tag === undefined
-		? true
-		: tag === "TrackerNetworkError" || tag === "TrackerRateLimitError";
-};
-
-const isFatal = (error: unknown): boolean => {
-	const tag = getErrorTag(error);
-	return (
-		tag === "TrackerAuthError" || tag === "TrackerValidationError" || tag === "TrackerNotFoundError"
-	);
-};
+const isFatal = (error: unknown): boolean =>
+	error instanceof TrackerAuthError ||
+	error instanceof TrackerValidationError ||
+	error instanceof TrackerNotFoundError;
 
 export const withTrackerFallback = <A>(
 	effect: Effect.Effect<A, unknown>,
@@ -25,23 +14,14 @@ export const withTrackerFallback = <A>(
 	effect.pipe(
 		Effect.catch((error) => {
 			if (isFatal(error)) {
-				const errorTag = getErrorTag(error);
 				return Effect.logError("tracker_fatal_error").pipe(
-					Effect.annotateLogs({
-						operation,
-						error: String(error),
-						...(errorTag ? { error_type: errorTag } : {}),
-					}),
+					Effect.annotateLogs({ operation, error: String(error) }),
 					Effect.flatMap(() => Effect.die(error)),
 				);
 			}
 
 			return Effect.logWarning("tracker_fetch_failed").pipe(
-				Effect.annotateLogs({
-					operation,
-					error: String(error),
-					transient: String(isTransient(error)),
-				}),
+				Effect.annotateLogs({ operation, error: String(error) }),
 				Effect.as(fallback),
 			);
 		}),
