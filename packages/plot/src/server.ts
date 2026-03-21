@@ -3,7 +3,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { BunServices, BunHttpServer } from "@effect/platform-bun";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
-import { AgentRuntimeEvent, PlotRpcs } from "@plot/sdk";
+import { RuntimeSnapshot, PlotRpcs } from "@plot/sdk";
 import { ObservabilityApi } from "./observability-service.js";
 import { RpcHandlersLive } from "./rpc-handlers.js";
 import { join, extname } from "node:path";
@@ -41,14 +41,16 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	);
 
 	const encoder = new TextEncoder();
-	const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
+	const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
 
 	const SseRouteLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
 			const api = yield* ObservabilityApi;
-			const events = api.eventStream.pipe(
-				Stream.map((event: AgentRuntimeEvent) => {
-					const json = JSON.stringify(encodeEvent(event));
+			const initial = Stream.make(api.getState).pipe(Stream.mapEffect((get) => get));
+			const changes = api.stateStream;
+			const snapshots = Stream.concat(initial, changes).pipe(
+				Stream.map((snapshot) => {
+					const json = JSON.stringify(encodeSnapshot(snapshot));
 					return encoder.encode(`data: ${json}\n\n`);
 				}),
 			);
@@ -59,7 +61,7 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 			yield* router.add(
 				"GET",
 				"/rpc/events",
-				HttpServerResponse.stream(Stream.merge(events, heartbeat), {
+				HttpServerResponse.stream(Stream.merge(snapshots, heartbeat), {
 					contentType: "text/event-stream",
 					headers: {
 						"Cache-Control": "no-cache",

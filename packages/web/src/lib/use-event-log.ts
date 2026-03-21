@@ -1,30 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { DateTime } from "effect";
 import type { AgentRuntimeEvent } from "@plot/sdk";
-import { stream } from "./runtime";
+import { rpcClient } from "./runtime";
 
-const toEpoch = (ts: DateTime.Utc) => Number(DateTime.toEpochMillis(ts));
-
-const MAX_CLIENT_LOG = 2000;
+const POLL_INTERVAL = 3000;
 
 export function useEventLog(identifier: string) {
 	const [events, setEvents] = useState<readonly AgentRuntimeEvent[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const issueIdRef = useRef<string | null>(null);
-	const seenTimestampsRef = useRef(0);
 
-	const fetchInitial = useCallback(async (id: string) => {
-		setIsLoading(true);
+	const fetchEvents = useCallback(async (id: string, initial: boolean) => {
+		if (initial) setIsLoading(true);
 		try {
-			const log = await stream.getEventLog(id);
+			const log = await rpcClient.getEventLog(id);
 			issueIdRef.current = log.issueId;
-			const evts = log.events;
-			seenTimestampsRef.current = evts.length > 0 ? toEpoch(evts[evts.length - 1]!.timestamp) : 0;
-			setEvents(evts);
+			setEvents(log.events);
 		} catch {
-			setEvents([]);
+			if (initial) setEvents([]);
 		} finally {
-			setIsLoading(false);
+			if (initial) setIsLoading(false);
 		}
 	}, []);
 
@@ -32,43 +26,17 @@ export function useEventLog(identifier: string) {
 		if (!identifier) {
 			setEvents([]);
 			issueIdRef.current = null;
-			seenTimestampsRef.current = 0;
 			return;
 		}
 
-		void fetchInitial(identifier);
-	}, [identifier, fetchInitial]);
+		void fetchEvents(identifier, true);
 
-	useEffect(() => {
-		if (!identifier) return;
+		const timer = setInterval(() => {
+			void fetchEvents(identifier, false);
+		}, POLL_INTERVAL);
 
-		return stream.onEvent((event) => {
-			if (
-				issueIdRef.current &&
-				event.issueId === issueIdRef.current &&
-				toEpoch(event.timestamp) > seenTimestampsRef.current
-			) {
-				seenTimestampsRef.current = toEpoch(event.timestamp);
-				setEvents((prev) => {
-					if (
-						event.event === "notification" &&
-						prev.length > 0 &&
-						prev[prev.length - 1]!.event === "notification"
-					) {
-						const last = prev[prev.length - 1]!;
-						const merged = {
-							...last,
-							timestamp: event.timestamp,
-							message: (last.message ?? "") + (event.message ?? ""),
-						} as AgentRuntimeEvent;
-						return [...prev.slice(0, -1), merged];
-					}
-					const next = [...prev, event];
-					return next.length > MAX_CLIENT_LOG ? next.slice(-MAX_CLIENT_LOG) : next;
-				});
-			}
-		});
-	}, [identifier]);
+		return () => clearInterval(timer);
+	}, [identifier, fetchEvents]);
 
 	return { events, isLoading };
 }

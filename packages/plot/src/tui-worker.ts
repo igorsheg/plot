@@ -1,10 +1,16 @@
 import { Console } from "node:console";
 import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Config, ConfigProvider, Effect, ManagedRuntime, Schema, Stream } from "effect";
+import {
+	Config,
+	ConfigProvider,
+	Effect,
+	ManagedRuntime,
+	Schema,
+	Stream,
+} from "effect";
 import {
 	AgentRuntimeEvent,
-	applyRuntimeEvent,
 	IssueDetail,
 	IssueEventLog,
 	RefreshResult,
@@ -36,12 +42,12 @@ const encodeIssueDetail = Schema.encodeSync(IssueDetail);
 const encodeIssueEventLog = Schema.encodeSync(IssueEventLog);
 
 let started = false;
-let runtime: ManagedRuntime.ManagedRuntime<ObservabilityApi, Config.ConfigError> | null = null;
+let runtime: ManagedRuntime.ManagedRuntime<
+	ObservabilityApi,
+	Config.ConfigError
+> | null = null;
 let api: ObservabilityApi["Service"] | null = null;
 let currentSnapshot: RuntimeSnapshot | null = null;
-let resyncTimer: ReturnType<typeof setInterval> | null = null;
-
-const RESYNC_INTERVAL_MS = 30_000;
 
 function postSnapshot(snapshot: RuntimeSnapshot) {
 	self.postMessage({ type: "snapshot", snapshot: encodeSnapshot(snapshot) });
@@ -49,16 +55,6 @@ function postSnapshot(snapshot: RuntimeSnapshot) {
 
 function postEvent(event: AgentRuntimeEvent) {
 	self.postMessage({ type: "event", event: encodeEvent(event) });
-}
-
-async function resync(): Promise<void> {
-	if (!runtime || !api) return;
-	try {
-		currentSnapshot = await runtime.runPromise(api.getState);
-		postSnapshot(currentSnapshot);
-	} catch {
-		/* will retry on next event or interval */
-	}
 }
 
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
@@ -105,21 +101,21 @@ async function boot(env: Record<string, string>) {
 		currentSnapshot = await runtime.runPromise(api.getState);
 
 		runtime.runFork(
-			Stream.runForEach(api.eventStream, (event) =>
+			Stream.runForEach(api.stateStream, (snap) =>
 				Effect.sync(() => {
-					postEvent(event);
-					const result = applyRuntimeEvent(currentSnapshot, event);
-					if (result.type === "patched") {
-						currentSnapshot = result.snapshot;
-						postSnapshot(currentSnapshot);
-					} else {
-						void resync();
-					}
+					currentSnapshot = snap;
+					postSnapshot(snap);
 				}),
 			),
 		);
 
-		resyncTimer = setInterval(() => void resync(), RESYNC_INTERVAL_MS);
+		runtime.runFork(
+			Stream.runForEach(api.eventStream, (event) =>
+				Effect.sync(() => {
+					postEvent(event);
+				}),
+			),
+		);
 
 		postSnapshot(currentSnapshot);
 		self.postMessage({ type: "ready" });
@@ -147,14 +143,17 @@ async function handleCall(message: CallMessage) {
 	try {
 		const result =
 			message.method === "getIssue"
-				? encodeIssueDetail(await runtime.runPromise(api.getIssue(message.identifier ?? "")))
+				? encodeIssueDetail(
+						await runtime.runPromise(api.getIssue(message.identifier ?? "")),
+					)
 				: message.method === "getEventLog"
-					? encodeIssueEventLog(await runtime.runPromise(api.getEventLog(message.identifier ?? "")))
+					? encodeIssueEventLog(
+							await runtime.runPromise(
+								api.getEventLog(message.identifier ?? ""),
+							),
+						)
 					: encodeRefreshResult(await runtime.runPromise(api.triggerRefresh));
 		postResponse({ type: "response", id: message.id, ok: true, result });
-		if (message.method === "triggerRefresh") {
-			await resync();
-		}
 	} catch (error) {
 		postResponse({
 			type: "response",
@@ -166,7 +165,6 @@ async function handleCall(message: CallMessage) {
 }
 
 async function shutdown() {
-	if (resyncTimer) clearInterval(resyncTimer);
 	if (runtime) await runtime.dispose();
 	process.exit(0);
 }
