@@ -3,6 +3,7 @@ import { Effect, References } from "effect";
 import { createCliOutput } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer } from "../shared/server-process.js";
+import { waitForShutdown } from "../shared/shutdown.js";
 
 export const ServeCommand = Command.make(
 	"serve",
@@ -19,20 +20,3 @@ export const ServeCommand = Command.make(
 		});
 	}),
 ).pipe(Command.withDescription("start the plot orchestrator server (headless)"));
-
-function waitForShutdown(onShutdown: (signal: NodeJS.Signals) => void) {
-	return Effect.callback<void>((resume) => {
-		const shutdown = (signal: NodeJS.Signals) => {
-			onShutdown(signal);
-			resume(Effect.void);
-		};
-		const onSigint = () => shutdown("SIGINT");
-		const onSigterm = () => shutdown("SIGTERM");
-		process.on("SIGINT", onSigint);
-		process.on("SIGTERM", onSigterm);
-		return Effect.sync(() => {
-			process.off("SIGINT", onSigint);
-			process.off("SIGTERM", onSigterm);
-		});
-	});
-}

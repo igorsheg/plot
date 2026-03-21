@@ -51,10 +51,6 @@ export function createCliOutput(options: CliOutputOptions) {
 			if (json || !verbose) return;
 			process.stderr.write(`${message}\n`);
 		},
-		warn(message: string) {
-			if (json || !verbose) return;
-			process.stderr.write(`${message}\n`);
-		},
 		error(event: ErrorEvent) {
 			if (json) {
 				writeJson({ event: "error", ...event });

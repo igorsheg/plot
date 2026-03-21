@@ -7,7 +7,6 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()("Workfl
 	make: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem;
 		const currentRef = yield* Ref.make<WorkflowDefinition | null>(null);
-		const revisionRef = yield* Ref.make(0);
 		const lastContentRef = yield* Ref.make<string | null>(null);
 
 		const parseWorkflow = Effect.fnUntraced(function* (content: string) {
@@ -37,7 +36,6 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()("Workfl
 
 			const definition = yield* parseWorkflow(content);
 			yield* Ref.set(currentRef, definition);
-			yield* Ref.update(revisionRef, (n) => n + 1);
 			yield* Ref.set(lastContentRef, content);
 			return definition;
 		});
@@ -53,7 +51,6 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()("Workfl
 				const result = yield* parseWorkflow(content).pipe(Effect.result);
 				if (result._tag === "Success") {
 					yield* Ref.set(currentRef, result.success);
-					yield* Ref.update(revisionRef, (n) => n + 1);
 					yield* Ref.set(lastContentRef, content);
 				} else {
 					yield* Effect.logError("workflow_reload_failed").pipe(

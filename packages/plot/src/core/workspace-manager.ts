@@ -7,6 +7,23 @@ import { resolve } from "node:path";
 const sanitizeWorkspaceKey = (identifier: string): string =>
 	identifier.replace(/[^A-Za-z0-9._-]/g, "_");
 
+const assertPathInsideRoot = (
+	wsPath: string,
+	root: string,
+): Effect.Effect<void, WorkspaceError> => {
+	const rootAbs = resolve(root);
+	if (!wsPath.startsWith(rootAbs)) {
+		return Effect.fail(
+			new WorkspaceError({
+				code: "path_escape",
+				message: "Workspace path escapes root",
+				path: wsPath,
+			}),
+		);
+	}
+	return Effect.void;
+};
+
 export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("WorkspaceManager", {
 	make: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem;
@@ -49,14 +66,7 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("Wo
 			const key = sanitizeWorkspaceKey(identifier);
 			const wsPath = resolve(config.workspaceRoot, key);
 
-			const rootAbs = resolve(config.workspaceRoot);
-			if (!wsPath.startsWith(rootAbs)) {
-				return yield* new WorkspaceError({
-					code: "path_escape",
-					message: "Workspace path escapes root",
-					path: wsPath,
-				});
-			}
+			yield* assertPathInsideRoot(wsPath, config.workspaceRoot);
 
 			const exists = yield* fs
 				.exists(wsPath)
@@ -112,14 +122,7 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("Wo
 			const key = sanitizeWorkspaceKey(identifier);
 			const wsPath = resolve(config.workspaceRoot, key);
 
-			const rootAbs = resolve(config.workspaceRoot);
-			if (!wsPath.startsWith(rootAbs)) {
-				return yield* new WorkspaceError({
-					code: "path_escape",
-					message: "Workspace path escapes root",
-					path: wsPath,
-				});
-			}
+			yield* assertPathInsideRoot(wsPath, config.workspaceRoot);
 
 			const exists = yield* fs
 				.exists(wsPath)

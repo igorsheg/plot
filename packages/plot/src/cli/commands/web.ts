@@ -3,6 +3,7 @@ import { Effect, References } from "effect";
 import { createCliOutput, ensureJsonSupported } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer, waitForServer } from "../shared/server-process.js";
+import { waitForShutdown } from "../shared/shutdown.js";
 
 export const WebCommand = Command.make(
 	"web",
@@ -23,20 +24,3 @@ export const WebCommand = Command.make(
 		});
 	}),
 ).pipe(Command.withDescription("start server and serve the web dashboard"));
-
-function waitForShutdown(onShutdown: (signal: NodeJS.Signals) => void) {
-	return Effect.callback<void>((resume) => {
-		const shutdown = (signal: NodeJS.Signals) => {
-			onShutdown(signal);
-			resume(Effect.void);
-		};
-		const onSigint = () => shutdown("SIGINT");
-		const onSigterm = () => shutdown("SIGTERM");
-		process.on("SIGINT", onSigint);
-		process.on("SIGTERM", onSigterm);
-		return Effect.sync(() => {
-			process.off("SIGINT", onSigint);
-			process.off("SIGTERM", onSigterm);
-		});
-	});
-}

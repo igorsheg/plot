@@ -15,7 +15,7 @@ const transformKeys = (obj: unknown): unknown => {
 	return obj;
 };
 
-export interface RawFrontmatter {
+interface RawFrontmatter {
 	readonly configRaw: Record<string, unknown>;
 	readonly promptTemplate: string;
 }

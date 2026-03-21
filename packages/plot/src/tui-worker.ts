@@ -45,7 +45,6 @@ let runtime: ManagedRuntime.ManagedRuntime<
 	Config.ConfigError
 > | null = null;
 let api: ObservabilityApi["Service"] | null = null;
-let currentSnapshot: RuntimeSnapshot | null = null;
 
 function postSnapshot(snapshot: RuntimeSnapshot) {
 	self.postMessage({ type: "snapshot", snapshot: encodeSnapshot(snapshot) });
@@ -96,12 +95,9 @@ async function boot(env: Record<string, string>) {
 			}),
 		);
 
-		currentSnapshot = await runtime.runPromise(api.getState);
-
 		runtime.runFork(
 			Stream.runForEach(api.stateStream, (snap) =>
 				Effect.sync(() => {
-					currentSnapshot = snap;
 					postSnapshot(snap);
 				}),
 			),
@@ -115,7 +111,7 @@ async function boot(env: Record<string, string>) {
 			),
 		);
 
-		postSnapshot(currentSnapshot);
+		postSnapshot(await runtime.runPromise(api.getState));
 		self.postMessage({ type: "ready" });
 	} catch (error) {
 		self.postMessage({

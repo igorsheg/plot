@@ -58,9 +58,6 @@ export class BeadsDaemonTransport {
 		return this.send<T>("list", { status: "all" });
 	}
 
-	async listOpenIssues<T>(): Promise<T> {
-		return this.send<T>("list", { limit: 0 });
-	}
 
 	async viewIssue<T>(id: string): Promise<T> {
 		return this.send<T>("show", { id });

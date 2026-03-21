@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export async function ghApi(args: ReadonlyArray<string>, cwd?: string): Promise<string> {
+async function ghApi(args: ReadonlyArray<string>, cwd?: string): Promise<string> {
 	const { stdout } = await execFileAsync("gh", args as string[], {
 		maxBuffer: 50 * 1024 * 1024,
 		cwd,

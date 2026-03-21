@@ -97,7 +97,7 @@ function joinSections(sections: ReadonlyArray<PromptSection>): string {
 		.join("\n\n");
 }
 
-export interface CompiledPrompt {
+interface CompiledPrompt {
 	readonly systemPrompt: string;
 	readonly userPrompt: string;
 	readonly snapshot: PromptSnapshot;

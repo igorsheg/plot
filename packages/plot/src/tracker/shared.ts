@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { TrackerPluginConfig } from "@plot/sdk";
+import { PluginAuthError, PluginNotFoundError, PluginRateLimitError, type TrackerPluginConfig } from "@plot/sdk";
 
 const execFileAsync = promisify(execFile);
 
@@ -106,4 +106,40 @@ export async function fetchPrReviewFeedback(
 	} catch {
 		return null;
 	}
+}
+
+export function mapCliFailure(prefix: string, error: unknown, resourceId?: string): Error {
+	const message = error instanceof Error ? error.message : String(error);
+	const stderr =
+		typeof error === "object" && error !== null && "stderr" in error
+			? String((error as { stderr?: unknown }).stderr ?? "")
+			: "";
+	const details = [message, stderr].filter(Boolean).join("\n");
+	const normalized = details.toLowerCase();
+
+	if (
+		normalized.includes("authentication") ||
+		normalized.includes("not authenticated") ||
+		normalized.includes("auth") ||
+		normalized.includes("401") ||
+		normalized.includes("403")
+	) {
+		return new PluginAuthError(`${prefix} authentication failed: ${details}`);
+	}
+
+	if (normalized.includes("rate limit") || normalized.includes("429")) {
+		return new PluginRateLimitError(`${prefix} rate limited: ${details}`);
+	}
+
+	if (
+		resourceId &&
+		(normalized.includes("not found") ||
+			normalized.includes("no issue found") ||
+			normalized.includes("no such issue") ||
+			normalized.includes("404"))
+	) {
+		return new PluginNotFoundError(`${prefix} issue not found: ${details}`, resourceId);
+	}
+
+	return new Error(`${prefix} API failed: ${details}`);
 }

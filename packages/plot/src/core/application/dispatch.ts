@@ -107,10 +107,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					)
 			: Effect.void;
 
-	const removeRunningEntry = Effect.fnUntraced(function* (issueId: string) {
-		const now = yield* Clock.currentTimeMillis;
-		yield* deps.updateState((s) => removeRunningEntryFromState(s, issueId, now));
-	});
 
 	const scheduleRetry = Effect.fnUntraced(function* (
 		issueId: string,
@@ -470,7 +466,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		releaseClaim,
 		clearRetryAttempt,
 		runAfterRunHook,
-		removeRunningEntry,
 		scheduleRetry,
 		stopRunningIssue,
 		handleWorkerExit,

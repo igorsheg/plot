@@ -3,9 +3,6 @@ import { promisify } from "node:util";
 import {
 	buildRunContext,
 	normalizeState,
-	PluginAuthError,
-	PluginNotFoundError,
-	PluginRateLimitError,
 	type IssueLike,
 	type IssueStateEntryLike,
 	type PlainTrackerClient,
@@ -19,6 +16,7 @@ import {
 	deriveAllStates,
 	fetchPrReviewFeedback,
 	validateCommonTrackerFields,
+	mapCliFailure,
 } from "../shared.js";
 
 const execFileAsync = promisify(execFile);
@@ -43,38 +41,6 @@ interface BdIssueDetailed extends BdIssue {
 	readonly comments: ReadonlyArray<{ readonly text: string }>;
 }
 
-function mapBdFailure(error: unknown, resourceId?: string): Error {
-	const message = error instanceof Error ? error.message : String(error);
-	const stderr =
-		typeof error === "object" && error !== null && "stderr" in error
-			? String((error as { stderr?: unknown }).stderr ?? "")
-			: "";
-	const details = [message, stderr].filter(Boolean).join("\n");
-	const normalized = details.toLowerCase();
-
-	if (
-		normalized.includes("authentication failed") ||
-		normalized.includes("not authenticated") ||
-		normalized.includes("auth")
-	) {
-		return new PluginAuthError(`bd authentication failed: ${details}`);
-	}
-
-	if (normalized.includes("rate limit")) {
-		return new PluginRateLimitError(`bd rate limited: ${details}`);
-	}
-
-	if (
-		resourceId &&
-		(normalized.includes("not found") ||
-			normalized.includes("no issue found") ||
-			normalized.includes("no such issue"))
-	) {
-		return new PluginNotFoundError(`beads issue not found: ${details}`, resourceId);
-	}
-
-	return new Error(`bd command failed: ${details}`);
-}
 
 async function createBeadsOps(config: {
 	beadsDir?: string;
@@ -95,7 +61,7 @@ async function createBeadsOps(config: {
 				cwd: workspaceRoot,
 			});
 		} catch (error) {
-			throw mapBdFailure(error, options?.resourceId);
+			throw mapCliFailure("bd", error, options?.resourceId);
 		}
 	};
 

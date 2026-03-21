@@ -1,9 +1,7 @@
 import {
 	buildRunContext,
 	normalizeState,
-	PluginAuthError,
 	PluginNotFoundError,
-	PluginRateLimitError,
 	type IssueLike,
 	type IssueStateEntryLike,
 	type PlainTrackerClient,
@@ -17,36 +15,9 @@ import {
 	deriveAllStates,
 	fetchPrReviewFeedback,
 	validateCommonTrackerFields,
+	mapCliFailure,
 } from "../shared.js";
 
-function mapGhFailure(error: unknown, resourceId?: string): Error {
-	const message = error instanceof Error ? error.message : String(error);
-	const stderr =
-		typeof error === "object" && error !== null && "stderr" in error
-			? String((error as { stderr?: unknown }).stderr ?? "")
-			: "";
-	const details = [message, stderr].filter(Boolean).join("\n");
-	const normalized = details.toLowerCase();
-
-	if (
-		normalized.includes("authentication") ||
-		normalized.includes("auth") ||
-		normalized.includes("401") ||
-		normalized.includes("403")
-	) {
-		return new PluginAuthError(`github authentication failed: ${details}`);
-	}
-
-	if (normalized.includes("rate limit") || normalized.includes("429")) {
-		return new PluginRateLimitError(`github rate limited: ${details}`);
-	}
-
-	if (resourceId && (normalized.includes("not found") || normalized.includes("404"))) {
-		return new PluginNotFoundError(`github issue not found: ${details}`, resourceId);
-	}
-
-	return new Error(`github API failed: ${details}`);
-}
 
 interface GhIssue {
 	readonly number: number;
@@ -89,7 +60,7 @@ function createGithubOps(config: GithubOpsConfig) {
 		try {
 			return await fn();
 		} catch (error) {
-			throw mapGhFailure(error, resourceId);
+			throw mapCliFailure("github", error, resourceId);
 		}
 	};
 
