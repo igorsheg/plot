@@ -19,7 +19,6 @@ export {
 	resolvePlugin,
 	type ResolvedPlugin,
 } from "./runtime-builder.js";
-export { RpcHandlersLive } from "./rpc-handlers.js";
 export * from "./core/index.js";
 export * from "./agent/index.js";
 export * from "./tracker/index.js";

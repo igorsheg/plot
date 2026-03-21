@@ -5,7 +5,6 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
 import { RuntimeSnapshot, PlotRpcs } from "@plot/sdk";
 import { Orchestrator } from "./core/index.js";
-import { RpcHandlersLive } from "./rpc-handlers.js";
 import { join, extname } from "node:path";
 import type { ServerConfig } from "./config.js";
 import {
@@ -21,6 +20,16 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	const AppLayer = makeAppLayer(resolvedPlugin);
 	const OrchestratorLive = makeOrchestratorLayer(resolvedPlugin);
 	const StartupLive = makeStartupLayer(config, resolvedPlugin);
+
+	const RpcHandlersLive = PlotRpcs.toLayer(
+		Effect.gen(function* () {
+			const orchestrator = yield* Orchestrator;
+			return {
+				GetEventLog: ({ identifier }) => orchestrator.getEventLog(identifier),
+				TriggerRefresh: () => orchestrator.triggerRefresh,
+			};
+		}),
+	);
 
 	const RpcRouteLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
