@@ -7,7 +7,7 @@ import {
 	WorkflowConfig,
 	type AgentRuntimeEvent,
 } from "@plot/sdk";
-import { Duration, Effect, PubSub, Ref } from "effect";
+import { Effect, PubSub, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
 	createRunningEntry,
@@ -96,34 +96,6 @@ const makeDeps = async (
 };
 
 describe("makeDispatchRuntime", () => {
-	test("replaces the previous retry timer when rescheduling the same issue", async () => {
-		const issueId = "issue-1";
-		const { stateRef, runtime } = await makeDeps(initialState);
-
-		await Effect.runPromise(
-			Effect.scoped(
-				runtime.scheduleRetry(issueId, "plot-1", 1, Duration.millis(60_000), null, "continuation"),
-			),
-		);
-		const afterFirst = await Effect.runPromise(Ref.get(stateRef));
-		expect(afterFirst.retryAttempts.get(issueId)?.attempt).toBe(1);
-
-		await Effect.runPromise(
-			Effect.scoped(
-				runtime.scheduleRetry(issueId, "plot-1", 2, Duration.millis(60_000), "boom", "failure"),
-			),
-		);
-		const afterSecond = await Effect.runPromise(Ref.get(stateRef));
-		const scheduled = afterSecond.retryAttempts.get(issueId);
-		expect(scheduled?.attempt).toBe(2);
-		expect(scheduled?.reason).toBe("failure");
-		expect(scheduled?.error).toBe("boom");
-
-		await Effect.runPromise(Effect.scoped(runtime.clearRetryAttempt(issueId)));
-		const finalState = await Effect.runPromise(Ref.get(stateRef));
-		expect(finalState.retryAttempts.has(issueId)).toBeFalse();
-	});
-
 	test("releases the claim when a retry target is gone", async () => {
 		const retryEntry: RetryEntry = {
 			issueId: "issue-1",

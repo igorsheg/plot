@@ -463,10 +463,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 	});
 
 	return {
-		releaseClaim,
-		clearRetryAttempt,
-		runAfterRunHook,
-		scheduleRetry,
 		stopRunningIssue,
 		handleWorkerExit,
 		dispatchIssue,
