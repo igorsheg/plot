@@ -31,10 +31,10 @@ export interface ReconcileDeps {
 			ids: readonly string[],
 		) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, unknown>;
 		readonly fetchIssuesByStates: (
-			states: string[],
+			states: ReadonlyArray<string>,
 		) => Effect.Effect<ReadonlyArray<Issue>, unknown>;
 		readonly fetchCandidateIssues: (
-			states: string[],
+			states: ReadonlyArray<string>,
 		) => Effect.Effect<ReadonlyArray<Issue>, unknown>;
 	};
 	readonly removeWorkspace: (
@@ -143,7 +143,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 
 	const startupTerminalCleanup = Effect.fnUntraced(function* (config: ResolvedConfig) {
 		const terminalIssues = yield* withTrackerFallback(
-			deps.tracker.fetchIssuesByStates(config.terminalStates as string[]),
+			deps.tracker.fetchIssuesByStates(config.terminalStates),
 			"startup_cleanup",
 			[] as ReadonlyArray<Issue>,
 		);
@@ -179,7 +179,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 		);
 
 		const candidates = yield* withTrackerFallback(
-			deps.tracker.fetchCandidateIssues(config.dispatchStates as string[]),
+			deps.tracker.fetchCandidateIssues(config.dispatchStates),
 			"tick_candidates",
 			[] as ReadonlyArray<Issue>,
 		);
