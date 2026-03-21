@@ -1,9 +1,14 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { WorkflowConfig } from "@plot/sdk";
-import { ConfigValidationError } from "../schemas/errors.js";
+
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { WorkflowOverrides } from "../config.js";
+
+export class ConfigValidationError extends Schema.TaggedErrorClass<ConfigValidationError>()(
+	"ConfigValidationError",
+	{ message: Schema.String, field: Schema.optional(Schema.String) },
+) {}
 
 const resolveEnvValue = (value: string | undefined): string | undefined => {
 	if (!value) return undefined;
@@ -63,7 +68,10 @@ export class ResolvedConfig {
 		this.trackerApiKey = resolveEnvValue(wf.tracker?.apiKey);
 		this.trackerProjectSlug = wf.tracker?.projectSlug;
 		this.trackerPluginConfig = { ...(wf.tracker ?? {}) };
-		this.dispatchStates = wf.tracker?.dispatchStates ?? ["plot:todo", "plot:in-progress"];
+		this.dispatchStates = wf.tracker?.dispatchStates ?? [
+			"plot:todo",
+			"plot:in-progress",
+		];
 		this.parkedStates = wf.tracker?.parkedStates ?? ["plot:human-review"];
 		this.terminalStates = wf.tracker?.terminalStates ?? [
 			"Closed",
@@ -73,19 +81,26 @@ export class ResolvedConfig {
 			"plot:done",
 		];
 		this.pollIntervalMs = wf.polling?.intervalMs ?? 30_000;
-		this.workspaceRoot = resolvePath(wf.workspace?.root, resolve(tmpdir(), "plot_workspaces"));
+		this.workspaceRoot = resolvePath(
+			wf.workspace?.root,
+			resolve(tmpdir(), "plot_workspaces"),
+		);
 		this.hooksAfterCreate = wf.hooks?.afterCreate;
 		this.hooksBeforeRun = wf.hooks?.beforeRun;
 		this.hooksAfterRun = wf.hooks?.afterRun;
 		this.hooksBeforeRemove = wf.hooks?.beforeRemove;
 		this.hooksTimeoutMs =
-			(wf.hooks?.timeoutMs ?? 60_000) > 0 ? (wf.hooks?.timeoutMs ?? 60_000) : 60_000;
+			(wf.hooks?.timeoutMs ?? 60_000) > 0
+				? (wf.hooks?.timeoutMs ?? 60_000)
+				: 60_000;
 		this.maxConcurrentAgents = wf.agent?.maxConcurrentAgents ?? 10;
 		this.maxTurns = wf.agent?.maxTurns ?? 20;
 		this.maxRetryBackoffMs = wf.agent?.maxRetryBackoffMs ?? 300_000;
 		const byState = new Map<string, number>();
 		if (wf.agent?.maxConcurrentAgentsByState) {
-			for (const [k, v] of Object.entries(wf.agent.maxConcurrentAgentsByState)) {
+			for (const [k, v] of Object.entries(
+				wf.agent.maxConcurrentAgentsByState,
+			)) {
 				if (typeof v === "number" && v > 0) {
 					byState.set(k.trim().toLowerCase(), v);
 				}
@@ -119,7 +134,10 @@ export class ResolvedConfig {
 		this.githubRepo = overrides?.githubRepo ?? "";
 	}
 
-	resolveModelSpec(issueState: string, labels?: ReadonlyArray<string>): string | undefined {
+	resolveModelSpec(
+		issueState: string,
+		labels?: ReadonlyArray<string>,
+	): string | undefined {
 		if (labels) {
 			for (const label of labels) {
 				const match = this.modelByLabel.get(label.trim().toLowerCase());
@@ -131,7 +149,9 @@ export class ResolvedConfig {
 	}
 }
 
-export const validateForDispatch = Effect.fnUntraced(function* (config: ResolvedConfig) {
+export const validateForDispatch = Effect.fnUntraced(function* (
+	config: ResolvedConfig,
+) {
 	if (!config.trackerKind) {
 		return yield* new ConfigValidationError({
 			message: "tracker.kind is required",

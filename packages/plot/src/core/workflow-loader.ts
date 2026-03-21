@@ -1,7 +1,16 @@
 import { Duration, Effect, FileSystem, Layer, Ref, Schema, ServiceMap } from "effect";
 import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
-import { WorkflowFileNotFound, WorkflowParseError } from "../schemas/errors.js";
 import { extractFrontmatter } from "./workflow-parse.js";
+
+export class WorkflowFileNotFound extends Schema.TaggedErrorClass<WorkflowFileNotFound>()(
+	"WorkflowFileNotFound",
+	{ path: Schema.String },
+) {}
+
+export class WorkflowParseError extends Schema.TaggedErrorClass<WorkflowParseError>()(
+	"WorkflowParseError",
+	{ message: Schema.String },
+) {}
 
 export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()("WorkflowLoader", {
 	make: Effect.gen(function* () {

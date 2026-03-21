@@ -1,6 +1,10 @@
-import { Effect, FileSystem, Layer, ServiceMap } from "effect";
+import { Effect, FileSystem, Layer, Schema, ServiceMap } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { WorkspaceError } from "../schemas/errors.js";
+export class WorkspaceError extends Schema.TaggedErrorClass<WorkspaceError>()("WorkspaceError", {
+	code: Schema.String,
+	message: Schema.String,
+	path: Schema.optional(Schema.String),
+}) {}
 import type { ResolvedConfig } from "./config-service.js";
 import { resolve } from "node:path";
 

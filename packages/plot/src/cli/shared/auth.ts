@@ -1,13 +1,47 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import type { OAuthLoginCallbacks, OAuthProviderInterface } from "@mariozechner/pi-ai";
+import type {
+	OAuthLoginCallbacks,
+	OAuthProviderInterface,
+} from "@mariozechner/pi-ai";
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
-import { getPlotAuthPath } from "../../schemas/plot-agent-config.js";
 import { CliError } from "./io.js";
+
+function getEnv(name: string) {
+	if (typeof process === "undefined") {
+		return undefined;
+	}
+	return process.env[name];
+}
+
+function joinPath(...parts: string[]) {
+	return parts
+		.map((part) => part.replace(/\\/g, "/"))
+		.filter((part) => part.length > 0)
+		.join("/")
+		.replace(/\/+/g, "/");
+}
+
+function getDefaultPlotAgentDir() {
+	const homeDir = getEnv("HOME") ?? getEnv("USERPROFILE");
+	return homeDir ? joinPath(homeDir, ".plot", "agent") : ".plot/agent";
+}
+
+function getPlotAgentDir() {
+	return getEnv("PLOT_CODING_AGENT_DIR") ?? getDefaultPlotAgentDir();
+}
+
+function getPlotAuthPath() {
+	return joinPath(getPlotAgentDir(), "auth.json");
+}
 
 function openBrowser(url: string) {
 	const cmd =
-		process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+		process.platform === "darwin"
+			? "open"
+			: process.platform === "win32"
+				? "start"
+				: "xdg-open";
 	const proc = Bun.spawn([cmd, url], {
 		stdio: ["ignore", "ignore", "ignore"],
 	});
@@ -48,12 +82,18 @@ async function chooseProvider(
 	}
 
 	if (!process.stdin.isTTY || !process.stdout.isTTY) {
-		throw new CliError("usage", "multiple oauth providers available; specify one explicitly", 2);
+		throw new CliError(
+			"usage",
+			"multiple oauth providers available; specify one explicitly",
+			2,
+		);
 	}
 
 	writeBlock(
 		"available providers:",
-		providers.map((provider, index) => `${index + 1}. ${provider.id} — ${provider.name}`),
+		providers.map(
+			(provider, index) => `${index + 1}. ${provider.id} — ${provider.name}`,
+		),
 	);
 
 	const answer = await promptLine("choose provider: ");
@@ -76,7 +116,10 @@ export function createPlotAuthStorage() {
 
 export async function loginWithPlotAuth(providerId?: string) {
 	const authStorage = createPlotAuthStorage();
-	const provider = await chooseProvider(authStorage.getOAuthProviders(), providerId);
+	const provider = await chooseProvider(
+		authStorage.getOAuthProviders(),
+		providerId,
+	);
 
 	const callbacks: OAuthLoginCallbacks = {
 		onAuth: ({ url, instructions }: { url: string; instructions?: string }) => {

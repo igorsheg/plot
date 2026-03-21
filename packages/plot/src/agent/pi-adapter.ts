@@ -16,8 +16,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { getModel, type Api, type Model } from "@mariozechner/pi-ai";
 import { AgentRuntimeEvent } from "@plot/sdk";
-import { AgentRunnerError } from "../schemas/errors.js";
-import { AgentService, type AgentRunConfig } from "./agent-service.js";
+import { AgentRunnerError, AgentService, type AgentRunConfig } from "./agent-service.js";
 
 function parseModelSpec(spec: string): { provider: string; modelId: string } | null {
 	const slashIndex = spec.indexOf("/");

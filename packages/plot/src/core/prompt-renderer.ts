@@ -1,6 +1,9 @@
-import { DateTime, Effect } from "effect";
+import { DateTime, Effect, Schema } from "effect";
 import { Eta } from "eta";
-import { TemplateRenderError } from "../schemas/errors.js";
+export class TemplateRenderError extends Schema.TaggedErrorClass<TemplateRenderError>()(
+	"TemplateRenderError",
+	{ message: Schema.String },
+) {}
 import type { Issue } from "@plot/sdk";
 
 const eta = new Eta({ useWith: true });

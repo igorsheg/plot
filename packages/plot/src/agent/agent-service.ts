@@ -1,6 +1,13 @@
-import { ServiceMap, type Stream } from "effect";
+import { Schema, ServiceMap, type Stream } from "effect";
 import type { AgentRuntimeEvent } from "@plot/sdk";
-import type { AgentRunnerError } from "../schemas/errors.js";
+
+export class AgentRunnerError extends Schema.TaggedErrorClass<AgentRunnerError>()(
+	"AgentRunnerError",
+	{
+		code: Schema.String,
+		message: Schema.String,
+	},
+) {}
 
 export interface AgentRunConfig {
 	readonly systemPrompt: string;
@@ -15,9 +22,12 @@ export interface AgentRunConfig {
 }
 
 export interface AgentServiceShape {
-	readonly run: (config: AgentRunConfig) => Stream.Stream<AgentRuntimeEvent, AgentRunnerError>;
+	readonly run: (
+		config: AgentRunConfig,
+	) => Stream.Stream<AgentRuntimeEvent, AgentRunnerError>;
 }
 
-export class AgentService extends ServiceMap.Service<AgentService, AgentServiceShape>()(
-	"AgentService",
-) {}
+export class AgentService extends ServiceMap.Service<
+	AgentService,
+	AgentServiceShape
+>()("AgentService") {}
