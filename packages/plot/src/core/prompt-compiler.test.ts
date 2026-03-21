@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Issue } from "@plot/sdk";
+import { Issue, TrackerRunContext, WorkpadSection } from "@plot/sdk";
+import { buildRunContext } from "@plot/sdk";
 import { compilePrompt } from "./prompt-compiler.js";
-import { buildTrackerRunContext } from "./workpad-context.js";
 
 const issue = new Issue({
 	id: "1",
@@ -19,7 +19,7 @@ const issue = new Issue({
 
 describe("compilePrompt", () => {
 	test("splits stable system policy from volatile user context", async () => {
-		const runContext = buildTrackerRunContext({
+		const plain = buildRunContext({
 			workpad: `## Plot Workpad
 
 ### Plan
@@ -34,6 +34,17 @@ describe("compilePrompt", () => {
 - blocked: none`,
 			reviewFeedback: "need clearer retry context",
 		});
+		const runContext = plain
+			? new TrackerRunContext({
+					raw: plain.raw ?? null,
+					promptContext: plain.promptContext ?? null,
+					workpad: plain.workpad ?? null,
+					reviewFeedback: plain.reviewFeedback ?? null,
+					workpadSections: (plain.workpadSections ?? []).map(
+						(s) => new WorkpadSection(s),
+					),
+				})
+			: null;
 
 		const compiled = await Effect.runPromise(
 			compilePrompt(
