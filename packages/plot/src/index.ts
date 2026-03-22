@@ -7,7 +7,6 @@ export {
 	makeOrchestratorLayer,
 	makeOrchestratorRuntime,
 	makeStartupLayer,
-	makeTrackerLayer,
 	parseServerLogLevel,
 	resolvePlugin,
 	type ResolvedPlugin,

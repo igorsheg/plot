@@ -140,7 +140,9 @@ const mapRuntimeSnapshot = (state: {
 	retriesScheduledByReason: {
 		continuation: number;
 		failure: number;
+		stall: number;
 		backpressure: number;
+		merge_conflict: number;
 	};
 	workerStopsByReason: {
 		terminal: number;

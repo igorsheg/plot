@@ -67,7 +67,9 @@ export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
 	retriesScheduledByReason: Schema.Struct({
 		continuation: Schema.Number,
 		failure: Schema.Number,
+		stall: Schema.Number,
 		backpressure: Schema.Number,
+		merge_conflict: Schema.Number,
 	}),
 	workerStopsByReason: Schema.Struct({
 		terminal: Schema.Number,

@@ -1,7 +1,6 @@
 import { DateTime, Fiber } from "effect";
 import { AgentRuntimeEvent, normalizeState } from "@plot/sdk";
-import type { Issue, TrackerRunContext } from "@plot/sdk";
-import type { PromptSnapshot } from "../prompt-compiler.js";
+import type { Issue } from "@plot/sdk";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentEventType, AgentPhase } from "@plot/sdk";
 
@@ -87,22 +86,11 @@ export interface RunningEntry {
 	readonly totalTokens: number;
 	readonly workspacePath: string;
 	readonly lastMessage: string | null;
-	readonly eventTail: ReadonlyArray<AgentRuntimeEvent>;
 	readonly phase: "idle" | "thinking" | "tool_execution" | "compacting" | "retrying";
 	readonly activeTools: ReadonlyArray<{ toolCallId: string; toolName: string }>;
 	readonly lastAssistantMessage: string | null;
-	readonly promptSnapshot: PromptSnapshot | null;
-	readonly runContext: TrackerRunContext | null;
 }
 
-export interface IssueArtifact {
-	readonly issueId: string;
-	readonly issueIdentifier: string;
-	readonly workspacePath: string | null;
-	readonly promptSnapshot: PromptSnapshot | null;
-	readonly runContext: TrackerRunContext | null;
-	readonly lastError: string | null;
-}
 
 export type RetryReason = "continuation" | "failure" | "stall" | "backpressure" | "merge_conflict";
 
@@ -137,7 +125,6 @@ export interface OrchestratorState {
 	readonly workerStopsByReason: Record<"terminal" | "inactive" | "stalled", number>;
 	readonly workerExitsByReason: Record<"success" | "interrupted" | "failure", number>;
 	readonly eventLogs: Map<string, IssueEventLogEntry>;
-	readonly issueArtifacts: Map<string, IssueArtifact>;
 }
 
 export const initialState: OrchestratorState = {
@@ -170,7 +157,6 @@ export const initialState: OrchestratorState = {
 		failure: 0,
 	},
 	eventLogs: new Map(),
-	issueArtifacts: new Map(),
 };
 
 export const isDispatchable = (state: string, config: ResolvedConfig) =>
@@ -238,8 +224,6 @@ export const createRunningEntry = (
 	startedAt: number,
 	options?: {
 		readonly fiber?: Fiber.Fiber<void, unknown> | null;
-		readonly promptSnapshot?: PromptSnapshot | null;
-		readonly runContext?: TrackerRunContext | null;
 	},
 ): RunningEntry => ({
 	issueId: issue.id,
@@ -256,12 +240,9 @@ export const createRunningEntry = (
 	totalTokens: 0,
 	workspacePath,
 	lastMessage: null,
-	eventTail: [],
 	phase: "idle",
 	activeTools: [],
 	lastAssistantMessage: null,
-	promptSnapshot: options?.promptSnapshot ?? null,
-	runContext: options?.runContext ?? null,
 });
 
 export const consumeRuntimeEvent = (
@@ -298,12 +279,6 @@ export const consumeRuntimeEvent = (
 		lastMessage = (current + event.message).slice(-200);
 	}
 
-	const maxEventTail = 200;
-	const eventTail =
-		entry.eventTail.length >= maxEventTail
-			? [...entry.eventTail.slice(-(maxEventTail - 1)), event]
-			: [...entry.eventTail, event];
-
 	const next = reducePhase(
 		{
 			phase: entry.phase,
@@ -323,7 +298,6 @@ export const consumeRuntimeEvent = (
 		outputTokens,
 		totalTokens,
 		lastMessage,
-		eventTail,
 		phase: next.phase,
 		activeTools: next.activeTools,
 		lastAssistantMessage: next.lastAssistantMessage,

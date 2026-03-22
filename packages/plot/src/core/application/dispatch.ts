@@ -182,7 +182,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		}
 		yield* clearRetryAttempt(entry.issueId);
 
-		// Atomic: clearEventLog + bump counter + releaseClaim in one write
 		yield* deps.updateState((s) => {
 			let next = s;
 			if (options.reason === "terminal") {
@@ -230,22 +229,9 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			exitReason === "failure" && Exit.isFailure(exit) ? String(exit.cause) : null;
 
 		yield* deps.updateState((s) => {
-			const runningEntry = s.running.get(issueId) ?? null;
 			const after = removeRunningEntryFromState(s, issueId, now);
-			const issueArtifacts = new Map(after.issueArtifacts);
-			const previousArtifact = issueArtifacts.get(issueId);
-			issueArtifacts.set(issueId, {
-				issueId,
-				issueIdentifier: identifier,
-				workspacePath:
-					runningEntry?.workspacePath ?? previousArtifact?.workspacePath ?? workspacePath,
-				promptSnapshot: runningEntry?.promptSnapshot ?? previousArtifact?.promptSnapshot ?? null,
-				runContext: runningEntry?.runContext ?? previousArtifact?.runContext ?? null,
-				lastError: exitErrorString,
-			});
 			return {
 				...after,
-				issueArtifacts,
 				workerExitsByReason: {
 					...after.workerExitsByReason,
 					[exitReason]: after.workerExitsByReason[exitReason] + 1,
@@ -291,7 +277,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 	const dispatchIssue = (issue: Issue, config: ResolvedConfig, attempt: number | null) =>
 		Effect.gen(function* () {
-			// --- Phase 1: all fallible work, no state mutations ---
 			const ws = yield* deps.workspaceManager.ensureWorkspace(issue.identifier, config);
 
 			if (config.hooksBeforeRun) {
@@ -336,7 +321,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				modelSpec: config.resolveModelSpec(issue.state, issue.labels),
 			};
 
-			// --- Phase 2: fork worker ---
 			const now = yield* Clock.currentTimeMillis;
 			const registered = yield* Deferred.make<void>();
 
@@ -367,7 +351,6 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 				),
 			);
 
-			// --- Phase 3: ONE atomic state write ---
 			yield* deps.updateState((s) => {
 				const claimed = new Set(s.claimed);
 				claimed.add(issue.id);
@@ -378,20 +361,9 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 					issue.id,
 					createRunningEntry(issue, ws.path, now, {
 						fiber,
-						promptSnapshot: compiled.snapshot,
-						runContext,
 					}),
 				);
-				const issueArtifacts = new Map(s.issueArtifacts);
-				issueArtifacts.set(issue.id, {
-					issueId: issue.id,
-					issueIdentifier: issue.identifier,
-					workspacePath: ws.path,
-					promptSnapshot: compiled.snapshot,
-					runContext,
-					lastError: null,
-				});
-				return { ...s, claimed, retryAttempts, running, issueArtifacts };
+				return { ...s, claimed, retryAttempts, running };
 			});
 
 			yield* Deferred.succeed(registered, undefined);

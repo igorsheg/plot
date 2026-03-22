@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ResolvedConfig } from "../core/config-service.js";
-import { makeTrackerLayer, resolvePlugin } from "../runtime-builder.js";
+import { resolvePlugin } from "../runtime-builder.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "__fixtures__");
 
@@ -27,7 +27,7 @@ describe("tracker plugin system", () => {
 					issueStatesByIds: yield* tracker.fetchIssueStatesByIds([]),
 					runContext: yield* tracker.fetchRunContext("issue-1", "todo"),
 				};
-			}).pipe(Effect.provide(makeTrackerLayer(resolvedPlugin))),
+			}).pipe(Effect.provide(resolvedPlugin.trackerLayer)),
 		);
 
 		expect(result).toEqual({

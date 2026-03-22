@@ -355,7 +355,6 @@ const createEventStream = (
 ): Stream.Stream<AgentRuntimeEvent, AgentRunnerError> =>
 	Stream.unwrap(
 		Effect.gen(function* () {
-			// --- resolve config ---
 			const plotAgentDir = yield* PlotAgentDir.asEffect().pipe(
 				Effect.mapError((e) => new AgentRunnerError({ code: "config_error", message: String(e) })),
 			);
@@ -363,7 +362,6 @@ const createEventStream = (
 				Effect.mapError((e) => new AgentRunnerError({ code: "config_error", message: String(e) })),
 			);
 
-			// --- create session ---
 			const authStorage = AuthStorage.create(join(plotAgentDir, "auth.json"));
 			const modelRegistry = new ModelRegistry(authStorage, join(plotAgentDir, "models.json"));
 			const available = modelRegistry.getAvailable();
@@ -436,7 +434,6 @@ const createEventStream = (
 				}),
 			);
 
-			// --- abort helper (idempotent, ref-guarded) ---
 			const abortingRef = yield* Ref.make(false);
 			const abortSession = Effect.fnUntraced(function* (reason: string) {
 				const alreadyAborting = yield* Ref.getAndSet(abortingRef, true);
@@ -453,7 +450,6 @@ const createEventStream = (
 
 			const threadId = crypto.randomUUID();
 
-			// --- bridge: thin callback→stream ---
 			const raw = Stream.callback<AgentSessionEvent, AgentRunnerError>(
 				Effect.fnUntraced(function* (queue) {
 					const unsub = session.subscribe((event: AgentSessionEvent) => {
@@ -488,7 +484,6 @@ const createEventStream = (
 				}),
 			);
 
-			// --- transform: stall detection + pure mapping + control side-effects ---
 			return raw.pipe(
 				Stream.timeout(`${config.stallTimeoutMs} millis`),
 				Stream.mapAccumEffect(

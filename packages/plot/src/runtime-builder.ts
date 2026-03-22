@@ -24,8 +24,6 @@ import {
 	Issue,
 	IssueStateEntry,
 	BlockerRef,
-	AgentPreset,
-	UpdateIssueOptions,
 } from "@plot/sdk";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
@@ -62,7 +60,6 @@ export function makeLoggingLayer(config: ServerConfig) {
 }
 
 export interface ResolvedPlugin {
-	readonly name: string;
 	readonly trackerLayer: Layer.Layer<TrackerClient>;
 }
 
@@ -158,74 +155,6 @@ function adaptTrackerClient(plain: PlainTrackerClient): Layer.Layer<TrackerClien
 					try: () => plain.fetchRunContext?.(issueId, state) ?? Promise.resolve(null),
 					catch: (e) => mapPluginError(e, "fetchRunContext"),
 				}).pipe(Effect.map(normalizeRunContext)),
-			...(plain.updateIssue && {
-				updateIssue: (options: UpdateIssueOptions) =>
-					Effect.tryPromise({
-						try: () => plain.updateIssue!(options),
-						catch: (e) => mapPluginError(e, "updateIssue"),
-					}),
-			}),
-			...(plain.cancelIssue && {
-				cancelIssue: (issueId: string) =>
-					Effect.tryPromise({
-						try: () => plain.cancelIssue!(issueId),
-						catch: (e) => mapPluginError(e, "cancelIssue"),
-					}),
-			}),
-			...(plain.ensureInProgress && {
-				ensureInProgress: (issueId: string) =>
-					Effect.tryPromise({
-						try: () => plain.ensureInProgress!(issueId),
-						catch: (e) => mapPluginError(e, "ensureInProgress"),
-					}),
-			}),
-			...(plain.issueAgentPreset && {
-				issueAgentPreset: (issue: Issue) =>
-					Effect.tryPromise({
-						try: () =>
-							plain.issueAgentPreset!({
-								...issue,
-								description: issue.description,
-								url: issue.url,
-								blockedBy: issue.blockedBy?.map((b) => ({
-									id: b.id,
-									identifier: b.identifier,
-									state: b.state,
-								})),
-								createdAt: issue.createdAt ? DateTime.formatIso(issue.createdAt) : null,
-								updatedAt: issue.updatedAt ? DateTime.formatIso(issue.updatedAt) : null,
-							}),
-						catch: (e) => mapPluginError(e, "issueAgentPreset"),
-					}).pipe(Effect.map((p) => (p ? new AgentPreset(p) : null))),
-			}),
-			...(plain.updateAgentPreset && {
-				updateAgentPreset: (preset: AgentPreset) =>
-					Effect.tryPromise({
-						try: () => plain.updateAgentPreset!(preset),
-						catch: (e) => mapPluginError(e, "updateAgentPreset"),
-					}).pipe(Effect.map((p) => new AgentPreset(p))),
-			}),
-			...(plain.agentPresetInfo && {
-				agentPresetInfo: (preset: AgentPreset) =>
-					Effect.tryPromise({
-						try: () => plain.agentPresetInfo!(preset),
-						catch: (e) => mapPluginError(e, "agentPresetInfo"),
-					}),
-			}),
-			...(plain.reset && {
-				reset: () =>
-					Effect.tryPromise({
-						try: () => plain.reset!(),
-						catch: (e) => mapPluginError(e, "reset"),
-					}),
-			}),
-			...(plain.settings && {
-				settings: (projectId: string) =>
-					Effect.tryPromise({
-						try: () => plain.settings!(projectId),
-						catch: (e) => mapPluginError(e, "settings"),
-					}),
-			}),
 		}),
 	);
 }
@@ -282,7 +211,6 @@ function makeResolvedPlugin(
 	}).pipe(
 		Effect.orDie,
 		Effect.map((plain) => ({
-			name: definition.name,
 			trackerLayer: adaptTrackerClient(plain),
 		})),
 	);
@@ -327,15 +255,11 @@ export function resolvePlugin(resolved: ResolvedConfig): Effect.Effect<ResolvedP
 	});
 }
 
-export function makeTrackerLayer(resolvedPlugin: ResolvedPlugin) {
-	return resolvedPlugin.trackerLayer;
-}
-
 export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 	const platformDeps = BunServices.layer;
 	return Layer.mergeAll(
 		AtomRegistry.layer,
-		makeTrackerLayer(resolvedPlugin),
+		resolvedPlugin.trackerLayer,
 		PiAgentLive,
 		platformDeps,
 		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
