@@ -107,9 +107,6 @@ function summarizeArgs(args: unknown): string | null {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Pure event mapper: AgentSessionEvent → [nextState, events[]]
-// ---------------------------------------------------------------------------
 
 interface MapperState {
 	readonly turnCount: number;
@@ -352,9 +349,6 @@ function mapSessionEvent(
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Stream construction
-// ---------------------------------------------------------------------------
 
 const createEventStream = (
 	config: AgentRunConfig,

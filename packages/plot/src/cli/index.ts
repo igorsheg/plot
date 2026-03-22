@@ -3,7 +3,7 @@
 import { Command, CliError as FrameworkCliError } from "effect/unstable/cli";
 import { BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
-import { runServerMain } from "../index.js";
+import { runServerMain } from "../server-main.js";
 import { CliError, createCliOutput, resolveRequestedOutputMode } from "./shared/io.js";
 import { resolveCliArgs } from "./shared/runtime.js";
 import { createTuiCommand } from "./commands/tui.js";

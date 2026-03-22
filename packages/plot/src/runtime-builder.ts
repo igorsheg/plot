@@ -66,9 +66,6 @@ export interface ResolvedPlugin {
 	readonly trackerLayer: Layer.Layer<TrackerClient>;
 }
 
-// ---------------------------------------------------------------------------
-// Adaptation: PlainTrackerClient → Layer<TrackerClient>
-// ---------------------------------------------------------------------------
 
 function mapPluginError(error: unknown, operation: string): TrackerError {
 	if (error instanceof PluginAuthError) return new TrackerAuthError({ message: error.message });
@@ -233,9 +230,6 @@ function adaptTrackerClient(plain: PlainTrackerClient): Layer.Layer<TrackerClien
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Plugin resolution
-// ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyPluginDefinition = TrackerPluginDefinition<any>;
