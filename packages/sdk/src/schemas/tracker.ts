@@ -42,6 +42,12 @@ export class TrackerClient extends ServiceMap.Service<TrackerClient, TrackerClie
 	"TrackerClient",
 ) {}
 
+/**
+ * Configuration schema for tracker plugins with an extensible design.
+ * The base fields provide common tracker integration points like authentication and state mappings.
+ * The open index signature [key: string]: unknown allows plugins to define their own specific
+ * configuration keys while maintaining type safety for the core orchestrator contract.
+ */
 export interface TrackerPluginConfig {
 	readonly kind: string;
 	readonly endpoint?: string;
