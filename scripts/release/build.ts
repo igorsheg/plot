@@ -177,6 +177,17 @@ async function buildSdkPackage() {
 	writeJson(join(packageDir, "package.json"), {
 		...sdkPackage,
 		version,
+		exports: {
+			".": {
+				types: "./dist/index.d.ts",
+				default: "./dist/index.js",
+			},
+			"./plugin": {
+				types: "./dist/plugin/index.d.ts",
+				default: "./dist/plugin/index.js",
+			},
+		},
+		files: ["dist"],
 	});
 
 	const readmePath = join(sdkDir, "README.md");

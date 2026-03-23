@@ -11,14 +11,8 @@
 	},
 	"type": "module",
 	"exports": {
-		".": {
-			"types": "./dist/index.d.ts",
-			"default": "./dist/index.js"
-		},
-		"./plugin": {
-			"types": "./dist/plugin/index.d.ts",
-			"default": "./dist/plugin/index.js"
-		}
+		".": "./src/index.ts",
+		"./plugin": "./src/plugin/index.ts"
 	},
 	"publishConfig": {
 		"access": "public"
