@@ -33,6 +33,7 @@ await $`bun install --os="*" --cpu="*" @opentui/core@${opentuiVersion}`.cwd(repo
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
 
+await $`bun run --filter @plot/sdk build`.cwd(repoDir);
 await $`bun run --filter @plot/web build`.cwd(repoDir);
 
 if (!existsSync(webDistDir)) {
