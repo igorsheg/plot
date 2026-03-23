@@ -166,19 +166,20 @@ async function buildUmbrellaPackage() {
 }
 
 async function buildSdkPackage() {
-	const sdkSrcDir = join(repoDir, "packages/sdk");
+	const sdkDir = join(repoDir, "packages/sdk");
 	const packageDir = join(releaseDir, "plot-sdk");
 	mkdirSync(packageDir, { recursive: true });
 
-	cpSync(join(sdkSrcDir, "src"), join(packageDir, "src"), { recursive: true });
+	await $`bun run build`.cwd(sdkDir);
+	cpSync(join(sdkDir, "dist"), join(packageDir, "dist"), { recursive: true });
 
-	const sdkPackage = readJson(join(sdkSrcDir, "package.json")) as Record<string, unknown>;
+	const sdkPackage = readJson(join(sdkDir, "package.json")) as Record<string, unknown>;
 	writeJson(join(packageDir, "package.json"), {
 		...sdkPackage,
 		version,
 	});
 
-	const readmePath = join(sdkSrcDir, "README.md");
+	const readmePath = join(sdkDir, "README.md");
 	if (existsSync(readmePath)) {
 		cpSync(readmePath, join(packageDir, "README.md"));
 	}

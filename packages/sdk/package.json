@@ -1,7 +1,7 @@
 {
 	"name": "@plot/sdk",
 	"version": "0.0.1",
-	"description": "shared api surface: schemas, rpc groups, client helpers, sse utilities",
+	"description": "plugin SDK for plot-ai tracker integrations",
 	"author": "Igor Sheg <igorsheg@gmail.com>",
 	"license": "MIT",
 	"repository": {
@@ -11,16 +11,23 @@
 	},
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./plugin": "./src/plugin/index.ts"
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./plugin": {
+			"types": "./dist/plugin/index.d.ts",
+			"default": "./dist/plugin/index.js"
+		}
 	},
 	"publishConfig": {
 		"access": "public"
 	},
 	"files": [
-		"src"
+		"dist"
 	],
 	"scripts": {
+		"build": "tsc -b tsconfig.build.json",
 		"typecheck": "tsc -b tsconfig.json",
 		"lint": "oxlint src --tsconfig ../../tsconfig.json"
 	},

@@ -42,13 +42,4 @@ export class TrackerClient extends ServiceMap.Service<TrackerClient, TrackerClie
 	"TrackerClient",
 ) {}
 
-export interface TrackerPluginConfig {
-	readonly kind: string;
-	readonly endpoint?: string;
-	readonly apiKey?: string;
-	readonly projectSlug?: string;
-	readonly dispatchStates?: ReadonlyArray<string>;
-	readonly parkedStates?: ReadonlyArray<string>;
-	readonly terminalStates?: ReadonlyArray<string>;
-	readonly [key: string]: unknown;
-}
+export type { TrackerPluginConfig } from "../plugin/types.js";
