@@ -1,4 +1,4 @@
-import { DateTime, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { Eta } from "eta";
 export class TemplateRenderError extends Schema.TaggedErrorClass<TemplateRenderError>()(
 	"TemplateRenderError",
@@ -28,8 +28,8 @@ export const renderPrompt = (
 					url: issue.url,
 					labels: issue.labels,
 					blocked_by: issue.blockedBy,
-					created_at: issue.createdAt ? DateTime.toEpochMillis(issue.createdAt) : null,
-					updated_at: issue.updatedAt ? DateTime.toEpochMillis(issue.updatedAt) : null,
+					created_at: issue.createdAt ?? null,
+					updated_at: issue.updatedAt ?? null,
 				},
 				attempt,
 				context,

@@ -1,6 +1,6 @@
 import { resolve as resolvePath } from "node:path";
 import { BunServices } from "@effect/platform-bun";
-import { DateTime, Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
+import { Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import {
 	type PlainTrackerClient,
@@ -86,10 +86,6 @@ function mapPluginError(error: unknown, operation: string): TrackerError {
 	return new TrackerNetworkError({ message: `${operation}: ${message}` });
 }
 
-function toDateTime(value: string | null): DateTime.Utc | null {
-	if (value == null) return null;
-	return DateTime.fromDateUnsafe(new Date(value));
-}
 
 function normalizeIssue(plain: IssueLike): Issue {
 	return new Issue({
@@ -112,8 +108,8 @@ function normalizeIssue(plain: IssueLike): Issue {
 		),
 		metadata: plain.metadata,
 		autoMerge: plain.autoMerge,
-		createdAt: toDateTime(plain.createdAt),
-		updatedAt: toDateTime(plain.updatedAt),
+		createdAt: plain.createdAt,
+		updatedAt: plain.updatedAt,
 	});
 }
 

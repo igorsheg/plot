@@ -1,4 +1,4 @@
-import { DateTime, Fiber } from "effect";
+import { Fiber } from "effect";
 import { AgentRuntimeEvent, normalizeState } from "@plot/sdk";
 import type { Issue } from "@plot/sdk";
 import type { ResolvedConfig } from "../config-service.js";
@@ -212,8 +212,8 @@ export const sortCandidates = (issues: ReadonlyArray<Issue>): ReadonlyArray<Issu
 		const pa = a.priority ?? 999;
 		const pb = b.priority ?? 999;
 		if (pa !== pb) return pa - pb;
-		const ca = a.createdAt ? Number(DateTime.toEpochMillis(a.createdAt)) : Infinity;
-		const cb = b.createdAt ? Number(DateTime.toEpochMillis(b.createdAt)) : Infinity;
+		const ca = a.createdAt ? Date.parse(a.createdAt) || Infinity : Infinity;
+		const cb = b.createdAt ? Date.parse(b.createdAt) || Infinity : Infinity;
 		if (ca !== cb) return ca - cb;
 		return a.identifier.localeCompare(b.identifier);
 	});
