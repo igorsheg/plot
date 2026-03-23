@@ -122,9 +122,9 @@ describe("ResolvedConfig", () => {
 
 	test("uses github repo override", () => {
 		const workflowConfig = new WorkflowConfig({
-			tracker: new TrackerConfig({
+			tracker: {
 				kind: "github",
-			}),
+			} as TrackerConfig,
 		});
 
 		expect(new ResolvedConfig(workflowConfig).githubRepo).toBe("");

@@ -1,14 +1,18 @@
 import { Schema } from "effect";
 
-export class TrackerConfig extends Schema.Class<TrackerConfig>("TrackerConfig")({
-	kind: Schema.String,
-	endpoint: Schema.optional(Schema.String),
-	apiKey: Schema.optional(Schema.String),
-	projectSlug: Schema.optional(Schema.String),
-	dispatchStates: Schema.optional(Schema.Array(Schema.String)),
-	parkedStates: Schema.optional(Schema.Array(Schema.String)),
-	terminalStates: Schema.optional(Schema.Array(Schema.String)),
-}) {}
+export const TrackerConfig = Schema.StructWithRest(
+	Schema.Struct({
+		kind: Schema.String,
+		endpoint: Schema.optional(Schema.String),
+		apiKey: Schema.optional(Schema.String),
+		projectSlug: Schema.optional(Schema.String),
+		dispatchStates: Schema.optional(Schema.Array(Schema.String)),
+		parkedStates: Schema.optional(Schema.Array(Schema.String)),
+		terminalStates: Schema.optional(Schema.Array(Schema.String)),
+	}),
+	[Schema.Record(Schema.String, Schema.Unknown)],
+);
+export type TrackerConfig = typeof TrackerConfig.Type;
 
 export class PollingConfig extends Schema.Class<PollingConfig>("PollingConfig")({
 	intervalMs: Schema.optional(Schema.Number),

@@ -45,6 +45,7 @@ if (!existsSync(piSkillsDir)) {
 
 await Promise.all(releaseTargets.map((target) => buildPlatformPackage(target)));
 await buildUmbrellaPackage();
+await buildSdkPackage();
 
 async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 	const packageDir = join(releaseDir, target.dirName);
@@ -160,6 +161,27 @@ async function buildUmbrellaPackage() {
 		},
 		optionalDependencies: getOptionalDependencies(),
 	});
+
+	await $`npm pack`.cwd(packageDir);
+}
+
+async function buildSdkPackage() {
+	const sdkSrcDir = join(repoDir, "packages/sdk");
+	const packageDir = join(releaseDir, "plot-sdk");
+	mkdirSync(packageDir, { recursive: true });
+
+	cpSync(join(sdkSrcDir, "src"), join(packageDir, "src"), { recursive: true });
+
+	const sdkPackage = readJson(join(sdkSrcDir, "package.json")) as Record<string, unknown>;
+	writeJson(join(packageDir, "package.json"), {
+		...sdkPackage,
+		version,
+	});
+
+	const readmePath = join(sdkSrcDir, "README.md");
+	if (existsSync(readmePath)) {
+		cpSync(readmePath, join(packageDir, "README.md"));
+	}
 
 	await $`npm pack`.cwd(packageDir);
 }

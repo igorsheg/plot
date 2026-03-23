@@ -1,4 +1,5 @@
 import {
+	Cause,
 	Clock,
 	Config,
 	DateTime,
@@ -290,11 +291,12 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 							yield* Ref.set(pendingPollTickRef, false);
 						}
 						yield* tickRuntime.runTick.pipe(
-							Effect.catch((e) =>
+							Effect.catchCause((cause) =>
 								Effect.logError("tick_failed").pipe(
 									Effect.annotateLogs({
 										reason: cmd.reason,
-										error: String(e),
+										error: String(Cause.squash(cause)),
+										defect: String(Cause.hasDies(cause)),
 									}),
 								),
 							),

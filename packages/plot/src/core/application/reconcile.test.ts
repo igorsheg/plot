@@ -16,12 +16,12 @@ const makeConfig = (options?: {
 }) =>
 	new ResolvedConfig(
 		new WorkflowConfig({
-			tracker: new TrackerConfig({
+			tracker: {
 				kind: "local-fs",
 				dispatchStates: ["plot:todo", "plot:in-progress"],
 				parkedStates: ["plot:human-review"],
 				terminalStates: ["plot:done"],
-			}),
+			} as TrackerConfig,
 			agent: new AgentConfig({
 				maxConcurrentAgents: options?.maxConcurrentAgents ?? 2,
 				maxRetryBackoffMs: 60_000,

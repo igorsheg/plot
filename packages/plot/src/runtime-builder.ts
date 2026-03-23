@@ -1,3 +1,4 @@
+import { resolve as resolvePath } from "node:path";
 import { BunServices } from "@effect/platform-bun";
 import { DateTime, Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
@@ -229,8 +230,11 @@ export function resolvePlugin(resolved: ResolvedConfig): Effect.Effect<ResolvedP
 
 	return Effect.gen(function* () {
 		const kind = resolved.trackerKind;
+		const resolvedPath = kind.startsWith(".")
+			? resolvePath(process.cwd(), kind)
+			: kind;
 		const mod = yield* Effect.tryPromise({
-			try: () => import(kind) as Promise<{ default?: AnyPluginDefinition }>,
+			try: () => import(resolvedPath) as Promise<{ default?: AnyPluginDefinition }>,
 			catch: (cause) =>
 				new Error(
 					`Failed to load tracker plugin "${kind}": ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -251,7 +255,8 @@ export function resolvePlugin(resolved: ResolvedConfig): Effect.Effect<ResolvedP
 		}
 
 		const config = yield* resolveDefinitionConfig(definition, rawConfig);
-		return yield* makeResolvedPlugin(definition, config);
+		const result = yield* makeResolvedPlugin(definition, config);
+		return result;
 	});
 }
 

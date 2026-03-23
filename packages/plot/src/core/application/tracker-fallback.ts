@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { TrackerAuthError, TrackerValidationError, TrackerNotFoundError } from "@plot/sdk";
 
 const isFatal = (error: unknown): boolean =>
@@ -12,7 +12,9 @@ export const withTrackerFallback = <A>(
 	fallback: A,
 ): Effect.Effect<A> =>
 	effect.pipe(
-		Effect.catch((error) => {
+		Effect.catchCause((cause) => {
+			const error = Cause.squash(cause);
+
 			if (isFatal(error)) {
 				return Effect.logError("tracker_fatal_error").pipe(
 					Effect.annotateLogs({ operation, error: String(error) }),
@@ -20,8 +22,13 @@ export const withTrackerFallback = <A>(
 				);
 			}
 
-			return Effect.logWarning("tracker_fetch_failed").pipe(
-				Effect.annotateLogs({ operation, error: String(error) }),
+			const isDefect = Cause.hasDies(cause);
+			return Effect.logWarning(isDefect ? "tracker_defect" : "tracker_fetch_failed").pipe(
+				Effect.annotateLogs({
+					operation,
+					error: String(error),
+					defect: String(isDefect),
+				}),
 				Effect.as(fallback),
 			);
 		}),

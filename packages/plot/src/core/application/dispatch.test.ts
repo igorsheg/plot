@@ -20,12 +20,12 @@ import { makeDispatchRuntime, type DispatchDeps } from "./dispatch.js";
 const makeConfig = (options?: { readonly maxConcurrentAgents?: number }) =>
 	new ResolvedConfig(
 		new WorkflowConfig({
-			tracker: new TrackerConfig({
+			tracker: {
 				kind: "local-fs",
 				dispatchStates: ["plot:todo", "plot:in-progress"],
 				parkedStates: ["plot:human-review"],
 				terminalStates: ["plot:done"],
-			}),
+			} as TrackerConfig,
 			agent: new AgentConfig({
 				maxConcurrentAgents: options?.maxConcurrentAgents ?? 1,
 				maxRetryBackoffMs: 60_000,
