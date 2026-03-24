@@ -2,9 +2,9 @@ import { execFileAsync } from "../../lib/exec.js";
 import {
 	defineTracker,
 	normalizeState,
-	type PluginIssue,
-	type PluginIssueState,
-	type PluginRunContextRaw,
+	type TrackerIssue,
+	type TrackerIssueState,
+	type TrackerRunContextRaw,
 	type TrackerPluginConfig,
 } from "@plot/sdk";
 import { BeadsDaemonTransport, tryCreateBeadsDaemonTransport } from "./daemon-transport.js";
@@ -104,7 +104,7 @@ async function createBeadsOps(config: {
 		return bd.status;
 	};
 
-	const mapIssue = (bd: BdIssue): PluginIssue => ({
+	const mapIssue = (bd: BdIssue): TrackerIssue => ({
 		id: bd.id,
 		identifier: bd.id,
 		title: bd.title,
@@ -119,7 +119,7 @@ async function createBeadsOps(config: {
 	const fetchRunContext = async (
 		issueId: string,
 		state: string,
-	): Promise<PluginRunContextRaw | null> => {
+	): Promise<TrackerRunContextRaw | null> => {
 		let comments: ReadonlyArray<{ text: string }> = [];
 		try {
 			const issue = await viewIssue(issueId);
@@ -195,7 +195,7 @@ export default defineTracker<BeadsTrackerConfig, BeadsSetup>({
 		return allIssues
 			.filter((issue) => wantedIds.has(issue.id))
 			.map(
-				(issue): PluginIssueState => ({
+				(issue): TrackerIssueState => ({
 					id: issue.id,
 					state: ctx.ops.mapState(issue),
 				}),

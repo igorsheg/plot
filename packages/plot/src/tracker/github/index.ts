@@ -2,9 +2,9 @@ import {
 	defineTracker,
 	normalizeState,
 	PluginNotFoundError,
-	type PluginIssue,
-	type PluginIssueState,
-	type PluginRunContextRaw,
+	type TrackerIssue,
+	type TrackerIssueState,
+	type TrackerRunContextRaw,
 	type TrackerPluginConfig,
 } from "@plot/sdk";
 import {
@@ -177,7 +177,7 @@ function createGithubOps(config: GithubOpsConfig) {
 		url: string;
 		createdAt: string;
 		updatedAt: string;
-	}): PluginIssue => ({
+	}): TrackerIssue => ({
 		id: String(gh.number),
 		identifier: `#${gh.number}`,
 		title: gh.title,
@@ -192,7 +192,7 @@ function createGithubOps(config: GithubOpsConfig) {
 	const fetchRunContext = async (
 		issueId: string,
 		state: string,
-	): Promise<PluginRunContextRaw | null> => {
+	): Promise<TrackerRunContextRaw | null> => {
 		let commentsRaw: ReadonlyArray<{ body: string }> = [];
 		try {
 			const data = await ghApiJson<{ comments: GhComment[] }>([
@@ -288,7 +288,7 @@ export default defineTracker<GithubTrackerConfig, GithubSetup>({
 					const gh = await ctx.ops.viewIssue(id);
 					return [
 						{ id: String(gh.number), state: ctx.ops.mapState(gh) },
-					] as PluginIssueState[];
+					] as TrackerIssueState[];
 				} catch (e) {
 					if (e instanceof PluginNotFoundError) return [];
 					throw e;

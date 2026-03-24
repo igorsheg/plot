@@ -8,11 +8,11 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import {
-	type PluginTrackerClient,
+	type TrackerPluginClient,
 	type TrackerPluginDefinition,
-	type PluginIssue,
-	type PluginIssueState,
-	type PluginRunContextRaw,
+	type TrackerIssue,
+	type TrackerIssueState,
+	type TrackerRunContextRaw,
 	type TrackerPluginConfig,
 	type TrackerError,
 	buildRunContext,
@@ -93,7 +93,7 @@ function mapPluginError(error: unknown, operation: string): TrackerError {
 }
 
 
-function normalizeIssue(plain: PluginIssue): Issue {
+function normalizeIssue(plain: TrackerIssue): Issue {
 	return new Issue({
 		id: plain.id,
 		identifier: plain.identifier,
@@ -119,11 +119,11 @@ function normalizeIssue(plain: PluginIssue): Issue {
 	});
 }
 
-function normalizeIssueStateEntry(plain: PluginIssueState): IssueStateEntry {
+function normalizeIssueStateEntry(plain: TrackerIssueState): IssueStateEntry {
 	return new IssueStateEntry({ id: plain.id, state: plain.state });
 }
 
-function normalizeRunContext(raw: PluginRunContextRaw | null): TrackerRunContext | null {
+function normalizeRunContext(raw: TrackerRunContextRaw | null): TrackerRunContext | null {
 	if (raw == null) return null;
 	const built = buildRunContext(raw);
 	if (built == null) return null;
@@ -136,7 +136,7 @@ function normalizeRunContext(raw: PluginRunContextRaw | null): TrackerRunContext
 	});
 }
 
-function adaptTrackerClient(plain: PluginTrackerClient): Layer.Layer<TrackerClient> {
+function adaptTrackerClient(plain: TrackerPluginClient): Layer.Layer<TrackerClient> {
 	return Layer.succeed(
 		TrackerClient,
 		TrackerClient.of({

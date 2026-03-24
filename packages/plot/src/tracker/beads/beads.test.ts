@@ -218,7 +218,7 @@ describe("beads tracker", () => {
 		expect(issues[2]?.state).toBe("plot:rework");
 	});
 
-	test("maps beads issue fields to IssueLike", async () => {
+	test("maps beads issue fields to TrackerIssue", async () => {
 		await setupFakeBd({
 			issuesFixture: [
 				{
