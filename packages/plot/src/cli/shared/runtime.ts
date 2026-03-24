@@ -72,6 +72,9 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
 		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),
 	};
 
+	if (opts["refresh-plugins"]) {
+		env["PLOT_REFRESH_PLUGINS"] = "true";
+	}
 	if (opts.tracker) {
 		env["PLOT_TRACKER_KIND"] = opts.tracker;
 	}

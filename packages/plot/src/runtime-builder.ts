@@ -1,4 +1,8 @@
-import { resolve as resolvePath } from "node:path";
+import { resolve as resolvePath, join as joinPath } from "node:path";
+import { mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
@@ -213,7 +217,85 @@ function makeResolvedPlugin(
 	);
 }
 
-export function resolvePlugin(resolved: ResolvedConfig): Effect.Effect<ResolvedPlugin> {
+const PLUGIN_CACHE_DIR = joinPath(homedir(), ".plot", "plugins");
+
+function detectNpmRegistry(): string | null {
+	try {
+		const output = execSync("npm config get registry", { stdio: "pipe", timeout: 5_000 }).toString().trim();
+		if (output && output !== "undefined" && !output.includes("registry.npmjs.org")) return output;
+	} catch { /* ignore */ }
+	try {
+		const yarnrc = joinPath(process.cwd(), ".yarnrc.yml");
+		if (existsSync(yarnrc)) {
+			const content = require("node:fs").readFileSync(yarnrc, "utf-8") as string;
+			const match = /npmRegistryServer:\s*"?([^"\n]+)"?/.exec(content);
+			if (match?.[1] && !match[1].includes("registry.npmjs.org")) return match[1];
+		}
+	} catch { /* ignore */ }
+	return null;
+}
+
+/**
+ * Resolve an npm package plugin by installing it to a persistent cache directory.
+ * Detects the npm registry from the consumer's CWD (.npmrc, .yarnrc.yml) so
+ * private registries work without hardcoding. Falls back to bun's default (npmjs.org).
+ *
+ * Cached by package name hash — subsequent calls reuse the existing install.
+ * Returns the absolute path to the package's main entry point.
+ */
+function resolveNpmPlugin(packageName: string, options?: { refresh?: boolean }): Effect.Effect<string> {
+	return Effect.tryPromise({
+		try: async () => {
+			const hash = createHash("sha256").update(packageName).digest("hex").slice(0, 12);
+			const cacheDir = joinPath(PLUGIN_CACHE_DIR, hash);
+			const markerPath = joinPath(cacheDir, "node_modules", ...packageName.split("/"));
+
+			if (options?.refresh || !existsSync(markerPath)) {
+				mkdirSync(cacheDir, { recursive: true });
+				writeFileSync(joinPath(cacheDir, "package.json"), '{"private":true}');
+				const registry = detectNpmRegistry();
+				const registryFlag = registry ? ` --registry ${registry}` : "";
+				execSync(`bun add ${packageName}${registryFlag}`, {
+					cwd: cacheDir,
+					stdio: "pipe",
+					timeout: 30_000,
+				});
+			}
+
+			const pkgJsonPath = joinPath(markerPath, "package.json");
+			const pkgJson = JSON.parse(await Bun.file(pkgJsonPath).text()) as {
+				main?: string;
+				exports?: Record<string, unknown> | string;
+			};
+
+			let entrypoint = "dist/index.js";
+			if (typeof pkgJson.exports === "string") {
+				entrypoint = pkgJson.exports;
+			} else if (pkgJson.exports?.["."] != null) {
+				const dotExport = pkgJson.exports["."];
+				if (typeof dotExport === "string") entrypoint = dotExport;
+				else if (typeof dotExport === "object" && dotExport !== null) {
+					const rec = dotExport as Record<string, string>;
+					entrypoint = rec["default"] ?? rec["import"] ?? rec["require"] ?? entrypoint;
+				}
+			} else if (pkgJson.main) {
+				entrypoint = pkgJson.main;
+			}
+
+			return resolvePath(markerPath, entrypoint);
+		},
+		catch: (cause) =>
+			new Error(
+				`Failed to install tracker plugin "${packageName}": ${cause instanceof Error ? cause.message : String(cause)}`,
+			),
+	}).pipe(Effect.orDie);
+}
+
+export interface ResolvePluginOptions {
+	readonly refreshPlugins?: boolean;
+}
+
+export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginOptions): Effect.Effect<ResolvedPlugin> {
 	syncGithubRepoEnv(resolved);
 	const rawConfig = buildPluginConfig(resolved);
 	const builtin = builtinTrackers[resolved.trackerKind];
@@ -228,7 +310,7 @@ export function resolvePlugin(resolved: ResolvedConfig): Effect.Effect<ResolvedP
 		const kind = resolved.trackerKind;
 		const resolvedPath = kind.startsWith(".")
 			? resolvePath(process.cwd(), kind)
-			: kind;
+			: yield* resolveNpmPlugin(kind, { refresh: options?.refreshPlugins });
 		const mod = yield* Effect.tryPromise({
 			try: () => import(resolvedPath) as Promise<{ default?: AnyPluginDefinition }>,
 			catch: (cause) =>

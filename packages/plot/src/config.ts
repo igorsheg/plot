@@ -25,6 +25,7 @@ export interface ServerConfig {
 	readonly webEnabled: boolean;
 	readonly logFormat: "pretty" | "json";
 	readonly logLevel: "debug" | "info" | "warning" | "error" | "none";
+	readonly refreshPlugins: boolean;
 	readonly overrides: WorkflowOverrides;
 }
 
@@ -58,6 +59,7 @@ export const ServerConfig: Config.Config<ServerConfig> = Config.all({
 			return Effect.die(`invalid LOG_LEVEL: ${s}`);
 		}),
 	),
+	refreshPlugins: Config.boolean("REFRESH_PLUGINS").pipe(Config.withDefault(false)),
 	overrides: WorkflowOverridesConfig,
 }).pipe(Config.nested("PLOT"));
 

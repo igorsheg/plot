@@ -87,7 +87,7 @@ async function boot(env: Record<string, string>) {
 		const content = readFileSync(config.workflowPath, "utf-8");
 		const workflowConfig = parseWorkflowFrontmatter(content);
 		const resolved = new ResolvedConfig(workflowConfig, config.overrides);
-		const resolvedPlugin = await Effect.runPromise(resolvePlugin(resolved));
+		const resolvedPlugin = await Effect.runPromise(resolvePlugin(resolved, { refreshPlugins: config.refreshPlugins }));
 		runtime = makeOrchestratorRuntime(config, resolvedPlugin);
 		orchestrator = await runtime.runPromise(
 			Effect.gen(function* () {

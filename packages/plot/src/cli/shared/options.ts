@@ -25,6 +25,9 @@ export const cliCommandOptions = {
 		Flag.withDescription("server log format"),
 		Flag.withDefault("pretty"),
 	),
+	"refresh-plugins": Flag.boolean("refresh-plugins").pipe(
+		Flag.withDescription("re-fetch tracker plugins, ignoring cached installations"),
+	),
 } as const;
 
 export type ServerOptions = {
@@ -36,6 +39,7 @@ export type ServerOptions = {
 	"github-repo"?: string;
 	"log-format": "pretty" | "json";
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
+	"refresh-plugins"?: boolean;
 	web?: boolean;
 };
 
@@ -59,6 +63,7 @@ export function toServerOptions(
 		"github-repo": Option.getOrUndefined(options["github-repo"]),
 		"log-format": options["log-format"],
 		"log-level": toServerLogLevel(logLevel),
+		"refresh-plugins": options["refresh-plugins"],
 		...overrides,
 	};
 }
