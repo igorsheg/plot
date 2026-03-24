@@ -1,13 +1,8 @@
-import type { TrackerPluginDefinition } from "@plot/sdk";
-const plugin: TrackerPluginDefinition = {
-	name: "fake-jira",
-	async factory() {
-		return {
-			async fetchCandidateIssues() {
-				return [];
-			},
-		};
-	},
-};
+import { defineTracker } from "@plot/sdk";
 
-export default plugin;
+export default defineTracker({
+	name: "fake-jira",
+	async fetchCandidateIssues() {
+		return [];
+	},
+});

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
-import type { IssueLike } from "../plugin/types.js";
-import type { IssueStateEntryLike } from "../plugin/types.js";
+import type { PluginIssue } from "../plugin/types.js";
+import type { PluginIssueState } from "../plugin/types.js";
 
 export class BlockerRef extends Schema.Class<BlockerRef>("BlockerRef")({
 	id: Schema.NullOr(Schema.String),
@@ -25,13 +25,13 @@ export class Issue extends Schema.Class<Issue>("Issue")({
 	updatedAt: Schema.NullOr(Schema.String),
 }) {}
 
-/** Compile-time proof: Issue fields must stay in sync with IssueLike. */
-export type _IssueEncodedMatchesIssueLike = typeof Issue.Encoded extends IssueLike ? true : never;
+/** Compile-time proof: Issue fields must stay in sync with PluginIssue. */
+export type _IssueEncodedMatchesPluginIssue = typeof Issue.Encoded extends PluginIssue ? true : never;
 
 export class IssueStateEntry extends Schema.Class<IssueStateEntry>("IssueStateEntry")({
 	id: Schema.String,
 	state: Schema.String,
 }) {}
 
-/** Compile-time proof: IssueStateEntry fields must stay in sync with IssueStateEntryLike. */
-export type _IssueStateEntryMatchesLike = typeof IssueStateEntry.Encoded extends IssueStateEntryLike ? true : never;
+/** Compile-time proof: IssueStateEntry fields must stay in sync with PluginIssueState. */
+export type _IssueStateEntryMatchesPluginIssueState = typeof IssueStateEntry.Encoded extends PluginIssueState ? true : never;

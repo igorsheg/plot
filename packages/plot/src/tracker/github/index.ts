@@ -1,13 +1,11 @@
 import {
-	buildRunContext,
+	defineTracker,
 	normalizeState,
 	PluginNotFoundError,
-	type IssueLike,
-	type IssueStateEntryLike,
-	type PlainTrackerClient,
+	type PluginIssue,
+	type PluginIssueState,
+	type PluginRunContextRaw,
 	type TrackerPluginConfig,
-	type TrackerPluginDefinition,
-	type TrackerRunContextLike,
 } from "@plot/sdk";
 import {
 	type CommonTrackerConfig,
@@ -179,7 +177,7 @@ function createGithubOps(config: GithubOpsConfig) {
 		url: string;
 		createdAt: string;
 		updatedAt: string;
-	}): IssueLike => ({
+	}): PluginIssue => ({
 		id: String(gh.number),
 		identifier: `#${gh.number}`,
 		title: gh.title,
@@ -194,7 +192,7 @@ function createGithubOps(config: GithubOpsConfig) {
 	const fetchRunContext = async (
 		issueId: string,
 		state: string,
-	): Promise<TrackerRunContextLike | null> => {
+	): Promise<PluginRunContextRaw | null> => {
 		let commentsRaw: ReadonlyArray<{ body: string }> = [];
 		try {
 			const data = await ghApiJson<{ comments: GhComment[] }>([
@@ -230,7 +228,7 @@ function createGithubOps(config: GithubOpsConfig) {
 			]);
 		}
 
-		return buildRunContext({ workpad, reviewFeedback: reviews });
+		return { workpad, reviewFeedback: reviews };
 	};
 
 	return {
@@ -244,57 +242,62 @@ function createGithubOps(config: GithubOpsConfig) {
 
 type GithubTrackerConfig = CommonTrackerConfig;
 
-const plugin: TrackerPluginDefinition<GithubTrackerConfig> = {
+type GithubSetup = {
+	owner: string;
+	repo: string;
+	repoArgs: string[];
+	ops: ReturnType<typeof createGithubOps>;
+};
+
+export default defineTracker<GithubTrackerConfig, GithubSetup>({
 	name: "github",
-	validateConfig(raw: TrackerPluginConfig): GithubTrackerConfig {
+	config(raw: TrackerPluginConfig): GithubTrackerConfig {
 		return validateCommonTrackerFields(raw);
 	},
-	async factory(config): Promise<PlainTrackerClient> {
+	async setup(ctx) {
 		await getAuthToken();
-		const { owner, repo } = config.githubRepo
-			? parseRepoSlug(config.githubRepo)
+		const { owner, repo } = ctx.config.githubRepo
+			? parseRepoSlug(ctx.config.githubRepo)
 			: await detectRepo();
-
+		const repoArgs = ["--repo", `${owner}/${repo}`];
 		const ops = createGithubOps({
 			owner,
 			repo,
-			dispatchStates: config.dispatchStates,
-			parkedStates: config.parkedStates,
-			terminalStates: config.terminalStates,
+			dispatchStates: ctx.config.dispatchStates,
+			parkedStates: ctx.config.parkedStates,
+			terminalStates: ctx.config.terminalStates,
 		});
-
-		return {
-			async fetchCandidateIssues(dispatchStates) {
-				const ghIssues = await ops.listIssues("open");
-				const issues = ghIssues.map(ops.mapIssue);
-				const normalized = new Set(dispatchStates.map(normalizeState));
-				return issues.filter((i) => normalized.has(normalizeState(i.state)));
-			},
-			async fetchIssuesByStates(states) {
-				const ghIssues = await ops.listIssues("all");
-				const issues = ghIssues.map(ops.mapIssue);
-				const normalized = new Set(states.map(normalizeState));
-				return issues.filter((i) => normalized.has(normalizeState(i.state)));
-			},
-			async fetchIssueStatesByIds(ids) {
-				const results = await Promise.all(
-					ids.map(async (id) => {
-						try {
-							const gh = await ops.viewIssue(id);
-							return [
-								{ id: String(gh.number), state: ops.mapState(gh) },
-							] as IssueStateEntryLike[];
-						} catch (e) {
-							if (e instanceof PluginNotFoundError) return [];
-							throw e;
-						}
-					}),
-				);
-				return results.flat();
-			},
-			fetchRunContext: (issueId, state) => ops.fetchRunContext(issueId, state),
-		};
+		return { owner, repo, repoArgs, ops };
 	},
-};
-
-export default plugin;
+	async fetchCandidateIssues(ctx, dispatchStates) {
+		const ghIssues = await ctx.ops.listIssues("open");
+		const issues = ghIssues.map(ctx.ops.mapIssue);
+		const normalized = new Set(dispatchStates.map(normalizeState));
+		return issues.filter((i) => normalized.has(normalizeState(i.state)));
+	},
+	async fetchIssuesByStates(ctx, states) {
+		const ghIssues = await ctx.ops.listIssues("all");
+		const issues = ghIssues.map(ctx.ops.mapIssue);
+		const normalized = new Set(states.map(normalizeState));
+		return issues.filter((i) => normalized.has(normalizeState(i.state)));
+	},
+	async fetchIssueStatesByIds(ctx, ids) {
+		const results = await Promise.all(
+			ids.map(async (id) => {
+				try {
+					const gh = await ctx.ops.viewIssue(id);
+					return [
+						{ id: String(gh.number), state: ctx.ops.mapState(gh) },
+					] as PluginIssueState[];
+				} catch (e) {
+					if (e instanceof PluginNotFoundError) return [];
+					throw e;
+				}
+			}),
+		);
+		return results.flat();
+	},
+	async fetchRunContext(ctx, issueId, state) {
+		return ctx.ops.fetchRunContext(issueId, state);
+	},
+});

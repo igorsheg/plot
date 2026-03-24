@@ -8,13 +8,14 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import {
-	type PlainTrackerClient,
+	type PluginTrackerClient,
 	type TrackerPluginDefinition,
-	type IssueLike,
-	type IssueStateEntryLike,
-	type TrackerRunContextLike,
+	type PluginIssue,
+	type PluginIssueState,
+	type PluginRunContextRaw,
 	type TrackerPluginConfig,
 	type TrackerError,
+	buildRunContext,
 	PluginAuthError,
 	PluginRateLimitError,
 	PluginNotFoundError,
@@ -92,7 +93,7 @@ function mapPluginError(error: unknown, operation: string): TrackerError {
 }
 
 
-function normalizeIssue(plain: IssueLike): Issue {
+function normalizeIssue(plain: PluginIssue): Issue {
 	return new Issue({
 		id: plain.id,
 		identifier: plain.identifier,
@@ -118,22 +119,24 @@ function normalizeIssue(plain: IssueLike): Issue {
 	});
 }
 
-function normalizeIssueStateEntry(plain: IssueStateEntryLike): IssueStateEntry {
+function normalizeIssueStateEntry(plain: PluginIssueState): IssueStateEntry {
 	return new IssueStateEntry({ id: plain.id, state: plain.state });
 }
 
-function normalizeRunContext(plain: TrackerRunContextLike | null): TrackerRunContext | null {
-	if (plain == null) return null;
+function normalizeRunContext(raw: PluginRunContextRaw | null): TrackerRunContext | null {
+	if (raw == null) return null;
+	const built = buildRunContext(raw);
+	if (built == null) return null;
 	return new TrackerRunContext({
-		raw: plain.raw ?? null,
-		promptContext: plain.promptContext ?? null,
-		workpad: plain.workpad ?? null,
-		reviewFeedback: plain.reviewFeedback ?? null,
-		workpadSections: (plain.workpadSections ?? []).map((s) => new WorkpadSection(s)),
+		raw: built.raw ?? null,
+		promptContext: built.promptContext ?? null,
+		workpad: built.workpad ?? null,
+		reviewFeedback: built.reviewFeedback ?? null,
+		workpadSections: (built.workpadSections ?? []).map((s) => new WorkpadSection(s)),
 	});
 }
 
-function adaptTrackerClient(plain: PlainTrackerClient): Layer.Layer<TrackerClient> {
+function adaptTrackerClient(plain: PluginTrackerClient): Layer.Layer<TrackerClient> {
 	return Layer.succeed(
 		TrackerClient,
 		TrackerClient.of({

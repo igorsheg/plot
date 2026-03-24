@@ -1,5 +1,5 @@
 /** Issue shape returned by tracker plugin methods. */
-export interface IssueLike {
+export interface PluginIssue {
 	readonly id: string;
 	readonly identifier: string;
 	readonly title: string;
@@ -23,22 +23,15 @@ export interface IssueLike {
 }
 
 /** Minimal issue state entry returned by fetchIssueStatesByIds. */
-export interface IssueStateEntryLike {
+export interface PluginIssueState {
 	readonly id: string;
 	readonly state: string;
 }
 
-/** Run context returned by fetchRunContext — provides the workpad and review feedback. */
-export interface TrackerRunContextLike {
-	readonly raw: string | null;
-	readonly promptContext: string | null;
+/** Raw run context returned by plugin fetchRunContext — the orchestrator parses sections. */
+export interface PluginRunContextRaw {
 	readonly workpad: string | null;
-	readonly reviewFeedback: string | null;
-	readonly workpadSections: ReadonlyArray<{
-		readonly title: string;
-		readonly body: string;
-		readonly itemCount: number;
-	}>;
+	readonly reviewFeedback?: string | null;
 }
 
 /** Raw tracker config from the WORKFLOW.md frontmatter. */
@@ -54,25 +47,97 @@ export interface TrackerPluginConfig {
 }
 
 /** Client interface a tracker plugin must implement. */
-export interface PlainTrackerClient {
+export interface PluginTrackerClient {
 	readonly fetchCandidateIssues: (
 		dispatchStates: ReadonlyArray<string>,
-	) => Promise<ReadonlyArray<IssueLike>>;
+	) => Promise<ReadonlyArray<PluginIssue>>;
 	readonly fetchIssuesByStates?: (
 		states: ReadonlyArray<string>,
-	) => Promise<ReadonlyArray<IssueLike>>;
+	) => Promise<ReadonlyArray<PluginIssue>>;
 	readonly fetchIssueStatesByIds?: (
 		ids: ReadonlyArray<string>,
-	) => Promise<ReadonlyArray<IssueStateEntryLike>>;
+	) => Promise<ReadonlyArray<PluginIssueState>>;
 	readonly fetchRunContext?: (
 		issueId: string,
 		state: string,
-	) => Promise<TrackerRunContextLike | null>;
+	) => Promise<PluginRunContextRaw | null>;
+	readonly dispose?: () => void | Promise<void>;
 }
 
 /** Default export shape for a tracker plugin file. */
 export interface TrackerPluginDefinition<TConfig = TrackerPluginConfig> {
 	readonly name: string;
 	readonly validateConfig?: (raw: TrackerPluginConfig) => TConfig | Promise<TConfig>;
-	readonly factory: (config: TConfig) => PlainTrackerClient | Promise<PlainTrackerClient>;
+	readonly factory: (config: TConfig) => PluginTrackerClient | Promise<PluginTrackerClient>;
+}
+
+/** Context object passed to each method in a defineTracker definition. */
+export interface PluginContext<TConfig = TrackerPluginConfig> {
+	readonly config: TConfig;
+	readonly states: {
+		readonly dispatch: ReadonlyArray<string>;
+		readonly parked: ReadonlyArray<string>;
+		readonly terminal: ReadonlyArray<string>;
+	};
+}
+
+/** Shape passed to defineTracker — declarative tracker plugin definition. */
+export interface TrackerDefinition<TConfig = TrackerPluginConfig, TSetup = unknown> {
+	readonly name: string;
+	readonly config?: (raw: TrackerPluginConfig) => TConfig | Promise<TConfig>;
+	readonly setup?: (ctx: PluginContext<TConfig>) => TSetup | Promise<TSetup>;
+	readonly fetchCandidateIssues: (
+		ctx: PluginContext<TConfig> & TSetup,
+		dispatchStates: ReadonlyArray<string>,
+	) => Promise<ReadonlyArray<PluginIssue>>;
+	readonly fetchIssuesByStates?: (
+		ctx: PluginContext<TConfig> & TSetup,
+		states: ReadonlyArray<string>,
+	) => Promise<ReadonlyArray<PluginIssue>>;
+	readonly fetchIssueStatesByIds?: (
+		ctx: PluginContext<TConfig> & TSetup,
+		ids: ReadonlyArray<string>,
+	) => Promise<ReadonlyArray<PluginIssueState>>;
+	readonly fetchRunContext?: (
+		ctx: PluginContext<TConfig> & TSetup,
+		issueId: string,
+		state: string,
+	) => Promise<PluginRunContextRaw | null>;
+	readonly dispose?: () => void | Promise<void>;
+}
+
+/** Factory for creating tracker plugins from a declarative definition. */
+export function defineTracker<TConfig = TrackerPluginConfig, TSetup = unknown>(
+	definition: TrackerDefinition<TConfig, TSetup>,
+): TrackerPluginDefinition<TConfig> {
+	return {
+		name: definition.name,
+		validateConfig: definition.config,
+		async factory(config: TConfig) {
+			const pluginConfig = config as TrackerPluginConfig & TConfig;
+			const baseCtx: PluginContext<TConfig> = {
+				config,
+				states: {
+					dispatch: (pluginConfig as any).dispatchStates ?? (pluginConfig as any).dispatch_states ?? [],
+					parked: (pluginConfig as any).parkedStates ?? (pluginConfig as any).parked_states ?? [],
+					terminal: (pluginConfig as any).terminalStates ?? (pluginConfig as any).terminal_states ?? [],
+				},
+			};
+			const setupResult = definition.setup ? await Promise.resolve(definition.setup(baseCtx)) : ({} as TSetup);
+			const ctx = { ...baseCtx, ...setupResult } as PluginContext<TConfig> & TSetup;
+			return {
+				fetchCandidateIssues: (dispatchStates) => definition.fetchCandidateIssues(ctx, dispatchStates),
+				fetchIssuesByStates: definition.fetchIssuesByStates
+					? (states) => definition.fetchIssuesByStates!(ctx, states)
+					: undefined,
+				fetchIssueStatesByIds: definition.fetchIssueStatesByIds
+					? (ids) => definition.fetchIssueStatesByIds!(ctx, ids)
+					: undefined,
+				fetchRunContext: definition.fetchRunContext
+					? (issueId, state) => definition.fetchRunContext!(ctx, issueId, state)
+					: undefined,
+				dispose: definition.dispose,
+			};
+		},
+	};
 }
