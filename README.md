@@ -71,10 +71,11 @@ shared flags for `plot-ai`, `serve`, and `web`:
 | `--log-format`  | `pretty`        | server log format: `pretty` or `json`                            |
 | `--verbose`     | `false`         | enable non-error human output (quiet by default)                 |
 | `--json`        | `false`         | machine-readable ndjson output on stdout. practical with `serve` |
+| `--refresh-plugins` | `false`    | re-fetch npm tracker plugins, ignoring cached installations      |
 
 ## tracker plugins
 
-plot ships with one built-in tracker: `github`. custom trackers implement `TrackerPluginDefinition` from `@plot/sdk` and are referenced in `WORKFLOW.md` as a package specifier (`@acme/plot-tracker-jira`) or local path (`./trackers/jira.ts`).
+plot ships with built-in trackers (`github`, `beads`). custom trackers implement `TrackerPluginDefinition` from `@plot/sdk`:
 
 ```ts
 import type { TrackerPluginDefinition } from "@plot/sdk";
@@ -92,6 +93,27 @@ const plugin: TrackerPluginDefinition = {
 
 export default plugin;
 ```
+
+### plugin resolution
+
+the `tracker.kind` field in `WORKFLOW.md` determines how the plugin is loaded:
+
+| kind value | resolution |
+|---|---|
+| `github` | built-in tracker |
+| `./trackers/jira.ts` | local file (relative to cwd) |
+| `/abs/path/tracker.ts` | local file (absolute) |
+| `~/my-tracker/index.ts` | local file (tilde expands to home) |
+| `@acme/plot-tracker-jira` | npm package (installed to `~/.plot/plugins/`) |
+
+explicit prefixes are supported for clarity:
+
+| kind value | resolution |
+|---|---|
+| `file:./trackers/jira.ts` | local file |
+| `npm:@acme/plot-tracker-jira` | npm package |
+
+npm plugins are installed on first use via `bun add` and cached by package name. the registry is auto-detected from the consumer repo's `.npmrc` or `.yarnrc.yml`. use `--refresh-plugins` to re-fetch the latest version.
 
 tracker plugins are read-only clients — the coding agent handles all writes (state transitions, comments, pr links) using cli tools in the runtime environment.
 
