@@ -177,6 +177,7 @@ async function buildSdkPackage() {
 	const sdkPackage = readJson(join(sdkDir, "package.json")) as Record<string, unknown>;
 	writeJson(join(packageDir, "package.json"), {
 		...sdkPackage,
+		name: "@plot-ai/sdk",
 		version,
 		exports: {
 			".": {
