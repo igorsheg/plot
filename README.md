@@ -75,24 +75,27 @@ shared flags for `plot-ai`, `serve`, and `web`:
 
 ## tracker plugins
 
-plot ships with built-in trackers (`github`, `beads`). custom trackers implement `TrackerPluginDefinition` from `@plot/sdk`:
+plot ships with built-in trackers (`github`, `beads`). custom trackers use `defineTracker` from `@plot/sdk`:
 
 ```ts
-import type { TrackerPluginDefinition } from "@plot/sdk";
+import { defineTracker } from "@plot/sdk";
 
-const plugin: TrackerPluginDefinition = {
+export default defineTracker({
   name: "acme",
-  async factory() {
-    return {
-      async fetchCandidateIssues() {
-        return [];
-      },
-    };
+  config(raw) {
+    return { projectKey: raw.project_key as string };
   },
-};
-
-export default plugin;
+  async setup(ctx) {
+    const client = await connect(ctx.config.projectKey);
+    return { client };
+  },
+  async fetchCandidateIssues(ctx, dispatchStates) {
+    return ctx.client.listIssues(dispatchStates);
+  },
+});
 ```
+
+`defineTracker` provides a typed `ctx` to every method with your validated config and workflow states. the optional `setup()` hook runs once and returns shared resources (API clients, auth tokens) that are merged into `ctx` — no re-initialization per method call.
 
 ### plugin resolution
 
