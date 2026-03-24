@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
+import { classifyPluginKind } from "./core/plugin-kind.js";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Logger, LogLevel, ManagedRuntime, References } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
@@ -308,14 +309,15 @@ export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginO
 
 	return Effect.gen(function* () {
 		const kind = resolved.trackerKind;
-		const resolvedPath = kind.startsWith(".")
-			? resolvePath(process.cwd(), kind)
-			: yield* resolveNpmPlugin(kind, { refresh: options?.refreshPlugins });
+		const pluginKind = classifyPluginKind(kind, process.cwd());
+		const resolvedPath = pluginKind.type === "local"
+			? pluginKind.specifier
+			: yield* resolveNpmPlugin(pluginKind.specifier, { refresh: options?.refreshPlugins });
 		const mod = yield* Effect.tryPromise({
 			try: () => import(resolvedPath) as Promise<{ default?: AnyPluginDefinition }>,
 			catch: (cause) =>
 				new Error(
-					`Failed to load tracker plugin "${kind}": ${cause instanceof Error ? cause.message : String(cause)}`,
+					`Failed to load tracker plugin "${kind}" (${pluginKind.type}:${pluginKind.specifier}): ${cause instanceof Error ? cause.message : String(cause)}`,
 				),
 		}).pipe(Effect.orDie);
 		const definition = mod.default;
