@@ -362,24 +362,43 @@ const createEventStream = (
 				Effect.mapError((e) => new AgentRunnerError({ code: "config_error", message: String(e) })),
 			);
 
+			const bootstrapStart = Date.now();
 			const authStorage = AuthStorage.create(join(plotAgentDir, "auth.json"));
 			const modelRegistry = new ModelRegistry(authStorage, join(plotAgentDir, "models.json"));
 			const available = modelRegistry.getAvailable();
 			const model = resolveModel(config.modelSpec, modelRegistry, available);
 
+			const preflightKey = yield* Effect.tryPromise({
+				try: () => modelRegistry.getApiKey(model),
+				catch: (e) =>
+					new AgentRunnerError({
+						code: "auth_error",
+						message: `Failed to get API key for ${model.provider}/${model.id}: ${e}`,
+					}),
+			});
+			if (!preflightKey) {
+				yield* Effect.logError("agent_auth_failed").pipe(
+					Effect.annotateLogs({
+						issue_id: config.issueId,
+						model: `${model.provider}/${model.id}`,
+					}),
+				);
+				return yield* Effect.fail(
+					new AgentRunnerError({
+						code: "auth_error",
+						message: `No API key for ${model.provider}/${model.id}. Token may have expired — run '/login ${model.provider}' to re-authenticate.`,
+					}),
+				);
+			}
+
 			const skillPaths = resolvePlotSkillPaths(config.workspacePath, plotSkillsDir);
-			yield* Effect.logDebug("agent_skill_paths").pipe(
-				Effect.annotateLogs({
-					issue_id: config.issueId,
-					skill_paths: JSON.stringify(skillPaths),
-					core_skills_dir: plotSkillsDir,
-					workspace: config.workspacePath,
-				}),
-			);
 			const loader = new DefaultResourceLoader({
 				cwd: config.workspacePath,
 				systemPromptOverride: () => config.systemPrompt,
+				noExtensions: true,
 				noSkills: true,
+				noPromptTemplates: true,
+				noThemes: true,
 				additionalSkillPaths: skillPaths,
 			});
 			yield* Effect.tryPromise({
@@ -390,17 +409,8 @@ const createEventStream = (
 						message: `Resource loader reload failed: ${e}`,
 					}),
 			});
-			const { skills: loadedSkills } = loader.getSkills();
-			yield* Effect.logInfo("agent_skills_loaded").pipe(
-				Effect.annotateLogs({
-					issue_id: config.issueId,
-					skill_count: String(loadedSkills.length),
-					skill_names: JSON.stringify(loadedSkills.map((s) => s.name)),
-					system_prompt_length: String(config.systemPrompt.length),
-					system_prompt_first_200: config.systemPrompt.slice(0, 200),
-				}),
-			);
 
+			const { skills: loadedSkills } = loader.getSkills();
 			const { session } = yield* Effect.tryPromise({
 				try: () =>
 					createAgentSession({
@@ -427,10 +437,11 @@ const createEventStream = (
 					component: "agent",
 					issue_id: config.issueId,
 					identifier: config.issueIdentifier,
-					model_provider: model.provider,
-					model_id: model.id,
+					model: `${model.provider}/${model.id}`,
 					workspace: config.workspacePath,
 					max_turns: String(config.maxTurns),
+					skill_count: String(loadedSkills.length),
+					bootstrap_ms: String(Date.now() - bootstrapStart),
 				}),
 			);
 
