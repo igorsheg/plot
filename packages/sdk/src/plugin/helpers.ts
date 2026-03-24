@@ -1,5 +1,3 @@
-import type { TrackerRunContextLike } from "./types.js";
-
 function normalizeBlock(value: string | null | undefined): string {
 	return (value ?? "").replace(/\r\n/g, "\n").trim();
 }
@@ -51,7 +49,13 @@ export const normalizeState = (s: string): string => s.trim().toLowerCase();
 export function buildRunContext(input: {
 	workpad: string | null;
 	reviewFeedback?: string | null;
-}): TrackerRunContextLike | null {
+}): {
+	raw: string | null;
+	promptContext: string | null;
+	workpad: string | null;
+	reviewFeedback: string | null;
+	workpadSections: ReadonlyArray<{ title: string; body: string; itemCount: number }>;
+} | null {
 	const workpad = normalizeBlock(input.workpad);
 	const reviewFeedback = normalizeBlock(input.reviewFeedback);
 	const sections = parseWorkpadSectionsPlain(workpad || null);

@@ -1,14 +1,8 @@
-import type { TrackerPluginDefinition } from "@plot/sdk";
+import { defineTracker } from "@plot/sdk";
 
-const plugin: TrackerPluginDefinition = {
+export default defineTracker({
 	name: "fake-minimal",
-	async factory() {
-		return {
-			async fetchCandidateIssues() {
-				return [];
-			},
-		};
+	async fetchCandidateIssues() {
+		return [];
 	},
-};
-
-export default plugin;
+});

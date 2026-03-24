@@ -1,13 +1,11 @@
 import { execFileAsync } from "../../lib/exec.js";
 import {
-	buildRunContext,
+	defineTracker,
 	normalizeState,
-	type IssueLike,
-	type IssueStateEntryLike,
-	type PlainTrackerClient,
+	type TrackerIssue,
+	type TrackerIssueState,
+	type TrackerRunContextRaw,
 	type TrackerPluginConfig,
-	type TrackerPluginDefinition,
-	type TrackerRunContextLike,
 } from "@plot/sdk";
 import { BeadsDaemonTransport, tryCreateBeadsDaemonTransport } from "./daemon-transport.js";
 import {
@@ -106,7 +104,7 @@ async function createBeadsOps(config: {
 		return bd.status;
 	};
 
-	const mapIssue = (bd: BdIssue): IssueLike => ({
+	const mapIssue = (bd: BdIssue): TrackerIssue => ({
 		id: bd.id,
 		identifier: bd.id,
 		title: bd.title,
@@ -121,7 +119,7 @@ async function createBeadsOps(config: {
 	const fetchRunContext = async (
 		issueId: string,
 		state: string,
-	): Promise<TrackerRunContextLike | null> => {
+	): Promise<TrackerRunContextRaw | null> => {
 		let comments: ReadonlyArray<{ text: string }> = [];
 		try {
 			const issue = await viewIssue(issueId);
@@ -141,7 +139,7 @@ async function createBeadsOps(config: {
 			reviews = await fetchPrReviewFeedback(issueId, repoArgs, workspaceRoot);
 		}
 
-		return buildRunContext({ workpad, reviewFeedback: reviews });
+		return { workpad, reviewFeedback: reviews };
 	};
 
 	return {
@@ -153,56 +151,57 @@ async function createBeadsOps(config: {
 	};
 }
 
-const plugin: TrackerPluginDefinition<BeadsTrackerConfig> = {
+type BeadsSetup = {
+	ops: Awaited<ReturnType<typeof createBeadsOps>>;
+};
+
+export default defineTracker<BeadsTrackerConfig, BeadsSetup>({
 	name: "beads",
-	validateConfig(raw: TrackerPluginConfig): BeadsTrackerConfig {
+	config(raw: TrackerPluginConfig): BeadsTrackerConfig {
 		return {
 			...validateCommonTrackerFields(raw),
 			beadsDir: typeof raw["beadsDir"] === "string" ? raw["beadsDir"] : undefined,
 		};
 	},
-	async factory(config): Promise<PlainTrackerClient> {
+	async setup(ctx) {
 		const allStates = deriveAllStates(
-			config.dispatchStates,
-			config.parkedStates,
-			config.terminalStates,
+			ctx.config.dispatchStates,
+			ctx.config.parkedStates,
+			ctx.config.terminalStates,
 		);
-
 		const ops = await createBeadsOps({
-			beadsDir: config.beadsDir,
-			githubRepo: config.githubRepo,
-			dispatchStates: config.dispatchStates ?? [],
+			beadsDir: ctx.config.beadsDir,
+			githubRepo: ctx.config.githubRepo,
+			dispatchStates: ctx.config.dispatchStates ?? [],
 			allStates,
 		});
-
-		return {
-			async fetchCandidateIssues(dispatchStates) {
-				const bdIssues = await ops.listAllIssues();
-				const issues = bdIssues.map(ops.mapIssue);
-				const normalized = new Set(dispatchStates.map(normalizeState));
-				return issues.filter((i) => normalized.has(normalizeState(i.state)));
-			},
-			async fetchIssuesByStates(states) {
-				const bdIssues = await ops.listAllIssues();
-				const issues = bdIssues.map(ops.mapIssue);
-				const normalized = new Set(states.map(normalizeState));
-				return issues.filter((i) => normalized.has(normalizeState(i.state)));
-			},
-			async fetchIssueStatesByIds(ids) {
-				const wantedIds = new Set(ids);
-				const allIssues = await ops.listAllIssues();
-				return allIssues
-					.filter((issue) => wantedIds.has(issue.id))
-					.map(
-						(issue): IssueStateEntryLike => ({
-							id: issue.id,
-							state: ops.mapState(issue),
-						}),
-					);
-			},
-			fetchRunContext: (issueId, state) => ops.fetchRunContext(issueId, state),
-		};
+		return { ops };
 	},
-};
-
-export default plugin;
+	async fetchCandidateIssues(ctx, dispatchStates) {
+		const bdIssues = await ctx.ops.listAllIssues();
+		const issues = bdIssues.map(ctx.ops.mapIssue);
+		const normalized = new Set(dispatchStates.map(normalizeState));
+		return issues.filter((i) => normalized.has(normalizeState(i.state)));
+	},
+	async fetchIssuesByStates(ctx, states) {
+		const bdIssues = await ctx.ops.listAllIssues();
+		const issues = bdIssues.map(ctx.ops.mapIssue);
+		const normalized = new Set(states.map(normalizeState));
+		return issues.filter((i) => normalized.has(normalizeState(i.state)));
+	},
+	async fetchIssueStatesByIds(ctx, ids) {
+		const wantedIds = new Set(ids);
+		const allIssues = await ctx.ops.listAllIssues();
+		return allIssues
+			.filter((issue) => wantedIds.has(issue.id))
+			.map(
+				(issue): TrackerIssueState => ({
+					id: issue.id,
+					state: ctx.ops.mapState(issue),
+				}),
+			);
+	},
+	async fetchRunContext(ctx, issueId, state) {
+		return ctx.ops.fetchRunContext(issueId, state);
+	},
+});
