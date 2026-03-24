@@ -78,7 +78,7 @@ shared flags for `plot-ai`, `serve`, and `web`:
 plot ships with built-in trackers (`github`, `beads`). custom trackers use `defineTracker` from `@plot/sdk`:
 
 ```ts
-import { defineTracker } from "@plot/sdk";
+import { defineTracker } from "@plot/sdk/plugin";
 
 export default defineTracker({
   name: "acme",
