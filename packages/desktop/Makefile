@@ -31,6 +31,7 @@ app: xcode-project plot-binary web-assets
 	@# Copy resources into the built .app
 	mkdir -p $(RESOURCES)
 	cp $(DESKTOP_DIR)/.build-bin/plot-ai $(RESOURCES)/plot-ai
+	cp $(DESKTOP_DIR)/.build-bin/package.json $(RESOURCES)/package.json
 	@[ -d $(WEB_DIST) ] && cp -R $(WEB_DIST) $(RESOURCES)/web-dist || true
 	@echo "✓ Plot.app ready at $(APP_BUNDLE)"
 
@@ -51,6 +52,8 @@ $(DESKTOP_DIR)/.build-bin/plot-ai: $(PLOT_ENTRY)
 		--outfile $(DESKTOP_DIR)/.build-bin/plot-ai \
 		--tsconfig $(PLOT_TSCONFIG)
 	chmod +x $(DESKTOP_DIR)/.build-bin/plot-ai
+	@echo '{"name":"plot-ai","version":"0.0.0-dev","piConfig":{"name":"plot","configDir":".plot"}}' \
+		> $(DESKTOP_DIR)/.build-bin/package.json
 
 .PHONY: web-assets
 web-assets:
