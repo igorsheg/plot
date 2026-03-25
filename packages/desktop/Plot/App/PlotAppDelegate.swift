@@ -14,7 +14,7 @@ class PlotAppDelegate: NSObject, NSApplicationDelegate {
         PlotLog.app.info("app quit requested, terminating child processes...")
 
         Task {
-            await ProcessSupervisor.shared.terminateAll()
+            await ProcessClient.liveValue.terminateAll()
             PlotLog.app.info("all child processes terminated, quitting")
             await MainActor.run {
                 NSApp.reply(toApplicationShouldTerminate: true)

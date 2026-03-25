@@ -15,6 +15,8 @@ struct ProcessHandle: Sendable {
 }
 
 extension ProcessClient: DependencyKey {
+    private static let registry = ProcessRegistry()
+
     static let liveValue: ProcessClient = {
         ProcessClient(
             spawn: { id, path, arguments, workingDirectory in
@@ -61,10 +63,10 @@ extension ProcessClient: DependencyKey {
                     PlotLog.runtime.info("process pid=\(proc.processIdentifier, privacy: .public) terminated with status \(proc.terminationStatus, privacy: .public)")
                     managed.notifyTermination(status: proc.terminationStatus)
                     Task {
-                        await ProcessSupervisor.shared.remove(id)
+                        await registry.remove(id)
                     }
                 }
-                
+
                 PlotLog.runtime.info("spawning: \(path, privacy: .public) \(arguments.joined(separator: " "), privacy: .public)")
                 PlotLog.runtime.info("  cwd: \(workingDirectory, privacy: .public)")
                 do {
@@ -76,17 +78,15 @@ extension ProcessClient: DependencyKey {
                 }
                 PlotLog.runtime.info("process started, pid=\(process.processIdentifier, privacy: .public)")
 
-                await ProcessSupervisor.shared.register(id, process: managed)
+                await registry.register(id, process: managed)
 
-                return ProcessHandle(
-                    exitStream: exitStream
-                )
+                return ProcessHandle(exitStream: exitStream)
             },
             terminate: { id in
-                await ProcessSupervisor.shared.terminate(id)
+                await registry.terminate(id)
             },
             terminateAll: {
-                await ProcessSupervisor.shared.terminateAll()
+                await registry.terminateAll()
             }
         )
     }()
@@ -96,5 +96,120 @@ extension DependencyValues {
     var processClient: ProcessClient {
         get { self[ProcessClient.self] }
         set { self[ProcessClient.self] = newValue }
+    }
+}
+
+// MARK: - Private process registry
+
+private actor ProcessRegistry {
+    private var entries: [UUID: ManagedProcess] = [:]
+
+    func register(_ id: UUID, process: ManagedProcess) {
+        entries[id] = process
+    }
+
+    func remove(_ id: UUID) {
+        entries.removeValue(forKey: id)
+    }
+
+    func terminate(_ id: UUID) async {
+        guard let entry = entries[id] else { return }
+        PlotLog.runtime.info("terminating process for project \(id.uuidString, privacy: .public)")
+        await entry.terminate()
+    }
+
+    func terminateAll() async {
+        let ids = Array(entries.keys)
+        PlotLog.runtime.info("terminating all \(ids.count, privacy: .public) processes")
+        await withTaskGroup(of: Void.self) { group in
+            for id in ids {
+                group.addTask { await self.terminate(id) }
+            }
+        }
+    }
+}
+
+// MARK: - Managed process lifecycle
+
+actor ManagedProcess {
+    private let process: Process
+    private let stdoutPipe: Pipe
+    private let stderrPipe: Pipe
+    private let outputContinuation: AsyncStream<String>.Continuation
+    private let exitContinuation: AsyncStream<Int32>.Continuation
+
+    private var exitWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finished = false
+
+    init(
+        process: Process,
+        stdoutPipe: Pipe,
+        stderrPipe: Pipe,
+        outputContinuation: AsyncStream<String>.Continuation,
+        exitContinuation: AsyncStream<Int32>.Continuation
+    ) {
+        self.process = process
+        self.stdoutPipe = stdoutPipe
+        self.stderrPipe = stderrPipe
+        self.outputContinuation = outputContinuation
+        self.exitContinuation = exitContinuation
+    }
+
+    nonisolated func notifyTermination(status: Int32) {
+        Task { await self.finish(status: status) }
+    }
+
+    private func finish(status: Int32) {
+        guard !finished else { return }
+        finished = true
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        try? stdoutPipe.fileHandleForReading.close()
+        try? stderrPipe.fileHandleForReading.close()
+
+        outputContinuation.finish()
+        exitContinuation.yield(status)
+        exitContinuation.finish()
+
+        let waiters = exitWaiters
+        exitWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitForExit() async {
+        if finished { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            exitWaiters.append(continuation)
+        }
+    }
+
+    func terminate() async {
+        guard process.isRunning else { return }
+
+        let pid = process.processIdentifier
+        PlotLog.runtime.info("sending SIGTERM to pid \(pid, privacy: .public)")
+        process.terminate()
+
+        let exitedCleanly = await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask {
+                await self.waitForExit()
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                return false
+            }
+
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+
+        if !exitedCleanly && process.isRunning {
+            PlotLog.runtime.warning("SIGTERM timeout, sending SIGKILL to pid \(pid, privacy: .public)")
+            kill(pid, SIGKILL)
+            await waitForExit()
+        }
     }
 }
