@@ -4,23 +4,19 @@ BUILD_DIR := $(DESKTOP_DIR)/.build-app
 APP_BUNDLE := $(BUILD_DIR)/Plot.app
 RESOURCES := $(APP_BUNDLE)/Contents/Resources
 
-# plot-ai binary (bun --compile for current platform)
-PLOT_ENTRY := $(REPO_ROOT)/packages/plot/src/cli/index.ts
-PLOT_TSCONFIG := $(REPO_ROOT)/packages/plot/tsconfig.json
-PLOT_BINARY := $(RESOURCES)/plot-ai
-
-# web dashboard
-WEB_DIST := $(REPO_ROOT)/packages/web/dist
+# Release build output (produced by scripts/release/build.ts)
+RELEASE_DIR := $(REPO_ROOT)/dist/release
+PLATFORM_DIR := $(RELEASE_DIR)/plot-ai-darwin-arm64
 
 # ─── dev ────────────────────────────────────────────────────────────────
-# builds the app with bundled plot-ai binary + web assets, then opens it
+# builds everything and opens the app
 
 .PHONY: dev
 dev: app
 	open $(APP_BUNDLE)
 
 .PHONY: app
-app: xcode-project plot-binary web-assets
+app: xcode-project plot-release
 	xcodebuild \
 		-scheme Plot \
 		-configuration Debug \
@@ -28,50 +24,40 @@ app: xcode-project plot-binary web-assets
 		-skipMacroValidation \
 		CONFIGURATION_BUILD_DIR=$(BUILD_DIR) \
 		build
-	@# Copy resources into the built .app
+	@# Bundle plot-ai release artifacts into the .app
 	mkdir -p $(RESOURCES)
-	cp $(DESKTOP_DIR)/.build-bin/plot-ai $(RESOURCES)/plot-ai
-	cp $(DESKTOP_DIR)/.build-bin/package.json $(RESOURCES)/package.json
-	@[ -d $(WEB_DIST) ] && cp -R $(WEB_DIST) $(RESOURCES)/web-dist || true
+	cp $(PLATFORM_DIR)/bin/plot-ai $(RESOURCES)/plot-ai
+	cp $(PLATFORM_DIR)/bin/package.json $(RESOURCES)/package.json
+	@[ -f $(PLATFORM_DIR)/bin/tui-worker.js ] && cp $(PLATFORM_DIR)/bin/tui-worker.js $(RESOURCES)/tui-worker.js || true
+	@[ -d $(PLATFORM_DIR)/web-dist ] && cp -R $(PLATFORM_DIR)/web-dist $(RESOURCES)/web-dist || true
+	@[ -d $(PLATFORM_DIR)/pi-resources ] && cp -R $(PLATFORM_DIR)/pi-resources $(RESOURCES)/pi-resources || true
+	@[ -d $(PLATFORM_DIR)/bin/tracker ] && cp -R $(PLATFORM_DIR)/bin/tracker $(RESOURCES)/tracker || true
 	@echo "✓ Plot.app ready at $(APP_BUNDLE)"
 
-# ─── parts ──────────────────────────────────────────────────────────────
+# ─── plot-ai release build ──────────────────────────────────────────────
+# uses the monorepo's existing release pipeline
+
+.PHONY: plot-release
+plot-release: $(PLATFORM_DIR)/bin/plot-ai
+
+$(PLATFORM_DIR)/bin/plot-ai:
+	@echo "building plot-ai release (darwin-arm64)..."
+	cd $(REPO_ROOT) && bun run scripts/release/build.ts
+
+# ─── xcode ──────────────────────────────────────────────────────────────
 
 .PHONY: xcode-project
 xcode-project:
 	xcodegen generate
 
-.PHONY: plot-binary
-plot-binary: $(DESKTOP_DIR)/.build-bin/plot-ai
-
-$(DESKTOP_DIR)/.build-bin/plot-ai: $(PLOT_ENTRY)
-	@echo "compiling plot-ai binary..."
-	mkdir -p $(DESKTOP_DIR)/.build-bin
-	cd $(REPO_ROOT) && bun build $(PLOT_ENTRY) \
-		--compile \
-		--outfile $(DESKTOP_DIR)/.build-bin/plot-ai \
-		--tsconfig $(PLOT_TSCONFIG)
-	chmod +x $(DESKTOP_DIR)/.build-bin/plot-ai
-	@echo '{"name":"plot-ai","version":"0.0.0-dev","piConfig":{"name":"plot","configDir":".plot"}}' \
-		> $(DESKTOP_DIR)/.build-bin/package.json
-
-.PHONY: web-assets
-web-assets:
-	@if [ ! -d $(WEB_DIST) ]; then \
-		echo "building web dashboard..."; \
-		cd $(REPO_ROOT) && bun run build:web; \
-	fi
-
-# ─── swift-only (no xcode) ─────────────────────────────────────────────
-
-.PHONY: swift-build
-swift-build:
-	swift build
+.PHONY: xcode
+xcode: xcode-project
+	open Plot.xcodeproj
 
 # ─── release ────────────────────────────────────────────────────────────
 
 .PHONY: release
-release: xcode-project plot-binary web-assets
+release: xcode-project plot-release
 	xcodebuild \
 		-scheme Plot \
 		-configuration Release \
@@ -80,15 +66,23 @@ release: xcode-project plot-binary web-assets
 		CONFIGURATION_BUILD_DIR=$(BUILD_DIR) \
 		build
 	mkdir -p $(RESOURCES)
-	cp $(DESKTOP_DIR)/.build-bin/plot-ai $(RESOURCES)/plot-ai
-	@[ -d $(WEB_DIST) ] && cp -R $(WEB_DIST) $(RESOURCES)/web-dist || true
+	cp $(PLATFORM_DIR)/bin/plot-ai $(RESOURCES)/plot-ai
+	cp $(PLATFORM_DIR)/bin/package.json $(RESOURCES)/package.json
+	@[ -f $(PLATFORM_DIR)/bin/tui-worker.js ] && cp $(PLATFORM_DIR)/bin/tui-worker.js $(RESOURCES)/tui-worker.js || true
+	@[ -d $(PLATFORM_DIR)/web-dist ] && cp -R $(PLATFORM_DIR)/web-dist $(RESOURCES)/web-dist || true
+	@[ -d $(PLATFORM_DIR)/pi-resources ] && cp -R $(PLATFORM_DIR)/pi-resources $(RESOURCES)/pi-resources || true
+	@[ -d $(PLATFORM_DIR)/bin/tracker ] && cp -R $(PLATFORM_DIR)/bin/tracker $(RESOURCES)/tracker || true
 	@echo "✓ Release build at $(APP_BUNDLE)"
 
 # ─── clean ──────────────────────────────────────────────────────────────
 
 .PHONY: clean
 clean:
-	rm -rf $(BUILD_DIR) $(DESKTOP_DIR)/.build-bin
-	rm -rf $(DESKTOP_DIR)/.build
-	rm -rf Plot.xcodeproj
-	rm -rf ~/Library/Developer/Xcode/DerivedData/Plot-*
+	trash $(BUILD_DIR) 2>/dev/null || true
+	trash $(DESKTOP_DIR)/.build 2>/dev/null || true
+	trash Plot.xcodeproj 2>/dev/null || true
+	trash ~/Library/Developer/Xcode/DerivedData/Plot-* 2>/dev/null || true
+
+.PHONY: clean-all
+clean-all: clean
+	trash $(RELEASE_DIR) 2>/dev/null || true
