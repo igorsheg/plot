@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 class PlotAppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false

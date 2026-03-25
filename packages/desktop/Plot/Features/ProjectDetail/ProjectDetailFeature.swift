@@ -8,11 +8,9 @@ struct ProjectDetailFeature {
         var project: Project
         var workflow: WorkflowDocument?
         var isLoading = true
-        var hasWorkflow = false
     }
     
-    enum Action: BindableAction {
-        case binding(BindingAction<State>)
+    enum Action {
         case task
         case workflowLoaded(WorkflowDocument?)
         case createWorkflow(WorkflowTemplate)
@@ -31,13 +29,8 @@ struct ProjectDetailFeature {
     @Dependency(\.fileClient) var fileClient
     
     var body: some ReducerOf<Self> {
-        BindingReducer()
-        
         Reduce { state, action in
             switch action {
-            case .binding:
-                return .none
-                
             case .task:
                 return .run { [path = state.project.path] send in
                     let doc = try await fileClient.readWorkflow(path)
@@ -46,14 +39,12 @@ struct ProjectDetailFeature {
                 
             case .workflowLoaded(let doc):
                 state.workflow = doc
-                state.hasWorkflow = doc != nil
                 state.isLoading = false
                 return .none
                 
             case .createWorkflow(let template):
                 let doc = Self.templateDocument(for: template)
                 state.workflow = doc
-                state.hasWorkflow = true
                 return .run { [path = state.project.path] _ in
                     try await fileClient.writeWorkflow(path, doc)
                 }

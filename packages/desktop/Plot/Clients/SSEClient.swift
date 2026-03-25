@@ -79,7 +79,6 @@ extension SSEClient: DependencyKey {
 
 enum SSEError: Error, Sendable {
     case badStatus
-    case disconnected
 }
 
 extension DependencyValues {

@@ -15,16 +15,4 @@ enum ProjectLifecycle: Equatable {
         default: return false
         }
     }
-
-    var label: String {
-        switch self {
-        case .idle: return "Idle"
-        case .launching: return "Launching"
-        case .connecting: return "Connecting"
-        case .streaming: return "Running"
-        case .stopping: return "Stopping"
-        case .stopped: return "Stopped"
-        case .failed: return "Error"
-        }
-    }
 }

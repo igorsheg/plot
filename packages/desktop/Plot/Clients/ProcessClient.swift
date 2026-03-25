@@ -11,9 +11,7 @@ struct ProcessClient: Sendable {
 }
 
 struct ProcessHandle: Sendable {
-    let pid: Int32
     let exitStream: AsyncStream<Int32>
-    let outputStream: AsyncStream<String>
 }
 
 extension ProcessClient: DependencyKey {
@@ -31,7 +29,7 @@ extension ProcessClient: DependencyKey {
                 process.standardError = stderrPipe
 
                 let (exitStream, exitContinuation) = AsyncStream<Int32>.makeStream()
-                let (outputStream, outputContinuation) = AsyncStream<String>.makeStream()
+                let (_, outputContinuation) = AsyncStream<String>.makeStream()
 
                 let managed = ManagedProcess(
                     process: process,
@@ -81,9 +79,7 @@ extension ProcessClient: DependencyKey {
                 await ProcessSupervisor.shared.register(id, process: managed)
 
                 return ProcessHandle(
-                    pid: process.processIdentifier,
-                    exitStream: exitStream,
-                    outputStream: outputStream
+                    exitStream: exitStream
                 )
             },
             terminate: { id in
