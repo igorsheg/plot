@@ -30,6 +30,7 @@ targets:
         PRODUCT_NAME: Plot
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_LSUIElement: true
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         SWIFT_VERSION: "6.0"
