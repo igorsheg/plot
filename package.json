@@ -8,7 +8,8 @@
 		"url": "git+https://github.com/igorsheg/plot.git"
 	},
 	"workspaces": [
-		"packages/*"
+		"packages/*",
+		"!packages/desktop"
 	],
 	"scripts": {
 		"lint": "turbo run lint",

@@ -1,0 +1,22 @@
+{
+	"name": "@plot/desktop",
+	"private": true,
+	"scripts": {
+		"start": "bun run build:dev && electrobun dev",
+		"build:dev": "bun install && electrobun build",
+		"typecheck": "tsc -b tsconfig.json"
+	},
+	"dependencies": {
+		"electrobun": "latest",
+		"gray-matter": "^4.0.3",
+		"react": "^19.1.0",
+		"react-dom": "^19.1.0",
+		"yaml": "^2.8.3"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/react": "latest",
+		"@types/react-dom": "latest",
+		"typescript": "^5.8.2"
+	}
+}
