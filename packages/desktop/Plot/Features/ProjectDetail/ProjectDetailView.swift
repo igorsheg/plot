@@ -55,9 +55,27 @@ struct WorkflowFormView: View {
     private let trackerKinds = ["github", "beads"]
     private let modelOptions = ["anthropic/claude-sonnet-4-20250514", "anthropic/claude-opus-4-6"]
 
+    @State private var selectedTab: DetailTab = .tracker
+
+    enum DetailTab: String, CaseIterable {
+        case tracker = "Tracker"
+        case agent = "Agent"
+        case instructions = "Instructions"
+        case advanced = "Advanced"
+
+        var systemImage: String {
+            switch self {
+            case .tracker: return "antenna.radiowaves.left.and.right"
+            case .agent: return "cpu"
+            case .instructions: return "doc.text"
+            case .advanced: return "gearshape"
+            }
+        }
+    }
+
     var body: some View {
-        Form {
-            Section {
+        TabView(selection: $selectedTab) {
+            Form {
                 Picker("Kind", selection: trackerKindBinding) {
                     ForEach(trackerKinds, id: \.self) { kind in
                         Text(kind).tag(kind)
@@ -82,11 +100,12 @@ struct WorkflowFormView: View {
                     tags: config.tracker?.parkedStates ?? [],
                     onChange: { config.tracker?.parkedStates = $0; sync() }
                 )
-            } header: {
-                Label("Tracker", systemImage: "antenna.radiowaves.left.and.right")
             }
+            .formStyle(.grouped)
+            .tabItem { Label(DetailTab.tracker.rawValue, systemImage: DetailTab.tracker.systemImage) }
+            .tag(DetailTab.tracker)
 
-            Section {
+            Form {
                 Picker("Model", selection: agentModelBinding) {
                     ForEach(modelOptions, id: \.self) { model in
                         Text(model).tag(model)
@@ -113,13 +132,38 @@ struct WorkflowFormView: View {
                     format: .number
                 )
                 .help("Maximum conversation turns per agent session")
-            } header: {
-                Label("Agent", systemImage: "cpu")
             }
+            .formStyle(.grouped)
+            .tabItem { Label(DetailTab.agent.rawValue, systemImage: DetailTab.agent.systemImage) }
+            .tag(DetailTab.agent)
 
-            Section {
+            Form {
+                Section {
+                    Button {
+                        onOpenInEditor()
+                    } label: {
+                        Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                if !workflow.promptBody.isEmpty {
+                    Section("Preview") {
+                        Text(workflow.promptBody)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label(DetailTab.instructions.rawValue, systemImage: DetailTab.instructions.systemImage) }
+            .tag(DetailTab.instructions)
+
+            Form {
                 TextField(
-                    "Root",
+                    "Workspace Root",
                     text: Binding(
                         get: { config.workspace?.root ?? "" },
                         set: {
@@ -129,29 +173,12 @@ struct WorkflowFormView: View {
                         }
                     )
                 )
-            } header: {
-                Label("Workspace", systemImage: "folder")
+                .help("Working directory for agent workspaces, relative to the project root")
             }
-
-            Section {
-                Button {
-                    onOpenInEditor()
-                } label: {
-                    Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
-                }
-                .buttonStyle(.borderedProminent)
-
-                if !workflow.promptBody.isEmpty {
-                    Text(workflow.promptBody)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(5)
-                }
-            } header: {
-                Label("Agent Instructions", systemImage: "doc.text")
-            }
+            .formStyle(.grouped)
+            .tabItem { Label(DetailTab.advanced.rawValue, systemImage: DetailTab.advanced.systemImage) }
+            .tag(DetailTab.advanced)
         }
-        .formStyle(.grouped)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
