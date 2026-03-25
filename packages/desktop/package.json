@@ -2,12 +2,12 @@
 	"name": "@plot/desktop",
 	"private": true,
 	"scripts": {
-		"start": "bun run build:dev && electrobun dev",
+		"start": "bun run build:views && bun run build:dev && electrobun dev",
 		"build:dev": "bun install && electrobun build",
 		"typecheck": "tsc -b tsconfig.json",
 		"dev": "electrobun dev --watch",
-		"dev:hmr": "concurrently \"vite --port 5174\" \"bun run start\"",
-		"build:views": "vite build"
+		"dev:hmr": "concurrently \"bunx vite --port 5174\" \"bun run start\"",
+		"build:views": "bunx vite build"
 	},
 	"dependencies": {
 		"@milkdown/crepe": "^7.19.2",
@@ -19,7 +19,7 @@
 		"react": "^19.1.0",
 		"react-dom": "^19.1.0",
 		"yaml": "^2.8.3",
-		"@plot/ui": "workspace:*",
+		"@plot/ui": "file:../ui",
 		"@base-ui/react": "^1.2.0",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
