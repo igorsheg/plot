@@ -3,9 +3,9 @@ import { DateTime } from "effect";
 import { motion, AnimatePresence } from "motion/react";
 import { TriangleAlertIcon, ChevronRightIcon } from "lucide-react";
 import { useRuntimeSnapshot } from "@/lib/runtime";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "@/components/ui/collapsible";
+import { Alert, AlertTitle, AlertDescription } from "@plot/ui/components/alert";
+import { Badge } from "@plot/ui/components/badge";
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "@plot/ui/components/collapsible";
 
 const FADE_INITIAL = { opacity: 0 };
 const FADE_ANIMATE = { opacity: 1 };

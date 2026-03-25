@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
 import { animate } from "motion";
-import { cn } from "@/lib/utils";
+import { cn } from "@plot/ui/lib/utils";
 
 const FAST_SPRING = {
 	type: "spring" as const,

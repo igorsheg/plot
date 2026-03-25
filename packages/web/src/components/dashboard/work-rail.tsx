@@ -5,8 +5,8 @@ import { formatTokens, formatTimeAgo } from "@/lib/format";
 import { useDashboard } from "./root";
 import { statusLabel, statusVariant, isActiveState } from "./status";
 import { useRuntimeSnapshot } from "@/lib/runtime";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { Badge } from "@plot/ui/components/badge";
+import { cn } from "@plot/ui/lib/utils";
 import { PhaseLabel } from "./phase-label";
 
 function phaseLabel(session: LiveSession): string | null {

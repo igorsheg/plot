@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { DateTime } from "effect";
-import { cn } from "@/lib/utils";
+import { cn } from "@plot/ui/lib/utils";
 import { formatTimestamp } from "@/lib/format";
 import { useTraceViewer } from "./root";
 import {

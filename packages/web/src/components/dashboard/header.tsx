@@ -3,9 +3,9 @@ import { ActivityIcon, RefreshCwIcon } from "lucide-react";
 import { StatusDot } from "./status-dot";
 import { useDashboard } from "./root";
 import { useStreamStatus, useTriggerRefresh } from "@/lib/runtime";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipTrigger, TooltipPopup, TooltipProvider } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { Button } from "@plot/ui/components/button";
+import { Tooltip, TooltipTrigger, TooltipPopup, TooltipProvider } from "@plot/ui/components/tooltip";
+import { cn } from "@plot/ui/lib/utils";
 
 export function Header() {
 	const { meta, state, actions } = useDashboard();

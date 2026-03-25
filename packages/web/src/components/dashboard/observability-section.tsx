@@ -1,8 +1,8 @@
 import { useRuntimeSnapshot } from "@/lib/runtime";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Meter, MeterIndicator, MeterLabel, MeterTrack } from "@/components/ui/meter";
-import { cn } from "@/lib/utils";
+import { Badge } from "@plot/ui/components/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@plot/ui/components/card";
+import { Meter, MeterIndicator, MeterLabel, MeterTrack } from "@plot/ui/components/meter";
+import { cn } from "@plot/ui/lib/utils";
 
 function sum(values: Record<string, number>): number {
 	return Object.values(values).reduce((total, value) => total + value, 0);

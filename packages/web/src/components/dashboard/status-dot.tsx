@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@plot/ui/lib/utils";
 
 const styles: Record<string, string> = {
 	connected: "bg-success",

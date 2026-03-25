@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import type { AgentRuntimeEvent, AgentEventType } from "@plot/sdk";
-import { cn } from "@/lib/utils";
+import { cn } from "@plot/ui/lib/utils";
 import { formatTimestamp } from "@/lib/format";
 import { eventBorderColor } from "./event-colors";
 import { useTraceViewer } from "./root";

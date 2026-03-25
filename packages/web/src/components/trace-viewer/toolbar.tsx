@@ -1,6 +1,6 @@
 import { useCallback, type ChangeEvent } from "react";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { Input } from "@plot/ui/components/input";
+import { cn } from "@plot/ui/lib/utils";
 import { useTraceViewer } from "./root";
 
 export function Toolbar() {

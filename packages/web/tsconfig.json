@@ -11,9 +11,26 @@
 		"rootDir": "src",
 		"baseUrl": ".",
 		"paths": {
-			"@/*": ["./src/*"]
+			"@/*": [
+				"./src/*"
+			],
+			"@plot/ui/components/*": [
+				"../ui/src/components/*"
+			],
+			"@plot/ui/lib/*": [
+				"../ui/src/lib/*"
+			]
 		}
 	},
-	"include": ["src"],
-	"references": [{ "path": "../sdk" }]
+	"include": [
+		"src"
+	],
+	"references": [
+		{
+			"path": "../sdk"
+		},
+		{
+			"path": "../ui"
+		}
+	]
 }
