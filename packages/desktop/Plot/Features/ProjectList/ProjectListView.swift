@@ -111,7 +111,7 @@ struct ProjectRowView: View {
     private var statusColor: Color {
         switch lifecycle {
         case .idle, .stopped: return .secondary
-        case .launching, .connecting: return .orange
+        case .launching, .connecting, .stopping: return .orange
         case .streaming: return .green
         case .failed: return .red
         }

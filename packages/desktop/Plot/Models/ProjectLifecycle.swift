@@ -5,12 +5,13 @@ enum ProjectLifecycle: Equatable {
     case launching
     case connecting
     case streaming
+    case stopping
     case stopped
     case failed(String)
 
     var isActive: Bool {
         switch self {
-        case .launching, .connecting, .streaming: return true
+        case .launching, .connecting, .streaming, .stopping: return true
         default: return false
         }
     }
@@ -21,6 +22,7 @@ enum ProjectLifecycle: Equatable {
         case .launching: return "Launching"
         case .connecting: return "Connecting"
         case .streaming: return "Running"
+        case .stopping: return "Stopping"
         case .stopped: return "Stopped"
         case .failed: return "Error"
         }

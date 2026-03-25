@@ -5,8 +5,9 @@ import os
 
 @DependencyClient
 struct ProcessClient: Sendable {
-    var spawn: @Sendable (_ path: String, _ arguments: [String], _ workingDirectory: String) async throws -> ProcessHandle
-    var terminate: @Sendable (_ handle: ProcessHandle) async -> Void
+    var spawn: @Sendable (_ id: UUID, _ path: String, _ arguments: [String], _ workingDirectory: String) async throws -> ProcessHandle
+    var terminate: @Sendable (_ id: UUID) async -> Void
+    var terminateAll: @Sendable () async -> Void
 }
 
 struct ProcessHandle: Sendable {
@@ -18,21 +19,28 @@ struct ProcessHandle: Sendable {
 extension ProcessClient: DependencyKey {
     static let liveValue: ProcessClient = {
         ProcessClient(
-            spawn: { path, arguments, workingDirectory in
+            spawn: { id, path, arguments, workingDirectory in
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: path)
                 process.arguments = arguments
                 process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-                
+
                 let stdoutPipe = Pipe()
                 let stderrPipe = Pipe()
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
-                
+
                 let (exitStream, exitContinuation) = AsyncStream<Int32>.makeStream()
                 let (outputStream, outputContinuation) = AsyncStream<String>.makeStream()
-                
-                // Read stdout
+
+                let managed = ManagedProcess(
+                    process: process,
+                    stdoutPipe: stdoutPipe,
+                    stderrPipe: stderrPipe,
+                    outputContinuation: outputContinuation,
+                    exitContinuation: exitContinuation
+                )
+
                 stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
                     guard !data.isEmpty else { return }
@@ -41,8 +49,7 @@ extension ProcessClient: DependencyKey {
                         outputContinuation.yield(line)
                     }
                 }
-                
-                // Read stderr
+
                 stderrPipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
                     guard !data.isEmpty else { return }
@@ -51,35 +58,39 @@ extension ProcessClient: DependencyKey {
                         outputContinuation.yield(line)
                     }
                 }
-                
+
                 process.terminationHandler = { proc in
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                    outputContinuation.finish()
-                    exitContinuation.yield(proc.terminationStatus)
-                    exitContinuation.finish()
+                    PlotLog.runtime.info("process pid=\(proc.processIdentifier) terminated with status \(proc.terminationStatus)")
+                    managed.finish(status: proc.terminationStatus)
+                    Task {
+                        await ProcessSupervisor.shared.remove(id)
+                    }
                 }
-                
+
                 PlotLog.runtime.info("spawning: \(path) \(arguments.joined(separator: " "))")
                 PlotLog.runtime.info("  cwd: \(workingDirectory)")
                 do {
                     try process.run()
                 } catch {
                     PlotLog.runtime.error("Process.run failed: \(error.localizedDescription)")
+                    managed.finish(status: -1)
                     throw error
                 }
                 PlotLog.runtime.info("process started, pid=\(process.processIdentifier)")
-                
+
+                await ProcessSupervisor.shared.register(id, process: managed)
+
                 return ProcessHandle(
                     pid: process.processIdentifier,
                     exitStream: exitStream,
                     outputStream: outputStream
                 )
             },
-            terminate: { handle in
-                kill(handle.pid, SIGTERM)
-                try? await Task.sleep(for: .seconds(5))
-                kill(handle.pid, SIGKILL)
+            terminate: { id in
+                await ProcessSupervisor.shared.terminate(id)
+            },
+            terminateAll: {
+                await ProcessSupervisor.shared.terminateAll()
             }
         )
     }()
