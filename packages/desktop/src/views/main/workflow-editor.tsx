@@ -1,49 +1,12 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import type { WorkflowFrontmatter } from "../../shared/types";
-
-// --- Shared styles ---
-
-const colors = {
-	bg: "#1a1a1a",
-	surface: "#242424",
-	border: "#333",
-	text: "#e5e5e5",
-	textMuted: "#999",
-	accent: "#4a9eff",
-	accentHover: "#3a8eef",
-	danger: "#ff4a4a",
-	chip: "#2a2a2a",
-};
-
-const baseInput: CSSProperties = {
-	background: colors.surface,
-	border: `1px solid ${colors.border}`,
-	borderRadius: 6,
-	color: colors.text,
-	padding: "6px 10px",
-	fontSize: 14,
-	outline: "none",
-	width: "100%",
-	boxSizing: "border-box",
-};
-
-const labelStyle: CSSProperties = {
-	display: "block",
-	fontSize: 13,
-	color: colors.textMuted,
-	marginBottom: 4,
-	fontWeight: 500,
-};
-
-const sectionStyle: CSSProperties = {
-	marginBottom: 20,
-	padding: 16,
-	background: colors.surface,
-	borderRadius: 8,
-	border: `1px solid ${colors.border}`,
-};
-
-// --- TagInput ---
+import { Button } from "@plot/ui/components/button";
+import { Input } from "@plot/ui/components/input";
+import { Label } from "@plot/ui/components/label";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@plot/ui/components/select";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@plot/ui/components/collapsible";
+import { Badge } from "@plot/ui/components/badge";
+import { cn } from "@plot/ui/lib/utils";
 
 function TagInput({
 	values,
@@ -70,46 +33,26 @@ function TagInput({
 
 	return (
 		<div>
-			<div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: values.length ? 6 : 0 }}>
-				{values.map((v, i) => (
-					<span
-						key={v}
-						style={{
-							display: "inline-flex",
-							alignItems: "center",
-							gap: 4,
-							background: colors.chip,
-							border: `1px solid ${colors.border}`,
-							borderRadius: 4,
-							padding: "2px 8px",
-							fontSize: 13,
-							color: colors.text,
-						}}
-					>
-						{v}
-						<button
-							type="button"
-							onClick={() => remove(i)}
-							style={{
-								background: "none",
-								border: "none",
-								color: colors.danger,
-								cursor: "pointer",
-								padding: 0,
-								fontSize: 14,
-								lineHeight: 1,
-							}}
-						>
-							×
-						</button>
-					</span>
-				))}
-			</div>
-			<input
-				style={baseInput}
+			{values.length > 0 && (
+				<div className="mb-1.5 flex flex-wrap gap-1.5">
+					{values.map((v, i) => (
+						<Badge key={v} variant="outline" size="sm">
+							{v}
+							<button
+								type="button"
+								onClick={() => remove(i)}
+								className="ml-0.5 cursor-pointer border-none bg-transparent p-0 text-sm leading-none text-destructive"
+							>
+								×
+							</button>
+						</Badge>
+					))}
+				</div>
+			)}
+			<Input
 				value={input}
-				onChange={(e) => setInput(e.target.value)}
-				onKeyDown={(e) => {
+				onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
+				onKeyDown={(e: React.KeyboardEvent) => {
 					if (e.key === "Enter") {
 						e.preventDefault();
 						add();
@@ -121,65 +64,17 @@ function TagInput({
 	);
 }
 
-// --- CollapsibleSection ---
-
-function CollapsibleSection({
-	title,
-	children,
-	defaultOpen = false,
-}: {
-	title: string;
-	children: React.ReactNode;
-	defaultOpen?: boolean;
-}) {
-	const [open, setOpen] = useState(defaultOpen);
-
-	return (
-		<div style={sectionStyle}>
-			<button
-				type="button"
-				onClick={() => setOpen(!open)}
-				style={{
-					background: "none",
-					border: "none",
-					color: colors.text,
-					cursor: "pointer",
-					padding: 0,
-					fontSize: 15,
-					fontWeight: 600,
-					display: "flex",
-					alignItems: "center",
-					gap: 6,
-					width: "100%",
-				}}
-			>
-				<span style={{ fontSize: 12, transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "rotate(0)" }}>
-					▶
-				</span>
-				{title}
-			</button>
-			{open && <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>}
-		</div>
-	);
-}
-
-// --- Field wrapper ---
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
 	return (
-		<div>
-			<label style={labelStyle}>{label}</label>
+		<div className="space-y-1">
+			<Label className="text-xs text-muted-foreground">{label}</Label>
 			{children}
 		</div>
 	);
 }
 
-// --- Predefined options ---
-
 const trackerKinds = ["github", "beads"];
 const modelOptions = ["anthropic/claude-sonnet-4-20250514", "anthropic/claude-opus-4-6"];
-
-// --- WorkflowEditor ---
 
 export type WorkflowEditorProps = {
 	frontmatter: WorkflowFrontmatter;
@@ -221,26 +116,16 @@ export function WorkflowEditor({ frontmatter, body, onChange, onSave, dirty }: W
 	const isCustomModel = !modelOptions.includes(agentModel);
 
 	return (
-		<div
-			style={{
-				background: colors.bg,
-				color: colors.text,
-				fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-				height: "100%",
-				overflow: "auto",
-				padding: 20,
-			}}
-		>
+		<div className="h-full overflow-auto p-5">
 			{/* TIER 1 — Essential fields */}
-			<div style={sectionStyle}>
-				<div style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Tracker</div>
-				<div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+			<div className="mb-5 rounded-lg border border-border bg-card p-4">
+				<div className="mb-3.5 text-[15px] font-semibold">Tracker</div>
+				<div className="flex flex-col gap-3.5">
 					<Field label="Tracker Kind">
-						<select
-							style={{ ...baseInput, cursor: "pointer" }}
+						<Select
 							value={isCustomTracker ? "__custom__" : tracker?.kind ?? ""}
-							onChange={(e) => {
-								const v = e.target.value;
+							onValueChange={(v) => {
+								if (v == null) return;
 								if (v === "__custom__") {
 									updateTracker({ kind: customTracker });
 								} else {
@@ -249,19 +134,23 @@ export function WorkflowEditor({ frontmatter, body, onChange, onSave, dirty }: W
 								}
 							}}
 						>
-							<option value="">Select...</option>
-							{trackerKinds.map((k) => (
-								<option key={k} value={k}>
-									{k}
-								</option>
-							))}
-							<option value="__custom__">Custom plugin...</option>
-						</select>
+							<SelectTrigger>
+								<SelectValue placeholder="Select..." />
+							</SelectTrigger>
+							<SelectContent>
+								{trackerKinds.map((k) => (
+									<SelectItem key={k} value={k}>
+										{k}
+									</SelectItem>
+								))}
+								<SelectItem value="__custom__">Custom plugin...</SelectItem>
+							</SelectContent>
+						</Select>
 						{(isCustomTracker || (!tracker?.kind && customTracker)) && (
-							<input
-								style={{ ...baseInput, marginTop: 6 }}
+							<Input
+								className="mt-1.5"
 								value={customTracker || tracker?.kind || ""}
-								onChange={(e) => {
+								onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
 									setCustomTracker(e.target.value);
 									updateTracker({ kind: e.target.value });
 								}}
@@ -289,132 +178,122 @@ export function WorkflowEditor({ frontmatter, body, onChange, onSave, dirty }: W
 			</div>
 
 			{/* TIER 2 — Agent Settings */}
-			<CollapsibleSection title="Agent Settings">
-				<Field label="Model">
-					<select
-						style={{ ...baseInput, cursor: "pointer" }}
-						value={isCustomModel ? "__custom__" : agent?.model ?? ""}
-						onChange={(e) => {
-							const v = e.target.value;
-							if (v === "__custom__") {
-								updateAgent({ model: customModel });
-							} else {
-								setCustomModel("");
-								updateAgent({ model: v });
-							}
-						}}
-					>
-						<option value="">Select...</option>
-						{modelOptions.map((m) => (
-							<option key={m} value={m}>
-								{m}
-							</option>
-						))}
-						<option value="__custom__">Custom model...</option>
-					</select>
-					{isCustomModel && (
-						<input
-							style={{ ...baseInput, marginTop: 6 }}
-							value={customModel || agent?.model || ""}
-							onChange={(e) => {
-								setCustomModel(e.target.value);
-								updateAgent({ model: e.target.value });
-							}}
-							placeholder="provider/model-id"
-						/>
-					)}
-				</Field>
+			<Collapsible className="mb-5 rounded-lg border border-border bg-card p-4">
+				<CollapsibleTrigger className="flex w-full items-center gap-1.5 text-[15px] font-semibold text-foreground">
+					<span className="text-xs transition-transform duration-150 [[data-panel-open]_&]:rotate-90">▶</span>
+					Agent Settings
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<div className="mt-3.5 flex flex-col gap-3.5">
+						<Field label="Model">
+							<Select
+								value={isCustomModel ? "__custom__" : agent?.model ?? ""}
+								onValueChange={(v) => {
+								if (v == null) return;
+									if (v === "__custom__") {
+										updateAgent({ model: customModel });
+									} else {
+										setCustomModel("");
+										updateAgent({ model: v });
+									}
+								}}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select..." />
+								</SelectTrigger>
+								<SelectContent>
+									{modelOptions.map((m) => (
+										<SelectItem key={m} value={m}>
+											{m}
+										</SelectItem>
+									))}
+									<SelectItem value="__custom__">Custom model...</SelectItem>
+								</SelectContent>
+							</Select>
+							{isCustomModel && (
+								<Input
+									className="mt-1.5"
+									value={customModel || agent?.model || ""}
+									onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+										setCustomModel(e.target.value);
+										updateAgent({ model: e.target.value });
+									}}
+									placeholder="provider/model-id"
+								/>
+							)}
+						</Field>
 
-				<Field label="Max Concurrent Agents">
-					<input
-						type="number"
-						min={1}
-						max={10}
-						style={baseInput}
-						value={agent?.maxConcurrentAgents ?? ""}
-						onChange={(e) => updateAgent({ maxConcurrentAgents: e.target.value ? Number(e.target.value) : undefined })}
-					/>
-				</Field>
+						<Field label="Max Concurrent Agents">
+							<Input
+								type="number"
+								min={1}
+								max={10}
+								value={agent?.maxConcurrentAgents ?? ""}
+								onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+									updateAgent({ maxConcurrentAgents: e.target.value ? Number(e.target.value) : undefined })
+								}
+							/>
+						</Field>
 
-				<Field label="Max Turns">
-					<input
-						type="number"
-						min={1}
-						max={200}
-						style={baseInput}
-						value={agent?.maxTurns ?? ""}
-						onChange={(e) => updateAgent({ maxTurns: e.target.value ? Number(e.target.value) : undefined })}
-					/>
-				</Field>
+						<Field label="Max Turns">
+							<Input
+								type="number"
+								min={1}
+								max={200}
+								value={agent?.maxTurns ?? ""}
+								onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+									updateAgent({ maxTurns: e.target.value ? Number(e.target.value) : undefined })
+								}
+							/>
+						</Field>
 
-				<Field label="Parked States">
-					<TagInput
-						values={tracker?.parkedStates ?? []}
-						onChange={(v) => updateTracker({ parkedStates: v })}
-						placeholder="Add state, press Enter"
-					/>
-				</Field>
+						<Field label="Parked States">
+							<TagInput
+								values={tracker?.parkedStates ?? []}
+								onChange={(v) => updateTracker({ parkedStates: v })}
+								placeholder="Add state, press Enter"
+							/>
+						</Field>
 
-				<Field label="Workspace Root">
-					<input
-						style={baseInput}
-						value={workspace?.root ?? ""}
-						onChange={(e) => update({ workspace: { ...workspace, root: e.target.value || undefined } })}
-						placeholder="./workspaces"
-					/>
-				</Field>
-			</CollapsibleSection>
+						<Field label="Workspace Root">
+							<Input
+								value={workspace?.root ?? ""}
+								onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+									update({ workspace: { ...workspace, root: e.target.value || undefined } })
+								}
+								placeholder="./workspaces"
+							/>
+						</Field>
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
 
 			{/* TIER 3 — Advanced YAML */}
-			<CollapsibleSection title="Advanced (YAML)">
-				<textarea
-					readOnly
-					style={{
-						...baseInput,
-						fontFamily: "'SF Mono', 'Fira Code', monospace",
-						fontSize: 13,
-						minHeight: 200,
-						resize: "vertical",
-						whiteSpace: "pre",
-					}}
-					value={JSON.stringify(fm, null, 2)}
-				/>
-			</CollapsibleSection>
+			<Collapsible className="mb-5 rounded-lg border border-border bg-card p-4">
+				<CollapsibleTrigger className="flex w-full items-center gap-1.5 text-[15px] font-semibold text-foreground">
+					<span className="text-xs transition-transform duration-150 [[data-panel-open]_&]:rotate-90">▶</span>
+					Advanced (YAML)
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<div className="mt-3.5">
+						<textarea
+							readOnly
+							className="min-h-[200px] w-full resize-y whitespace-pre rounded-lg border border-border bg-background p-2.5 font-mono text-[13px] text-foreground outline-none"
+							value={JSON.stringify(fm, null, 2)}
+						/>
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
 
 			{/* Markdown placeholder */}
-			<div
-				style={{
-					...sectionStyle,
-					color: colors.textMuted,
-					textAlign: "center",
-					padding: 40,
-					fontSize: 14,
-					fontStyle: "italic",
-				}}
-			>
+			<div className="mb-5 rounded-lg border border-border bg-card p-10 text-center text-sm italic text-muted-foreground">
 				Markdown editor will go here
 			</div>
 
 			{/* Save button */}
-			<button
-				type="button"
-				onClick={onSave}
-				style={{
-					background: colors.accent,
-					color: "#fff",
-					border: "none",
-					borderRadius: 6,
-					padding: "10px 24px",
-					fontSize: 14,
-					fontWeight: 600,
-					cursor: "pointer",
-					width: "100%",
-				}}
-				onMouseOver={(e) => (e.currentTarget.style.background = colors.accentHover)}
-				onMouseOut={(e) => (e.currentTarget.style.background = colors.accent)}
-			>
+			<Button className="w-full" onClick={onSave}>
 				{dirty ? "Save (unsaved changes)" : "Save"}
-			</button>
+			</Button>
 		</div>
 	);
 }

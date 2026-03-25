@@ -1,4 +1,4 @@
-import { BrowserWindow, BrowserView, Utils } from "electrobun/bun";
+import { BrowserWindow, BrowserView, Utils, ApplicationMenu } from "electrobun/bun";
 import type { DesktopRPC, ProjectInfo } from "../shared/types";
 import { createTray } from "./tray";
 import { ProcessManager } from "./process-manager";
@@ -9,6 +9,37 @@ import {
 	readWorkflowFile,
 	saveWorkflowFile,
 } from "./file-io";
+
+const DEV_PORT = 5174;
+const DEV_URL = `http://localhost:${DEV_PORT}`;
+
+async function getViewUrl(): Promise<string> {
+	try {
+		await fetch(DEV_URL, { method: "HEAD" });
+		console.log(`HMR: loading from ${DEV_URL}`);
+		return DEV_URL;
+	} catch {
+		return "views://main/index.html";
+	}
+}
+
+ApplicationMenu.setApplicationMenu([
+	{
+		submenu: [{ role: "quit" }],
+	},
+	{
+		label: "Edit",
+		submenu: [
+			{ role: "undo" },
+			{ role: "redo" },
+			{ type: "separator" },
+			{ role: "cut" },
+			{ role: "copy" },
+			{ role: "paste" },
+			{ role: "selectAll" },
+		],
+	},
+]);
 
 const processManager = new ProcessManager();
 
@@ -98,7 +129,7 @@ const rpc = BrowserView.defineRPC<DesktopRPC>({
 
 const win = new BrowserWindow({
 	title: "Plot",
-	url: "views://main/index.html",
+	url: await getViewUrl(),
 	titleBarStyle: "hiddenInset",
 	rpc,
 	frame: {

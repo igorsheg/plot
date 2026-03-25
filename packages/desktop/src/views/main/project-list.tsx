@@ -1,85 +1,13 @@
 import type { ProjectInfo, ProjectStatus } from "../../shared/types";
+import { Button } from "@plot/ui/components/button";
+import { cn } from "@plot/ui/lib/utils";
 
-const statusColors: Record<ProjectStatus, string> = {
-	running: "#22c55e",
-	starting: "#eab308",
-	idle: "#737373",
-	stopped: "#737373",
-	error: "#ef4444",
-};
-
-const styles = {
-	container: {
-		display: "flex",
-		flexDirection: "column" as const,
-		gap: 2,
-		width: "100%",
-	},
-	row: {
-		display: "flex",
-		alignItems: "center" as const,
-		gap: 12,
-		padding: "10px 12px",
-		borderRadius: 6,
-		cursor: "pointer",
-		border: "1px solid #333",
-		background: "#222",
-	},
-	dot: {
-		width: 8,
-		height: 8,
-		borderRadius: "50%",
-		flexShrink: 0,
-	},
-	info: {
-		flex: 1,
-		minWidth: 0,
-	},
-	name: {
-		fontWeight: 600,
-		fontSize: 14,
-		color: "#e5e5e5",
-		overflow: "hidden" as const,
-		textOverflow: "ellipsis" as const,
-		whiteSpace: "nowrap" as const,
-	},
-	path: {
-		fontSize: 12,
-		color: "#737373",
-		overflow: "hidden" as const,
-		textOverflow: "ellipsis" as const,
-		whiteSpace: "nowrap" as const,
-	},
-	button: {
-		padding: "4px 12px",
-		fontSize: 12,
-		borderRadius: 4,
-		border: "1px solid #444",
-		background: "#333",
-		color: "#e5e5e5",
-		cursor: "pointer",
-		flexShrink: 0,
-	},
-	addButton: {
-		padding: "10px 16px",
-		fontSize: 14,
-		borderRadius: 6,
-		border: "1px dashed #444",
-		background: "transparent",
-		color: "#a3a3a3",
-		cursor: "pointer",
-		marginTop: 4,
-		width: "100%",
-	},
-	empty: {
-		display: "flex",
-		alignItems: "center" as const,
-		justifyContent: "center" as const,
-		padding: "48px 24px",
-		color: "#737373",
-		fontSize: 14,
-		textAlign: "center" as const,
-	},
+const statusDotColor: Record<ProjectStatus, string> = {
+	running: "bg-success",
+	starting: "bg-warning",
+	idle: "bg-muted-foreground",
+	stopped: "bg-muted-foreground",
+	error: "bg-destructive",
 };
 
 type ProjectListProps = {
@@ -97,54 +25,55 @@ export function ProjectList({
 }: ProjectListProps) {
 	if (projects.length === 0) {
 		return (
-			<div style={styles.container}>
-				<div style={styles.empty}>
+			<div className="flex w-full flex-col gap-0.5">
+				<div className="flex items-center justify-center px-6 py-12 text-sm text-muted-foreground">
 					No projects yet. Add a project to get started.
 				</div>
-				<button type="button" style={styles.addButton} onClick={onAddProject}>
+				<Button variant="outline" className="w-full border-dashed" onClick={onAddProject}>
 					+ Add Project
-				</button>
+				</Button>
 			</div>
 		);
 	}
 
 	return (
-		<div style={styles.container}>
+		<div className="flex w-full flex-col gap-0.5">
 			{projects.map((project) => {
 				const isRunning =
 					project.status === "running" || project.status === "starting";
 				return (
 					<div
 						key={project.path}
-						style={styles.row}
+						className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5"
 						onClick={() => onProjectClick(project.path)}
 					>
-						<div
-							style={{
-								...styles.dot,
-								backgroundColor: statusColors[project.status],
-							}}
+						<span
+							className={cn("size-2 shrink-0 rounded-full", statusDotColor[project.status])}
 						/>
-						<div style={styles.info}>
-							<div style={styles.name}>{project.name}</div>
-							<div style={styles.path}>{project.path}</div>
+						<div className="min-w-0 flex-1">
+							<div className="truncate text-sm font-semibold text-foreground">
+								{project.name}
+							</div>
+							<div className="truncate text-xs text-muted-foreground">
+								{project.path}
+							</div>
 						</div>
-						<button
-							type="button"
-							style={styles.button}
-							onClick={(e) => {
+						<Button
+							variant="outline"
+							size="xs"
+							onClick={(e: React.MouseEvent) => {
 								e.stopPropagation();
 								onToggleAgent(project.path, isRunning);
 							}}
 						>
 							{isRunning ? "Stop" : "Start"}
-						</button>
+						</Button>
 					</div>
 				);
 			})}
-			<button type="button" style={styles.addButton} onClick={onAddProject}>
+			<Button variant="outline" className="mt-1 w-full border-dashed" onClick={onAddProject}>
 				+ Add Project
-			</button>
+			</Button>
 		</div>
 	);
 }

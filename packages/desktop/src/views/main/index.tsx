@@ -1,3 +1,4 @@
+import "./app.css";
 import { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { Electroview } from "electrobun/view";
@@ -7,6 +8,7 @@ import type {
 	ParsedWorkflow,
 	WorkflowFrontmatter,
 } from "../../shared/types";
+import { Button } from "@plot/ui/components/button";
 import { ProjectList } from "./project-list";
 import { WorkflowEditor } from "./workflow-editor";
 import { MarkdownEditor } from "./markdown-editor";
@@ -15,7 +17,6 @@ const rpc = Electroview.defineRPC<DesktopRPC>({
 	handlers: { requests: {}, messages: {} },
 });
 
-// Electroview constructor sets up the websocket transport as a side effect
 void new Electroview({ rpc });
 
 type View = "list" | "editor";
@@ -28,9 +29,13 @@ function ErrorBanner({
 	onDismiss: () => void;
 }) {
 	return (
-		<div style={styles.errorBanner}>
+		<div className="flex shrink-0 items-center justify-between bg-destructive px-4 py-2 text-destructive-foreground">
 			<span>{message}</span>
-			<button type="button" style={styles.errorDismiss} onClick={onDismiss}>
+			<button
+				type="button"
+				className="cursor-pointer border-none bg-transparent p-0 px-1 text-lg leading-none text-destructive-foreground"
+				onClick={onDismiss}
+			>
 				×
 			</button>
 		</div>
@@ -177,7 +182,11 @@ function App() {
 	};
 
 	if (loading) {
-		return <div style={styles.loading}>Loading...</div>;
+		return (
+			<div className="dark flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+				Loading...
+			</div>
+		);
 	}
 
 	const projectName =
@@ -187,23 +196,25 @@ function App() {
 
 	if (view === "editor" && workflow) {
 		return (
-			<div style={styles.shell}>
+			<div className="dark flex min-h-screen flex-col bg-background text-foreground">
 				{error && (
 					<ErrorBanner message={error} onDismiss={() => setError(null)} />
 				)}
-				<div style={styles.titleBar}>
-					<div style={styles.editorHeader}>
-						<button
-							type="button"
-							style={styles.backButton}
-							onClick={handleBack}
-						>
+				<div
+					className="flex h-[38px] shrink-0 items-center"
+					style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+				>
+					<div
+						className="flex items-center gap-3 px-5"
+						style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+					>
+						<Button variant="outline" size="xs" onClick={handleBack}>
 							← Projects
-						</button>
-						<span style={styles.projectName}>{projectName}</span>
+						</Button>
+						<span className="text-[15px] font-semibold">{projectName}</span>
 					</div>
 				</div>
-				<div style={styles.editorContent}>
+				<div className="flex-1 overflow-auto">
 					<WorkflowEditor
 						frontmatter={workflow.frontmatter}
 						body={workflow.body}
@@ -218,16 +229,22 @@ function App() {
 	}
 
 	return (
-		<div style={styles.shell}>
+		<div className="dark flex min-h-screen flex-col bg-background text-foreground">
 			{error && (
 				<ErrorBanner message={error} onDismiss={() => setError(null)} />
 			)}
-			<div style={styles.titleBar}>
-				<div style={styles.listHeader}>
-					<h1 style={styles.title}>Plot</h1>
+			<div
+				className="flex h-[38px] shrink-0 items-center"
+				style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+			>
+				<div
+					className="px-6"
+					style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+				>
+					<h1 className="m-0 text-xl font-bold">Plot</h1>
 				</div>
 			</div>
-			<div style={styles.listContent}>
+			<div className="flex-1 overflow-auto px-6 pb-6 pt-4">
 				<ProjectList
 					projects={projects}
 					onProjectClick={handleProjectClick}
@@ -238,90 +255,5 @@ function App() {
 		</div>
 	);
 }
-
-const styles: Record<string, React.CSSProperties & Record<string, unknown>> = {
-	shell: {
-		background: "#1a1a1a",
-		color: "#e5e5e5",
-		fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-		minHeight: "100vh",
-		display: "flex",
-		flexDirection: "column",
-	},
-	loading: {
-		background: "#1a1a1a",
-		color: "#737373",
-		fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-		minHeight: "100vh",
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		fontSize: 14,
-	},
-	errorBanner: {
-		background: "#dc2626",
-		color: "#ffffff",
-		padding: "8px 16px",
-		display: "flex",
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "space-between",
-		flexShrink: 0,
-	},
-	errorDismiss: {
-		background: "none",
-		border: "none",
-		color: "#ffffff",
-		cursor: "pointer",
-		fontSize: 18,
-		padding: "0 4px",
-		lineHeight: 1,
-	},
-	titleBar: {
-		WebkitAppRegion: "drag",
-		height: 38,
-		display: "flex",
-		alignItems: "center",
-		flexShrink: 0,
-	},
-	listHeader: {
-		WebkitAppRegion: "no-drag",
-		padding: "0 24px",
-	},
-	title: {
-		fontSize: 20,
-		fontWeight: 700,
-		margin: 0,
-	},
-	listContent: {
-		padding: "16px 24px 24px",
-		flex: 1,
-		overflow: "auto",
-	},
-	editorHeader: {
-		WebkitAppRegion: "no-drag",
-		display: "flex",
-		alignItems: "center",
-		gap: 12,
-		padding: "0 20px",
-	},
-	backButton: {
-		background: "none",
-		border: "1px solid #444",
-		borderRadius: 4,
-		color: "#a3a3a3",
-		cursor: "pointer",
-		padding: "4px 10px",
-		fontSize: 13,
-	},
-	projectName: {
-		fontSize: 15,
-		fontWeight: 600,
-	},
-	editorContent: {
-		flex: 1,
-		overflow: "auto",
-	},
-};
 
 createRoot(document.getElementById("root")!).render(<App />);

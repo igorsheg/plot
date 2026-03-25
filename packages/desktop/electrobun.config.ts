@@ -15,15 +15,11 @@ export default {
 		bun: {
 			entrypoint: "src/bun/index.ts",
 		},
-		views: {
-			main: {
-				entrypoint: "src/views/main/index.tsx",
-				minify: true,
-			},
-		},
 		copy: {
-			"src/views/main/index.html": "views/main/index.html",
+			"dist/index.html": "views/main/index.html",
+			"dist/assets": "views/main/assets",
 		},
+		watchIgnore: ["dist/**"],
 		mac: {
 			codesign: true,
 			notarize: true,

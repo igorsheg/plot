@@ -7,12 +7,28 @@
 		"strict": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
+		"noEmit": true,
+		"composite": false,
+		"declaration": false,
+		"declarationMap": false,
+		"sourceMap": false,
 		"outDir": "dist",
 		"rootDir": "src",
 		"baseUrl": ".",
 		"paths": {
-			"@/*": ["src/*"]
+			"@/*": ["./src/*"],
+			"@plot/ui/components/*": [
+				"../ui/src/components/*"
+			],
+			"@plot/ui/lib/*": [
+				"../ui/src/lib/*"
+			]
 		}
 	},
-	"include": ["src"]
+	"include": ["src"],
+	"references": [
+		{
+			"path": "../ui"
+		}
+	]
 }
