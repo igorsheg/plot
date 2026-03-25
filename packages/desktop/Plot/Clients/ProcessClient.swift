@@ -45,7 +45,7 @@ extension ProcessClient: DependencyKey {
                     let data = handle.availableData
                     guard !data.isEmpty else { return }
                     if let line = String(data: data, encoding: .utf8) {
-                        PlotLog.runtime.debug("[stdout] \(line.trimmingCharacters(in: .newlines))")
+                        PlotLog.runtime.debug("[stdout] \(line.trimmingCharacters(in: .newlines), privacy: .public)")
                         outputContinuation.yield(line)
                     }
                 }
@@ -54,29 +54,29 @@ extension ProcessClient: DependencyKey {
                     let data = handle.availableData
                     guard !data.isEmpty else { return }
                     if let line = String(data: data, encoding: .utf8) {
-                        PlotLog.runtime.error("[stderr] \(line.trimmingCharacters(in: .newlines))")
+                        PlotLog.runtime.error("[stderr] \(line.trimmingCharacters(in: .newlines), privacy: .public)")
                         outputContinuation.yield(line)
                     }
                 }
 
                 process.terminationHandler = { proc in
-                    PlotLog.runtime.info("process pid=\(proc.processIdentifier) terminated with status \(proc.terminationStatus)")
+                    PlotLog.runtime.info("process pid=\(proc.processIdentifier, privacy: .public) terminated with status \(proc.terminationStatus, privacy: .public)")
                     managed.notifyTermination(status: proc.terminationStatus)
                     Task {
                         await ProcessSupervisor.shared.remove(id)
                     }
                 }
                 
-                PlotLog.runtime.info("spawning: \(path) \(arguments.joined(separator: " "))")
-                PlotLog.runtime.info("  cwd: \(workingDirectory)")
+                PlotLog.runtime.info("spawning: \(path, privacy: .public) \(arguments.joined(separator: " "), privacy: .public)")
+                PlotLog.runtime.info("  cwd: \(workingDirectory, privacy: .public)")
                 do {
                     try process.run()
                 } catch {
-                    PlotLog.runtime.error("Process.run failed: \(error.localizedDescription)")
+                    PlotLog.runtime.error("Process.run failed: \(error.localizedDescription, privacy: .public)")
                     managed.notifyTermination(status: -1)
                     throw error
                 }
-                PlotLog.runtime.info("process started, pid=\(process.processIdentifier)")
+                PlotLog.runtime.info("process started, pid=\(process.processIdentifier, privacy: .public)")
 
                 await ProcessSupervisor.shared.register(id, process: managed)
 

@@ -16,13 +16,13 @@ actor ProcessSupervisor {
     
     func terminate(_ id: UUID) async {
         guard let entry = entries[id] else { return }
-        PlotLog.runtime.info("terminating process for project \(id.uuidString)")
+        PlotLog.runtime.info("terminating process for project \(id.uuidString, privacy: .public)")
         await entry.terminate()
     }
     
     func terminateAll() async {
         let ids = Array(entries.keys)
-        PlotLog.runtime.info("terminating all \(ids.count) processes")
+        PlotLog.runtime.info("terminating all \(ids.count, privacy: .public) processes")
         await withTaskGroup(of: Void.self) { group in
             for id in ids {
                 group.addTask { await self.terminate(id) }
@@ -92,7 +92,7 @@ actor ManagedProcess {
         guard process.isRunning else { return }
         
         let pid = process.processIdentifier
-        PlotLog.runtime.info("sending SIGTERM to pid \(pid)")
+        PlotLog.runtime.info("sending SIGTERM to pid \(pid, privacy: .public)")
         process.terminate()
         
         // Race: wait for clean exit vs 5s timeout
@@ -112,7 +112,7 @@ actor ManagedProcess {
         }
         
         if !exitedCleanly && process.isRunning {
-            PlotLog.runtime.warning("SIGTERM timeout, sending SIGKILL to pid \(pid)")
+            PlotLog.runtime.warning("SIGTERM timeout, sending SIGKILL to pid \(pid, privacy: .public)")
             kill(pid, SIGKILL)
             await waitForExit()
         }

@@ -43,7 +43,7 @@ struct ProjectRuntimeFeature {
                 guard !state.lifecycle.isActive else { return .none }
 
                 guard let port = portAllocator.allocate() else {
-                    PlotLog.runtime.error("no available ports for \(projectPath)")
+                    PlotLog.runtime.error("no available ports for \(projectPath, privacy: .public)")
                     state.lifecycle = .failed("No available ports")
                     return .none
                 }
@@ -58,7 +58,7 @@ struct ProjectRuntimeFeature {
                         do {
                             let resolution = binaryResolver.resolve(projectPath)
                             let args = resolution.arguments + ["serve", "--port", "\(port)", "--workflow", workflowPath]
-                            PlotLog.runtime.info("spawning: \(resolution.path) \(args.joined(separator: " "))")
+                            PlotLog.runtime.info("spawning: \(resolution.path, privacy: .public) \(args.joined(separator: " "), privacy: .public)")
 
                             let handle = try await processClient.spawn(projectId, resolution.path, args, projectPath)
 
@@ -66,7 +66,7 @@ struct ProjectRuntimeFeature {
                                 await send(.processExited(exitCode))
                             }
                         } catch {
-                            PlotLog.runtime.error("spawn failed: \(error.localizedDescription)")
+                            PlotLog.runtime.error("spawn failed: \(error.localizedDescription, privacy: .public)")
                             await send(.spawnFailed(error.localizedDescription))
                         }
                     }
@@ -92,7 +92,7 @@ struct ProjectRuntimeFeature {
 
             case .healthCheckPassed:
                 let port = state.port.map(String.init) ?? "unknown"
-                PlotLog.runtime.info("health check passed on port \(port)")
+                PlotLog.runtime.info("health check passed on port \(port, privacy: .public)")
                 state.lifecycle = .connecting
                 let projectId = state.projectId
                 guard let portNum = state.port else { return .none }
@@ -116,7 +116,7 @@ struct ProjectRuntimeFeature {
 
             case .healthCheckFailed:
                 let port = state.port.map(String.init) ?? "unknown"
-                PlotLog.runtime.error("health check failed after 30 attempts on port \(port)")
+                PlotLog.runtime.error("health check failed after 30 attempts on port \(port, privacy: .public)")
                 state.lifecycle = .failed("Server did not become ready")
                 let projectId = state.projectId
                 return .merge(
@@ -135,7 +135,7 @@ struct ProjectRuntimeFeature {
                         state.lifecycle = .streaming
                     }
                 } else {
-                    PlotLog.runtime.error("failed to decode SSE snapshot: \(json.prefix(200))")
+                    PlotLog.runtime.error("failed to decode SSE snapshot: \(json.prefix(200), privacy: .public)")
                 }
                 return .none
 
@@ -152,7 +152,7 @@ struct ProjectRuntimeFeature {
                 )
 
             case .processExited(let code):
-                PlotLog.runtime.info("process exited with code \(code)")
+                PlotLog.runtime.info("process exited with code \(code, privacy: .public)")
                 let projectId = state.projectId
                 if let port = state.port {
                     portAllocator.release(port)
@@ -172,7 +172,7 @@ struct ProjectRuntimeFeature {
 
             case .stop:
                 let projectId = state.projectId
-                PlotLog.runtime.info("stopping project \(projectId)")
+                PlotLog.runtime.info("stopping project \(projectId, privacy: .public)")
                 state.lifecycle = .stopping
                 state.snapshot = .empty
 
