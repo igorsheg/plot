@@ -77,30 +77,40 @@ struct WorkflowFormView: View {
         TabView(selection: $selectedTab) {
             Tab(DetailTab.tracker.rawValue, systemImage: DetailTab.tracker.systemImage, value: .tracker) {
                 Form {
-                    Picker("Kind", selection: trackerKindBinding) {
-                        ForEach(trackerKinds, id: \.self) { kind in
-                            Text(kind).tag(kind)
+                    Section("Integration") {
+                        Picker("Kind", selection: trackerKindBinding) {
+                            ForEach(trackerKinds, id: \.self) { kind in
+                                Text(kind).tag(kind)
+                            }
                         }
+                        .help("The issue tracker integration to use")
                     }
-                    .help("The issue tracker integration to use")
 
-                    TagField(
-                        label: "Dispatch States",
-                        tags: config.tracker?.dispatchStates ?? [],
-                        onChange: { config.tracker?.dispatchStates = $0; sync() }
-                    )
+                    Section("States") {
+                        TokenField(
+                            "Dispatch",
+                            tokens: Binding(
+                                get: { config.tracker?.dispatchStates ?? [] },
+                                set: { config.tracker?.dispatchStates = $0; sync() }
+                            )
+                        )
 
-                    TagField(
-                        label: "Terminal States",
-                        tags: config.tracker?.terminalStates ?? [],
-                        onChange: { config.tracker?.terminalStates = $0; sync() }
-                    )
+                        TokenField(
+                            "Terminal",
+                            tokens: Binding(
+                                get: { config.tracker?.terminalStates ?? [] },
+                                set: { config.tracker?.terminalStates = $0; sync() }
+                            )
+                        )
 
-                    TagField(
-                        label: "Parked States",
-                        tags: config.tracker?.parkedStates ?? [],
-                        onChange: { config.tracker?.parkedStates = $0; sync() }
-                    )
+                        TokenField(
+                            "Parked",
+                            tokens: Binding(
+                                get: { config.tracker?.parkedStates ?? [] },
+                                set: { config.tracker?.parkedStates = $0; sync() }
+                            )
+                        )
+                    }
                 }
                 .formStyle(.grouped)
             }
@@ -228,94 +238,58 @@ struct WorkflowFormView: View {
     }
 }
 
-struct TagField: View {
+struct TokenField: View {
     let label: String
-    let tags: [String]
-    let onChange: ([String]) -> Void
-
+    @Binding var tokens: [String]
     @State private var input = ""
+    @FocusState private var isFocused: Bool
+
+    init(_ label: String, tokens: Binding<[String]>) {
+        self.label = label
+        self._tokens = tokens
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            FlowLayout(spacing: 4) {
-                ForEach(tags, id: \.self) { tag in
-                    HStack(spacing: 2) {
-                        Text(tag)
-                            .font(.caption)
-                            .foregroundStyle(Color.accentColor)
-                        Button {
-                            onChange(tags.filter { $0 != tag })
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 8))
-                                .foregroundStyle(Color.accentColor.opacity(0.7))
+        LabeledContent(label) {
+            HStack(spacing: 4) {
+                ForEach(tokens, id: \.self) { token in
+                    Text(token)
+                        .font(.callout)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.fill.tertiary, in: .capsule)
+                        .onTapGesture {
+                            withAnimation(.default) {
+                                tokens.removeAll { $0 == token }
+                            }
                         }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.accentColor.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .transition(.scale.combined(with: .opacity))
                 }
-            }
-            .animation(.bouncy, value: tags.count)
 
-            TextField("Add tag, press Enter", text: $input)
-                .textFieldStyle(.plain)
-                .font(.caption)
-                .onSubmit {
-                    let trimmed = input.trimmingCharacters(in: .whitespaces)
-                    if !trimmed.isEmpty && !tags.contains(trimmed) {
-                        onChange(tags + [trimmed])
+                TextField("add...", text: $input)
+                    .textFieldStyle(.plain)
+                    .focused($isFocused)
+                    .frame(minWidth: 50)
+                    .onSubmit {
+                        commitInput()
                     }
-                    input = ""
-                }
-        }
-    }
-}
-
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
-        }
-    }
-
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var maxX: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth && x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
+                    .onChange(of: input) { _, newValue in
+                        if newValue.last == "," {
+                            input = String(newValue.dropLast())
+                            commitInput()
+                        }
+                    }
             }
-            positions.append(CGPoint(x: x, y: y))
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-            maxX = max(maxX, x)
         }
+    }
 
-        return (CGSize(width: maxX, height: y + rowHeight), positions)
+    private func commitInput() {
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty && !tokens.contains(trimmed) {
+            withAnimation(.default) {
+                tokens.append(trimmed)
+            }
+        }
+        input = ""
     }
 }
 
