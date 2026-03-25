@@ -53,14 +53,14 @@ export function createCliOutput(options: CliOutputOptions) {
 		},
 		error(event: ErrorEvent) {
 			if (json) {
-				writeJson({ event: "error", ...event });
+				writeNdjson("error", event);
 				return;
 			}
 			process.stderr.write(`error: ${event.message}\n`);
 		},
 		ready(event: ReadyEvent) {
 			if (json) {
-				writeJson({ event: "ready", ...event });
+				writeNdjson("serve:ready", event);
 				return;
 			}
 			if (!verbose) return;
@@ -69,7 +69,7 @@ export function createCliOutput(options: CliOutputOptions) {
 		},
 		shutdown(event: ShutdownEvent) {
 			if (json) {
-				writeJson({ event: "shutdown", ...event });
+				writeNdjson("serve:shutdown", event);
 				return;
 			}
 			if (!verbose) return;
@@ -92,6 +92,38 @@ export function ensureTuiSupported(): void {
 	throw new CliError("usage", "tui requires an interactive terminal; use serve", 2);
 }
 
-function writeJson(value: Record<string, unknown>) {
-	process.stdout.write(`${JSON.stringify(value)}\n`);
+/**
+ * Write a typed NDJSON line to stdout.
+ * All --json output across every command MUST use this.
+ * Convention: type is "namespace:action" (e.g., "auth:prompt", "serve:ready")
+ * except "error" which is global.
+ */
+export function writeNdjson(type: string, payload: object = {}) {
+	process.stdout.write(`${JSON.stringify({ type, ...payload })}\n`);
+}
+
+/**
+ * Read one NDJSON line from stdin (for bidirectional --json protocols).
+ * Resolves when a complete line is received.
+ */
+export function readNdjson(): Promise<{ type: string; [key: string]: unknown }> {
+	return new Promise((resolve, reject) => {
+		let buffer = "";
+		const onData = (chunk: Buffer) => {
+			buffer += chunk.toString();
+			const newlineIndex = buffer.indexOf("\n");
+			if (newlineIndex !== -1) {
+				const line = buffer.slice(0, newlineIndex);
+				process.stdin.removeListener("data", onData);
+				process.stdin.pause();
+				try {
+					resolve(JSON.parse(line));
+				} catch {
+					reject(new CliError("runtime", `invalid JSON from client: ${line}`, 1));
+				}
+			}
+		};
+		process.stdin.resume();
+		process.stdin.on("data", onData);
+	});
 }

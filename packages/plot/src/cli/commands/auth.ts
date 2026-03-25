@@ -1,6 +1,12 @@
 import { Argument, Command } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
-import { loginWithPlotAuth, logoutWithPlotAuth, printPlotAuthStatus } from "../shared/auth.js";
+import {
+	loginWithPlotAuth,
+	loginWithPlotAuthJson,
+	logoutWithPlotAuth,
+	printPlotAuthStatus,
+	printPlotAuthStatusJson,
+} from "../shared/auth.js";
 
 export const AuthCommand = Command.make(
 	"auth",
@@ -12,10 +18,18 @@ export const AuthCommand = Command.make(
 		const providerId = Option.getOrUndefined(provider);
 		switch (action) {
 			case "status":
-				yield* Effect.sync(printPlotAuthStatus);
+				if (process.argv.includes("--json")) {
+					yield* Effect.sync(printPlotAuthStatusJson);
+				} else {
+					yield* Effect.sync(printPlotAuthStatus);
+				}
 				return;
 			case "login":
-				yield* Effect.promise(() => loginWithPlotAuth(providerId));
+				if (process.argv.includes("--json")) {
+					yield* Effect.promise(() => loginWithPlotAuthJson(providerId));
+				} else {
+					yield* Effect.promise(() => loginWithPlotAuth(providerId));
+				}
 				return;
 			case "logout":
 				yield* Effect.promise(() => logoutWithPlotAuth(providerId));

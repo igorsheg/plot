@@ -5,7 +5,7 @@ import type {
 	OAuthProviderInterface,
 } from "@mariozechner/pi-ai";
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
-import { CliError } from "./io.js";
+import { CliError, writeNdjson, readNdjson } from "./io.js";
 
 function getEnv(name: string) {
 	if (typeof process === "undefined") {
@@ -187,4 +187,77 @@ export function printPlotAuthStatus() {
 function writeBlock(title: string, lines: ReadonlyArray<string>) {
 	const text = [title, ...lines.map((line) => `  ${line}`)].join("\n");
 	process.stderr.write(`${text}\n`);
+}
+
+export async function loginWithPlotAuthJson(providerId?: string) {
+	const authStorage = createPlotAuthStorage();
+	const providers = authStorage.getOAuthProviders();
+
+	if (!providerId) {
+		writeNdjson("auth:providers", {
+			providers: providers.map((p) => ({ id: p.id, name: p.name })),
+		});
+		return;
+	}
+
+	const provider = providers.find((p) => p.id === providerId);
+	if (!provider) {
+		writeNdjson("error", { message: `unknown provider: ${providerId}` });
+		return;
+	}
+
+	const callbacks: OAuthLoginCallbacks = {
+		onAuth: ({ url, instructions }: { url: string; instructions?: string }) => {
+			writeNdjson("auth:url", { url, instructions });
+		},
+		onPrompt: async ({
+			message,
+			placeholder,
+			allowEmpty,
+		}: {
+			message: string;
+			placeholder?: string;
+			allowEmpty?: boolean;
+		}) => {
+			writeNdjson("auth:prompt", { message, placeholder, allowEmpty: allowEmpty ?? false });
+			const response = await readNdjson();
+			if (response.type !== "response" || typeof response["value"] !== "string") {
+				throw new CliError("runtime", "invalid response from client", 1);
+			}
+			if (!allowEmpty && (response["value"] as string).length === 0) {
+				throw new CliError("usage", "input cannot be empty", 2);
+			}
+			return response["value"] as string;
+		},
+		onManualCodeInput: async () => {
+			writeNdjson("auth:prompt", { message: "Paste authorization code", allowEmpty: false });
+			const response = await readNdjson();
+			if (response.type !== "response" || typeof response["value"] !== "string") {
+				throw new CliError("runtime", "invalid response from client", 1);
+			}
+			return response["value"] as string;
+		},
+		onProgress: (message: string) => {
+			writeNdjson("auth:progress", { message });
+		},
+	};
+
+	try {
+		await authStorage.login(provider.id, callbacks);
+		writeNdjson("auth:done", { provider: provider.id });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		writeNdjson("error", { message });
+	}
+}
+
+export function printPlotAuthStatusJson() {
+	const authStorage = createPlotAuthStorage();
+	const providers = authStorage.getOAuthProviders();
+	const result = providers.map((provider) => ({
+		id: provider.id,
+		name: provider.name,
+		authenticated: authStorage.has(provider.id),
+	}));
+	writeNdjson("auth:status", { providers: result });
 }

@@ -5,6 +5,7 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { runServerMain } from "../server-main.js";
 import { CliError, createCliOutput, resolveRequestedOutputMode } from "./shared/io.js";
+import { ModelsCommand } from "./commands/models.js";
 import { resolveCliArgs } from "./shared/runtime.js";
 import { createTuiCommand } from "./commands/tui.js";
 import { ServeCommand } from "./commands/serve.js";
@@ -24,7 +25,7 @@ if (internalCommand === "__internal-server") {
 	await new Promise(() => {});
 } else {
 	const command = createTuiCommand(CLI_NAME).pipe(
-		Command.withSubcommands([ServeCommand, WebCommand, LoginCommand, LogoutCommand, AuthCommand]),
+		Command.withSubcommands([ServeCommand, WebCommand, LoginCommand, LogoutCommand, AuthCommand, ModelsCommand]),
 	);
 
 	await Command.runWith(command, { version: VERSION })(argv).pipe(
