@@ -1,6 +1,7 @@
 import Dependencies
 import DependenciesMacros
 import Foundation
+import os
 
 @DependencyClient
 struct ProcessClient: Sendable {
@@ -30,7 +31,14 @@ extension ProcessClient: DependencyKey {
                     continuation.finish()
                 }
 
-                try process.run()
+                PlotLog.runtime.info("Process.run: \(path) pid will be assigned")
+                do {
+                    try process.run()
+                } catch {
+                    PlotLog.runtime.error("Process.run failed: \(error.localizedDescription)")
+                    throw error
+                }
+                PlotLog.runtime.info("Process started with pid \(process.processIdentifier)")
 
                 return ProcessHandle(pid: process.processIdentifier, exitStream: stream)
             },

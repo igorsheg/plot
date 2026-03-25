@@ -77,6 +77,7 @@ struct ProjectRowView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .help(lifecycle.label)
                 }
 
                 Spacer()
@@ -93,6 +94,9 @@ struct ProjectRowView: View {
     }
 
     private var statusLabel: String {
+        if case .failed(let message) = lifecycle {
+            return message
+        }
         if lifecycle == .streaming, let snapshot {
             let agentCount = snapshot.running.count
             let tokens = snapshot.codexTotals.totalTokens

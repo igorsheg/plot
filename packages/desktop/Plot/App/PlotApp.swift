@@ -5,6 +5,7 @@ import SwiftUI
 struct PlotApp: App {
     static let appStore = Store(initialState: AppFeature.State()) {
         AppFeature()
+            ._printChanges()
     }
 
     @NSApplicationDelegateAdaptor(PlotAppDelegate.self) var appDelegate

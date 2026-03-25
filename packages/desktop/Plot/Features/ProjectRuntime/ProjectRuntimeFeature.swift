@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import Foundation
+import os
 
 @Reducer
 struct ProjectRuntimeFeature {
@@ -20,6 +21,7 @@ struct ProjectRuntimeFeature {
         case healthCheckFailed
         case sseEvent(SSEEvent)
         case sseFailed
+        case spawnFailed(String)
     }
     
     enum CancelID: Hashable {
@@ -41,24 +43,32 @@ struct ProjectRuntimeFeature {
                 guard !state.lifecycle.isActive else { return .none }
                 
                 guard let port = portAllocator.allocate() else {
+                    PlotLog.runtime.error("no available ports for \(projectPath)")
                     state.lifecycle = .failed("No available ports")
                     return .none
                 }
                 state.port = port
                 state.lifecycle = .launching
+                PlotLog.runtime.info("starting project \(projectPath) on port \(port)")
                 
                 let projectId = state.projectId
                 let workflowPath = (projectPath as NSString).appendingPathComponent("WORKFLOW.md")
                 
                 return .merge(
                     .run { [binaryResolver] send in
-                        let resolution = binaryResolver.resolve(projectPath)
-                        let args = resolution.arguments + ["serve", "--port", "\(port)", "--workflow", workflowPath]
-                        
-                        let handle = try await processClient.spawn(resolution.path, args, projectPath)
-                        
-                        for await exitCode in handle.exitStream {
-                            await send(.processExited(exitCode))
+                        do {
+                            let resolution = binaryResolver.resolve(projectPath)
+                            let args = resolution.arguments + ["serve", "--port", "\(port)", "--workflow", workflowPath]
+                            PlotLog.runtime.info("spawning: \(resolution.path) \(args.joined(separator: " "))")
+                            
+                            let handle = try await processClient.spawn(resolution.path, args, projectPath)
+                            
+                            for await exitCode in handle.exitStream {
+                                await send(.processExited(exitCode))
+                            }
+                        } catch {
+                            PlotLog.runtime.error("spawn failed: \(error.localizedDescription)")
+                            await send(.spawnFailed(error.localizedDescription))
                         }
                     }
                     .cancellable(id: CancelID.process(projectId), cancelInFlight: true),
@@ -82,9 +92,10 @@ struct ProjectRuntimeFeature {
                 )
                 
             case .healthCheckPassed:
+                guard let port = state.port else { return .none }
+                PlotLog.runtime.info("health check passed on port \(port)")
                 state.lifecycle = .connecting
                 let projectId = state.projectId
-                guard let port = state.port else { return .none }
                 
                 return .run { send in
                     let url = URL(string: "http://localhost:\(port)/rpc/events")!
@@ -104,6 +115,8 @@ struct ProjectRuntimeFeature {
                 .cancellable(id: CancelID.events(projectId), cancelInFlight: true)
                 
             case .healthCheckFailed:
+                let port = state.port.map(String.init) ?? "unknown"
+                PlotLog.runtime.error("health check failed after 30 attempts on port \(port)")
                 state.lifecycle = .failed("Server did not become ready")
                 return .none
                 
@@ -115,6 +128,8 @@ struct ProjectRuntimeFeature {
                     if state.lifecycle != .streaming {
                         state.lifecycle = .streaming
                     }
+                } else {
+                    PlotLog.runtime.error("failed to decode SSE snapshot: \(json.prefix(200))")
                 }
                 return .none
                 
@@ -122,10 +137,12 @@ struct ProjectRuntimeFeature {
                 return .none
                 
             case .sseFailed:
+                PlotLog.runtime.error("SSE connection lost")
                 state.lifecycle = .failed("SSE connection lost")
                 return .none
                 
             case .processExited(let code):
+                PlotLog.runtime.info("process exited with code \(code)")
                 let projectId = state.projectId
                 if let port = state.port {
                     portAllocator.release(port)
@@ -145,6 +162,7 @@ struct ProjectRuntimeFeature {
                 
             case .stop:
                 let projectId = state.projectId
+                PlotLog.runtime.info("stopping project \(projectId)")
                 if let port = state.port {
                     portAllocator.release(port)
                     state.port = nil
@@ -154,6 +172,18 @@ struct ProjectRuntimeFeature {
                 
                 return .merge(
                     .cancel(id: CancelID.process(projectId)),
+                    .cancel(id: CancelID.health(projectId)),
+                    .cancel(id: CancelID.events(projectId))
+                )
+                
+            case .spawnFailed(let message):
+                let projectId = state.projectId
+                if let port = state.port {
+                    portAllocator.release(port)
+                    state.port = nil
+                }
+                state.lifecycle = .failed(message)
+                return .merge(
                     .cancel(id: CancelID.health(projectId)),
                     .cancel(id: CancelID.events(projectId))
                 )

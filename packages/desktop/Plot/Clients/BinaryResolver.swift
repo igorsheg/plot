@@ -1,5 +1,6 @@
 import Dependencies
 import Foundation
+import os
 
 struct BinaryResolver: Sendable {
     var resolve: @Sendable (_ projectPath: String) -> BinaryResolution
@@ -23,6 +24,7 @@ extension BinaryResolver: DependencyKey {
         // 1. Bundled binary inside Plot.app/Contents/Resources/
         if let bundled = Bundle.main.path(forResource: "plot-ai", ofType: nil),
            FileManager.default.isExecutableFile(atPath: bundled) {
+            PlotLog.binary.info("resolved bundled binary at \(bundled)")
             return BinaryResolution(path: bundled, arguments: [], source: .bundled)
         }
         
@@ -34,6 +36,7 @@ extension BinaryResolver: DependencyKey {
             )
             if FileManager.default.fileExists(atPath: entrypoint) {
                 let bunPath = Self.findBun() ?? "/usr/local/bin/bun"
+                PlotLog.binary.info("resolved monorepo binary via bun at \(entrypoint)")
                 return BinaryResolution(
                     path: bunPath,
                     arguments: ["run", entrypoint],
@@ -46,15 +49,18 @@ extension BinaryResolver: DependencyKey {
         // 3. Local project install (npm/bun workspace)
         let localBin = (projectPath as NSString).appendingPathComponent("node_modules/.bin/plot-ai")
         if FileManager.default.fileExists(atPath: localBin) {
+            PlotLog.binary.info("resolved local project binary at \(localBin)")
             return BinaryResolution(path: localBin, arguments: [], source: .localProject)
         }
         
         // 4. Global install
         if let globalPath = Self.which("plot-ai") {
+            PlotLog.binary.info("resolved global binary at \(globalPath)")
             return BinaryResolution(path: globalPath, arguments: [], source: .global)
         }
         
         // Last resort — hope it's in PATH at runtime
+        PlotLog.binary.warning("no binary found, falling back to bare 'plot-ai'")
         return BinaryResolution(path: "plot-ai", arguments: [], source: .global)
     }
     
