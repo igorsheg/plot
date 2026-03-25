@@ -8,10 +8,12 @@ struct ProjectListFeature {
     struct State: Equatable {
         var projects: IdentifiedArrayOf<Project> = []
         var runtimes: IdentifiedArrayOf<ProjectRuntimeFeature.State> = []
+        var selectedProjectId: Project.ID?
     }
     
     @CasePathable
-    enum Action {
+    enum Action: BindableAction {
+        case binding(BindingAction<State>)
         case task
         case projectsLoaded([Project])
         case addProjectTapped
@@ -24,6 +26,7 @@ struct ProjectListFeature {
         @CasePathable
         enum Delegate {
             case projectSelected(Project)
+            case projectDeselected
         }
     }
     
@@ -31,8 +34,20 @@ struct ProjectListFeature {
     @Dependency(\.fileClient) var fileClient
     
     var body: some ReducerOf<Self> {
+        BindingReducer()
         Reduce { state, action in
             switch action {
+            case .binding(\.selectedProjectId):
+                if let id = state.selectedProjectId,
+                   let project = state.projects[id: id] {
+                    return .send(.delegate(.projectSelected(project)))
+                } else {
+                    return .send(.delegate(.projectDeselected))
+                }
+                
+            case .binding:
+                return .none
+                
             case .task:
                 return .run { send in
                     let projects = try await projectStore.load()
@@ -41,7 +56,6 @@ struct ProjectListFeature {
                 
             case .projectsLoaded(let projects):
                 state.projects = IdentifiedArray(uniqueElements: projects)
-                // Ensure each project has a runtime state
                 for project in projects {
                     if state.runtimes[id: project.id] == nil {
                         state.runtimes.append(ProjectRuntimeFeature.State(projectId: project.id))
@@ -70,16 +84,27 @@ struct ProjectListFeature {
                 guard !state.projects.contains(where: { $0.path == path }) else { return .none }
                 state.projects.append(project)
                 state.runtimes.append(ProjectRuntimeFeature.State(projectId: project.id))
-                return .run { [projects = state.projects] _ in
-                    try await projectStore.save(Array(projects))
-                }
+                state.selectedProjectId = project.id
+                return .merge(
+                    .run { [projects = state.projects] _ in
+                        try await projectStore.save(Array(projects))
+                    },
+                    .send(.delegate(.projectSelected(project)))
+                )
                 
             case .removeProject(let id):
+                let wasSelected = state.selectedProjectId == id
                 state.projects.remove(id: id)
                 state.runtimes.remove(id: id)
-                return .run { [projects = state.projects] _ in
-                    try await projectStore.save(Array(projects))
+                if wasSelected {
+                    state.selectedProjectId = nil
                 }
+                return .merge(
+                    .run { [projects = state.projects] _ in
+                        try await projectStore.save(Array(projects))
+                    },
+                    wasSelected ? .send(.delegate(.projectDeselected)) : .none
+                )
                 
             case .toggleProject(let id):
                 guard let project = state.projects[id: id] else { return .none }

@@ -7,7 +7,8 @@ struct ProjectDetailView: View {
     var body: some View {
         Group {
             if store.isLoading {
-                ProgressView()
+                ProgressView("Loading workflow...")
+                    .controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let workflow = store.workflow {
                 WorkflowFormView(
@@ -36,6 +37,7 @@ struct WorkflowFormView: View {
     let onOpenInEditor: () -> Void
 
     @State private var config: WorkflowFrontmatter
+    @State private var showSaveConfirmation = false
 
     init(
         workflow: WorkflowDocument,
@@ -55,12 +57,13 @@ struct WorkflowFormView: View {
 
     var body: some View {
         Form {
-            Section("Tracker") {
+            Section {
                 Picker("Kind", selection: trackerKindBinding) {
                     ForEach(trackerKinds, id: \.self) { kind in
                         Text(kind).tag(kind)
                     }
                 }
+                .help("The issue tracker integration to use")
 
                 TagField(
                     label: "Dispatch States",
@@ -79,14 +82,17 @@ struct WorkflowFormView: View {
                     tags: config.tracker?.parkedStates ?? [],
                     onChange: { config.tracker?.parkedStates = $0; sync() }
                 )
+            } header: {
+                Label("Tracker", systemImage: "antenna.radiowaves.left.and.right")
             }
 
-            Section("Agent") {
+            Section {
                 Picker("Model", selection: agentModelBinding) {
                     ForEach(modelOptions, id: \.self) { model in
                         Text(model).tag(model)
                     }
                 }
+                .help("The AI model to use for coding agents")
 
                 TextField(
                     "Max Concurrent Agents",
@@ -96,6 +102,7 @@ struct WorkflowFormView: View {
                     ),
                     format: .number
                 )
+                .help("Maximum number of agents running simultaneously")
 
                 TextField(
                     "Max Turns",
@@ -105,9 +112,12 @@ struct WorkflowFormView: View {
                     ),
                     format: .number
                 )
+                .help("Maximum conversation turns per agent session")
+            } header: {
+                Label("Agent", systemImage: "cpu")
             }
 
-            Section("Workspace") {
+            Section {
                 TextField(
                     "Root",
                     text: Binding(
@@ -119,12 +129,17 @@ struct WorkflowFormView: View {
                         }
                     )
                 )
+            } header: {
+                Label("Workspace", systemImage: "folder")
             }
 
-            Section("Agent Instructions") {
-                Button("Open WORKFLOW.md in Editor") {
+            Section {
+                Button {
                     onOpenInEditor()
+                } label: {
+                    Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
                 }
+                .buttonStyle(.borderedProminent)
 
                 if !workflow.promptBody.isEmpty {
                     Text(workflow.promptBody)
@@ -132,12 +147,29 @@ struct WorkflowFormView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(5)
                 }
+            } header: {
+                Label("Agent Instructions", systemImage: "doc.text")
             }
         }
         .formStyle(.grouped)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Save") { onSave() }
+                Button {
+                    showSaveConfirmation = true
+                    onSave()
+                } label: {
+                    Label(
+                        showSaveConfirmation ? "Saved" : "Save",
+                        systemImage: showSaveConfirmation ? "checkmark.circle.fill" : "square.and.arrow.down"
+                    )
+                    .symbolEffect(.bounce, value: showSaveConfirmation)
+                }
+                .sensoryFeedback(.success, trigger: showSaveConfirmation)
+                .task(id: showSaveConfirmation) {
+                    guard showSaveConfirmation else { return }
+                    try? await Task.sleep(for: .seconds(2))
+                    showSaveConfirmation = false
+                }
             }
         }
     }
@@ -156,7 +188,7 @@ struct WorkflowFormView: View {
             }
         )
     }
-    
+
     private var agentModelBinding: Binding<String> {
         Binding(
             get: { config.agent?.model ?? "anthropic/claude-sonnet-4-20250514" },
@@ -187,20 +219,24 @@ struct TagField: View {
                     HStack(spacing: 2) {
                         Text(tag)
                             .font(.caption)
+                            .foregroundStyle(Color.accentColor)
                         Button {
                             onChange(tags.filter { $0 != tag })
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 8))
+                                .foregroundStyle(Color.accentColor.opacity(0.7))
                         }
                         .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(.quaternary)
+                    .background(Color.accentColor.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
+            .animation(.bouncy, value: tags.count)
 
             TextField("Add tag, press Enter", text: $input)
                 .textFieldStyle(.plain)
@@ -259,8 +295,21 @@ struct FlowLayout: Layout {
 struct NoWorkflowView: View {
     let onCreate: (ProjectDetailFeature.WorkflowTemplate) -> Void
 
+    struct TemplateCard: Identifiable {
+        let id: ProjectDetailFeature.WorkflowTemplate
+        let title: String
+        let description: String
+        let systemImage: String
+    }
+
+    private let templates: [TemplateCard] = [
+        TemplateCard(id: .github, title: "GitHub Issues", description: "Track work via GitHub Issues", systemImage: "list.bullet.rectangle"),
+        TemplateCard(id: .beads, title: "Beads", description: "Use the Beads task tracker", systemImage: "circle.hexagongrid"),
+        TemplateCard(id: .blank, title: "Blank", description: "Start with an empty workflow", systemImage: "doc"),
+    ]
+
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             Image(systemName: "doc.badge.plus")
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
@@ -273,25 +322,56 @@ struct NoWorkflowView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            VStack(spacing: 8) {
-                Button("GitHub Issues Template") {
-                    onCreate(.github)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                ForEach(templates) { template in
+                    TemplateCardButton(template: template) {
+                        onCreate(template.id)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-
-                Button("Beads Template") {
-                    onCreate(.beads)
-                }
-                .controlSize(.regular)
-
-                Button("Start from Scratch") {
-                    onCreate(.blank)
-                }
-                .buttonStyle(.plain)
-                .font(.caption)
             }
+            .padding(.horizontal, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct TemplateCardButton: View {
+    let template: NoWorkflowView.TemplateCard
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: template.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(Color.accentColor)
+                    .symbolEffect(.bounce, value: isHovering)
+
+                Text(template.title)
+                    .font(.headline)
+
+                Text(template.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(.quaternary)
+            )
+            .scaleEffect(isHovering ? 1.02 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }

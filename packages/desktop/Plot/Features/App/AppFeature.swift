@@ -3,22 +3,17 @@ import SwiftUI
 
 @Reducer
 struct AppFeature {
-    @Reducer
-    enum Path {
-        case detail(ProjectDetailFeature)
-    }
-    
     @ObservableState
     struct State: Equatable {
-        var path = StackState<Path.State>()
         var projectList = ProjectListFeature.State()
+        var detail: ProjectDetailFeature.State?
     }
-    
+
     enum Action {
-        case path(StackActionOf<Path>)
         case projectList(ProjectListFeature.Action)
+        case detail(ProjectDetailFeature.Action)
     }
-    
+
     var body: some ReducerOf<Self> {
         Scope(state: \.projectList, action: \.projectList) {
             ProjectListFeature()
@@ -26,15 +21,19 @@ struct AppFeature {
         Reduce { state, action in
             switch action {
             case .projectList(.delegate(.projectSelected(let project))):
-                state.path.append(.detail(ProjectDetailFeature.State(project: project)))
+                state.detail = ProjectDetailFeature.State(project: project)
                 return .none
-                
-            case .path, .projectList:
+
+            case .projectList(.delegate(.projectDeselected)):
+                state.detail = nil
+                return .none
+
+            case .projectList, .detail:
                 return .none
             }
         }
-        .forEach(\.path, action: \.path)
+        .ifLet(\.detail, action: \.detail) {
+            ProjectDetailFeature()
+        }
     }
 }
-
-extension AppFeature.Path.State: Equatable {}

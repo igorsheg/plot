@@ -1,27 +1,75 @@
 import ComposableArchitecture
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ProjectListView: View {
-    let store: StoreOf<ProjectListFeature>
+    @Bindable var store: StoreOf<ProjectListFeature>
 
     var body: some View {
-        List {
-            ForEach(store.projects) { project in
-                ProjectRowView(
-                    project: project,
-                    lifecycle: store.runtimes[id: project.id]?.lifecycle ?? .idle,
-                    snapshot: store.runtimes[id: project.id]?.snapshot,
-                    onTap: { store.send(.delegate(.projectSelected(project))) },
-                    onToggle: { store.send(.toggleProject(project.id)) }
-                )
-                .contextMenu {
-                    Button("Remove Project") {
-                        store.send(.removeProject(project.id))
+        Group {
+            if store.projects.isEmpty {
+                EmptyProjectsView {
+                    store.send(.addProjectTapped)
+                }
+            } else {
+                List(selection: $store.selectedProjectId) {
+                    ForEach(store.projects) { project in
+                        let lifecycle = store.runtimes[id: project.id]?.lifecycle ?? .idle
+                        let snapshot = store.runtimes[id: project.id]?.snapshot
+
+                        ProjectRowView(
+                            project: project,
+                            lifecycle: lifecycle,
+                            snapshot: snapshot,
+                            onToggle: { store.send(.toggleProject(project.id)) }
+                        )
+                        .tag(project.id)
+                        .contentShape(.rect)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                store.send(.removeProject(project.id))
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                        .contextMenu {
+                            Button(lifecycle.isActive ? "Stop" : "Start") {
+                                store.send(.toggleProject(project.id))
+                            }
+                            Button("Show in Finder") {
+                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.path)
+                            }
+                            Divider()
+                            Button("Remove Project", role: .destructive) {
+                                store.send(.removeProject(project.id))
+                            }
+                        }
                     }
+                }
+                .listStyle(.sidebar)
+                .animation(.default, value: store.projects.count)
+                .onDeleteCommand {
+                    if let id = store.selectedProjectId {
+                        store.send(.removeProject(id))
+                    }
+                }
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    for provider in providers {
+                        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                            guard let url else { return }
+                            var isDir: ObjCBool = false
+                            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+                                  isDir.boolValue else { return }
+                            DispatchQueue.main.async {
+                                store.send(.folderSelected(url.path))
+                            }
+                        }
+                    }
+                    return true
                 }
             }
         }
-        .navigationTitle("Plot")
+        .navigationTitle("Projects")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -29,13 +77,7 @@ struct ProjectListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-            }
-        }
-        .overlay {
-            if store.projects.isEmpty {
-                EmptyProjectsView {
-                    store.send(.addProjectTapped)
-                }
+                .keyboardShortcut("n", modifiers: .command)
             }
         }
         .task {
@@ -48,62 +90,64 @@ struct ProjectRowView: View {
     let project: Project
     let lifecycle: ProjectLifecycle
     let snapshot: RuntimeSnapshot?
-    let onTap: () -> Void
     let onToggle: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(avatarColor)
-                    .frame(width: 28, height: 28)
-                    .overlay {
-                        Text(String(project.name.prefix(1)).uppercased())
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(statusColor)
-                            .frame(width: 6, height: 6)
-
-                        Text(statusLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .help(lifecycle.label)
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(avatarColor)
+                .frame(width: 28, height: 28)
+                .overlay {
+                    Text(String(project.name.prefix(1)).uppercased())
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
 
-                Spacer()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(project.name)
+                    .font(.body)
 
-                Button(action: onToggle) {
-                    Image(systemName: lifecycle.isActive ? "stop.fill" : "play.fill")
-                        .font(.caption)
-                        .foregroundStyle(lifecycle.isActive ? .red : .green)
+                HStack(spacing: 6) {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 7))
+                        .foregroundStyle(statusColor)
+                        .symbolEffect(.pulse, isActive: lifecycle == .streaming)
+
+                    statusText
                 }
-                .buttonStyle(.plain)
             }
+
+            Spacer()
+
+            Button(action: onToggle) {
+                Image(systemName: lifecycle.isActive ? "stop.fill" : "play.fill")
+                    .font(.caption)
+                    .foregroundStyle(lifecycle.isActive ? .red : .green)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var statusText: some View {
+        if lifecycle == .streaming, let snapshot, snapshot.running.count > 0 {
+            let tokens = snapshot.codexTotals.totalTokens
+            let agentCount = snapshot.running.count
+            Text("\(agentCount) agent\(agentCount == 1 ? "" : "s") · \(formatTokens(tokens))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .contentTransition(.numericText())
+                .animation(.default, value: tokens)
+        } else {
+            Text(statusLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var statusLabel: String {
         if case .failed(let message) = lifecycle {
             return message
-        }
-        if lifecycle == .streaming, let snapshot {
-            let agentCount = snapshot.running.count
-            let tokens = snapshot.codexTotals.totalTokens
-            if agentCount > 0 {
-                return "\(agentCount) agent\(agentCount == 1 ? "" : "s") · \(formatTokens(tokens))"
-            }
-            return lifecycle.label
         }
         return lifecycle.label
     }
@@ -156,6 +200,13 @@ struct EmptyProjectsView: View {
             Button("Open a Project Folder", action: onAdd)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
+
+            Spacer()
+                .frame(height: 24)
+
+            Text("Plot v0.1.0")
+                .font(.caption2)
+                .foregroundStyle(.quaternary)
         }
     }
 }

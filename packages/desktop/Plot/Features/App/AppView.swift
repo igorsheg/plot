@@ -5,14 +5,25 @@ struct AppView: View {
     @Bindable var store: StoreOf<AppFeature>
 
     var body: some View {
-        NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
+        NavigationSplitView {
             ProjectListView(store: store.scope(state: \.projectList, action: \.projectList))
-        } destination: { store in
-            switch store.case {
-            case .detail(let store):
-                ProjectDetailView(store: store)
+        } detail: {
+            if let detailStore = store.scope(state: \.detail, action: \.detail) {
+                ProjectDetailView(store: detailStore)
+            } else {
+                DetailPlaceholderView()
             }
         }
-        .frame(minWidth: 480, minHeight: 500)
+        .frame(minWidth: 720, minHeight: 520)
+    }
+}
+
+struct DetailPlaceholderView: View {
+    var body: some View {
+        ContentUnavailableView {
+            Label("Select a Project", systemImage: "folder")
+        } description: {
+            Text("Choose a project from the sidebar to view and configure its workflow.")
+        }
     }
 }
