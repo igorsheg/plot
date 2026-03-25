@@ -60,14 +60,12 @@ struct WorkflowFormView: View {
     enum DetailTab: String, CaseIterable {
         case tracker = "Tracker"
         case agent = "Agent"
-        case instructions = "Instructions"
         case advanced = "Advanced"
 
         var systemImage: String {
             switch self {
             case .tracker: return "antenna.radiowaves.left.and.right"
             case .agent: return "cpu"
-            case .instructions: return "doc.text"
             case .advanced: return "gearshape"
             }
         }
@@ -111,6 +109,23 @@ struct WorkflowFormView: View {
                             )
                         )
                     }
+
+                    Section("Instructions") {
+                        Button {
+                            onOpenInEditor()
+                        } label: {
+                            Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        if !workflow.promptBody.isEmpty {
+                            Text(workflow.promptBody)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 }
                 .formStyle(.grouped)
             }
@@ -143,30 +158,6 @@ struct WorkflowFormView: View {
                         format: .number
                     )
                     .help("Maximum conversation turns per agent session")
-                }
-                .formStyle(.grouped)
-            }
-
-            Tab(DetailTab.instructions.rawValue, systemImage: DetailTab.instructions.systemImage, value: .instructions) {
-                Form {
-                    Section {
-                        Button {
-                            onOpenInEditor()
-                        } label: {
-                            Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
-                    if !workflow.promptBody.isEmpty {
-                        Section("Preview") {
-                            Text(workflow.promptBody)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
                 }
                 .formStyle(.grouped)
             }
