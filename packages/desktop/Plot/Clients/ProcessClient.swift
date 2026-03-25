@@ -61,19 +61,19 @@ extension ProcessClient: DependencyKey {
 
                 process.terminationHandler = { proc in
                     PlotLog.runtime.info("process pid=\(proc.processIdentifier) terminated with status \(proc.terminationStatus)")
-                    managed.finish(status: proc.terminationStatus)
+                    managed.notifyTermination(status: proc.terminationStatus)
                     Task {
                         await ProcessSupervisor.shared.remove(id)
                     }
                 }
-
+                
                 PlotLog.runtime.info("spawning: \(path) \(arguments.joined(separator: " "))")
                 PlotLog.runtime.info("  cwd: \(workingDirectory)")
                 do {
                     try process.run()
                 } catch {
                     PlotLog.runtime.error("Process.run failed: \(error.localizedDescription)")
-                    managed.finish(status: -1)
+                    managed.notifyTermination(status: -1)
                     throw error
                 }
                 PlotLog.runtime.info("process started, pid=\(process.processIdentifier)")
