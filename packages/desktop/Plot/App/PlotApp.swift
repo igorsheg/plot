@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import SwiftUI
 
@@ -11,39 +12,17 @@ struct PlotApp: App {
     @NSApplicationDelegateAdaptor(PlotAppDelegate.self) var appDelegate
 
     var body: some Scene {
-        Window("Plot", id: "main") {
-            AppView(store: Self.appStore)
+        Window("Configure", id: "config") {
+            ConfigWindowView(store: Self.appStore)
         }
-        .defaultSize(width: 800, height: 600)
+        .defaultSize(width: 480, height: 420)
         .windowToolbarStyle(.unified(showsTitle: true))
-        .commands {
-            CommandGroup(after: .newItem) {
-                Button("New Project") {
-                    Self.appStore.send(.projectList(.addProjectTapped))
-                }
-                .keyboardShortcut("n")
-            }
-        }
 
         MenuBarExtra {
-            MenuBarContentView(store: Self.appStore)
-
-            Divider()
-
-            Button("Open Plot") {
-                appDelegate.showMainWindow()
-            }
-            .keyboardShortcut("o")
-
-            Divider()
-
-            Button("Quit Plot") {
-                NSApplication.shared.terminate(nil)
-            }
-            .keyboardShortcut("q")
+            MenuBarView(store: Self.appStore)
         } label: {
             let runningCount = Self.appStore.withState { state in
-                state.projectList.runtimes.filter { $0.lifecycle == .streaming }.count
+                state.runtimes.filter { $0.lifecycle == .streaming }.count
             }
             if runningCount > 0 {
                 Label("\(runningCount)", systemImage: "diamond.fill")
@@ -54,40 +33,45 @@ struct PlotApp: App {
     }
 }
 
-struct MenuBarContentView: View {
+struct ConfigWindowView: View {
     let store: StoreOf<AppFeature>
 
     var body: some View {
-        let projects = store.projectList.projects
-        let runtimes = store.projectList.runtimes
-
-        let hasIdle = projects.contains { project in
-            let lifecycle = runtimes[id: project.id]?.lifecycle ?? .idle
-            return !lifecycle.isActive
+        if let detailStore = store.scope(state: \.configuring, action: \.configuring) {
+            ProjectDetailView(store: detailStore)
+        } else {
+            ContentUnavailableView("No Project Selected", systemImage: "folder")
         }
-        let hasActive = projects.contains { project in
-            let lifecycle = runtimes[id: project.id]?.lifecycle ?? .idle
-            return lifecycle.isActive
+    }
+}
+
+struct MenuBarView: View {
+    let store: StoreOf<AppFeature>
+    @Environment(\.openWindow) var openWindow
+
+    var body: some View {
+        let projects = store.projects
+        let runtimes = store.runtimes
+
+        let hasIdle = projects.contains {
+            !(runtimes[id: $0.id]?.lifecycle.isActive ?? false)
+        }
+        let hasActive = projects.contains {
+            runtimes[id: $0.id]?.lifecycle.isActive ?? false
         }
 
         if !projects.isEmpty {
             if hasIdle {
                 Button("Start All") {
-                    for project in projects {
-                        let lifecycle = runtimes[id: project.id]?.lifecycle ?? .idle
-                        if !lifecycle.isActive {
-                            store.send(.projectList(.toggleProject(project.id)))
-                        }
+                    for project in projects where !(runtimes[id: project.id]?.lifecycle.isActive ?? false) {
+                        store.send(.toggleProject(project.id))
                     }
                 }
             }
             if hasActive {
                 Button("Stop All") {
-                    for project in projects {
-                        let lifecycle = runtimes[id: project.id]?.lifecycle ?? .idle
-                        if lifecycle.isActive {
-                            store.send(.projectList(.toggleProject(project.id)))
-                        }
+                    for project in projects where runtimes[id: project.id]?.lifecycle.isActive ?? false {
+                        store.send(.toggleProject(project.id))
                     }
                 }
             }
@@ -98,56 +82,72 @@ struct MenuBarContentView: View {
                 let runtime = runtimes[id: project.id]
                 let lifecycle = runtime?.lifecycle ?? .idle
 
-                Button {
-                    store.send(.projectList(.toggleProject(project.id)))
+                Menu {
+                    Button("Configure...") {
+                        store.send(.configure(project.id))
+                        openWindow(id: "config")
+                    }
+                    Button(lifecycle.isActive ? "Stop" : "Start") {
+                        store.send(.toggleProject(project.id))
+                    }
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.path)
+                    }
+                    Divider()
+                    Button("Remove") {
+                        store.send(.removeProject(project.id))
+                    }
                 } label: {
                     HStack {
-                        Image(systemName: "circle.fill")
-                            .foregroundStyle(statusColor(for: lifecycle))
-                            .font(.system(size: 8))
                         Text(project.name)
                         Spacer()
-                        if lifecycle == .streaming,
-                           let tokens = runtime?.snapshot.codexTotals.totalTokens,
-                           tokens > 0 {
-                            Text(formatTokens(tokens))
+                        if let text = statusText(for: lifecycle, runtime: runtime) {
+                            Text(text)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
 
-            let totalTokens = runtimes
-                .filter { $0.lifecycle == .streaming }
-                .reduce(0) { $0 + $1.snapshot.codexTotals.totalTokens }
+            Divider()
+        }
 
-            if totalTokens > 0 {
-                Divider()
-                Text("Total: \(formatTokens(totalTokens))")
-                    .foregroundStyle(.secondary)
+        Button("Add Project...") {
+            NSApp.activate(ignoringOtherApps: true)
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            if panel.runModal() == .OK, let url = panel.url {
+                store.send(.addProject(url.path))
+                openWindow(id: "config")
             }
-        } else {
-            Text("No projects")
-                .foregroundStyle(.secondary)
         }
+
+        Divider()
+
+        Button("Quit Plot") {
+            NSApplication.shared.terminate(nil)
+        }
+        .keyboardShortcut("q")
     }
 
-    private func statusColor(for lifecycle: ProjectLifecycle) -> Color {
+    private func statusText(for lifecycle: ProjectLifecycle, runtime: ProjectRuntimeFeature.State?) -> String? {
         switch lifecycle {
-        case .streaming: return .green
-        case .launching, .connecting: return .orange
-        case .stopping: return .yellow
-        case .failed: return .red
-        case .idle, .stopped: return .secondary
+        case .streaming:
+            if let runtime, !runtime.snapshot.running.isEmpty {
+                let count = runtime.snapshot.running.count
+                return "\(count) agent\(count == 1 ? "" : "s")"
+            }
+            return "Running"
+        case .launching, .connecting:
+            return "Starting..."
+        case .stopping:
+            return "Stopping..."
+        case .failed:
+            return "Error"
+        case .idle, .stopped:
+            return nil
         }
-    }
-
-    private func formatTokens(_ count: Int) -> String {
-        if count >= 1_000_000 {
-            return String(format: "%.1fM tok", Double(count) / 1_000_000)
-        } else if count >= 1_000 {
-            return String(format: "%.1fk tok", Double(count) / 1_000)
-        }
-        return "\(count) tok"
     }
 }
