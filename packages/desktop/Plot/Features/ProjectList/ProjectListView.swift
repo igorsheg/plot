@@ -188,6 +188,7 @@ struct EmptyProjectsView: View {
             Image(systemName: "folder.badge.plus")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
+                .symbolEffect(.bounce, options: .repeating.speed(0.5))
 
             Text("Get started with Plot")
                 .font(.headline)

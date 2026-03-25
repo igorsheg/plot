@@ -75,109 +75,109 @@ struct WorkflowFormView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            Form {
-                Picker("Kind", selection: trackerKindBinding) {
-                    ForEach(trackerKinds, id: \.self) { kind in
-                        Text(kind).tag(kind)
-                    }
-                }
-                .help("The issue tracker integration to use")
-
-                TagField(
-                    label: "Dispatch States",
-                    tags: config.tracker?.dispatchStates ?? [],
-                    onChange: { config.tracker?.dispatchStates = $0; sync() }
-                )
-
-                TagField(
-                    label: "Terminal States",
-                    tags: config.tracker?.terminalStates ?? [],
-                    onChange: { config.tracker?.terminalStates = $0; sync() }
-                )
-
-                TagField(
-                    label: "Parked States",
-                    tags: config.tracker?.parkedStates ?? [],
-                    onChange: { config.tracker?.parkedStates = $0; sync() }
-                )
-            }
-            .formStyle(.grouped)
-            .tabItem { Label(DetailTab.tracker.rawValue, systemImage: DetailTab.tracker.systemImage) }
-            .tag(DetailTab.tracker)
-
-            Form {
-                Picker("Model", selection: agentModelBinding) {
-                    ForEach(modelOptions, id: \.self) { model in
-                        Text(model).tag(model)
-                    }
-                }
-                .help("The AI model to use for coding agents")
-
-                TextField(
-                    "Max Concurrent Agents",
-                    value: Binding(
-                        get: { config.agent?.maxConcurrentAgents },
-                        set: { config.agent?.maxConcurrentAgents = $0; sync() }
-                    ),
-                    format: .number
-                )
-                .help("Maximum number of agents running simultaneously")
-
-                TextField(
-                    "Max Turns",
-                    value: Binding(
-                        get: { config.agent?.maxTurns },
-                        set: { config.agent?.maxTurns = $0; sync() }
-                    ),
-                    format: .number
-                )
-                .help("Maximum conversation turns per agent session")
-            }
-            .formStyle(.grouped)
-            .tabItem { Label(DetailTab.agent.rawValue, systemImage: DetailTab.agent.systemImage) }
-            .tag(DetailTab.agent)
-
-            Form {
-                Section {
-                    Button {
-                        onOpenInEditor()
-                    } label: {
-                        Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-
-                if !workflow.promptBody.isEmpty {
-                    Section("Preview") {
-                        Text(workflow.promptBody)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .tabItem { Label(DetailTab.instructions.rawValue, systemImage: DetailTab.instructions.systemImage) }
-            .tag(DetailTab.instructions)
-
-            Form {
-                TextField(
-                    "Workspace Root",
-                    text: Binding(
-                        get: { config.workspace?.root ?? "" },
-                        set: {
-                            if config.workspace == nil { config.workspace = .init() }
-                            config.workspace?.root = $0.isEmpty ? nil : $0
-                            sync()
+            Tab(DetailTab.tracker.rawValue, systemImage: DetailTab.tracker.systemImage, value: .tracker) {
+                Form {
+                    Picker("Kind", selection: trackerKindBinding) {
+                        ForEach(trackerKinds, id: \.self) { kind in
+                            Text(kind).tag(kind)
                         }
+                    }
+                    .help("The issue tracker integration to use")
+
+                    TagField(
+                        label: "Dispatch States",
+                        tags: config.tracker?.dispatchStates ?? [],
+                        onChange: { config.tracker?.dispatchStates = $0; sync() }
                     )
-                )
-                .help("Working directory for agent workspaces, relative to the project root")
+
+                    TagField(
+                        label: "Terminal States",
+                        tags: config.tracker?.terminalStates ?? [],
+                        onChange: { config.tracker?.terminalStates = $0; sync() }
+                    )
+
+                    TagField(
+                        label: "Parked States",
+                        tags: config.tracker?.parkedStates ?? [],
+                        onChange: { config.tracker?.parkedStates = $0; sync() }
+                    )
+                }
+                .formStyle(.grouped)
             }
-            .formStyle(.grouped)
-            .tabItem { Label(DetailTab.advanced.rawValue, systemImage: DetailTab.advanced.systemImage) }
-            .tag(DetailTab.advanced)
+
+            Tab(DetailTab.agent.rawValue, systemImage: DetailTab.agent.systemImage, value: .agent) {
+                Form {
+                    Picker("Model", selection: agentModelBinding) {
+                        ForEach(modelOptions, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    .help("The AI model to use for coding agents")
+
+                    TextField(
+                        "Max Concurrent Agents",
+                        value: Binding(
+                            get: { config.agent?.maxConcurrentAgents },
+                            set: { config.agent?.maxConcurrentAgents = $0; sync() }
+                        ),
+                        format: .number
+                    )
+                    .help("Maximum number of agents running simultaneously")
+
+                    TextField(
+                        "Max Turns",
+                        value: Binding(
+                            get: { config.agent?.maxTurns },
+                            set: { config.agent?.maxTurns = $0; sync() }
+                        ),
+                        format: .number
+                    )
+                    .help("Maximum conversation turns per agent session")
+                }
+                .formStyle(.grouped)
+            }
+
+            Tab(DetailTab.instructions.rawValue, systemImage: DetailTab.instructions.systemImage, value: .instructions) {
+                Form {
+                    Section {
+                        Button {
+                            onOpenInEditor()
+                        } label: {
+                            Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+
+                    if !workflow.promptBody.isEmpty {
+                        Section("Preview") {
+                            Text(workflow.promptBody)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .formStyle(.grouped)
+            }
+
+            Tab(DetailTab.advanced.rawValue, systemImage: DetailTab.advanced.systemImage, value: .advanced) {
+                Form {
+                    TextField(
+                        "Workspace Root",
+                        text: Binding(
+                            get: { config.workspace?.root ?? "" },
+                            set: {
+                                if config.workspace == nil { config.workspace = .init() }
+                                config.workspace?.root = $0.isEmpty ? nil : $0
+                                sync()
+                            }
+                        )
+                    )
+                    .help("Working directory for agent workspaces, relative to the project root")
+                }
+                .formStyle(.grouped)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

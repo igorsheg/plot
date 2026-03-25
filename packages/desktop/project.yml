@@ -2,7 +2,7 @@ name: Plot
 options:
   bundleIdPrefix: dev.plot
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "15.0"
   xcodeVersion: "16.0"
   generateEmptyDirectories: true
 
@@ -34,7 +34,7 @@ targets:
         INFOPLIST_KEY_LSUIElement: true
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         SWIFT_VERSION: "6.0"
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
         ENABLE_HARDENED_RUNTIME: true
     dependencies:
       - package: ComposableArchitecture
