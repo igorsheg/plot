@@ -32,6 +32,7 @@ struct ProjectRuntimeFeature {
     @Dependency(\.processClient) var processClient
     @Dependency(\.sseClient) var sseClient
     @Dependency(\.portAllocator) var portAllocator
+    @Dependency(\.binaryResolver) var binaryResolver
     @Dependency(\.continuousClock) var clock
     
     var body: some ReducerOf<Self> {
@@ -52,17 +53,11 @@ struct ProjectRuntimeFeature {
                 
                 return .merge(
                     .send(.lifecycleChanged(.launching)),
-                    .run { send in
-                        let binaryPath = Self.resolveBinary(projectPath: projectPath)
+                    .run { [binaryResolver] send in
+                        let resolution = binaryResolver.resolve(projectPath)
+                        let args = resolution.arguments + ["serve", "--port", "\(port)", "--workflow", workflowPath]
                         
-                        var args: [String]
-                        if binaryPath == "npx" {
-                            args = ["plot-ai", "serve", "--port", "\(port)", "--workflow", workflowPath]
-                        } else {
-                            args = ["serve", "--port", "\(port)", "--workflow", workflowPath]
-                        }
-                        
-                        let handle = try await processClient.spawn(binaryPath, args, projectPath)
+                        let handle = try await processClient.spawn(resolution.path, args, projectPath)
                         
                         for await exitCode in handle.exitStream {
                             await send(.processExited(exitCode))
@@ -186,34 +181,4 @@ struct ProjectRuntimeFeature {
         }
     }
     
-    static func resolveBinary(projectPath: String) -> String {
-        // 1. Bundled binary inside Plot.app/Contents/Resources/
-        if let bundled = Bundle.main.path(forResource: "plot-ai", ofType: nil) {
-            return bundled
-        }
-        
-        // 2. Local project install (dev override)
-        let localBin = (projectPath as NSString).appendingPathComponent("node_modules/.bin/plot-ai")
-        if FileManager.default.fileExists(atPath: localBin) {
-            return localBin
-        }
-        
-        // 3. Global install
-        let whichResult = Process()
-        whichResult.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        whichResult.arguments = ["plot-ai"]
-        let pipe = Pipe()
-        whichResult.standardOutput = pipe
-        try? whichResult.run()
-        whichResult.waitUntilExit()
-        
-        if whichResult.terminationStatus == 0,
-           let data = try? pipe.fileHandleForReading.availableData,
-           let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !path.isEmpty {
-            return path
-        }
-        
-        return "plot-ai"
-    }
 }
