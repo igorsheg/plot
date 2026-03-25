@@ -1,4 +1,4 @@
-import { BrowserWindow, BrowserView } from "electrobun/bun";
+import { BrowserWindow, BrowserView, Utils } from "electrobun/bun";
 import type { DesktopRPC, ProjectInfo } from "../shared/types";
 import { createTray } from "./tray";
 import { ProcessManager } from "./process-manager";
@@ -84,7 +84,12 @@ const rpc = BrowserView.defineRPC<DesktopRPC>({
 			},
 
 			async pickFolder() {
-				return null;
+				const chosen = await Utils.openFileDialog({
+					canChooseFiles: false,
+					canChooseDirectory: true,
+					allowsMultipleSelection: false,
+				});
+				return chosen && chosen.length > 0 ? chosen[0] : null;
 			},
 		},
 		messages: {},
