@@ -48,28 +48,32 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	const SseRouteLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
 			const orchestrator = yield* Orchestrator;
-			const initial = Stream.make(orchestrator.getSnapshot).pipe(Stream.mapEffect((get) => get));
-			const changes = orchestrator.snapshotStream;
-			const snapshots = Stream.concat(initial, changes).pipe(
-				Stream.map((snapshot) => {
-					const json = JSON.stringify(encodeSnapshot(snapshot));
-					return encoder.encode(`data: ${json}\n\n`);
-				}),
-			);
-			const heartbeat = Stream.repeat(
-				Stream.succeed(encoder.encode(": heartbeat\n\n")),
-				Schedule.fixed("5 seconds"),
-			);
 			yield* router.add(
 				"GET",
 				"/rpc/events",
-				HttpServerResponse.stream(Stream.merge(snapshots, heartbeat), {
-					contentType: "text/event-stream",
-					headers: {
-						"Cache-Control": "no-cache",
-						"X-Accel-Buffering": "no",
-						Connection: "keep-alive",
-					},
+				Effect.gen(function* () {
+					const initial = Stream.make(orchestrator.getSnapshot).pipe(
+						Stream.mapEffect((get) => get),
+					);
+					const changes = orchestrator.snapshotStream;
+					const snapshots = Stream.concat(initial, changes).pipe(
+						Stream.map((snapshot) => {
+							const json = JSON.stringify(encodeSnapshot(snapshot));
+							return encoder.encode(`data: ${json}\n\n`);
+						}),
+					);
+					const heartbeat = Stream.repeat(
+						Stream.succeed(encoder.encode(": heartbeat\n\n")),
+						Schedule.fixed("5 seconds"),
+					);
+					return HttpServerResponse.stream(Stream.merge(snapshots, heartbeat), {
+						contentType: "text/event-stream",
+						headers: {
+							"Cache-Control": "no-cache",
+							"X-Accel-Buffering": "no",
+							Connection: "keep-alive",
+						},
+					});
 				}),
 			);
 		}),
