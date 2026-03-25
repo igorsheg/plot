@@ -186,12 +186,19 @@ struct ProjectRuntimeFeature {
         }
     }
     
-    private static func resolveBinary(projectPath: String) -> String {
+    static func resolveBinary(projectPath: String) -> String {
+        // 1. Bundled binary inside Plot.app/Contents/Resources/
+        if let bundled = Bundle.main.path(forResource: "plot-ai", ofType: nil) {
+            return bundled
+        }
+        
+        // 2. Local project install (dev override)
         let localBin = (projectPath as NSString).appendingPathComponent("node_modules/.bin/plot-ai")
         if FileManager.default.fileExists(atPath: localBin) {
             return localBin
         }
         
+        // 3. Global install
         let whichResult = Process()
         whichResult.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         whichResult.arguments = ["plot-ai"]
@@ -207,6 +214,6 @@ struct ProjectRuntimeFeature {
             return path
         }
         
-        return "npx"
+        return "plot-ai"
     }
 }
