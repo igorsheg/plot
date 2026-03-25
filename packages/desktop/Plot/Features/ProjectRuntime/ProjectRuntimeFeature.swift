@@ -4,7 +4,8 @@ import Foundation
 @Reducer
 struct ProjectRuntimeFeature {
     @ObservableState
-    struct State: Equatable {
+    struct State: Equatable, Identifiable {
+        var id: Project.ID { projectId }
         var projectId: Project.ID
         var lifecycle: ProjectLifecycle = .idle
         var snapshot: RuntimeSnapshot = .empty
@@ -12,10 +13,8 @@ struct ProjectRuntimeFeature {
     }
     
     enum Action: Equatable {
-        case start(String) // project path
+        case start(String)
         case stop
-        case lifecycleChanged(ProjectLifecycle)
-        case snapshotReceived(RuntimeSnapshot)
         case processExited(Int32)
         case healthCheckPassed
         case healthCheckFailed
@@ -43,7 +42,7 @@ struct ProjectRuntimeFeature {
                 
                 guard let port = portAllocator.allocate() else {
                     state.lifecycle = .failed("No available ports")
-                    return .send(.lifecycleChanged(.failed("No available ports")))
+                    return .none
                 }
                 state.port = port
                 state.lifecycle = .launching
@@ -52,7 +51,6 @@ struct ProjectRuntimeFeature {
                 let workflowPath = (projectPath as NSString).appendingPathComponent("WORKFLOW.md")
                 
                 return .merge(
-                    .send(.lifecycleChanged(.launching)),
                     .run { [binaryResolver] send in
                         let resolution = binaryResolver.resolve(projectPath)
                         let args = resolution.arguments + ["serve", "--port", "\(port)", "--workflow", workflowPath]
@@ -88,29 +86,26 @@ struct ProjectRuntimeFeature {
                 let projectId = state.projectId
                 guard let port = state.port else { return .none }
                 
-                return .merge(
-                    .send(.lifecycleChanged(.connecting)),
-                    .run { send in
-                        let url = URL(string: "http://localhost:\(port)/rpc/events")!
-                        let stream = sseClient.connect(url)
-                        
-                        do {
-                            for try await event in stream {
-                                if Task.isCancelled { return }
-                                await send(.sseEvent(event))
-                            }
-                        } catch {
-                            if !Task.isCancelled {
-                                await send(.sseFailed)
-                            }
+                return .run { send in
+                    let url = URL(string: "http://localhost:\(port)/rpc/events")!
+                    let stream = sseClient.connect(url)
+                    
+                    do {
+                        for try await event in stream {
+                            if Task.isCancelled { return }
+                            await send(.sseEvent(event))
+                        }
+                    } catch {
+                        if !Task.isCancelled {
+                            await send(.sseFailed)
                         }
                     }
-                    .cancellable(id: CancelID.events(projectId), cancelInFlight: true)
-                )
+                }
+                .cancellable(id: CancelID.events(projectId), cancelInFlight: true)
                 
             case .healthCheckFailed:
                 state.lifecycle = .failed("Server did not become ready")
-                return .send(.lifecycleChanged(.failed("Server did not become ready")))
+                return .none
                 
             case .sseEvent(.data(let json)):
                 let decoder = JSONDecoder()
@@ -119,12 +114,7 @@ struct ProjectRuntimeFeature {
                     state.snapshot = snapshot
                     if state.lifecycle != .streaming {
                         state.lifecycle = .streaming
-                        return .merge(
-                            .send(.lifecycleChanged(.streaming)),
-                            .send(.snapshotReceived(snapshot))
-                        )
                     }
-                    return .send(.snapshotReceived(snapshot))
                 }
                 return .none
                 
@@ -133,7 +123,7 @@ struct ProjectRuntimeFeature {
                 
             case .sseFailed:
                 state.lifecycle = .failed("SSE connection lost")
-                return .send(.lifecycleChanged(.failed("SSE connection lost")))
+                return .none
                 
             case .processExited(let code):
                 let projectId = state.projectId
@@ -145,19 +135,13 @@ struct ProjectRuntimeFeature {
                 
                 if code == 0 {
                     state.lifecycle = .stopped
-                    return .merge(
-                        .send(.lifecycleChanged(.stopped)),
-                        .cancel(id: CancelID.health(projectId)),
-                        .cancel(id: CancelID.events(projectId))
-                    )
                 } else {
                     state.lifecycle = .failed("Process exited with code \(code)")
-                    return .merge(
-                        .send(.lifecycleChanged(.failed("Process exited with code \(code)"))),
-                        .cancel(id: CancelID.health(projectId)),
-                        .cancel(id: CancelID.events(projectId))
-                    )
                 }
+                return .merge(
+                    .cancel(id: CancelID.health(projectId)),
+                    .cancel(id: CancelID.events(projectId))
+                )
                 
             case .stop:
                 let projectId = state.projectId
@@ -169,16 +153,11 @@ struct ProjectRuntimeFeature {
                 state.snapshot = .empty
                 
                 return .merge(
-                    .send(.lifecycleChanged(.stopped)),
                     .cancel(id: CancelID.process(projectId)),
                     .cancel(id: CancelID.health(projectId)),
                     .cancel(id: CancelID.events(projectId))
                 )
-                
-            case .lifecycleChanged, .snapshotReceived:
-                return .none
             }
         }
     }
-    
 }

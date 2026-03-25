@@ -33,7 +33,7 @@ struct PlotApp: App {
             .keyboardShortcut("q")
         } label: {
             let runningCount = Self.appStore.withState { state in
-                state.projectList.runtimeStates.values.filter { $0 == .streaming }.count
+                state.projectList.runtimes.filter { $0.lifecycle == .streaming }.count
             }
             if runningCount > 0 {
                 Label("\(runningCount)", systemImage: "diamond.fill")
@@ -49,16 +49,15 @@ struct MenuBarContentView: View {
 
     var body: some View {
         let projects = store.projectList.projects
-        let runtimeStates = store.projectList.runtimeStates
-        let snapshots = store.projectList.snapshots
+        let runtimes = store.projectList.runtimes
 
         if projects.isEmpty {
             Text("No projects")
                 .foregroundStyle(.secondary)
         } else {
             ForEach(projects) { project in
-                let lifecycle = runtimeStates[project.id] ?? .idle
-                let snapshot = snapshots[project.id]
+                let runtime = runtimes[id: project.id]
+                let lifecycle = runtime?.lifecycle ?? .idle
 
                 Button {
                     store.send(.projectList(.toggleProject(project.id)))
@@ -66,7 +65,7 @@ struct MenuBarContentView: View {
                     HStack {
                         Text(project.name)
                         Spacer()
-                        if lifecycle == .streaming, let snapshot {
+                        if lifecycle == .streaming, let snapshot = runtime?.snapshot, !snapshot.running.isEmpty {
                             Text("\(snapshot.running.count) agents")
                                 .foregroundStyle(.secondary)
                         }

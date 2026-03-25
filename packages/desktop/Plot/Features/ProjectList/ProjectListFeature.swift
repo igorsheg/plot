@@ -7,8 +7,7 @@ struct ProjectListFeature {
     @ObservableState
     struct State: Equatable {
         var projects: IdentifiedArrayOf<Project> = []
-        var runtimeStates: [Project.ID: ProjectLifecycle] = [:]
-        var snapshots: [Project.ID: RuntimeSnapshot] = [:]
+        var runtimes: IdentifiedArrayOf<ProjectRuntimeFeature.State> = []
     }
     
     @CasePathable
@@ -20,7 +19,7 @@ struct ProjectListFeature {
         case removeProject(Project.ID)
         case toggleProject(Project.ID)
         case delegate(Delegate)
-        case runtime(Project.ID, ProjectRuntimeFeature.Action)
+        case runtime(IdentifiedActionOf<ProjectRuntimeFeature>)
         
         @CasePathable
         enum Delegate {
@@ -42,6 +41,12 @@ struct ProjectListFeature {
                 
             case .projectsLoaded(let projects):
                 state.projects = IdentifiedArray(uniqueElements: projects)
+                // Ensure each project has a runtime state
+                for project in projects {
+                    if state.runtimes[id: project.id] == nil {
+                        state.runtimes.append(ProjectRuntimeFeature.State(projectId: project.id))
+                    }
+                }
                 return .none
                 
             case .addProjectTapped:
@@ -62,44 +67,39 @@ struct ProjectListFeature {
                 
             case .folderSelected(let path):
                 let project = Project(path: path)
-                guard state.projects[id: project.id] == nil else { return .none }
                 guard !state.projects.contains(where: { $0.path == path }) else { return .none }
                 state.projects.append(project)
+                state.runtimes.append(ProjectRuntimeFeature.State(projectId: project.id))
                 return .run { [projects = state.projects] _ in
                     try await projectStore.save(Array(projects))
                 }
                 
             case .removeProject(let id):
                 state.projects.remove(id: id)
-                state.runtimeStates.removeValue(forKey: id)
-                state.snapshots.removeValue(forKey: id)
+                state.runtimes.remove(id: id)
                 return .run { [projects = state.projects] _ in
                     try await projectStore.save(Array(projects))
                 }
                 
             case .toggleProject(let id):
                 guard let project = state.projects[id: id] else { return .none }
-                let lifecycle = state.runtimeStates[id] ?? .idle
+                let runtime = state.runtimes[id: id]
+                let lifecycle = runtime?.lifecycle ?? .idle
                 if lifecycle.isActive {
-                    return .send(.runtime(id, .stop))
+                    return .send(.runtime(.element(id: id, action: .stop)))
                 } else {
-                    return .send(.runtime(id, .start(project.path)))
+                    return .send(.runtime(.element(id: id, action: .start(project.path))))
                 }
                 
             case .delegate:
                 return .none
                 
-            case .runtime(let id, .lifecycleChanged(let lifecycle)):
-                state.runtimeStates[id] = lifecycle
-                return .none
-                
-            case .runtime(let id, .snapshotReceived(let snapshot)):
-                state.snapshots[id] = snapshot
-                return .none
-                
             case .runtime:
                 return .none
             }
+        }
+        .forEach(\.runtimes, action: \.runtime) {
+            ProjectRuntimeFeature()
         }
     }
 }

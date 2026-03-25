@@ -9,8 +9,8 @@ struct ProjectListView: View {
             ForEach(store.projects) { project in
                 ProjectRowView(
                     project: project,
-                    lifecycle: store.runtimeStates[project.id] ?? .idle,
-                    snapshot: store.snapshots[project.id],
+                    lifecycle: store.runtimes[id: project.id]?.lifecycle ?? .idle,
+                    snapshot: store.runtimes[id: project.id]?.snapshot,
                     onTap: { store.send(.delegate(.projectSelected(project))) },
                     onToggle: { store.send(.toggleProject(project.id)) }
                 )
