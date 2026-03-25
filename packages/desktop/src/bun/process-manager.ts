@@ -75,7 +75,7 @@ export class ProcessManager {
 				process: null as unknown as Subprocess,
 				error: msg,
 			});
-			throw err;
+			return -1;
 		}
 
 		const entry: ProcessEntry = {

@@ -25,12 +25,17 @@ const rpc = BrowserView.defineRPC<DesktopRPC>({
 			},
 
 			async addProject({ path: folderPath }) {
-				const entry = await addProject(folderPath);
-				return {
-					path: entry.path,
-					name: entry.name,
-					status: processManager.getStatus(entry.path),
-				} satisfies ProjectInfo;
+				try {
+					const entry = await addProject(folderPath);
+					return {
+						path: entry.path,
+						name: entry.name,
+						status: processManager.getStatus(entry.path),
+					} satisfies ProjectInfo;
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					return { path: folderPath, name: folderPath, status: "error", error: msg } satisfies ProjectInfo;
+				}
 			},
 
 			async removeProject({ path: folderPath }) {
@@ -39,20 +44,34 @@ const rpc = BrowserView.defineRPC<DesktopRPC>({
 			},
 
 			async readWorkflow({ projectPath }) {
-				return readWorkflowFile(projectPath);
+				try {
+					return await readWorkflowFile(projectPath);
+				} catch (err) {
+					return null;
+				}
 			},
 
 			async saveWorkflow({ projectPath, workflow }) {
-				await saveWorkflowFile(projectPath, workflow);
-				return true;
+				try {
+					await saveWorkflowFile(projectPath, workflow);
+					return true;
+				} catch (err) {
+					return false;
+				}
 			},
 
 			async startAgent({ projectPath }) {
-				const pid = await processManager.start(
-					projectPath,
-					projectPath + "/WORKFLOW.md",
-				);
-				return { pid };
+				try {
+					const pid = await processManager.start(
+						projectPath,
+						projectPath + "/WORKFLOW.md",
+					);
+					return { pid };
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					win.webview.rpc!.send.agentStatusUpdate({ projectPath, status: "error", error: msg });
+					return { pid: -1 };
+				}
 			},
 
 			async stopAgent({ projectPath }) {
@@ -75,10 +94,11 @@ const rpc = BrowserView.defineRPC<DesktopRPC>({
 const win = new BrowserWindow({
 	title: "Plot",
 	url: "views://main/index.html",
+	titleBarStyle: "hiddenInset",
 	rpc,
 	frame: {
-		width: 480,
-		height: 720,
+		width: 520,
+		height: 760,
 		x: 100,
 		y: 100,
 	},

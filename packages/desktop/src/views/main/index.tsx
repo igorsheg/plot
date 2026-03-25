@@ -20,6 +20,23 @@ void new Electroview({ rpc });
 
 type View = "list" | "editor";
 
+function ErrorBanner({
+	message,
+	onDismiss,
+}: {
+	message: string;
+	onDismiss: () => void;
+}) {
+	return (
+		<div style={styles.errorBanner}>
+			<span>{message}</span>
+			<button type="button" style={styles.errorDismiss} onClick={onDismiss}>
+				×
+			</button>
+		</div>
+	);
+}
+
 function App() {
 	const [view, setView] = useState<View>("list");
 	const [projects, setProjects] = useState<ProjectInfo[]>([]);
@@ -27,6 +44,13 @@ function App() {
 	const [workflow, setWorkflow] = useState<ParsedWorkflow | null>(null);
 	const [dirty, setDirty] = useState(false);
 	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!error) return;
+		const timer = setTimeout(() => setError(null), 5000);
+		return () => clearTimeout(timer);
+	}, [error]);
 
 	const loadProjects = useCallback(async () => {
 		const list = await rpc.request.listProjects({});
@@ -58,9 +82,7 @@ function App() {
 		}) => {
 			setProjects((prev) =>
 				prev.map((p) =>
-					p.path === payload.projectPath
-						? { ...p, status: "stopped" }
-						: p,
+					p.path === payload.projectPath ? { ...p, status: "stopped" } : p,
 				),
 			);
 		};
@@ -81,6 +103,8 @@ function App() {
 			setWorkflow(wf);
 			setDirty(false);
 			setView("editor");
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to read workflow");
 		} finally {
 			setLoading(false);
 		}
@@ -89,17 +113,29 @@ function App() {
 	const handleAddProject = async () => {
 		const folder = await rpc.request.pickFolder({});
 		if (!folder) return;
-		await rpc.request.addProject({ path: folder });
-		await loadProjects();
+		try {
+			const result = await rpc.request.addProject({ path: folder });
+			if (result.status === "error") {
+				setError(result.error ?? "Failed to add project");
+				return;
+			}
+			await loadProjects();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to add project");
+		}
 	};
 
 	const handleToggleAgent = async (path: string, running: boolean) => {
-		if (running) {
-			await rpc.request.stopAgent({ projectPath: path });
-		} else {
-			await rpc.request.startAgent({ projectPath: path });
+		try {
+			if (running) {
+				await rpc.request.stopAgent({ projectPath: path });
+			} else {
+				await rpc.request.startAgent({ projectPath: path });
+			}
+			await loadProjects();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to toggle agent");
 		}
-		await loadProjects();
 	};
 
 	const handleWorkflowChange = (
@@ -118,11 +154,19 @@ function App() {
 
 	const handleSave = async () => {
 		if (!selectedProject || !workflow) return;
-		await rpc.request.saveWorkflow({
-			projectPath: selectedProject,
-			workflow,
-		});
-		setDirty(false);
+		try {
+			const result = await rpc.request.saveWorkflow({
+				projectPath: selectedProject,
+				workflow,
+			});
+			if (!result) {
+				setError("Failed to save workflow");
+				return;
+			}
+			setDirty(false);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to save workflow");
+		}
 	};
 
 	const handleBack = () => {
@@ -133,9 +177,7 @@ function App() {
 	};
 
 	if (loading) {
-		return (
-			<div style={styles.loading}>Loading...</div>
-		);
+		return <div style={styles.loading}>Loading...</div>;
 	}
 
 	const projectName =
@@ -146,11 +188,20 @@ function App() {
 	if (view === "editor" && workflow) {
 		return (
 			<div style={styles.shell}>
-				<div style={styles.editorHeader}>
-					<button type="button" style={styles.backButton} onClick={handleBack}>
-						← Projects
-					</button>
-					<span style={styles.projectName}>{projectName}</span>
+				{error && (
+					<ErrorBanner message={error} onDismiss={() => setError(null)} />
+				)}
+				<div style={styles.titleBar}>
+					<div style={styles.editorHeader}>
+						<button
+							type="button"
+							style={styles.backButton}
+							onClick={handleBack}
+						>
+							← Projects
+						</button>
+						<span style={styles.projectName}>{projectName}</span>
+					</div>
 				</div>
 				<div style={styles.editorContent}>
 					<WorkflowEditor
@@ -168,8 +219,13 @@ function App() {
 
 	return (
 		<div style={styles.shell}>
-			<div style={styles.listHeader}>
-				<h1 style={styles.title}>Plot</h1>
+			{error && (
+				<ErrorBanner message={error} onDismiss={() => setError(null)} />
+			)}
+			<div style={styles.titleBar}>
+				<div style={styles.listHeader}>
+					<h1 style={styles.title}>Plot</h1>
+				</div>
 			</div>
 			<div style={styles.listContent}>
 				<ProjectList
@@ -183,7 +239,7 @@ function App() {
 	);
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, React.CSSProperties & Record<string, unknown>> = {
 	shell: {
 		background: "#1a1a1a",
 		color: "#e5e5e5",
@@ -202,8 +258,35 @@ const styles: Record<string, React.CSSProperties> = {
 		justifyContent: "center",
 		fontSize: 14,
 	},
+	errorBanner: {
+		background: "#dc2626",
+		color: "#ffffff",
+		padding: "8px 16px",
+		display: "flex",
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		flexShrink: 0,
+	},
+	errorDismiss: {
+		background: "none",
+		border: "none",
+		color: "#ffffff",
+		cursor: "pointer",
+		fontSize: 18,
+		padding: "0 4px",
+		lineHeight: 1,
+	},
+	titleBar: {
+		WebkitAppRegion: "drag",
+		height: 38,
+		display: "flex",
+		alignItems: "center",
+		flexShrink: 0,
+	},
 	listHeader: {
-		padding: "20px 24px 0",
+		WebkitAppRegion: "no-drag",
+		padding: "0 24px",
 	},
 	title: {
 		fontSize: 20,
@@ -213,13 +296,14 @@ const styles: Record<string, React.CSSProperties> = {
 	listContent: {
 		padding: "16px 24px 24px",
 		flex: 1,
+		overflow: "auto",
 	},
 	editorHeader: {
+		WebkitAppRegion: "no-drag",
 		display: "flex",
 		alignItems: "center",
 		gap: 12,
-		padding: "12px 20px",
-		borderBottom: "1px solid #333",
+		padding: "0 20px",
 	},
 	backButton: {
 		background: "none",
