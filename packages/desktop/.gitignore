@@ -1,4 +1,5 @@
-
-build/
-dist/
-*.app/
+.build/
+.swiftpm/
+Plot.xcodeproj/
+DerivedData/
+*.xcuserdata

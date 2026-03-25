@@ -1,0 +1,80 @@
+import ComposableArchitecture
+import SwiftUI
+
+@main
+struct PlotApp: App {
+    static let appStore = Store(initialState: AppFeature.State()) {
+        AppFeature()
+    }
+
+    @NSApplicationDelegateAdaptor(PlotAppDelegate.self) var appDelegate
+
+    var body: some Scene {
+        Window("Plot", id: "main") {
+            AppView(store: Self.appStore)
+        }
+        .defaultSize(width: 520, height: 680)
+
+        MenuBarExtra {
+            MenuBarContentView(store: Self.appStore)
+
+            Divider()
+
+            Button("Open Plot") {
+                appDelegate.showMainWindow()
+            }
+            .keyboardShortcut("o")
+
+            Divider()
+
+            Button("Quit Plot") {
+                NSApplication.shared.terminate(nil)
+            }
+            .keyboardShortcut("q")
+        } label: {
+            let runningCount = Self.appStore.withState { state in
+                state.projectList.runtimeStates.values.filter { $0 == .streaming }.count
+            }
+            if runningCount > 0 {
+                Label("\(runningCount)", systemImage: "diamond.fill")
+            } else {
+                Image(systemName: "diamond")
+            }
+        }
+    }
+}
+
+struct MenuBarContentView: View {
+    let store: StoreOf<AppFeature>
+
+    var body: some View {
+        let projects = store.projectList.projects
+        let runtimeStates = store.projectList.runtimeStates
+        let snapshots = store.projectList.snapshots
+
+        if projects.isEmpty {
+            Text("No projects")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(projects) { project in
+                let lifecycle = runtimeStates[project.id] ?? .idle
+                let snapshot = snapshots[project.id]
+
+                Button {
+                    store.send(.projectList(.toggleProject(project.id)))
+                } label: {
+                    HStack {
+                        Text(project.name)
+                        Spacer()
+                        if lifecycle == .streaming, let snapshot {
+                            Text("\(snapshot.running.count) agents")
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(lifecycle.isActive ? "●" : "○")
+                            .foregroundStyle(lifecycle.isActive ? .green : .secondary)
+                    }
+                }
+            }
+        }
+    }
+}
