@@ -110,6 +110,13 @@
 	--ring: var(--brand-500);
 }
 
+@supports (background-color: -apple-system-control-background) and (color: text) {
+	.desktop-ui {
+		--background: -apple-system-control-background;
+		--foreground: text;
+	}
+}
+
 @layer base {
 	* {
 		@apply border-border outline-ring/50;
