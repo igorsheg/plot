@@ -56,23 +56,28 @@ export function App({ projectId }: { projectId: string }) {
 		if (!projectId) return;
 		setLoading(true);
 
-		const [proj, wf, provs, auth] = await Promise.all([
-			rpc().request.getProject({ projectId }),
-			rpc()
-				.request.getProject({ projectId })
-				.then(async (p) => {
-					if (!p) return null;
-					return rpc().request.readWorkflow({ projectPath: p.path });
-				}),
-			rpc().request.getProviders({}),
-			rpc().request.getAuthStatus({}),
-		]);
+		try {
+			const proj = await rpc().request.getProject({ projectId });
+			setProject(proj);
 
-		setProject(proj);
-		setWorkflow(wf);
-		setProviders(provs);
-		setAuthStatus(auth);
-		setLoading(false);
+			const [wf, provs, auth] = await Promise.all([
+				proj
+					? rpc().request.readWorkflow({ projectPath: proj.path }).catch(() => null)
+					: Promise.resolve(null),
+				rpc().request.getProviders({}).catch(() => [] as ProviderInfo[]),
+				rpc().request.getAuthStatus({}).catch(
+					() => [] as Array<{ id: string; name: string; authenticated: boolean }>,
+				),
+			]);
+
+			setWorkflow(wf);
+			setProviders(provs);
+			setAuthStatus(auth);
+		} catch (e) {
+			console.error("loadData failed:", e);
+		} finally {
+			setLoading(false);
+		}
 	}, [projectId]);
 
 	useEffect(() => {
