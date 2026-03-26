@@ -153,7 +153,7 @@ export class ResolvedConfig {
 	}
 }
 
-export const validateForDispatch = Effect.fnUntraced(function* (
+export const validateForDispatch = Effect.fn(function* (
 	config: ResolvedConfig,
 ) {
 	if (!config.trackerKind) {

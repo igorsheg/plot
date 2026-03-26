@@ -446,7 +446,7 @@ const createEventStream = (
 			);
 
 			const abortingRef = yield* Ref.make(false);
-			const abortSession = Effect.fnUntraced(function* (reason: string) {
+			const abortSession = Effect.fn(function* (reason: string) {
 				const alreadyAborting = yield* Ref.getAndSet(abortingRef, true);
 				if (alreadyAborting) return;
 				yield* Effect.logInfo("agent_abort").pipe(
@@ -462,7 +462,7 @@ const createEventStream = (
 			const threadId = crypto.randomUUID();
 
 			const raw = Stream.callback<AgentSessionEvent, AgentRunnerError>(
-				Effect.fnUntraced(function* (queue) {
+				Effect.fn(function* (queue) {
 					const unsub = session.subscribe((event: AgentSessionEvent) => {
 						Queue.offerUnsafe(queue, event);
 						if (event.type === "agent_end") Queue.endUnsafe(queue);

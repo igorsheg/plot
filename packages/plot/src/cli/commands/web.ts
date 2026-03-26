@@ -17,7 +17,7 @@ const ENGINE_PORT_OFFSET = 100;
 export const WebCommand = Command.make(
 	"web",
 	cliCommandOptions,
-	Effect.fnUntraced(function* (args) {
+	Effect.fn(function* (args) {
 		const startTime = Date.now();
 		emitStream({
 			type: "start",

@@ -60,7 +60,7 @@ export interface ReconcileDeps {
 }
 
 export function makeTickRuntime(deps: ReconcileDeps) {
-	const reconcile = Effect.fnUntraced(function* (config: ResolvedConfig) {
+	const reconcile = Effect.fn(function* (config: ResolvedConfig) {
 		const state = yield* deps.getState;
 		const runningIds = [...state.running.keys()];
 		if (runningIds.length === 0) return;
@@ -141,7 +141,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 		);
 	});
 
-	const startupTerminalCleanup = Effect.fnUntraced(function* (config: ResolvedConfig) {
+	const startupTerminalCleanup = Effect.fn(function* (config: ResolvedConfig) {
 		const terminalIssues = yield* withTrackerFallback(
 			deps.tracker.fetchIssuesByStates(config.terminalStates),
 			"startup_cleanup",
@@ -213,7 +213,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 		);
 	}).pipe(Effect.withLogSpan("tick"));
 
-	const handleRetryDue = Effect.fnUntraced(function* (
+	const handleRetryDue = Effect.fn(function* (
 		command: Extract<OrchestratorCommand, { _tag: "retry_due" }>,
 	) {
 		const retryEntry = (yield* deps.getState).retryAttempts.get(command.issueId);

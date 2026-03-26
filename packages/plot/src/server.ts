@@ -28,7 +28,7 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	}
 
 	const SseRouteLive = HttpRouter.use(
-		Effect.fnUntraced(function* (router) {
+		Effect.fn(function* (router) {
 			const orchestrator = yield* Orchestrator;
 			yield* router.add(
 				"GET",
@@ -67,7 +67,7 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	const encodeHealth = Schema.encodeSync(HealthResponse);
 
 	const HealthLive = HttpRouter.use(
-		Effect.fnUntraced(function* (router) {
+		Effect.fn(function* (router) {
 			const orchestrator = yield* Orchestrator;
 			yield* router.add(
 				"GET",

@@ -8,7 +8,7 @@ import { waitForShutdown } from "../shared/shutdown.js";
 export const ServeCommand = Command.make(
 	"serve",
 	cliCommandOptions,
-	Effect.fnUntraced(function* (args) {
+	Effect.fn(function* (args) {
 		const startTime = Date.now();
 		const logLevel = yield* References.MinimumLogLevel;
 		const handle = startServer(toServerOptions(args, logLevel));

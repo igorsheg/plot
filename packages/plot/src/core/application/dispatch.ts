@@ -86,7 +86,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			return [previous, next] as const;
 		});
 
-	const clearRetryAttempt = Effect.fnUntraced(function* (issueId: string) {
+	const clearRetryAttempt = Effect.fn(function* (issueId: string) {
 		const timerFiber = yield* takeRetryTimerFiber(issueId);
 		if (timerFiber) {
 			yield* Fiber.interrupt(timerFiber);
@@ -108,7 +108,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			: Effect.void;
 
 
-	const scheduleRetry = Effect.fnUntraced(function* (
+	const scheduleRetry = Effect.fn(function* (
 		issueId: string,
 		identifier: string,
 		attempt: number,
@@ -162,7 +162,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		}
 	});
 
-	const stopRunningIssue = Effect.fnUntraced(function* (
+	const stopRunningIssue = Effect.fn(function* (
 		entry: RunningEntry,
 		config: ResolvedConfig,
 		options: {
@@ -210,7 +210,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		);
 	});
 
-	const handleWorkerExit = Effect.fnUntraced(function* ({
+	const handleWorkerExit = Effect.fn(function* ({
 		issueId,
 		identifier,
 		attempt,
@@ -376,7 +376,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			}),
 		);
 
-	const processRetry = Effect.fnUntraced(function* (issueId: string, entry: RetryEntry) {
+	const processRetry = Effect.fn(function* (issueId: string, entry: RetryEntry) {
 		yield* takeRetryTimerFiber(issueId);
 		yield* deps.updateState((s) => {
 			const retryAttempts = new Map(s.retryAttempts);

@@ -220,7 +220,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 
 		const getCommandQueueDepth = Queue.size(commandMailbox);
 
-		const enqueueCommand = Effect.fnUntraced(function* (command: OrchestratorCommand) {
+		const enqueueCommand = Effect.fn(function* (command: OrchestratorCommand) {
 			const queueSize = yield* Queue.size(commandMailbox);
 			yield* noteCommandQueueSize(queueSize);
 			if (queueSize >= COMMAND_QUEUE_PRESSURE_WARN_AT) {
@@ -236,7 +236,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 			yield* Queue.offer(commandMailbox, command);
 		});
 
-		const requestTick = Effect.fnUntraced(function* (
+		const requestTick = Effect.fn(function* (
 			reason: string,
 			options?: { readonly coalesce?: boolean },
 		) {
@@ -253,7 +253,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 			});
 		});
 
-		const consumeEvent = Effect.fnUntraced(function* (event: AgentRuntimeEvent) {
+		const consumeEvent = Effect.fn(function* (event: AgentRuntimeEvent) {
 			const now = yield* Clock.currentTimeMillis;
 			yield* updateState((s) => consumeRuntimeEvent(s, event, now));
 		});
@@ -286,7 +286,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 			Match.value(command).pipe(
 				Match.discriminator("_tag")(
 					"tick",
-					Effect.fnUntraced(function* (cmd) {
+					Effect.fn(function* (cmd) {
 						if (cmd.coalesced) {
 							yield* Ref.set(pendingPollTickRef, false);
 						}
@@ -352,7 +352,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 			yield* Effect.sync(() => registry.set(configAtom, resolved));
 		});
 
-		const start = Effect.fnUntraced(function* (workflowPath: string) {
+		const start = Effect.fn(function* (workflowPath: string) {
 			yield* workflowLoader.load(workflowPath).pipe(Effect.catch((e) => Effect.die(e)));
 
 			yield* syncConfig;
@@ -392,7 +392,7 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 			getState.pipe(Effect.map(mapRuntimeSnapshot)),
 		);
 
-		const getEventLog = Effect.fnUntraced(function* (identifier: string) {
+		const getEventLog = Effect.fn(function* (identifier: string) {
 			const state = yield* withOrchestratorAvailability(getState);
 			const log = [...state.eventLogs.values()].find((l) => l.issueIdentifier === identifier);
 			if (!log) {

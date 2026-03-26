@@ -9,7 +9,7 @@ export function createTuiCommand(name: string) {
 	return Command.make(
 		name,
 		cliCommandOptions,
-		Effect.fnUntraced(function* (args) {
+		Effect.fn(function* (args) {
 			ensureTuiSupported();
 			const logLevel = yield* References.MinimumLogLevel;
 			const runtime = yield* Effect.promise(() =>

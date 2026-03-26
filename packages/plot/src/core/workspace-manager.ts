@@ -68,7 +68,7 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("Wo
 				),
 			);
 
-		const ensureWorkspace = Effect.fnUntraced(function* (
+		const ensureWorkspace = Effect.fn(function* (
 			identifier: string,
 			config: ResolvedConfig,
 		) {
@@ -96,7 +96,7 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("Wo
 				if (config.hooksAfterCreate) {
 					yield* runHook(config.hooksAfterCreate, wsPath, config.hooksTimeoutMs).pipe(
 						Effect.catch(
-							Effect.fnUntraced(function* (e) {
+							Effect.fn(function* (e) {
 								yield* fs.remove(wsPath, { recursive: true }).pipe(Effect.ignore);
 								return yield* Effect.fail(e);
 							}),
@@ -124,7 +124,7 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("Wo
 			return { path: wsPath, createdNow: false };
 		});
 
-		const removeWorkspace = Effect.fnUntraced(function* (
+		const removeWorkspace = Effect.fn(function* (
 			identifier: string,
 			config: ResolvedConfig,
 		) {

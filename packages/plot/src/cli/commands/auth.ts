@@ -26,7 +26,7 @@ export const AuthCommand = Command.make(
 		action: Argument.choice("action", ["status", "login", "logout"] as const),
 		provider: Argument.string("provider").pipe(Argument.optional),
 	},
-	Effect.fnUntraced(function* ({ action, provider }) {
+	Effect.fn(function* ({ action, provider }) {
 		const providerId = Option.getOrUndefined(provider);
 		switch (action) {
 			case "status": {
