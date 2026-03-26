@@ -60,7 +60,9 @@ function Root({
 
 	return (
 		<ChromeContext value={{ focused, close, minimize, zoom }}>
-			<div className={className}>{children}</div>
+			<div className={`overflow-hidden rounded-[10px] border border-white/[0.08] ${className ?? ""}`}>
+				{children}
+			</div>
 		</ChromeContext>
 	);
 }
@@ -97,94 +99,73 @@ function Title({
 	);
 }
 
-function TrafficLight({
-	color,
-	activeColor,
-	focused,
-	hovered,
-	onClick,
-	label,
-	children,
-}: {
-	color: string;
-	activeColor: string;
-	focused: boolean;
-	hovered: boolean;
-	onClick: () => void;
-	label: string;
-	children: ReactNode;
-}) {
-	return (
-		<button
-			type="button"
-			className="relative box-border size-3 rounded-full border border-black/[0.06] outline-none"
-			style={{ backgroundColor: focused || hovered ? color : "#ddd" }}
-			onClick={onClick}
-			onMouseDown={(e) => {
-				const btn = e.currentTarget;
-				btn.style.backgroundColor = activeColor;
-			}}
-			onMouseUp={(e) => {
-				const btn = e.currentTarget;
-				btn.style.backgroundColor = color;
-			}}
-			aria-label={label}
-		>
-			<span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 group-hover/chrome:opacity-100">
-				{children}
-			</span>
-		</button>
-	);
-}
-
 function Controls({ className }: { className?: string }) {
 	const { focused, close, minimize, zoom } = useChrome();
 	const [hovered, setHovered] = useState(false);
+	const [pressed, setPressed] = useState<"close" | "minimize" | "zoom" | null>(null);
+
+	const isActive = focused || hovered;
 
 	return (
 		<div
-			className={`electrobun-webkit-app-region-no-drag group/chrome flex items-center gap-[7px] ${className ?? ""}`}
+			className={`electrobun-webkit-app-region-no-drag flex items-center gap-2 ${className ?? ""}`}
 			onMouseEnter={() => setHovered(true)}
-			onMouseLeave={() => setHovered(false)}
+			onMouseLeave={() => { setHovered(false); setPressed(null); }}
 		>
-			<TrafficLight
-				color="#ff6159"
-				activeColor="#bf4942"
-				focused={focused}
-				hovered={hovered}
+			<button
+				type="button"
+				className="size-3 outline-none"
 				onClick={close}
-				label="Close"
+				onMouseDown={() => setPressed("close")}
+				onMouseUp={() => setPressed(null)}
+				aria-label="Close"
 			>
-				<svg className="size-[6px]" viewBox="0 0 8 8" fill="none" stroke="#4d0000" strokeWidth="1.2" strokeLinecap="round">
-					<line x1="1" y1="1" x2="7" y2="7" />
-					<line x1="7" y1="1" x2="1" y2="7" />
-				</svg>
-			</TrafficLight>
-			<TrafficLight
-				color="#ffbd2e"
-				activeColor="#bf8e22"
-				focused={focused}
-				hovered={hovered}
+				{!isActive ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#d1d0d2"/><circle cx="42.7" cy="42.7" r="39.1" fill="#c7c7c7"/></g></svg>
+				) : !hovered ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#e24b41"/><circle cx="42.7" cy="42.7" r="39.1" fill="#ed6a5f"/></g></svg>
+				) : pressed === "close" ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#a14239"/><circle cx="42.7" cy="42.7" r="39.1" fill="#b15048"/><g fill="#170101"><path d="m22.5 57.8 35.3-35.3c1.4-1.4 3.6-1.4 5 0l.1.1c1.4 1.4 1.4 3.6 0 5l-35.3 35.3c-1.4 1.4-3.6 1.4-5 0l-.1-.1c-1.4-1.4-1.4-3.7 0-5z"/><path d="m27.5 22.5 35.3 35.3c1.4 1.4 1.4 3.6 0 5l-.1.1c-1.4 1.4-3.6 1.4-5 0l-35.3-35.3c-1.4-1.4-1.4-3.6 0-5l.1-.1c1.4-1.4 3.7-1.4 5 0z"/></g></g></svg>
+				) : (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#e24b41"/><circle cx="42.7" cy="42.7" r="39.1" fill="#ed6a5f"/><g fill="#460804"><path d="m22.5 57.8 35.3-35.3c1.4-1.4 3.6-1.4 5 0l.1.1c1.4 1.4 1.4 3.6 0 5l-35.3 35.3c-1.4 1.4-3.6 1.4-5 0l-.1-.1c-1.3-1.4-1.3-3.6 0-5z"/><path d="m27.6 22.5 35.3 35.3c1.4 1.4 1.4 3.6 0 5l-.1.1c-1.4 1.4-3.6 1.4-5 0l-35.3-35.3c-1.4-1.4-1.4-3.6 0-5l.1-.1c1.4-1.3 3.6-1.3 5 0z"/></g></g></svg>
+				)}
+			</button>
+			<button
+				type="button"
+				className="size-3 outline-none"
 				onClick={minimize}
-				label="Minimize"
+				onMouseDown={() => setPressed("minimize")}
+				onMouseUp={() => setPressed(null)}
+				aria-label="Minimize"
 			>
-				<svg className="size-[6px]" viewBox="0 0 8 8" fill="none" stroke="#995700" strokeWidth="1.2" strokeLinecap="round">
-					<line x1="0" y1="4" x2="8" y2="4" />
-				</svg>
-			</TrafficLight>
-			<TrafficLight
-				color="#28c941"
-				activeColor="#1d9730"
-				focused={focused}
-				hovered={hovered}
+				{!isActive ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#d1d0d2"/><circle cx="42.7" cy="42.7" r="39.1" fill="#c7c7c7"/></g></svg>
+				) : !hovered ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#e1a73e"/><circle cx="42.7" cy="42.7" r="39.1" fill="#f6be50"/></g></svg>
+				) : pressed === "minimize" ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#a67f36"/><circle cx="42.7" cy="42.7" r="39.1" fill="#b8923b"/><path d="m17.7 39.1h49.9c1.9 0 3.5 1.6 3.5 3.5v.1c0 1.9-1.6 3.5-3.5 3.5h-49.9c-1.9 0-3.5-1.6-3.5-3.5v-.1c0-1.9 1.6-3.5 3.5-3.5z" fill="#532a0a"/></g></svg>
+				) : (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#e1a73e"/><circle cx="42.7" cy="42.7" r="39.1" fill="#f6be50"/><path d="m17.8 39.1h49.9c1.9 0 3.5 1.6 3.5 3.5v.1c0 1.9-1.6 3.5-3.5 3.5h-49.9c-1.9 0-3.5-1.6-3.5-3.5v-.1c0-1.9 1.5-3.5 3.5-3.5z" fill="#90591d"/></g></svg>
+				)}
+			</button>
+			<button
+				type="button"
+				className="size-3 outline-none"
 				onClick={zoom}
-				label="Zoom"
+				onMouseDown={() => setPressed("zoom")}
+				onMouseUp={() => setPressed(null)}
+				aria-label="Zoom"
 			>
-				<svg className="size-[6px]" viewBox="0 0 8 8" fill="none" stroke="#006500" strokeWidth="1.2" strokeLinecap="round">
-					<polyline points="1,3.5 1,1 3.5,1" />
-					<polyline points="7,4.5 7,7 4.5,7" />
-				</svg>
-			</TrafficLight>
+				{!isActive ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#d1d0d2"/><circle cx="42.7" cy="42.7" r="39.1" fill="#c7c7c7"/></g></svg>
+				) : !hovered ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#2dac2f"/><circle cx="42.7" cy="42.7" r="39.1" fill="#61c555"/></g></svg>
+				) : pressed === "zoom" ? (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#428234"/><circle cx="42.7" cy="42.7" r="39.1" fill="#4a9741"/><path d="m31.2 20.8h26.7c3.6 0 6.5 2.9 6.5 6.5v26.7zm23.2 43.7h-26.8c-3.6 0-6.5-2.9-6.5-6.5v-26.8z" fill="#113107"/></g></svg>
+				) : (
+					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#2dac2f"/><circle cx="42.7" cy="42.7" r="39.1" fill="#61c555"/><path d="m31.2 20.8h26.7c3.6 0 6.5 2.9 6.5 6.5v26.7zm23.2 43.7h-26.8c-3.6 0-6.5-2.9-6.5-6.5v-26.8z" fill="#2a6218"/></g></svg>
+				)}
+			</button>
 		</div>
 	);
 }

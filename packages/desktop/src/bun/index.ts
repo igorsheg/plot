@@ -176,6 +176,7 @@ async function openConfigWindow(projectId: string) {
 		title: `Plot — ${project.name}`,
 		url: `${url}${sep}projectId=${projectId}`,
 		titleBarStyle: "hidden",
+		transparent: true,
 		rpc,
 		frame: { width: 480, height: 540, x: 200, y: 200 },
 	});
