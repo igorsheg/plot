@@ -40,13 +40,21 @@ export function extractFrontmatter(content: string): RawFrontmatter {
 
 export class WorkflowFileNotFound extends Schema.TaggedErrorClass<WorkflowFileNotFound>()(
 	"WorkflowFileNotFound",
-	{ path: Schema.String },
-) {}
+	{ path: Schema.String, cause: Schema.optional(Schema.Defect) },
+) {
+	override get message(): string {
+		return `Workflow file not found: ${this.path}`;
+	}
+}
 
 export class WorkflowParseError extends Schema.TaggedErrorClass<WorkflowParseError>()(
 	"WorkflowParseError",
-	{ message: Schema.String },
-) {}
+	{ message: Schema.String, cause: Schema.optional(Schema.Defect) },
+) {
+	override get message(): string {
+		return `Workflow parse error: ${this.message}`;
+	}
+}
 
 export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()("WorkflowLoader", {
 	make: Effect.gen(function* () {

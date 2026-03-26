@@ -7,8 +7,12 @@ import type { WorkflowOverrides } from "../config.js";
 
 export class ConfigValidationError extends Schema.TaggedErrorClass<ConfigValidationError>()(
 	"ConfigValidationError",
-	{ message: Schema.String, field: Schema.optional(Schema.String) },
-) {}
+	{ message: Schema.String, field: Schema.optional(Schema.String), cause: Schema.optional(Schema.Defect) },
+) {
+	override get message(): string {
+		return `Config validation failed${this.field ? ` at ${this.field}` : ""}: ${this.message}`;
+	}
+}
 
 const resolveEnvValue = (value: string | undefined): string | undefined => {
 	if (!value) return undefined;

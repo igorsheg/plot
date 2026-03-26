@@ -6,8 +6,13 @@ export class AgentRunnerError extends Schema.TaggedErrorClass<AgentRunnerError>(
 	{
 		code: Schema.String,
 		message: Schema.String,
+		cause: Schema.optional(Schema.Defect),
 	},
-) {}
+) {
+	override get message(): string {
+		return `Agent runner failed [${this.code}]: ${this.message}`;
+	}
+}
 
 export interface AgentRunConfig {
 	readonly systemPrompt: string;

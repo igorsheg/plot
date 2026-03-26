@@ -4,7 +4,12 @@ export class WorkspaceError extends Schema.TaggedErrorClass<WorkspaceError>()("W
 	code: Schema.String,
 	message: Schema.String,
 	path: Schema.optional(Schema.String),
-}) {}
+	cause: Schema.optional(Schema.Defect),
+}) {
+	override get message(): string {
+		return `Workspace error [${this.code}]: ${this.message}${this.path ? ` (${this.path})` : ""}`;
+	}
+}
 import type { ResolvedConfig } from "./config-service.js";
 import { resolve } from "node:path";
 
