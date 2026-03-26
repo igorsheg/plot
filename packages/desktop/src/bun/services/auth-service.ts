@@ -79,6 +79,30 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 			});
 		});
 
+		const handleNdjsonMessage = (msg: { type?: string; url?: string; message?: string; placeholder?: string; ok?: boolean; error?: { message?: string } }) => {
+			switch (msg.type) {
+				case "auth:url":
+					return Effect.sync(() => Utils.openExternal(msg.url ?? "")).pipe(
+						Effect.andThen(publishState({ phase: "authenticating" })),
+					);
+				case "auth:prompt":
+					return publishState({
+						phase: "waitingForCode",
+						message: msg.message ?? "",
+						placeholder: msg.placeholder,
+					});
+				case "result":
+					return msg.ok ? publishState({ phase: "success" }) : Effect.void;
+				case "error":
+					return publishState({
+						phase: "failed",
+						error: msg.error?.message ?? "Auth failed",
+					});
+				default:
+					return Effect.void;
+			}
+		};
+
 		const startLogin = (providerId: string) =>
 			Effect.gen(function* () {
 				const active = yield* Ref.get(activeRef);
@@ -89,71 +113,39 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 				const args = yield* binary.resolveArgs;
 				yield* publishState({ phase: "authenticating" });
 
+				const proc = yield* Effect.sync(() =>
+					Bun.spawn([...args, "auth", "login", providerId], {
+						stdio: ["pipe", "pipe", "ignore"],
+					}),
+				);
+
+				yield* Ref.set(activeRef, { proc });
+
+				const stdout = proc.stdout as ReadableStream<Uint8Array> | null;
+				if (!stdout) return;
+
+				yield* Stream.fromReadableStream({
+					evaluate: () => stdout,
+					onError: () => new AuthError({ code: "login_stream_failed", message: "stdout read error" }),
+				}).pipe(
+					Stream.decodeText(),
+					Stream.flatMap((chunk: string) => Stream.fromIterable(chunk.split("\n"))),
+					Stream.filter((line: string) => line.trim().length > 0),
+					Stream.mapEffect((line: string) =>
+						Effect.try({ try: () => JSON.parse(line), catch: () => null }).pipe(
+							Effect.flatMap((parsed) =>
+								parsed !== null ? handleNdjsonMessage(parsed) : Effect.void,
+							),
+						),
+					),
+					Stream.runDrain,
+					Effect.ensuring(Ref.set(activeRef, null)),
+					Effect.catch(() => publishState({ phase: "failed", error: "Auth stream failed" })),
+				);
+
 				yield* Effect.tryPromise({
-					try: async () => {
-						const proc = Bun.spawn([...args, "auth", "login", providerId], {
-							stdio: ["pipe", "pipe", "ignore"],
-						});
-
-						await Effect.runPromise(Ref.set(activeRef, { proc }));
-
-						const stdout = proc.stdout;
-						if (!stdout) return;
-
-						const reader = (stdout as ReadableStream<Uint8Array>).getReader();
-						const decoder = new TextDecoder();
-						let buffer = "";
-
-						while (true) {
-							const { done, value } = await reader.read();
-							if (done) break;
-
-							buffer += decoder.decode(value, { stream: true });
-							const lines = buffer.split("\n");
-							buffer = lines.pop() ?? "";
-
-							for (const line of lines) {
-								if (!line.trim()) continue;
-								try {
-									const msg = JSON.parse(line);
-									switch (msg.type) {
-										case "auth:url":
-											Utils.openExternal(msg.url);
-											await Effect.runPromise(publishState({ phase: "authenticating" }));
-											break;
-										case "auth:prompt":
-											await Effect.runPromise(
-												publishState({
-													phase: "waitingForCode",
-													message: msg.message,
-													placeholder: msg.placeholder,
-												}),
-											);
-											break;
-										case "result":
-											if (msg.ok) {
-												await Effect.runPromise(publishState({ phase: "success" }));
-											}
-											break;
-										case "error":
-											await Effect.runPromise(
-												publishState({
-													phase: "failed",
-													error: msg.error?.message ?? "Auth failed",
-												}),
-											);
-											break;
-									}
-								} catch {
-									// skip malformed NDJSON
-								}
-							}
-						}
-
-						await proc.exited;
-						await Effect.runPromise(Ref.set(activeRef, null));
-					},
-					catch: (e) => new AuthError({ code: "login_failed", message: String(e) }),
+					try: () => proc.exited,
+					catch: () => new AuthError({ code: "login_failed", message: "Process exited unexpectedly" }),
 				});
 			});
 
