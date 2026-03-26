@@ -10,13 +10,8 @@ struct ProjectDetailView: View {
                 ProgressView("Loading workflow...")
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let workflow = store.workflow {
-                WorkflowFormView(
-                    workflow: workflow,
-                    onUpdateFrontmatter: { store.send(.updateFrontmatter($0)) },
-                    onSave: { store.send(.save) },
-                    onOpenInEditor: { store.send(.openInEditor) }
-                )
+            } else if store.workflow != nil {
+                WorkflowFormView(store: store)
             } else {
                 NoWorkflowView(
                     onCreate: { store.send(.createWorkflow($0)) }
@@ -31,31 +26,18 @@ struct ProjectDetailView: View {
 }
 
 struct WorkflowFormView: View {
-    let workflow: WorkflowDocument
-    let onUpdateFrontmatter: (WorkflowFrontmatter) -> Void
-    let onSave: () -> Void
-    let onOpenInEditor: () -> Void
+    @Bindable var store: StoreOf<ProjectDetailFeature>
 
     @State private var config: WorkflowFrontmatter
     @State private var showSaveConfirmation = false
-
-    init(
-        workflow: WorkflowDocument,
-        onUpdateFrontmatter: @escaping (WorkflowFrontmatter) -> Void,
-        onSave: @escaping () -> Void,
-        onOpenInEditor: @escaping () -> Void
-    ) {
-        self.workflow = workflow
-        self.onUpdateFrontmatter = onUpdateFrontmatter
-        self.onSave = onSave
-        self.onOpenInEditor = onOpenInEditor
-        self._config = State(initialValue: workflow.config)
-    }
+    @State private var selectedTab: DetailTab = .tracker
 
     private let trackerKinds = ["github", "beads"]
-    private let modelOptions = ["anthropic/claude-sonnet-4-20250514", "anthropic/claude-opus-4-6"]
 
-    @State private var selectedTab: DetailTab = .tracker
+    init(store: StoreOf<ProjectDetailFeature>) {
+        self.store = store
+        self._config = State(initialValue: store.workflow?.config ?? WorkflowFrontmatter())
+    }
 
     enum DetailTab: String, CaseIterable {
         case tracker = "Tracker"
@@ -112,14 +94,14 @@ struct WorkflowFormView: View {
 
                     Section("Instructions") {
                         Button {
-                            onOpenInEditor()
+                            store.send(.openInEditor)
                         } label: {
                             Label("Open WORKFLOW.md in Editor", systemImage: "pencil.and.outline")
                         }
                         .buttonStyle(.borderedProminent)
 
-                        if !workflow.promptBody.isEmpty {
-                            Text(workflow.promptBody)
+                        if let body = store.workflow?.promptBody, !body.isEmpty {
+                            Text(body)
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
@@ -132,32 +114,61 @@ struct WorkflowFormView: View {
 
             Tab(DetailTab.agent.rawValue, systemImage: DetailTab.agent.systemImage, value: .agent) {
                 Form {
-                    Picker("Model", selection: agentModelBinding) {
-                        ForEach(modelOptions, id: \.self) { model in
-                            Text(model).tag(model)
+                    Section("Provider") {
+                        if let registry = store.modelRegistry {
+                            Picker("Provider", selection: providerBinding) {
+                                ForEach(registry.providers) { provider in
+                                    Text(provider.id).tag(provider.id)
+                                }
+                            }
+
+                            AuthStatusView(
+                                isAuthenticated: store.isProviderAuthenticated,
+                                authState: store.authState,
+                                providerName: store.selectedProviderId ?? "",
+                                onLogin: { store.send(.loginTapped) }
+                            )
+                        } else {
+                            ProgressView("Loading providers...")
+                                .controlSize(.small)
                         }
                     }
-                    .help("The AI model to use for coding agents")
 
-                    TextField(
-                        "Max Concurrent Agents",
-                        value: Binding(
-                            get: { config.agent?.maxConcurrentAgents },
-                            set: { config.agent?.maxConcurrentAgents = $0; sync() }
-                        ),
-                        format: .number
-                    )
-                    .help("Maximum number of agents running simultaneously")
+                    Section("Model") {
+                        if let provider = store.selectedProvider {
+                            Picker("Model", selection: modelBinding) {
+                                ForEach(provider.models) { model in
+                                    Text(model.name).tag(model.id)
+                                }
+                            }
+                            .help("The AI model to use for coding agents")
+                        } else {
+                            Text("Select a provider first")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
-                    TextField(
-                        "Max Turns",
-                        value: Binding(
-                            get: { config.agent?.maxTurns },
-                            set: { config.agent?.maxTurns = $0; sync() }
-                        ),
-                        format: .number
-                    )
-                    .help("Maximum conversation turns per agent session")
+                    Section("Limits") {
+                        TextField(
+                            "Max Concurrent Agents",
+                            value: Binding(
+                                get: { config.agent?.maxConcurrentAgents },
+                                set: { config.agent?.maxConcurrentAgents = $0; sync() }
+                            ),
+                            format: .number
+                        )
+                        .help("Maximum number of agents running simultaneously")
+
+                        TextField(
+                            "Max Turns",
+                            value: Binding(
+                                get: { config.agent?.maxTurns },
+                                set: { config.agent?.maxTurns = $0; sync() }
+                            ),
+                            format: .number
+                        )
+                        .help("Maximum conversation turns per agent session")
+                    }
                 }
                 .formStyle(.grouped)
             }
@@ -184,7 +195,7 @@ struct WorkflowFormView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showSaveConfirmation = true
-                    onSave()
+                    store.send(.save)
                 } label: {
                     Label(
                         showSaveConfirmation ? "Saved" : "Save",
@@ -203,7 +214,7 @@ struct WorkflowFormView: View {
     }
 
     private func sync() {
-        onUpdateFrontmatter(config)
+        store.send(.updateFrontmatter(config))
     }
 
     private var trackerKindBinding: Binding<String> {
@@ -217,15 +228,80 @@ struct WorkflowFormView: View {
         )
     }
 
-    private var agentModelBinding: Binding<String> {
+    private var providerBinding: Binding<String> {
         Binding(
-            get: { config.agent?.model ?? "anthropic/claude-sonnet-4-20250514" },
-            set: {
-                if config.agent == nil { config.agent = .init(model: $0) }
-                else { config.agent?.model = $0 }
-                sync()
-            }
+            get: { store.selectedProviderId ?? "" },
+            set: { store.send(.selectProvider($0)) }
         )
+    }
+
+    private var modelBinding: Binding<String> {
+        Binding(
+            get: { store.selectedModelId ?? "" },
+            set: { store.send(.selectModel($0)) }
+        )
+    }
+}
+
+struct AuthStatusView: View {
+    let isAuthenticated: Bool
+    let authState: ProjectDetailFeature.State.AuthState
+    let providerName: String
+    let onLogin: () -> Void
+
+    var body: some View {
+        switch authState {
+        case .idle:
+            if isAuthenticated {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Authenticated")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Button(action: onLogin) {
+                    Label("Log in with \(providerName)", systemImage: "person.badge.key")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        case .authenticating:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Authenticating...")
+                    .foregroundStyle(.secondary)
+            }
+        case .waitingForCode(let message, _):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Complete authentication in your browser")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        case .success:
+            HStack {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Logged in")
+                    .foregroundStyle(.secondary)
+            }
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                    Text("Authentication failed")
+                }
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Try Again", action: onLogin)
+                    .controlSize(.small)
+            }
+        }
     }
 }
 
