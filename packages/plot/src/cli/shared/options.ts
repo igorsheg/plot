@@ -3,7 +3,7 @@ import { LogLevel, Option } from "effect";
 
 export const cliCommandOptions = {
 	verbose: Flag.boolean("verbose").pipe(
-		Flag.withDescription("enable non-error human output (quiet by default)"),
+		Flag.withDescription("enable diagnostic output on stderr (quiet by default)"),
 	),
 	port: Flag.integer("port").pipe(Flag.withDescription("server port"), Flag.withDefault(3000)),
 	workflow: Flag.string("workflow").pipe(

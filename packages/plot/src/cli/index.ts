@@ -25,8 +25,8 @@ const SUBCOMMANDS = [
 	{ name: "web", description: "start server and serve the web dashboard", usage: `${CLI_NAME} web [--port <port>] [--workflow <path>]` },
 	{ name: "auth", description: "manage authentication (status, login, logout)", usage: `${CLI_NAME} auth <status|login|logout> [provider]` },
 	{ name: "models", description: "list available providers and models", usage: `${CLI_NAME} models` },
-	{ name: "login", description: "login to a model provider for plot", usage: `${CLI_NAME} login [provider]` },
-	{ name: "logout", description: "logout from a model provider for plot", usage: `${CLI_NAME} logout [provider]` },
+	{ name: "login", description: "authenticate with a model provider (interactive)", usage: `${CLI_NAME} login [provider]` },
+	{ name: "logout", description: "revoke credentials for a model provider", usage: `${CLI_NAME} logout [provider]` },
 ];
 
 if (internalCommand === "__internal-server") {

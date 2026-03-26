@@ -8,4 +8,4 @@ export const LogoutCommand = Command.make(
 		provider: Argument.string("provider").pipe(Argument.optional),
 	},
 	({ provider }) => Effect.promise(() => logoutWithPlotAuth(Option.getOrUndefined(provider))),
-).pipe(Command.withDescription("logout from a model provider for plot"));
+).pipe(Command.withDescription("revoke credentials for a model provider"));
