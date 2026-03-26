@@ -9,6 +9,7 @@ import { Button } from "@plot/ui/components/button";
 import { Input } from "@plot/ui/components/input";
 import { Label } from "@plot/ui/components/label";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@plot/ui/components/tabs";
+import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "@plot/ui/components/select";
 import { Badge } from "@plot/ui/components/badge";
 
 type Props = {
@@ -118,19 +119,22 @@ function TrackerTab({
 		<>
 			<div className="space-y-1.5">
 				<Label className="text-xs">Tracker Kind</Label>
-				<select
-					value={tracker.kind}
-					onChange={(e) =>
-						onUpdate((c) => ({
-							...c,
-							tracker: { ...tracker, kind: e.target.value },
-						}))
-					}
-					className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-				>
-					<option value="github">GitHub</option>
-					<option value="beads">Beads</option>
-				</select>
+				<Select value={tracker.kind} onValueChange={(val) => {
+					if (val === null) return;
+					onUpdate((c) => ({
+						...c,
+						tracker: { ...tracker, kind: val },
+					}));
+				}
+				}>
+					<SelectTrigger size="sm">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectPopup>
+						<SelectItem value="github">GitHub</SelectItem>
+						<SelectItem value="beads">Beads</SelectItem>
+					</SelectPopup>
+				</Select>
 			</div>
 
 			<div className="space-y-1.5">
@@ -239,18 +243,18 @@ function AgentTab({
 					Provider
 				</legend>
 				<div className="flex items-center gap-2">
-					<select
-						value={selectedProvider}
-						onChange={(e) => setModel(e.target.value, "")}
-						className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-					>
-						<option value="">Select provider</option>
-						{providers.map((p) => (
-							<option key={p.id} value={p.id}>
-								{p.id}
-							</option>
-						))}
-					</select>
+					<Select value={selectedProvider} onValueChange={(val) => { if (val !== null) setModel(val, ""); }}>
+						<SelectTrigger size="sm" className="flex-1">
+							<SelectValue placeholder="Select provider" />
+						</SelectTrigger>
+						<SelectPopup>
+							{providers.map((p) => (
+								<SelectItem key={p.id} value={p.id}>
+									{p.id}
+								</SelectItem>
+							))}
+						</SelectPopup>
+					</Select>
 					{providerAuth &&
 						(providerAuth.authenticated ? (
 							<Badge variant="secondary" className="shrink-0 text-emerald-400">
@@ -317,19 +321,18 @@ function AgentTab({
 				<legend className="px-1 text-xs font-medium text-muted-foreground">
 					Model
 				</legend>
-				<select
-					value={selectedModel}
-					onChange={(e) => setModel(selectedProvider, e.target.value)}
-					className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-					disabled={providerModels.length === 0}
-				>
-					<option value="">Select model</option>
-					{providerModels.map((m) => (
-						<option key={m.id} value={m.id}>
-							{m.name}
-						</option>
-					))}
-				</select>
+				<Select value={selectedModel} onValueChange={(val) => { if (val !== null) setModel(selectedProvider, val); }} disabled={providerModels.length === 0}>
+					<SelectTrigger size="sm">
+						<SelectValue placeholder="Select model" />
+					</SelectTrigger>
+					<SelectPopup>
+						{providerModels.map((m) => (
+							<SelectItem key={m.id} value={m.id}>
+								{m.name}
+							</SelectItem>
+						))}
+					</SelectPopup>
+				</Select>
 			</fieldset>
 
 			<fieldset className="space-y-3 rounded-lg border border-border/50 p-3">

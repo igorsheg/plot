@@ -2,6 +2,81 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+	--font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	--font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+	--text-display: 2.25rem;
+	--text-display--line-height: 2.5rem;
+	--text-title-lg: 1.5rem;
+	--text-title-lg--line-height: 2rem;
+	--text-title: 1.125rem;
+	--text-title--line-height: 1.5rem;
+	--text-body: 0.875rem;
+	--text-body--line-height: 1.25rem;
+	--text-label: 0.8125rem;
+	--text-label--line-height: 1rem;
+	--text-caption: 0.75rem;
+	--text-caption--line-height: 1rem;
+	--text-micro: 0.6875rem;
+	--text-micro--line-height: 0.875rem;
+	--text-mono: 0.8125rem;
+	--text-mono--line-height: 1.25rem;
+
+	--text-control-xs: 0.6875rem;
+	--text-control-xs--line-height: 0.875rem;
+	--text-control-sm: 0.75rem;
+	--text-control-sm--line-height: 1rem;
+	--text-control: 0.75rem;
+	--text-control--line-height: 1rem;
+	--text-control-lg: 0.8125rem;
+	--text-control-lg--line-height: 1.125rem;
+	--text-control-xl: 0.875rem;
+	--text-control-xl--line-height: 1.25rem;
+
+	--tracking-display: -0.025em;
+	--tracking-title: -0.02em;
+	--tracking-body: -0.006em;
+
+	--radius-xs: 2px;
+	--radius-full: 9999px;
+
+	--blur-sm: 8px;
+	--blur-md: 12px;
+	--blur-lg: 16px;
+
+	--shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+	--shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+	--shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+	--shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+	--shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+	--height-control-xs: 1.375rem;
+	--height-control-sm: 1.5rem;
+	--height-control: 1.75rem;
+	--height-control-lg: 1.875rem;
+	--height-control-xl: 2.5rem;
+
+	--duration-instant: 75ms;
+	--duration-fast: 125ms;
+	--duration-normal: 150ms;
+	--duration-moderate: 200ms;
+	--duration-slow: 250ms;
+
+	--ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+	--ease-in: cubic-bezier(0.4, 0, 1, 1);
+	--ease-expo: cubic-bezier(0.32, 0.72, 0, 1);
+
+	--duration-swift: 220ms;
+	--ease-swift: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+
+	--duration-overshoot: 800ms;
+	--ease-overshoot: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+	--duration-snappy: 300ms;
+	--ease-snappy: cubic-bezier(0.19, 1, 0.22, 1);
+}
+
 @theme inline {
 	--animate-skeleton: skeleton 2s -1s infinite linear;
 	--font-heading: "Geist Mono", ui-monospace, monospace;
@@ -55,6 +130,17 @@
 	--radius-2xl: calc(var(--radius) + 8px);
 	--radius-3xl: calc(var(--radius) + 12px);
 	--radius-4xl: calc(var(--radius) + 16px);
+	--color-surface: var(--surface);
+	--color-hint: var(--hint);
+	--color-input-bg: var(--input-bg);
+	--color-input-bg-hover: var(--input-bg-hover);
+	--color-input-ring: var(--input-ring);
+	--color-brand-50: var(--brand-50);
+	--color-brand-100: var(--brand-100);
+	--color-brand-200: var(--brand-200);
+	--color-brand-500: var(--brand-500);
+	--color-brand-600: var(--brand-600);
+	--color-brand-700: var(--brand-700);
 	@keyframes skeleton {
 		to {
 			background-position: -200% 0;
@@ -164,4 +250,89 @@
 	pre {
 		font-family: var(--font-mono);
 	}
+	input[type="number"]::-webkit-outer-spin-button,
+	input[type="number"]::-webkit-inner-spin-button,
+	input[type="number"] {
+		-webkit-appearance: textfield;
+		-moz-appearance: textfield;
+		appearance: textfield;
+	}
+	input[type="number"]::-webkit-outer-spin-button,
+	input[type="number"]::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		appearance: none;
+	}
+}
+
+@utility transition-fade {
+	transition-property: opacity;
+	transition-duration: var(--duration-fast);
+	transition-timing-function: var(--ease-out);
+}
+
+@utility transition-scale {
+	transition-property: transform, opacity;
+	transition-duration: var(--duration-swift);
+	transition-timing-function: var(--ease-swift);
+}
+
+@utility transition-slide {
+	transition-property: transform, opacity;
+	transition-duration: var(--duration-slow);
+	transition-timing-function: var(--ease-expo);
+}
+
+@utility transition-expand {
+	transition-property: width, height, grid-template-rows;
+	transition-duration: var(--duration-slow);
+	transition-timing-function: var(--ease-expo);
+}
+
+@utility transition-colors-fast {
+	transition-property: color, background-color, border-color;
+	transition-duration: var(--duration-fast);
+	transition-timing-function: var(--ease-out);
+}
+
+@utility transition-panel {
+	transition-property: transform, opacity, width;
+	transition-duration: var(--duration-snappy);
+	transition-timing-function: var(--ease-snappy);
+}
+
+@utility transition-exit {
+	transition-property: transform, opacity;
+	transition-duration: var(--duration-fast);
+	transition-timing-function: var(--ease-in);
+}
+
+@utility void {
+	--muted: var(--neutral-200);
+	--accent: var(--neutral-200);
+	--input-bg-hover: var(--neutral-300);
+}
+
+@utility bg-card {
+	background-color: var(--card);
+	--muted: var(--neutral-100);
+	--accent: var(--neutral-100);
+	--input: var(--neutral-100);
+	--input-bg: var(--neutral-100);
+	--input-bg-hover: var(--neutral-200);
+}
+
+@utility typography-panel {
+	--text-micro: 0.75rem;
+	--text-micro--line-height: 1rem;
+	--text-caption: 0.8125rem;
+	--text-caption--line-height: 1.125rem;
+	--text-label: 0.875rem;
+	--text-label--line-height: 1.25rem;
+	--text-body: 1rem;
+	--text-body--line-height: 1.5rem;
+}
+
+@utility surface-elevated {
+	backdrop-filter: var(--blur-md);
+	background-color: color-mix(in oklab, var(--neutral-500) 80%, transparent);
 }

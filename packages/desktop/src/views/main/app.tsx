@@ -137,7 +137,7 @@ export function App({ projectId }: { projectId: string }) {
 
 	if (loading) {
 		return (
-			<div className="dark flex min-h-screen items-center justify-center bg-background text-foreground">
+			<div className="desktop-ui dark flex min-h-screen items-center justify-center bg-background text-foreground">
 				<Spinner />
 			</div>
 		);
@@ -145,14 +145,14 @@ export function App({ projectId }: { projectId: string }) {
 
 	if (!project) {
 		return (
-			<div className="dark flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+			<div className="desktop-ui dark flex min-h-screen items-center justify-center bg-background text-muted-foreground">
 				<p className="text-sm">Project not found</p>
 			</div>
 		);
 	}
 
 	return (
-		<div className="dark flex min-h-screen flex-col bg-background text-foreground">
+		<div className="desktop-ui dark flex min-h-screen flex-col bg-background text-foreground">
 			<div
 				className="flex h-[38px] shrink-0 items-center justify-between border-b border-border/50 px-4"
 				style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
