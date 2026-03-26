@@ -18,15 +18,13 @@ export interface ServerHandle {
  */
 export function startServer(opts: ServerOptions): ServerHandle {
 	const server = spawn(resolveSelfCommandArgs("__internal-server"), {
-		stdio: ["ignore", "pipe", "pipe"],
+		stdio: ["ignore", "ignore", "pipe"],
 		env: toServerEnv(opts),
 	});
 
 	if (opts.verbose) {
-		pipeToStderr(server.stdout);
 		pipeToStderr(server.stderr);
 	} else {
-		drainStream(server.stdout);
 		drainStream(server.stderr);
 	}
 

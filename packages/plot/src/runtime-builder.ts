@@ -63,6 +63,7 @@ export function makeLoggingLayer(config: ServerConfig) {
 	return Layer.mergeAll(
 		Logger.layer([logger]),
 		Layer.succeed(References.MinimumLogLevel, parseServerLogLevel(config.logLevel)),
+		Layer.succeed(Logger.LogToStderr, true),
 	);
 }
 
