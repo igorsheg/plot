@@ -110,10 +110,6 @@
 	--ring: var(--brand-500);
 }
 
-.desktop-ui .titlebar {
-	height: 52px;
-}
-
 @layer base {
 	* {
 		@apply border-border outline-ring/50;

@@ -148,7 +148,7 @@ export function App({ projectId }: { projectId: string }) {
 
 	return (
 		<div className="desktop-ui dark flex min-h-screen flex-col bg-background">
-			<div className="electrobun-webkit-app-region-drag titlebar flex shrink-0 items-end justify-between px-4 pb-2">
+			<div className="electrobun-webkit-app-region-drag flex shrink-0 items-center justify-between px-4 pt-[38px] pb-2">
 				<div className="electrobun-webkit-app-region-no-drag ml-[68px] flex items-center gap-2">
 					<span className="text-label font-semibold">{project.name}</span>
 					<Badge
