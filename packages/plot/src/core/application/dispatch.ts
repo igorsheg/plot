@@ -116,6 +116,8 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		error: string | null,
 		reason: RetryReason,
 	) {
+		yield* clearRetryAttempt(issueId);
+
 		const now = yield* Clock.currentTimeMillis;
 		const dueAtMs = now + Duration.toMillis(delay);
 		yield* deps.updateState((s) => {
@@ -156,10 +158,9 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			Effect.andThen(deps.enqueueCommand({ _tag: "retry_due", issueId, attempt })),
 			Effect.forkScoped,
 		);
-		const previousTimerFiber = yield* replaceRetryTimerFiber(issueId, timerFiber);
-		if (previousTimerFiber) {
-			yield* Fiber.interrupt(previousTimerFiber);
-		}
+		yield* replaceRetryTimerFiber(issueId, timerFiber).pipe(
+			Effect.flatMap((previous) => (previous ? Fiber.interrupt(previous) : Effect.void)),
+		);
 	});
 
 	const stopRunningIssue = Effect.fn(function* (
@@ -241,38 +242,51 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 		yield* runAfterRunHook(config, workspacePath);
 
-		if (exitReason === "success") {
-			yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY, null, "continuation");
-		} else if (exitReason === "interrupted") {
-			yield* releaseClaim(issueId);
-			yield* Effect.logInfo("worker_interrupted").pipe(
-				Effect.annotateLogs({ issue_id: issueId, identifier }),
-			);
-		} else {
-			const error = exitErrorString ?? "unknown";
-			const isStall = error.includes("runner_stalled");
-			const isMergeConflict =
-				error.includes("merge conflict") ||
-				error.includes("CONFLICT") ||
-				error.includes("rebase --abort");
-			yield* Effect.logError(
-				isStall ? "agent_stalled" : isMergeConflict ? "merge_conflict" : "agent_failed",
-			).pipe(Effect.annotateLogs({ issue_id: issueId, identifier, error }));
-			const nextAttempt = (attempt ?? 0) + 1;
-			const retryError = isStall
-				? `Previous attempt stalled (no output). The task may need to be broken into smaller pieces. Original error: ${error}`
-				: isMergeConflict
-					? `${MERGE_CONFLICT_INSTRUCTION} Original error: ${error}`
-					: error;
-			yield* scheduleRetry(
-				issueId,
-				identifier,
-				nextAttempt,
-				retryDelay(nextAttempt, config.maxRetryBackoffMs),
-				retryError,
-				isStall ? "stall" : isMergeConflict ? "merge_conflict" : "failure",
-			);
-		}
+		yield* Effect.gen(function* () {
+			if (exitReason === "success") {
+				yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY, null, "continuation");
+			} else if (exitReason === "interrupted") {
+				yield* releaseClaim(issueId);
+				yield* Effect.logInfo("worker_interrupted").pipe(
+					Effect.annotateLogs({ issue_id: issueId, identifier }),
+				);
+			} else {
+				const error = exitErrorString ?? "unknown";
+				const isStall = error.includes("runner_stalled");
+				const isMergeConflict =
+					error.includes("merge conflict") ||
+					error.includes("CONFLICT") ||
+					error.includes("rebase --abort");
+				yield* Effect.logError(
+					isStall ? "agent_stalled" : isMergeConflict ? "merge_conflict" : "agent_failed",
+				).pipe(Effect.annotateLogs({ issue_id: issueId, identifier, error }));
+				const nextAttempt = (attempt ?? 0) + 1;
+				const retryError = isStall
+					? `Previous attempt stalled (no output). The task may need to be broken into smaller pieces. Original error: ${error}`
+					: isMergeConflict
+						? `${MERGE_CONFLICT_INSTRUCTION} Original error: ${error}`
+						: error;
+				yield* scheduleRetry(
+					issueId,
+					identifier,
+					nextAttempt,
+					retryDelay(nextAttempt, config.maxRetryBackoffMs),
+					retryError,
+					isStall ? "stall" : isMergeConflict ? "merge_conflict" : "failure",
+				);
+			}
+		}).pipe(
+			Effect.catchCause((cause) =>
+				Effect.logError("worker_exit_handling_failed").pipe(
+					Effect.annotateLogs({
+						issue_id: issueId,
+						identifier,
+						error: String(cause),
+					}),
+					Effect.andThen(releaseClaim(issueId)),
+				),
+			),
+		);
 	});
 
 	const dispatchIssue = (issue: Issue, config: ResolvedConfig, attempt: number | null) =>
