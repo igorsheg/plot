@@ -34,10 +34,9 @@ import {
 } from "@plot/sdk";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
-import { Orchestrator } from "./core/index.js";
+import { Orchestrator, OrchestratorLive, WorkspaceManagerLive } from "./core/index.js";
 
 import { WorkflowLoader } from "./core/workflow-loader.js";
-import { WorkspaceManager } from "./core/workspace-manager.js";
 import { type ResolvedConfig } from "./core/config-service.js";
 import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
 
@@ -352,12 +351,12 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		PiAgentLive,
 		platformDeps,
 		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
-		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
+		WorkspaceManagerLive.pipe(Layer.provide(platformDeps)),
 	);
 }
 
 export function makeOrchestratorLayer(resolvedPlugin: ResolvedPlugin) {
-	return Orchestrator.layer.pipe(Layer.provide(makeAppLayer(resolvedPlugin)));
+	return OrchestratorLive.pipe(Layer.provide(makeAppLayer(resolvedPlugin)));
 }
 
 export function makeStartupLayer(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {

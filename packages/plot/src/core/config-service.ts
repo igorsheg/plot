@@ -1,18 +1,11 @@
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import type { WorkflowConfig } from "@plot/sdk";
 
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { WorkflowOverrides } from "../config.js";
+import { ConfigValidationError } from "./errors.js";
 
-export class ConfigValidationError extends Schema.TaggedErrorClass<ConfigValidationError>()(
-	"ConfigValidationError",
-	{ message: Schema.String, field: Schema.optional(Schema.String), cause: Schema.optional(Schema.Defect) },
-) {
-	override get message(): string {
-		return `Config validation failed${this.field ? ` at ${this.field}` : ""}: ${this.message}`;
-	}
-}
 
 const resolveEnvValue = (value: string | undefined): string | undefined => {
 	if (!value) return undefined;

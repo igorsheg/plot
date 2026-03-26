@@ -1,6 +1,6 @@
 import { Config, Effect, Option, Schema } from "effect";
 import { WorkflowConfig } from "@plot/sdk";
-import { WorkflowParseError } from "./core/workflow-loader.js";
+import { WorkflowParseError } from "./core/errors.js";
 import { extractFrontmatter } from "./core/workflow-loader.js";
 
 export interface WorkflowOverrides {

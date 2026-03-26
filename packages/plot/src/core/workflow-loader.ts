@@ -11,6 +11,7 @@ import {
 } from "effect";
 import matter from "gray-matter";
 import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
+import { WorkflowFileNotFound, WorkflowParseError } from "./errors.js";
 
 const snakeToCamel = (s: string): string =>
 	s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -48,23 +49,7 @@ export function extractFrontmatter(content: string): RawFrontmatter {
 	};
 }
 
-export class WorkflowFileNotFound extends Schema.TaggedErrorClass<WorkflowFileNotFound>()(
-	"WorkflowFileNotFound",
-	{ path: Schema.String, cause: Schema.optional(Schema.Defect) },
-) {
-	override get message(): string {
-		return `Workflow file not found: ${this.path}`;
-	}
-}
 
-export class WorkflowParseError extends Schema.TaggedErrorClass<WorkflowParseError>()(
-	"WorkflowParseError",
-	{ message: Schema.String, cause: Schema.optional(Schema.Defect) },
-) {
-	override get message(): string {
-		return `Workflow parse error: ${this.message}`;
-	}
-}
 
 export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 	"WorkflowLoader",

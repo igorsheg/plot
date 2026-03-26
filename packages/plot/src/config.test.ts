@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ConfigProvider, Effect } from "effect";
 import { TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
-import { WorkflowParseError } from "./core/workflow-loader.js";
+import { WorkflowParseError } from "./core/errors.js";
 import { ResolvedConfig } from "./core/config-service.js";
 
 function resolveConfig(env: Record<string, string>) {

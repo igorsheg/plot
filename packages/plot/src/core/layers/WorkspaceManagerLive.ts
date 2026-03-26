@@ -1,16 +1,8 @@
-import { Effect, FileSystem, Layer, Schema, ServiceMap } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-export class WorkspaceError extends Schema.TaggedErrorClass<WorkspaceError>()("WorkspaceError", {
-	code: Schema.String,
-	message: Schema.String,
-	path: Schema.optional(Schema.String),
-	cause: Schema.optional(Schema.Defect),
-}) {
-	override get message(): string {
-		return `Workspace error [${this.code}]: ${this.message}${this.path ? ` (${this.path})` : ""}`;
-	}
-}
-import type { ResolvedConfig } from "./config-service.js";
+import { WorkspaceError } from "../errors.js";
+import { WorkspaceManager } from "../services/WorkspaceManager.js";
+import type { ResolvedConfig } from "../config-service.js";
 import { resolve } from "node:path";
 
 const sanitizeWorkspaceKey = (identifier: string): string =>
@@ -33,8 +25,9 @@ const assertPathInsideRoot = (
 	return Effect.void;
 };
 
-export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("WorkspaceManager", {
-	make: Effect.gen(function* () {
+export const WorkspaceManagerLive = Layer.effect(
+	WorkspaceManager,
+	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem;
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
@@ -160,6 +153,4 @@ export class WorkspaceManager extends ServiceMap.Service<WorkspaceManager>()("Wo
 
 		return { ensureWorkspace, removeWorkspace, runHook };
 	}),
-}) {
-	static layer = Layer.effect(this, this.make);
-}
+);

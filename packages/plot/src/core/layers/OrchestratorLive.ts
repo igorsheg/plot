@@ -11,7 +11,6 @@ import {
 	PubSub,
 	Queue,
 	Ref,
-	ServiceMap,
 	Stream,
 } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
@@ -30,25 +29,26 @@ import {
 	TrackerClient,
 	LiveSession,
 } from "@plot/sdk";
-import { ResolvedConfig } from "./config-service.js";
-import { AgentService } from "../agent/agent-service.js";
-import { WorkflowLoader } from "./workflow-loader.js";
-import { WorkspaceManager } from "./workspace-manager.js";
-import { WorkflowOverridesConfig } from "../config.js";
+import { ResolvedConfig } from "../config-service.js";
+import { AgentService } from "../../agent/agent-service.js";
+import { WorkflowLoader } from "../workflow-loader.js";
+import { WorkspaceManager } from "../services/WorkspaceManager.js";
+import { WorkflowOverridesConfig } from "../../config.js";
 import {
 	COMMAND_QUEUE_CAPACITY,
 	COMMAND_QUEUE_PRESSURE_WARN_AT,
 	type OrchestratorCommand,
-} from "./application/orchestrator-command.js";
-import { makeDispatchRuntime } from "./application/dispatch.js";
-import { makeTickRuntime } from "./application/reconcile.js";
+} from "../application/orchestrator-command.js";
+import { makeDispatchRuntime } from "../application/dispatch.js";
+import { makeTickRuntime } from "../application/reconcile.js";
 import {
 	incrementCommandQueuePressureInState,
 	initialState,
 	consumeRuntimeEvent,
 	noteCommandQueueSizeInState,
 	type OrchestratorState,
-} from "./domain/orchestrator-state.js";
+} from "../domain/orchestrator-state.js";
+import { Orchestrator } from "../services/Orchestrator.js";
 
 const parseSessionId = (sid: string | null) => {
 	if (!sid) return { threadId: "", turnId: "" };
@@ -186,8 +186,9 @@ const mapRuntimeSnapshot = (state: {
 	});
 };
 
-export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrator", {
-	make: Effect.gen(function* () {
+export const OrchestratorLive = Layer.effect(
+	Orchestrator,
+	Effect.gen(function* () {
 		const registry = yield* AtomRegistry.AtomRegistry;
 		const stateAtom = Atom.make(initialState);
 		registry.mount(stateAtom);
@@ -434,6 +435,4 @@ export class Orchestrator extends ServiceMap.Service<Orchestrator>()("Orchestrat
 			triggerRefresh,
 		};
 	}),
-}) {
-	static layer = Layer.effect(this, this.make);
-}
+);
