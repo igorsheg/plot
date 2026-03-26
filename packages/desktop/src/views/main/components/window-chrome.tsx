@@ -60,7 +60,7 @@ function Root({
 
 	return (
 		<ChromeContext value={{ focused, close, minimize, zoom }}>
-			<div className={`window-frame overflow-hidden rounded-[10px] border border-white/[0.08] ${className ?? ""}`}>
+			<div className={`overflow-hidden rounded-[10px] border border-white/[0.08] ${className ?? ""}`}>
 				{children}
 			</div>
 		</ChromeContext>
