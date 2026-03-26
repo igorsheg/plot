@@ -12,8 +12,6 @@ import { WorkflowEditor } from "./components/workflow-editor";
 import { Badge } from "@plot/ui/components/badge";
 import { Spinner } from "@plot/ui/components/spinner";
 
-// Note: app.tsx doesn't use Tabs directly — the WorkflowEditor handles tab UI
-
 const rpc = () => electroview.rpc!;
 
 const statusLabel: Record<string, string> = {
@@ -50,7 +48,6 @@ export function App({ projectId }: { projectId: string }) {
 	>([]);
 	const [authState, setAuthState] = useState<AuthState>({ phase: "idle" });
 	const [loading, setLoading] = useState(true);
-	const [saved, setSaved] = useState(false);
 
 	const loadData = useCallback(async () => {
 		if (!projectId) return;
@@ -124,8 +121,6 @@ export function App({ projectId }: { projectId: string }) {
 				projectPath: project.path,
 				workflow: doc,
 			});
-			setSaved(true);
-			setTimeout(() => setSaved(false), 2000);
 		},
 		[project],
 	);
@@ -153,25 +148,27 @@ export function App({ projectId }: { projectId: string }) {
 
 	return (
 		<div className="desktop-ui dark flex min-h-screen flex-col bg-background">
-			{workflow === null ? (
-				<>
-					<div
-						className="electrobun-webkit-app-region-drag titlebar flex shrink-0 items-end px-4 pb-2"
+			<div className="electrobun-webkit-app-region-drag titlebar flex shrink-0 items-end justify-between px-4 pb-2">
+				<div className="electrobun-webkit-app-region-no-drag ml-[68px] flex items-center gap-2">
+					<span className="text-label font-semibold">{project.name}</span>
+					<Badge
+						variant={statusVariant[project.status] ?? "outline"}
+						size="sm"
 					>
-						<div className="electrobun-webkit-app-region-no-drag ml-[68px] flex items-center gap-2">
-							<span className="text-label font-semibold">{project.name}</span>
-							<Badge
-								variant={statusVariant[project.status] ?? "outline"}
-								size="sm"
-							>
-								{statusLabel[project.status] ?? project.status}
-							</Badge>
-						</div>
-					</div>
-					<div className="flex-1 overflow-auto">
-						<TemplatePicker onCreate={handleCreateWorkflow} />
-					</div>
-				</>
+						{statusLabel[project.status] ?? project.status}
+					</Badge>
+					{project.agentCount > 0 && (
+						<span className="text-micro text-muted-foreground">
+							{project.agentCount} agent{project.agentCount !== 1 ? "s" : ""}
+						</span>
+					)}
+				</div>
+			</div>
+
+			{workflow === null ? (
+				<div className="flex-1 overflow-auto">
+					<TemplatePicker onCreate={handleCreateWorkflow} />
+				</div>
 			) : workflow !== undefined ? (
 				<WorkflowEditor
 					workflow={workflow}
@@ -186,10 +183,6 @@ export function App({ projectId }: { projectId: string }) {
 					onSubmitAuthResponse={(value) =>
 						rpc().request.submitAuthResponse({ value })
 					}
-					projectName={project.name}
-					projectStatus={project.status}
-					agentCount={project.agentCount}
-					saved={saved}
 				/>
 			) : null}
 		</div>

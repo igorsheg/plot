@@ -21,10 +21,6 @@ type Props = {
 	onOpenInEditor: () => void;
 	onStartAuth: (providerId: string) => void;
 	onSubmitAuthResponse: (value: string) => void;
-	projectName: string;
-	projectStatus: string;
-	agentCount: number;
-	saved: boolean;
 };
 
 export function WorkflowEditor({
@@ -36,10 +32,6 @@ export function WorkflowEditor({
 	onOpenInEditor,
 	onStartAuth,
 	onSubmitAuthResponse,
-	projectName,
-	projectStatus,
-	agentCount,
-	saved,
 }: Props) {
 	const [config, setConfig] = useState<WorkflowFrontmatter>(initial.config);
 	const [dirty, setDirty] = useState(false);
@@ -69,86 +61,50 @@ export function WorkflowEditor({
 		providers.find((p) => p.id === selectedProvider)?.models ?? [];
 	const providerAuth = authStatus.find((a) => a.id === selectedProvider);
 
-	const statusLabel: Record<string, string> = {
-		idle: "Idle",
-		launching: "Launching...",
-		connecting: "Connecting...",
-		streaming: "Running",
-		stopping: "Stopping...",
-		stopped: "Stopped",
-		failed: "Error",
-	};
-
-	const statusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-		idle: "outline",
-		launching: "secondary",
-		connecting: "secondary",
-		streaming: "default",
-		stopping: "secondary",
-		stopped: "outline",
-		failed: "destructive",
-	};
-
 	return (
-		<Tabs defaultValue="tracker" className="flex min-h-screen flex-col">
-			<div className="electrobun-webkit-app-region-drag titlebar flex shrink-0 items-end justify-between px-4 pb-2">
-				<div className="electrobun-webkit-app-region-no-drag ml-[68px] flex items-center gap-3">
-					<div className="flex items-center gap-2">
-						<span className="text-label font-semibold">{projectName}</span>
-						<Badge
-							variant={statusVariant[projectStatus] ?? "outline"}
-							size="sm"
-						>
-							{statusLabel[projectStatus] ?? projectStatus}
-						</Badge>
-						{agentCount > 0 && (
-							<span className="text-micro text-muted-foreground">
-								{agentCount} agent{agentCount !== 1 ? "s" : ""}
-							</span>
-						)}
-					</div>
+		<Tabs defaultValue="tracker" className="flex flex-1 flex-col">
+			<fieldset className="mx-4 mt-3 flex flex-1 flex-col rounded-lg border border-border/50">
+				<legend className="mx-auto px-2">
 					<TabsList>
 						<TabsTab value="tracker">Tracker</TabsTab>
 						<TabsTab value="agent">Agent</TabsTab>
 						<TabsTab value="advanced">Advanced</TabsTab>
 					</TabsList>
+				</legend>
+
+				<div className="flex-1 overflow-auto px-4 pb-4">
+					<TabsPanel value="tracker" className="space-y-4">
+						<TrackerTab config={config} onUpdate={update} />
+					</TabsPanel>
+
+					<TabsPanel value="agent" className="space-y-4">
+						<AgentTab
+							config={config}
+							onUpdate={update}
+							providers={providers}
+							selectedProvider={selectedProvider}
+							selectedModel={selectedModel}
+							providerModels={providerModels}
+							providerAuth={providerAuth}
+							authState={authState}
+							onStartAuth={onStartAuth}
+							onSubmitAuthResponse={onSubmitAuthResponse}
+						/>
+					</TabsPanel>
+
+					<TabsPanel value="advanced" className="space-y-4">
+						<AdvancedTab config={config} onUpdate={update} />
+					</TabsPanel>
 				</div>
-				<div className="electrobun-webkit-app-region-no-drag flex items-center gap-2">
-					{saved && (
-						<span className="text-micro text-emerald-400">Saved</span>
-					)}
-					<Button variant="ghost" size="xs" onClick={onOpenInEditor}>
-						Open in Editor
-					</Button>
-					<Button size="xs" onClick={handleSave} disabled={!dirty}>
-						Save
-					</Button>
-				</div>
-			</div>
+			</fieldset>
 
-			<div className="flex-1 overflow-auto">
-				<TabsPanel value="tracker" className="space-y-4 p-4">
-					<TrackerTab config={config} onUpdate={update} />
-				</TabsPanel>
-
-				<TabsPanel value="agent" className="space-y-4 p-4">
-					<AgentTab
-						config={config}
-						onUpdate={update}
-						providers={providers}
-						selectedProvider={selectedProvider}
-						selectedModel={selectedModel}
-						providerModels={providerModels}
-						providerAuth={providerAuth}
-						authState={authState}
-						onStartAuth={onStartAuth}
-						onSubmitAuthResponse={onSubmitAuthResponse}
-					/>
-				</TabsPanel>
-
-				<TabsPanel value="advanced" className="space-y-4 p-4">
-					<AdvancedTab config={config} onUpdate={update} />
-				</TabsPanel>
+			<div className="flex shrink-0 items-center justify-end gap-2 px-4 py-3">
+				<Button variant="ghost" size="sm" onClick={onOpenInEditor}>
+					Open in Editor
+				</Button>
+				<Button size="sm" onClick={handleSave} disabled={!dirty}>
+					{dirty ? "Save" : "Saved"}
+				</Button>
 			</div>
 		</Tabs>
 	);
