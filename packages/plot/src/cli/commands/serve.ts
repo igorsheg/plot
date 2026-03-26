@@ -29,7 +29,7 @@ export const ServeCommand = Command.make(
 				[
 					{ command: "plot-ai auth status", description: "check authentication status" },
 					{
-						command: `curl http://localhost:${args.port}/healthz`,
+						command: `curl http://localhost:${args.port}/health`,
 						description: "verify server health",
 					},
 				],

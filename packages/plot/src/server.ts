@@ -1,11 +1,8 @@
-import { FileSystem } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { BunServices, BunHttpServer } from "@effect/platform-bun";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { BunHttpServer } from "@effect/platform-bun";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
-import { RuntimeSnapshot, PlotRpcs } from "@plot/sdk";
+import { RuntimeSnapshot, AgentRuntimeEvent, HealthResponse, HealthCheckResult } from "@plot/sdk";
 import { Orchestrator } from "./core/index.js";
-import { join, extname } from "node:path";
 import type { ServerConfig } from "./config.js";
 import {
 	makeAppLayer,
@@ -21,146 +18,106 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	const OrchestratorLive = makeOrchestratorLayer(resolvedPlugin);
 	const StartupLive = makeStartupLayer(config, resolvedPlugin);
 
-	const RpcHandlersLive = PlotRpcs.toLayer(
-		Effect.gen(function* () {
-			const orchestrator = yield* Orchestrator;
-			return {
-				GetEventLog: ({ identifier }) => orchestrator.getEventLog(identifier),
-				TriggerRefresh: () => orchestrator.triggerRefresh,
-			};
-		}),
-	);
-
-	const RpcRouteLive = HttpRouter.use(
-		Effect.fnUntraced(function* (router) {
-			const handler = yield* RpcServer.toHttpEffect(PlotRpcs);
-			yield* router.add("POST", "/rpc", handler);
-		}),
-	).pipe(
-		Layer.provide(RpcHandlersLive),
-		Layer.provide(OrchestratorLive),
-		Layer.provide(RpcSerialization.layerNdjson),
-	);
-
 	const encoder = new TextEncoder();
 	const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
+	const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
+
+	let nextId = 0;
+	function sseFrame(event: string, data: string): Uint8Array {
+		return encoder.encode(`id: ${nextId++}\nevent: ${event}\ndata: ${data}\n\n`);
+	}
 
 	const SseRouteLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
 			const orchestrator = yield* Orchestrator;
 			yield* router.add(
 				"GET",
-				"/rpc/events",
-				Effect.gen(function* () {
+				"/events",
+				Effect.sync(() => {
 					const initial = Stream.make(orchestrator.getSnapshot).pipe(
 						Stream.mapEffect((get) => get),
 					);
-					const changes = orchestrator.snapshotStream;
-					const snapshots = Stream.concat(initial, changes).pipe(
-						Stream.map((snapshot) => {
-							const json = JSON.stringify(encodeSnapshot(snapshot));
-							return encoder.encode(`data: ${json}\n\n`);
-						}),
+					const snapshots = Stream.concat(initial, orchestrator.snapshotStream).pipe(
+						Stream.map((s) => sseFrame("snapshot", JSON.stringify(encodeSnapshot(s)))),
+					);
+					const agents = orchestrator.eventStream.pipe(
+						Stream.map((e) => sseFrame("agent", JSON.stringify(encodeEvent(e)))),
 					);
 					const heartbeat = Stream.repeat(
 						Stream.succeed(encoder.encode(": heartbeat\n\n")),
 						Schedule.fixed("5 seconds"),
 					);
-					return HttpServerResponse.stream(Stream.merge(snapshots, heartbeat), {
-						contentType: "text/event-stream",
-						headers: {
-							"Cache-Control": "no-cache",
-							"X-Accel-Buffering": "no",
-							Connection: "keep-alive",
+					return HttpServerResponse.stream(
+						Stream.merge(Stream.merge(snapshots, agents), heartbeat),
+						{
+							contentType: "text/event-stream",
+							headers: {
+								"Cache-Control": "no-cache",
+								"X-Accel-Buffering": "no",
+								Connection: "keep-alive",
+							},
 						},
-					});
+					);
 				}),
 			);
 		}),
 	).pipe(Layer.provide(OrchestratorLive));
 
 	const startedAt = Date.now();
+	const encodeHealth = Schema.encodeSync(HealthResponse);
 
-	const webDistDir = config.webDistDir;
-
-	const contentTypes: Record<string, string> = {
-		".html": "text/html",
-		".js": "application/javascript",
-		".css": "text/css",
-		".json": "application/json",
-		".png": "image/png",
-		".jpg": "image/jpeg",
-		".svg": "image/svg+xml",
-		".ico": "image/x-icon",
-		".woff": "font/woff",
-		".woff2": "font/woff2",
-	};
-
-	const StaticLive = HttpRouter.use(
+	const HealthLive = HttpRouter.use(
 		Effect.fnUntraced(function* (router) {
-			const fs = yield* FileSystem.FileSystem;
-
+			const orchestrator = yield* Orchestrator;
 			yield* router.add(
 				"GET",
-				"/*",
+				"/health",
 				Effect.gen(function* () {
-					const req = yield* HttpServerRequest.HttpServerRequest;
-					const url = new URL(req.url, "http://localhost");
-					const pathname = url.pathname;
+					const snapshot = yield* orchestrator.getSnapshot;
+					const uptimeSeconds = Math.floor((Date.now() - startedAt) / 1000);
+					const version = process.env["PLOT_VERSION"] ?? "0.0.1";
 
-					if (
-						pathname.startsWith("/rpc") ||
-						pathname.startsWith("/api/") ||
-						pathname === "/healthz"
-					) {
-						return HttpServerResponse.empty({ status: 404 });
-					}
+					const response = new HealthResponse({
+						status: "pass",
+						version,
+						description: "plot-ai orchestrator",
+						checks: {
+							"orchestrator:uptime": [
+								new HealthCheckResult({
+									observedValue: uptimeSeconds,
+									observedUnit: "s",
+									status: "pass",
+								}),
+							],
+							"orchestrator:agents": [
+								new HealthCheckResult({
+									observedValue: snapshot.running.length,
+									observedUnit: "count",
+									status: "pass",
+								}),
+							],
+						},
+					});
 
-					const filePath = join(webDistDir, pathname);
-					const exists = yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => false));
-					if (exists && pathname !== "/") {
-						const ext = extname(filePath);
-						const ct = contentTypes[ext] ?? "application/octet-stream";
-						const content = yield* fs.readFile(filePath);
-						return HttpServerResponse.uint8Array(content, { contentType: ct });
-					}
-
-					const indexPath = join(webDistDir, "index.html");
-					const indexExists = yield* fs.exists(indexPath).pipe(Effect.orElseSucceed(() => false));
-					if (indexExists) {
-						const content = yield* fs.readFile(indexPath);
-						return HttpServerResponse.uint8Array(content, {
-							contentType: "text/html",
-						});
-					}
-
-					return HttpServerResponse.empty({ status: 404 });
+					return yield* HttpServerResponse.json(encodeHealth(response), {
+						headers: {
+							"Content-Type": "application/health+json",
+							"Cache-Control": "no-cache",
+						},
+					});
 				}).pipe(
-					Effect.catchTag("PlatformError", () =>
-						Effect.succeed(HttpServerResponse.empty({ status: 500 })),
+					Effect.catch(() =>
+						HttpServerResponse.json(
+							encodeHealth(new HealthResponse({ status: "fail" })),
+							{ status: 503, headers: { "Content-Type": "application/health+json" } },
+						),
 					),
 				),
 			);
 		}),
-	).pipe(Layer.provide(BunServices.layer));
+	).pipe(Layer.provide(OrchestratorLive));
 
-	const HealthzLive = HttpRouter.use((router) =>
-		router.add(
-			"GET",
-			"/healthz",
-			HttpServerResponse.json({
-				status: "ok" as const,
-				uptime: Math.floor((Date.now() - startedAt) / 1000),
-			}),
-		),
-	);
-
-	let routeLayers = Layer.mergeAll(SseRouteLive, RpcRouteLive, HealthzLive);
-	if (config.webEnabled) {
-		routeLayers = Layer.mergeAll(routeLayers, StaticLive);
-	}
-
-	const app = HttpRouter.serve(routeLayers).pipe(
+	const app = HttpRouter.serve(Layer.mergeAll(SseRouteLive, HealthLive)).pipe(
 		Layer.provide(BunHttpServer.layer({ port: config.port, idleTimeout: 120 })),
 		Layer.provide(StartupLive),
 		Layer.provide(LoggingLive),

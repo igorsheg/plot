@@ -97,3 +97,9 @@ export class IssueEventLog extends Schema.Class<IssueEventLog>("IssueEventLog")(
 	events: Schema.Array(AgentRuntimeEvent),
 }) {}
 
+export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")({
+	queued: Schema.Boolean,
+	coalesced: Schema.Boolean,
+	requestedAt: Schema.DateTimeUtcFromString,
+	operations: Schema.Array(Schema.String),
+}) {}

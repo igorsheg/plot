@@ -11,8 +11,6 @@ import {
 } from "effect";
 import {
 	AgentRuntimeEvent,
-	IssueEventLog,
-	RefreshResult,
 	RuntimeSnapshot,
 } from "@plot/sdk";
 import { Orchestrator } from "./core/index.js";
@@ -22,22 +20,10 @@ import { makeOrchestratorRuntime, resolvePlugin } from "./runtime-builder.js";
 
 type StartMessage = { type: "start"; env: Record<string, string> };
 type StopMessage = { type: "stop" };
-type CallMessage = {
-	type: "call";
-	id: number;
-	method: "triggerRefresh" | "getEventLog";
-	identifier?: string;
-};
-type WorkerMessage = StartMessage | StopMessage | CallMessage;
-
-type ResponseMessage =
-	| { type: "response"; id: number; ok: true; result: unknown }
-	| { type: "response"; id: number; ok: false; error: string };
+type WorkerMessage = StartMessage | StopMessage;
 
 const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
 const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
-const encodeRefreshResult = Schema.encodeSync(RefreshResult);
-const encodeIssueEventLog = Schema.encodeSync(IssueEventLog);
 
 let started = false;
 let runtime: ManagedRuntime.ManagedRuntime<
@@ -58,10 +44,6 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
 	const message = event.data;
 	if (message.type === "stop") {
 		void shutdown();
-		return;
-	}
-	if (message.type === "call") {
-		void handleCall(message);
 		return;
 	}
 	if (started) {
@@ -124,43 +106,9 @@ async function boot(env: Record<string, string>) {
 	}
 }
 
-async function handleCall(message: CallMessage) {
-	if (!runtime || !orchestrator) {
-		postResponse({
-			type: "response",
-			id: message.id,
-			ok: false,
-			error: "tui runtime is not ready",
-		});
-		return;
-	}
-	try {
-		const result =
-			message.method === "getEventLog"
-				? encodeIssueEventLog(
-						await runtime.runPromise(
-							orchestrator.getEventLog(message.identifier ?? ""),
-						),
-					)
-				: encodeRefreshResult(await runtime.runPromise(orchestrator.triggerRefresh));
-		postResponse({ type: "response", id: message.id, ok: true, result });
-	} catch (error) {
-		postResponse({
-			type: "response",
-			id: message.id,
-			ok: false,
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
-}
-
 async function shutdown() {
 	if (runtime) await runtime.dispose();
 	process.exit(0);
-}
-
-function postResponse(message: ResponseMessage) {
-	self.postMessage(message);
 }
 
 function redirectProcessOutput(path?: string) {

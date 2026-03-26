@@ -76,7 +76,7 @@ struct ProjectRuntimeFeature {
                         try await clock.sleep(for: .seconds(1))
                         for _ in 0..<30 {
                             if Task.isCancelled { return }
-                            let url = URL(string: "http://localhost:\(port)/healthz")!
+                            let url = URL(string: "http://localhost:\(port)/health")!
                             if let (_, response) = try? await URLSession.shared.data(from: url),
                                let http = response as? HTTPURLResponse,
                                http.statusCode == 200 {
@@ -98,7 +98,7 @@ struct ProjectRuntimeFeature {
                 guard let portNum = state.port else { return .none }
 
                 return .run { send in
-                    let url = URL(string: "http://localhost:\(portNum)/rpc/events")!
+                    let url = URL(string: "http://localhost:\(portNum)/events")!
                     let stream = sseClient.connect(url)
 
                     do {
@@ -125,7 +125,7 @@ struct ProjectRuntimeFeature {
                     .run { _ in await processClient.terminate(projectId) }
                 )
 
-            case .sseEvent(.data(let json)):
+            case .sseEvent(.snapshot(let json)):
                 let decoder = JSONDecoder()
                 if let data = json.data(using: .utf8),
                    let snapshot = try? decoder.decode(RuntimeSnapshot.self, from: data) {
@@ -137,6 +137,9 @@ struct ProjectRuntimeFeature {
                 } else {
                     PlotLog.runtime.error("failed to decode SSE snapshot: \(json.prefix(200), privacy: .public)")
                 }
+                return .none
+
+            case .sseEvent(.agent):
                 return .none
 
             case .sseEvent(.heartbeat):

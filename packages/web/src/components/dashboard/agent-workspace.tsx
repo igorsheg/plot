@@ -1,7 +1,7 @@
 import { useDashboard } from "./root";
 import { useRuntimeSnapshot } from "@/lib/runtime";
-import { useEventLog } from "@/lib/use-event-log";
 import { TraceViewer } from "@/components/trace-viewer";
+import type { AgentRuntimeEvent } from "@plot/sdk";
 
 export function AgentWorkspace() {
 	const {
@@ -12,8 +12,8 @@ export function AgentWorkspace() {
 		? snapshot?.running.find((runningEntry) => runningEntry.issueId === focusedIssueId)
 		: undefined;
 
-	const identifier = entry?.issueIdentifier ?? "";
-	const { events, isLoading } = useEventLog(entry ? identifier : "");
+	const events: readonly AgentRuntimeEvent[] = [];
+	const isLoading = false;
 
 	if (!entry) {
 		return (

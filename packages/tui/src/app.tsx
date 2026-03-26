@@ -3,16 +3,12 @@ import { useKeyboard } from "@opentui/react";
 import { DateTime } from "effect";
 import { AgentRuntimeEvent, IssueEventLog } from "@plot/sdk";
 import type {
-	RefreshResult,
 	RuntimeSnapshot,
 	LiveSession,
 } from "@plot/sdk";
-
 type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
 export interface RuntimeApi {
-	triggerRefresh: () => Promise<RefreshResult>;
-	getEventLog: (identifier: string) => Promise<IssueEventLog>;
 	connectSnapshots: (
 		handleSnapshot: (snapshot: RuntimeSnapshot) => void,
 		handleStatus: (status: SseStatus) => void,
@@ -483,30 +479,6 @@ export function App({ api }: { api: RuntimeApi }) {
 		}
 	}, [railIdentifiers, focusedIdentifier]);
 
-	// fetch event log when focused issue changes
-	useEffect(() => {
-		if (!focusedIdentifier) {
-			setEventLog(null);
-			eventLogIdRef.current = null;
-			return;
-		}
-		if (eventLogIdRef.current === focusedIdentifier) return;
-		eventLogIdRef.current = focusedIdentifier;
-		setEventLog(null);
-		setSelectedEventIndex(0);
-		void api
-			.getEventLog(focusedIdentifier)
-			.then((log) => {
-				if (eventLogIdRef.current !== focusedIdentifier) return;
-				setEventLog(log);
-				setSelectedEventIndex(Math.max(0, log.events.length - 1));
-			})
-			.catch(() => {
-				if (eventLogIdRef.current !== focusedIdentifier) return;
-				setEventLog(null);
-			});
-	}, [focusedIdentifier, api]);
-
 	// connect SSE
 	useEffect(() => {
 		const disconnectSnapshots = api.connectSnapshots(
@@ -571,9 +543,6 @@ export function App({ api }: { api: RuntimeApi }) {
 		}
 		if (key.name === "o") {
 			setOpsVisible((prev) => !prev);
-		}
-		if (key.name === "r") {
-			void api.triggerRefresh();
 		}
 		if (key.name === "j" || key.name === "down") {
 			if (focusPane === "issues") {

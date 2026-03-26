@@ -11,7 +11,8 @@ struct SSEClient: Sendable {
 }
 
 enum SSEEvent: Sendable, Equatable {
-    case data(String)
+    case snapshot(String)
+    case agent(String)
     case heartbeat
 }
 
@@ -39,6 +40,8 @@ extension SSEClient: DependencyKey {
                         // Parse SSE manually from raw bytes — bytes.lines can buffer
                         var lineBuffer = Data()
                         var currentData = ""
+                        var currentEvent: String?
+                        var currentId: String?
                         
                         for try await byte in bytes {
                             if Task.isCancelled { break }
@@ -48,12 +51,22 @@ extension SSEClient: DependencyKey {
                                 lineBuffer.removeAll(keepingCapacity: true)
                                 
                                 if line.isEmpty {
-                                    // Empty line = end of SSE frame
                                     if !currentData.isEmpty {
-                                        PlotLog.runtime.debug("SSE data frame (\(currentData.count, privacy: .public) bytes)")
-                                        continuation.yield(.data(currentData))
+                                        PlotLog.runtime.debug("SSE \(currentEvent ?? "unknown", privacy: .public) frame (\(currentData.count, privacy: .public) bytes)")
+                                        switch currentEvent {
+                                        case "agent":
+                                            continuation.yield(.agent(currentData))
+                                        default:
+                                            continuation.yield(.snapshot(currentData))
+                                        }
                                         currentData = ""
+                                        currentEvent = nil
+                                        currentId = nil
                                     }
+                                } else if line.hasPrefix("event: ") {
+                                    currentEvent = String(line.dropFirst(7))
+                                } else if line.hasPrefix("id: ") {
+                                    currentId = String(line.dropFirst(4))
                                 } else if line.hasPrefix("data: ") {
                                     currentData = String(line.dropFirst(6))
                                 } else if line.hasPrefix(":") {

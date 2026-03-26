@@ -68,7 +68,7 @@ export async function waitForServer(url: string, timeoutMs = 15_000): Promise<vo
 		}
 
 		try {
-			const res = await fetch(`${url}/healthz`);
+			const res = await fetch(`${url}/health`);
 			if (res.ok) return;
 		} catch {
 			// server not ready yet

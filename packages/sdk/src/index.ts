@@ -3,6 +3,6 @@ export * from "./schemas/events.js";
 export * from "./schemas/issue.js";
 export * from "./schemas/tracker.js";
 export * from "./schemas/workflow.js";
+export * from "./schemas/health.js";
 export * from "./errors.js";
-export * from "./rpc.js";
 export * from "./plugin/index.js";

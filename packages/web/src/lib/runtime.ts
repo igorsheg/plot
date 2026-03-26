@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { useMutation } from "@tanstack/react-query";
-import { FetchHttpClient } from "effect/unstable/http";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
-import { PlotRpcs, type RefreshResult, RuntimeSnapshot, type IssueEventLog } from "@plot/sdk";
+import { Schema } from "effect";
+import { RuntimeSnapshot } from "@plot/sdk";
 
 type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
@@ -22,21 +19,21 @@ function notifyStatus() {
 }
 
 function connect() {
-	const evtSource = new EventSource("/rpc/events");
+	const evtSource = new EventSource("/events");
 
 	evtSource.onopen = () => {
 		status = "connected";
 		notifyStatus();
 	};
 
-	evtSource.onmessage = (event) => {
+	evtSource.addEventListener("snapshot", (event) => {
 		try {
 			snapshot = decodeSnapshot(JSON.parse(event.data));
 			notifySnapshot();
 		} catch (err) {
 			console.warn("plot sse parse:", err instanceof Error ? err.message : String(err));
 		}
-	};
+	});
 
 	evtSource.onerror = () => {
 		status = "reconnecting";
@@ -47,23 +44,6 @@ function connect() {
 }
 
 connect();
-
-const RpcProtocol = RpcClient.layerProtocolHttp({ url: "/rpc" }).pipe(
-	Layer.provide([FetchHttpClient.layer, RpcSerialization.layerNdjson]),
-);
-const rpcRuntime = ManagedRuntime.make(RpcProtocol);
-const rpcClientEffect = RpcClient.make(PlotRpcs);
-
-export const rpcClient = {
-	triggerRefresh: (): Promise<RefreshResult> =>
-		rpcRuntime.runPromise(
-			Effect.scoped(Effect.flatMap(rpcClientEffect, (c) => c.TriggerRefresh())),
-		),
-	getEventLog: (identifier: string): Promise<IssueEventLog> =>
-		rpcRuntime.runPromise(
-			Effect.scoped(Effect.flatMap(rpcClientEffect, (c) => c.GetEventLog({ identifier }))),
-		),
-};
 
 export function useRuntimeSnapshot(): RuntimeSnapshot | null {
 	return useSyncExternalStore(
@@ -87,10 +67,4 @@ export function useStreamStatus(): SseStatus {
 		},
 		() => status,
 	);
-}
-
-export function useTriggerRefresh() {
-	return useMutation({
-		mutationFn: () => rpcClient.triggerRefresh(),
-	});
 }
