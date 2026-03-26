@@ -19,6 +19,7 @@ export interface SuccessEnvelope<T = unknown> {
 	ok: true;
 	command: string;
 	timestamp: number;
+	schema_version?: string;
 	result: T;
 	next_actions: NextAction[];
 }
@@ -35,6 +36,7 @@ export interface ErrorEnvelope {
 	ok: false;
 	command: string;
 	timestamp: number;
+	schema_version?: string;
 	error: EnvelopeError;
 	fix: string;
 	next_actions: NextAction[];
@@ -61,6 +63,7 @@ export type StreamEvent =
 			ok: true;
 			command: string;
 			timestamp: number;
+			schema_version?: string;
 			result: unknown;
 			next_actions: NextAction[];
 		}
@@ -69,6 +72,7 @@ export type StreamEvent =
 			ok: false;
 			command: string;
 			timestamp: number;
+			schema_version?: string;
 			error: EnvelopeError;
 			fix: string;
 			next_actions: NextAction[];

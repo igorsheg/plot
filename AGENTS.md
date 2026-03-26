@@ -42,3 +42,18 @@
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
+## CLI Command Checklist
+
+When adding a new CLI command, verify:
+
+- [ ] Returns JSON envelope (`ok`, `command`, `timestamp`, `result`, `next_actions`)
+- [ ] `Command.withDescription()` set (shows in `--help`)
+- [ ] Error responses include `fix` field and `error.retryable` boolean
+- [ ] Root command lists this command in its `SUBCOMMANDS` array (`packages/plot/src/cli/index.ts`)
+- [ ] Output is context-safe (use `truncateForContext` for potentially large results)
+- [ ] `next_actions` are contextual to what just happened
+- [ ] `next_actions` with variable parts use template syntax (`<required>`, `[--flag <value>]`) + `params`
+- [ ] Context-specific values pre-filled via `params.*.value`
+- [ ] No plain text on stdout — all output is JSON
+- [ ] Works when piped (no TTY detection for output format)

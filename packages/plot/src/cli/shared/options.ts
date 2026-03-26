@@ -2,7 +2,6 @@ import { Flag } from "effect/unstable/cli";
 import { LogLevel, Option } from "effect";
 
 export const cliCommandOptions = {
-	json: Flag.boolean("json").pipe(Flag.withDescription("emit machine-readable ndjson on stdout")),
 	verbose: Flag.boolean("verbose").pipe(
 		Flag.withDescription("enable non-error human output (quiet by default)"),
 	),
@@ -31,7 +30,6 @@ export const cliCommandOptions = {
 } as const;
 
 export type ServerOptions = {
-	json: boolean;
 	verbose: boolean;
 	port: number;
 	workflow: string;
@@ -55,7 +53,6 @@ export function toServerOptions(
 	overrides?: Pick<ServerOptions, "web">,
 ): ServerOptions {
 	return {
-		json: options.json,
 		verbose: options.verbose,
 		port: options.port,
 		workflow: options.workflow,

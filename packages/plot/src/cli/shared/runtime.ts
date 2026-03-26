@@ -65,7 +65,7 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
 		...(process.env as Record<string, string>),
 		PLOT_WORKFLOW: opts.workflow,
 		PLOT_PORT: String(opts.port),
-		PLOT_LOG_FORMAT: opts.json ? "json" : opts["log-format"],
+		PLOT_LOG_FORMAT: opts["log-format"],
 		PLOT_LOG_LEVEL: opts["log-level"],
 		PLOT_WEB_ENABLED: opts.web ? "1" : "0",
 		PLOT_WEB_DIST_DIR: resolveBundledWebDistDir(),

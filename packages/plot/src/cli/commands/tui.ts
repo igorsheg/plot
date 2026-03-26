@@ -1,7 +1,7 @@
 import { Command } from "effect/unstable/cli";
 import { Effect, References } from "effect";
 import { runTui } from "@plot/tui";
-import { ensureJsonSupported, ensureTuiSupported } from "../shared/io.js";
+import { ensureTuiSupported } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { createTuiRuntimeHandle } from "../shared/tui-runtime.js";
 
@@ -10,7 +10,6 @@ export function createTuiCommand(name: string) {
 		name,
 		cliCommandOptions,
 		Effect.fnUntraced(function* (args) {
-			ensureJsonSupported(args.json, "tui");
 			ensureTuiSupported();
 			const logLevel = yield* References.MinimumLogLevel;
 			const runtime = yield* Effect.promise(() =>
