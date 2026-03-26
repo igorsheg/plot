@@ -2,7 +2,8 @@ import path from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import matter from "gray-matter";
 import { stringify as yamlStringify } from "yaml";
-import type { WorkflowDocument, WorkflowFrontmatter, WorkflowTemplate } from "../shared/rpc";
+import { Effect, Layer, ServiceMap } from "effect";
+import type { WorkflowDocument, WorkflowFrontmatter, WorkflowTemplate } from "../../shared/rpc";
 
 const snakeToCamel = (s: string): string =>
 	s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -33,29 +34,6 @@ const transformKeysToSnake = (obj: unknown): unknown => {
 	}
 	return obj;
 };
-
-export class WorkflowIO {
-	read(projectPath: string): WorkflowDocument | null {
-		const filePath = path.join(projectPath, "WORKFLOW.md");
-		if (!existsSync(filePath)) return null;
-
-		const content = readFileSync(filePath, "utf-8");
-		const { data, content: body } = matter(content);
-		const config = (data && typeof data === "object" && !Array.isArray(data))
-			? transformKeys(data) as WorkflowFrontmatter
-			: {};
-
-		return { config, promptBody: body.trim() };
-	}
-
-	write(projectPath: string, doc: WorkflowDocument) {
-		const filePath = path.join(projectPath, "WORKFLOW.md");
-		const snaked = transformKeysToSnake(doc.config) as Record<string, unknown>;
-		const yaml = yamlStringify(snaked, { lineWidth: 0 });
-		const content = `---\n${yaml}---\n\n${doc.promptBody}\n`;
-		writeFileSync(filePath, content);
-	}
-}
 
 export function templateDocument(template: WorkflowTemplate): WorkflowDocument {
 	switch (template) {
@@ -92,4 +70,45 @@ export function templateDocument(template: WorkflowTemplate): WorkflowDocument {
 				promptBody: "",
 			};
 	}
+}
+
+export class WorkflowIO extends ServiceMap.Service<WorkflowIO>()("WorkflowIO", {
+	make: Effect.succeed({
+		read: (projectPath: string) =>
+			Effect.sync((): WorkflowDocument | null => {
+				const filePath = path.join(projectPath, "WORKFLOW.md");
+				if (!existsSync(filePath)) return null;
+
+				const content = readFileSync(filePath, "utf-8");
+				const { data, content: body } = matter(content);
+				const config =
+					data && typeof data === "object" && !Array.isArray(data)
+						? (transformKeys(data) as WorkflowFrontmatter)
+						: {};
+
+				return { config, promptBody: body.trim() };
+			}),
+
+		write: (projectPath: string, doc: WorkflowDocument) =>
+			Effect.sync(() => {
+				const filePath = path.join(projectPath, "WORKFLOW.md");
+				const snaked = transformKeysToSnake(doc.config) as Record<string, unknown>;
+				const yaml = yamlStringify(snaked, { lineWidth: 0 });
+				const content = `---\n${yaml}---\n\n${doc.promptBody}\n`;
+				writeFileSync(filePath, content);
+			}),
+
+		createFromTemplate: (projectPath: string, template: WorkflowTemplate) =>
+			Effect.sync(() => {
+				const doc = templateDocument(template);
+				const filePath = path.join(projectPath, "WORKFLOW.md");
+				const snaked = transformKeysToSnake(doc.config) as Record<string, unknown>;
+				const yaml = yamlStringify(snaked, { lineWidth: 0 });
+				const content = `---\n${yaml}---\n\n${doc.promptBody}\n`;
+				writeFileSync(filePath, content);
+				return doc;
+			}),
+	}),
+}) {
+	static layer = Layer.effect(this, this.make);
 }

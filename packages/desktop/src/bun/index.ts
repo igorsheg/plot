@@ -2,7 +2,6 @@ import { BrowserWindow, BrowserView, Utils, ApplicationMenu } from "electrobun/b
 import { Effect, ManagedRuntime, Stream } from "effect";
 import type { DesktopRPC } from "../shared/rpc";
 import { DesktopMain } from "./services/desktop-main";
-import { WorkflowIO, templateDocument } from "./workflow-io";
 import { createTray } from "./tray";
 
 const DEV_PORT = 5174;
@@ -43,8 +42,6 @@ const run = <A, E>(effect: Effect.Effect<A, E, DesktopMain>) =>
 const fire = <A, E>(effect: Effect.Effect<A, E, DesktopMain>) =>
 	runtime.runFork(effect);
 
-const workflowIO = new WorkflowIO();
-
 type ConfigWindowEntry = {
 	win: BrowserWindow;
 	rpc: ReturnType<typeof BrowserView.defineRPC<DesktopRPC>>;
@@ -84,20 +81,27 @@ async function openConfigWindow(projectId: string) {
 						return yield* d.getProjectInfo(id);
 					})),
 				readWorkflow: ({ projectPath }) =>
-					Promise.resolve(workflowIO.read(projectPath)),
-				saveWorkflow: ({ projectPath, workflow }) => {
-					workflowIO.write(projectPath, workflow);
-					return Promise.resolve(true);
-				},
-				createWorkflow: ({ projectPath, template }) => {
-					const doc = templateDocument(template);
-					workflowIO.write(projectPath, doc);
-					return Promise.resolve(doc);
-				},
-				openInEditor: ({ projectPath }) => {
-					Utils.openPath(`${projectPath}/WORKFLOW.md`);
-					return Promise.resolve(true);
-				},
+					run(Effect.gen(function* () {
+						const d = yield* DesktopMain;
+						return yield* d.readWorkflow(projectPath);
+					})),
+				saveWorkflow: ({ projectPath, workflow }) =>
+					run(Effect.gen(function* () {
+						const d = yield* DesktopMain;
+						yield* d.saveWorkflow(projectPath, workflow);
+						return true;
+					})),
+				createWorkflow: ({ projectPath, template }) =>
+					run(Effect.gen(function* () {
+						const d = yield* DesktopMain;
+						return yield* d.createWorkflow(projectPath, template);
+					})),
+				openInEditor: ({ projectPath }) =>
+					run(Effect.gen(function* () {
+						const d = yield* DesktopMain;
+						yield* d.openInEditor(projectPath);
+						return true;
+					})),
 				getProviders: () =>
 					run(Effect.gen(function* () {
 						const d = yield* DesktopMain;

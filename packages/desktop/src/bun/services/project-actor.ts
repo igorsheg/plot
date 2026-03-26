@@ -1,12 +1,27 @@
 import { Duration, Effect, Queue, Schedule, Stream } from "effect";
 import type { ProjectCommand } from "./project-command";
 
+type StdioChannel = "ignore" | "pipe" | "inherit";
+
+type SpawnResult = ReturnType<typeof Bun.spawn>;
+
+type Spawner = {
+	readonly spawn: (
+		args: ReadonlyArray<string>,
+		opts?: {
+			readonly cwd?: string;
+			readonly stdio?: readonly [StdioChannel, StdioChannel, StdioChannel];
+		},
+	) => Effect.Effect<SpawnResult>;
+};
+
 export const spawnProcess = (
+	platform: Spawner,
 	args: ReadonlyArray<string>,
 	cwd: string,
 ) =>
-	Effect.sync(() => {
-		const proc = Bun.spawn([...args], {
+	Effect.gen(function* () {
+		const proc = yield* platform.spawn(args, {
 			cwd,
 			stdio: ["ignore", "ignore", "pipe"],
 		});

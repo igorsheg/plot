@@ -1,8 +1,8 @@
 import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
 import { BinaryResolver } from "./binary-resolver";
+import { Platform } from "./platform";
 import { AuthError } from "./errors";
 import type { AuthState, ProviderInfo } from "../../shared/rpc";
-import { Utils } from "electrobun/bun";
 
 type ActiveAuth = {
 	readonly proc: ReturnType<typeof Bun.spawn>;
@@ -11,6 +11,7 @@ type ActiveAuth = {
 export class AuthService extends ServiceMap.Service<AuthService>()("AuthService", {
 	make: Effect.gen(function* () {
 		const binary = yield* BinaryResolver;
+		const platform = yield* Platform;
 		const statePubSub = yield* PubSub.bounded<AuthState>(64);
 		const activeRef = yield* Ref.make<ActiveAuth | null>(null);
 
@@ -19,11 +20,11 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 		const getProviders: Effect.Effect<ReadonlyArray<ProviderInfo>, AuthError> =
 			Effect.gen(function* () {
 				const args = yield* binary.resolveArgs;
+				const proc = yield* platform.spawn([...args, "models", "--all"], {
+					stdio: ["ignore", "pipe", "ignore"],
+				});
 				return yield* Effect.tryPromise({
 					try: async () => {
-						const proc = Bun.spawn([...args, "models", "--all"], {
-							stdio: ["ignore", "pipe", "ignore"],
-						});
 						const text = await new Response(proc.stdout).text();
 						await proc.exited;
 						const envelope = JSON.parse(text.trim().split("\n").pop() ?? "{}");
@@ -64,11 +65,11 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 			AuthError
 		> = Effect.gen(function* () {
 			const args = yield* binary.resolveArgs;
+			const proc = yield* platform.spawn([...args, "auth", "status"], {
+				stdio: ["ignore", "pipe", "ignore"],
+			});
 			return yield* Effect.tryPromise({
 				try: async () => {
-					const proc = Bun.spawn([...args, "auth", "status"], {
-						stdio: ["ignore", "pipe", "ignore"],
-					});
 					const text = await new Response(proc.stdout).text();
 					await proc.exited;
 					const envelope = JSON.parse(text.trim().split("\n").pop() ?? "{}");
@@ -82,7 +83,7 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 		const handleNdjsonMessage = (msg: { type?: string; url?: string; message?: string; placeholder?: string; ok?: boolean; error?: { message?: string } }) => {
 			switch (msg.type) {
 				case "auth:url":
-					return Effect.sync(() => Utils.openExternal(msg.url ?? "")).pipe(
+					return platform.openExternal(msg.url ?? "").pipe(
 						Effect.andThen(publishState({ phase: "authenticating" })),
 					);
 				case "auth:prompt":
@@ -113,11 +114,9 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 				const args = yield* binary.resolveArgs;
 				yield* publishState({ phase: "authenticating" });
 
-				const proc = yield* Effect.sync(() =>
-					Bun.spawn([...args, "auth", "login", providerId], {
-						stdio: ["pipe", "pipe", "ignore"],
-					}),
-				);
+				const proc = yield* platform.spawn([...args, "auth", "login", providerId], {
+					stdio: ["pipe", "pipe", "ignore"],
+				});
 
 				yield* Ref.set(activeRef, { proc });
 
@@ -165,5 +164,8 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 		return { getProviders, getAuthStatus, startLogin, submitResponse, stateStream };
 	}),
 }) {
-	static layer = Layer.effect(this, this.make).pipe(Layer.provide(BinaryResolver.layer));
+	static layer = Layer.effect(this, this.make).pipe(
+		Layer.provide(BinaryResolver.layer),
+		Layer.provide(Platform.layer),
+	);
 }

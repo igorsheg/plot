@@ -4,6 +4,7 @@ import { spawnProcess, pollHealth, connectSSE, watchExit } from "./project-actor
 import { Projects } from "./projects";
 import { BinaryResolver } from "./binary-resolver";
 import { PortAllocator } from "./port-allocator";
+import { Platform } from "./platform";
 import { SupervisorError } from "./errors";
 import type { ProjectStatus } from "../../shared/rpc";
 
@@ -36,6 +37,7 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 		const projects = yield* Projects;
 		const binary = yield* BinaryResolver;
 		const ports = yield* PortAllocator;
+		const platform = yield* Platform;
 
 		const runtimesRef = yield* Ref.make(new Map<string, ProjectRuntime>());
 		const statesRef = yield* Ref.make(new Map<string, ProjectState>());
@@ -74,7 +76,7 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 
 				const port = yield* ports.allocate;
 				const args = yield* binary.resolveArgs;
-				const proc = yield* spawnProcess([...args, "serve", "--port", String(port)], project.path);
+				const proc = yield* spawnProcess(platform, [...args, "serve", "--port", String(port)], project.path);
 				const mailbox = yield* Queue.bounded<ProjectCommand>(64);
 
 				yield* updateState(projectId, () => ({ status: "launching", agentCount: 0, port }));
@@ -210,5 +212,6 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 		Layer.provide(Projects.layer),
 		Layer.provide(BinaryResolver.layer),
 		Layer.provide(PortAllocator.layer),
+		Layer.provide(Platform.layer),
 	);
 }
