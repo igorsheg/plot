@@ -9,33 +9,10 @@ import type {
 } from "../../shared/rpc";
 import { TemplatePicker } from "./components/template-picker";
 import { WorkflowEditor } from "./components/workflow-editor";
-import { Badge } from "@plot/ui/components/badge";
 import { Spinner } from "@plot/ui/components/spinner";
+import { WindowChrome } from "./components/window-chrome";
 
 const rpc = () => electroview.rpc!;
-
-const statusLabel: Record<string, string> = {
-	idle: "Idle",
-	launching: "Launching...",
-	connecting: "Connecting...",
-	streaming: "Running",
-	stopping: "Stopping...",
-	stopped: "Stopped",
-	failed: "Error",
-};
-
-const statusVariant: Record<
-	string,
-	"default" | "secondary" | "destructive" | "outline"
-> = {
-	idle: "outline",
-	launching: "secondary",
-	connecting: "secondary",
-	streaming: "default",
-	stopping: "secondary",
-	stopped: "outline",
-	failed: "destructive",
-};
 
 export function App({ projectId }: { projectId: string }) {
 	const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -59,12 +36,19 @@ export function App({ projectId }: { projectId: string }) {
 
 			const [wf, provs, auth] = await Promise.all([
 				proj
-					? rpc().request.readWorkflow({ projectPath: proj.path }).catch(() => null)
+					? rpc()
+							.request.readWorkflow({ projectPath: proj.path })
+							.catch(() => null)
 					: Promise.resolve(null),
-				rpc().request.getProviders({}).catch(() => [] as ProviderInfo[]),
-				rpc().request.getAuthStatus({}).catch(
-					() => [] as Array<{ id: string; name: string; authenticated: boolean }>,
-				),
+				rpc()
+					.request.getProviders({})
+					.catch(() => [] as ProviderInfo[]),
+				rpc()
+					.request.getAuthStatus({})
+					.catch(
+						() =>
+							[] as Array<{ id: string; name: string; authenticated: boolean }>,
+					),
 			]);
 
 			setWorkflow(wf);
@@ -132,59 +116,56 @@ export function App({ projectId }: { projectId: string }) {
 
 	if (loading) {
 		return (
-			<div className="desktop-ui dark flex min-h-screen items-center justify-center bg-background">
-				<Spinner />
-			</div>
+			<WindowChrome.Root className="desktop-ui dark flex min-h-screen flex-col bg-background">
+				<WindowChrome.Titlebar className="h-[52px] px-5 gap-4">
+					<WindowChrome.Controls />
+				</WindowChrome.Titlebar>
+				<WindowChrome.Content className="flex items-center justify-center">
+					<Spinner />
+				</WindowChrome.Content>
+			</WindowChrome.Root>
 		);
 	}
 
 	if (!project) {
 		return (
-			<div className="desktop-ui dark flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-				<p className="text-sm">Project not found</p>
-			</div>
+			<WindowChrome.Root className="desktop-ui dark flex min-h-screen flex-col bg-background">
+				<WindowChrome.Titlebar className="h-[52px] px-5 gap-4">
+					<WindowChrome.Controls />
+				</WindowChrome.Titlebar>
+				<WindowChrome.Content className="flex items-center justify-center text-muted-foreground">
+					<p className="text-sm">Project not found</p>
+				</WindowChrome.Content>
+			</WindowChrome.Root>
 		);
 	}
 
 	return (
-		<div className="desktop-ui dark flex min-h-screen flex-col bg-background">
-			<div className="electrobun-webkit-app-region-drag flex shrink-0 items-center justify-between px-4 pt-[38px] pb-2">
-				<div className="electrobun-webkit-app-region-no-drag ml-[68px] flex items-center gap-2">
-					<span className="text-label font-semibold">{project.name}</span>
-					<Badge
-						variant={statusVariant[project.status] ?? "outline"}
-						size="sm"
-					>
-						{statusLabel[project.status] ?? project.status}
-					</Badge>
-					{project.agentCount > 0 && (
-						<span className="text-micro text-muted-foreground">
-							{project.agentCount} agent{project.agentCount !== 1 ? "s" : ""}
-						</span>
-					)}
-				</div>
-			</div>
-
-			{workflow === null ? (
-				<div className="flex-1 overflow-auto">
+		<WindowChrome.Root className="desktop-ui dark flex min-h-screen flex-col bg-background">
+			<WindowChrome.Titlebar className="h-[52px] px-5 gap-4">
+				<WindowChrome.Controls />
+				<WindowChrome.Title>{project.name}</WindowChrome.Title>
+			</WindowChrome.Titlebar>
+			<WindowChrome.Content>
+				{workflow === null ? (
 					<TemplatePicker onCreate={handleCreateWorkflow} />
-				</div>
-			) : workflow !== undefined ? (
-				<WorkflowEditor
-					workflow={workflow}
-					providers={providers}
-					authStatus={authStatus}
-					authState={authState}
-					onSave={handleSave}
-					onOpenInEditor={handleOpenInEditor}
-					onStartAuth={(providerId) =>
-						rpc().request.startAuthFlow({ providerId })
-					}
-					onSubmitAuthResponse={(value) =>
-						rpc().request.submitAuthResponse({ value })
-					}
-				/>
-			) : null}
-		</div>
+				) : workflow !== undefined ? (
+					<WorkflowEditor
+						workflow={workflow}
+						providers={providers}
+						authStatus={authStatus}
+						authState={authState}
+						onSave={handleSave}
+						onOpenInEditor={handleOpenInEditor}
+						onStartAuth={(providerId) =>
+							rpc().request.startAuthFlow({ providerId })
+						}
+						onSubmitAuthResponse={(value) =>
+							rpc().request.submitAuthResponse({ value })
+						}
+					/>
+				) : null}
+			</WindowChrome.Content>
+		</WindowChrome.Root>
 	);
 }

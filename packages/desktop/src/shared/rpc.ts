@@ -92,6 +92,9 @@ export type DesktopRPC = {
 				response: boolean;
 			};
 			openInEditor: { params: { projectPath: string }; response: boolean };
+			windowClose: { params: {}; response: boolean };
+			windowMinimize: { params: {}; response: boolean };
+			windowZoom: { params: {}; response: boolean };
 		};
 		messages: {};
 	}>;

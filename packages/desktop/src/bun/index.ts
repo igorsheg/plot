@@ -1,4 +1,9 @@
-import { BrowserWindow, BrowserView, Utils, ApplicationMenu } from "electrobun/bun";
+import {
+	BrowserWindow,
+	BrowserView,
+	Utils,
+	ApplicationMenu,
+} from "electrobun/bun";
 import { Effect, ManagedRuntime, Stream } from "effect";
 import type { DesktopRPC } from "../shared/rpc";
 import { DesktopMain } from "./services/desktop-main";
@@ -48,7 +53,10 @@ type ConfigWindowEntry = {
 };
 const configWindows = new Map<string, ConfigWindowEntry>();
 
-function sendToWindow(projectId: string, fn: (send: ConfigWindowEntry["rpc"]["send"]) => void) {
+function sendToWindow(
+	projectId: string,
+	fn: (send: ConfigWindowEntry["rpc"]["send"]) => void,
+) {
 	const entry = configWindows.get(projectId);
 	if (entry) fn(entry.rpc.send);
 }
@@ -72,58 +80,90 @@ async function openConfigWindow(projectId: string) {
 	);
 	if (!project) return;
 
+	let win: BrowserWindow;
+
 	const rpc = BrowserView.defineRPC<DesktopRPC>({
 		handlers: {
 			requests: {
 				getProject: ({ projectId: id }) =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						return yield* d.getProjectInfo(id);
-					})),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							return yield* d.getProjectInfo(id);
+						}),
+					),
 				readWorkflow: ({ projectPath }) =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						return yield* d.readWorkflow(projectPath);
-					})),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							return yield* d.readWorkflow(projectPath);
+						}),
+					),
 				saveWorkflow: ({ projectPath, workflow }) =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						yield* d.saveWorkflow(projectPath, workflow);
-						return true;
-					})),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							yield* d.saveWorkflow(projectPath, workflow);
+							return true;
+						}),
+					),
 				createWorkflow: ({ projectPath, template }) =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						return yield* d.createWorkflow(projectPath, template);
-					})),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							return yield* d.createWorkflow(projectPath, template);
+						}),
+					),
 				openInEditor: ({ projectPath }) =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						yield* d.openInEditor(projectPath);
-						return true;
-					})),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							yield* d.openInEditor(projectPath);
+							return true;
+						}),
+					),
 				getProviders: () =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						return [...yield* d.getProviders];
-					})),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							return [...(yield* d.getProviders)];
+						}),
+					),
 				getAuthStatus: () =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						return [...yield* d.getAuthStatus];
-					})),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							return [...(yield* d.getAuthStatus)];
+						}),
+					),
 				startAuthFlow: ({ providerId }) => {
-					fire(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						yield* d.startAuthLogin(providerId);
-					}));
+					fire(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							yield* d.startAuthLogin(providerId);
+						}),
+					);
 					return Promise.resolve(true);
 				},
 				submitAuthResponse: ({ value }) =>
-					run(Effect.gen(function* () {
-						const d = yield* DesktopMain;
-						yield* d.submitAuthResponse(value);
-					})).then(() => true),
+					run(
+						Effect.gen(function* () {
+							const d = yield* DesktopMain;
+							yield* d.submitAuthResponse(value);
+						}),
+					).then(() => true),
+				windowClose: () => {
+					win.close();
+					return Promise.resolve(true);
+				},
+				windowMinimize: () => {
+					win.minimize();
+					return Promise.resolve(true);
+				},
+				windowZoom: () => {
+					win.maximize();
+					return Promise.resolve(true);
+				},
 			},
 			messages: {},
 		},
@@ -132,10 +172,10 @@ async function openConfigWindow(projectId: string) {
 	const url = await getViewUrl();
 	const sep = url.includes("?") ? "&" : "?";
 
-	const win = new BrowserWindow({
+	win = new BrowserWindow({
 		title: `Plot — ${project.name}`,
 		url: `${url}${sep}projectId=${projectId}`,
-		titleBarStyle: "hiddenInset",
+		titleBarStyle: "hidden",
 		rpc,
 		frame: { width: 480, height: 540, x: 200, y: 200 },
 	});
@@ -149,35 +189,45 @@ async function openConfigWindow(projectId: string) {
 const tray = createTray({
 	onConfigure: (id) => openConfigWindow(id),
 	onStartProject: (id) => {
-		fire(Effect.gen(function* () {
-			const d = yield* DesktopMain;
-			yield* d.startProject(id);
-		}));
+		fire(
+			Effect.gen(function* () {
+				const d = yield* DesktopMain;
+				yield* d.startProject(id);
+			}),
+		);
 	},
 	onStopProject: (id) => {
-		fire(Effect.gen(function* () {
-			const d = yield* DesktopMain;
-			yield* d.stopProject(id);
-		}));
+		fire(
+			Effect.gen(function* () {
+				const d = yield* DesktopMain;
+				yield* d.stopProject(id);
+			}),
+		);
 	},
 	onStartAll: () => {
-		fire(Effect.gen(function* () {
-			const d = yield* DesktopMain;
-			yield* d.startAll;
-		}));
+		fire(
+			Effect.gen(function* () {
+				const d = yield* DesktopMain;
+				yield* d.startAll;
+			}),
+		);
 	},
 	onStopAll: () => {
-		fire(Effect.gen(function* () {
-			const d = yield* DesktopMain;
-			yield* d.stopAll;
-		}));
+		fire(
+			Effect.gen(function* () {
+				const d = yield* DesktopMain;
+				yield* d.stopAll;
+			}),
+		);
 	},
 	onOpenInFinder: (p) => Utils.showItemInFolder(p),
 	onRemoveProject: (id) => {
-		fire(Effect.gen(function* () {
-			const d = yield* DesktopMain;
-			yield* d.removeProject(id);
-		}));
+		fire(
+			Effect.gen(function* () {
+				const d = yield* DesktopMain;
+				yield* d.removeProject(id);
+			}),
+		);
 		const entry = configWindows.get(id);
 		if (entry) {
 			entry.win.close();
@@ -199,61 +249,76 @@ const tray = createTray({
 				return yield* d.addProject(chosen[0]!);
 			}),
 		);
-		const infos = await run(Effect.gen(function* () {
-			const d = yield* DesktopMain;
-			return yield* d.listProjectInfos;
-		}));
+		const infos = await run(
+			Effect.gen(function* () {
+				const d = yield* DesktopMain;
+				return yield* d.listProjectInfos;
+			}),
+		);
 		tray.refresh([...infos]);
 		openConfigWindow(project.id);
 	},
 	onQuit: async () => {
-		await run(Effect.gen(function* () {
-			const d = yield* DesktopMain;
-			yield* d.shutdown;
-		}));
+		await run(
+			Effect.gen(function* () {
+				const d = yield* DesktopMain;
+				yield* d.shutdown;
+			}),
+		);
 		Utils.quit();
 	},
 });
 
-fire(Effect.gen(function* () {
-	const d = yield* DesktopMain;
-	yield* d.statusStream.pipe(
-		Stream.runForEach((event) =>
-			Effect.gen(function* () {
-				const infos = yield* d.listProjectInfos;
-				yield* Effect.sync(() => {
-					tray.refresh([...infos]);
-					const info = infos.find((i) => i.id === event.projectId);
-					if (info) sendToWindow(event.projectId, (send) => send.projectUpdated(info));
-				});
-			}),
-		),
-	);
-}));
+fire(
+	Effect.gen(function* () {
+		const d = yield* DesktopMain;
+		yield* d.statusStream.pipe(
+			Stream.runForEach((event) =>
+				Effect.gen(function* () {
+					const infos = yield* d.listProjectInfos;
+					yield* Effect.sync(() => {
+						tray.refresh([...infos]);
+						const info = infos.find((i) => i.id === event.projectId);
+						if (info)
+							sendToWindow(event.projectId, (send) =>
+								send.projectUpdated(info),
+							);
+					});
+				}),
+			),
+		);
+	}),
+);
 
-fire(Effect.gen(function* () {
-	const d = yield* DesktopMain;
-	yield* d.snapshotStream.pipe(
-		Stream.runForEach((event) =>
-			Effect.sync(() => {
-				sendToWindow(event.projectId, (send) => send.snapshotUpdate(event));
-			}),
-		),
-	);
-}));
+fire(
+	Effect.gen(function* () {
+		const d = yield* DesktopMain;
+		yield* d.snapshotStream.pipe(
+			Stream.runForEach((event) =>
+				Effect.sync(() => {
+					sendToWindow(event.projectId, (send) => send.snapshotUpdate(event));
+				}),
+			),
+		);
+	}),
+);
 
-fire(Effect.gen(function* () {
-	const d = yield* DesktopMain;
-	yield* d.authStateStream.pipe(
-		Stream.runForEach((state) =>
-			Effect.sync(() => {
-				sendToAll((send) => send.authStateChanged(state));
-			}),
-		),
-	);
-}));
+fire(
+	Effect.gen(function* () {
+		const d = yield* DesktopMain;
+		yield* d.authStateStream.pipe(
+			Stream.runForEach((state) =>
+				Effect.sync(() => {
+					sendToAll((send) => send.authStateChanged(state));
+				}),
+			),
+		);
+	}),
+);
 
-run(Effect.gen(function* () {
-	const d = yield* DesktopMain;
-	return yield* d.listProjectInfos;
-})).then((infos) => tray.refresh([...infos]));
+run(
+	Effect.gen(function* () {
+		const d = yield* DesktopMain;
+		return yield* d.listProjectInfos;
+	}),
+).then((infos) => tray.refresh([...infos]));
