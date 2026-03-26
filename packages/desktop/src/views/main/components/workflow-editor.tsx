@@ -21,6 +21,10 @@ type Props = {
 	onOpenInEditor: () => void;
 	onStartAuth: (providerId: string) => void;
 	onSubmitAuthResponse: (value: string) => void;
+	projectName: string;
+	projectStatus: string;
+	agentCount: number;
+	saved: boolean;
 };
 
 export function WorkflowEditor({
@@ -32,6 +36,10 @@ export function WorkflowEditor({
 	onOpenInEditor,
 	onStartAuth,
 	onSubmitAuthResponse,
+	projectName,
+	projectStatus,
+	agentCount,
+	saved,
 }: Props) {
 	const [config, setConfig] = useState<WorkflowFrontmatter>(initial.config);
 	const [dirty, setDirty] = useState(false);
@@ -61,24 +69,64 @@ export function WorkflowEditor({
 		providers.find((p) => p.id === selectedProvider)?.models ?? [];
 	const providerAuth = authStatus.find((a) => a.id === selectedProvider);
 
+	const statusLabel: Record<string, string> = {
+		idle: "Idle",
+		launching: "Launching...",
+		connecting: "Connecting...",
+		streaming: "Running",
+		stopping: "Stopping...",
+		stopped: "Stopped",
+		failed: "Error",
+	};
+
+	const statusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+		idle: "outline",
+		launching: "secondary",
+		connecting: "secondary",
+		streaming: "default",
+		stopping: "secondary",
+		stopped: "outline",
+		failed: "destructive",
+	};
+
 	return (
-		<div className="flex flex-col">
-			<div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
-				<Button variant="ghost" size="sm" onClick={onOpenInEditor}>
-					Open in Editor
-				</Button>
-				<Button size="sm" onClick={handleSave} disabled={!dirty}>
-					{dirty ? "Save" : "Saved"}
-				</Button>
+		<Tabs defaultValue="tracker" className="flex min-h-screen flex-col">
+			<div className="electrobun-webkit-app-region-drag titlebar flex shrink-0 items-end justify-between px-4 pb-2">
+				<div className="electrobun-webkit-app-region-no-drag ml-[68px] flex items-center gap-3">
+					<div className="flex items-center gap-2">
+						<span className="text-label font-semibold">{projectName}</span>
+						<Badge
+							variant={statusVariant[projectStatus] ?? "outline"}
+							size="sm"
+						>
+							{statusLabel[projectStatus] ?? projectStatus}
+						</Badge>
+						{agentCount > 0 && (
+							<span className="text-micro text-muted-foreground">
+								{agentCount} agent{agentCount !== 1 ? "s" : ""}
+							</span>
+						)}
+					</div>
+					<TabsList>
+						<TabsTab value="tracker">Tracker</TabsTab>
+						<TabsTab value="agent">Agent</TabsTab>
+						<TabsTab value="advanced">Advanced</TabsTab>
+					</TabsList>
+				</div>
+				<div className="electrobun-webkit-app-region-no-drag flex items-center gap-2">
+					{saved && (
+						<span className="text-micro text-emerald-400">Saved</span>
+					)}
+					<Button variant="ghost" size="xs" onClick={onOpenInEditor}>
+						Open in Editor
+					</Button>
+					<Button size="xs" onClick={handleSave} disabled={!dirty}>
+						Save
+					</Button>
+				</div>
 			</div>
 
-			<Tabs defaultValue="tracker" className="flex-1">
-				<TabsList className="mx-4 mt-3">
-					<TabsTab value="tracker">Tracker</TabsTab>
-					<TabsTab value="agent">Agent</TabsTab>
-					<TabsTab value="advanced">Advanced</TabsTab>
-				</TabsList>
-
+			<div className="flex-1 overflow-auto">
 				<TabsPanel value="tracker" className="space-y-4 p-4">
 					<TrackerTab config={config} onUpdate={update} />
 				</TabsPanel>
@@ -101,8 +149,8 @@ export function WorkflowEditor({
 				<TabsPanel value="advanced" className="space-y-4 p-4">
 					<AdvancedTab config={config} onUpdate={update} />
 				</TabsPanel>
-			</Tabs>
-		</div>
+			</div>
+		</Tabs>
 	);
 }
 

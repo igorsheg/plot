@@ -137,7 +137,7 @@ export function App({ projectId }: { projectId: string }) {
 
 	if (loading) {
 		return (
-			<div className="desktop-ui dark flex min-h-screen items-center justify-center bg-background text-foreground">
+			<div className="desktop-ui dark flex min-h-screen items-center justify-center bg-background">
 				<Spinner />
 			</div>
 		);
@@ -152,58 +152,46 @@ export function App({ projectId }: { projectId: string }) {
 	}
 
 	return (
-		<div className="desktop-ui dark flex min-h-screen flex-col bg-background text-foreground">
-			<div
-				className="flex h-[38px] shrink-0 items-center justify-between border-b border-border/50 px-4"
-				style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-			>
-				<div
-					className="ml-[68px] flex items-center gap-2"
-					style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-				>
-					<span className="text-sm font-semibold">{project.name}</span>
-					<Badge
-						variant={statusVariant[project.status] ?? "outline"}
-						className="text-[10px]"
+		<div className="desktop-ui dark flex min-h-screen flex-col bg-background">
+			{workflow === null ? (
+				<>
+					<div
+						className="electrobun-webkit-app-region-drag titlebar flex shrink-0 items-end px-4 pb-2"
 					>
-						{statusLabel[project.status] ?? project.status}
-					</Badge>
-					{project.agentCount > 0 && (
-						<span className="text-[10px] text-muted-foreground">
-							{project.agentCount} agent{project.agentCount !== 1 ? "s" : ""}
-						</span>
-					)}
-				</div>
-				{saved && (
-					<span
-						className="text-[11px] text-emerald-400"
-						style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-					>
-						Saved
-					</span>
-				)}
-			</div>
-
-			<div className="flex-1 overflow-auto">
-				{workflow === null ? (
-					<TemplatePicker onCreate={handleCreateWorkflow} />
-				) : workflow !== undefined ? (
-					<WorkflowEditor
-						workflow={workflow}
-						providers={providers}
-						authStatus={authStatus}
-						authState={authState}
-						onSave={handleSave}
-						onOpenInEditor={handleOpenInEditor}
-						onStartAuth={(providerId) =>
-							rpc().request.startAuthFlow({ providerId })
-						}
-						onSubmitAuthResponse={(value) =>
-							rpc().request.submitAuthResponse({ value })
-						}
-					/>
-				) : null}
-			</div>
+						<div className="electrobun-webkit-app-region-no-drag ml-[68px] flex items-center gap-2">
+							<span className="text-label font-semibold">{project.name}</span>
+							<Badge
+								variant={statusVariant[project.status] ?? "outline"}
+								size="sm"
+							>
+								{statusLabel[project.status] ?? project.status}
+							</Badge>
+						</div>
+					</div>
+					<div className="flex-1 overflow-auto">
+						<TemplatePicker onCreate={handleCreateWorkflow} />
+					</div>
+				</>
+			) : workflow !== undefined ? (
+				<WorkflowEditor
+					workflow={workflow}
+					providers={providers}
+					authStatus={authStatus}
+					authState={authState}
+					onSave={handleSave}
+					onOpenInEditor={handleOpenInEditor}
+					onStartAuth={(providerId) =>
+						rpc().request.startAuthFlow({ providerId })
+					}
+					onSubmitAuthResponse={(value) =>
+						rpc().request.submitAuthResponse({ value })
+					}
+					projectName={project.name}
+					projectStatus={project.status}
+					agentCount={project.agentCount}
+					saved={saved}
+				/>
+			) : null}
 		</div>
 	);
 }
