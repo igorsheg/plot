@@ -1,6 +1,6 @@
 import { Command } from "effect/unstable/cli";
 import { Effect, References } from "effect";
-import { createCliOutput } from "../shared/io.js";
+import { diagnostic, emitStream, emitStreamResult } from "../shared/envelope.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { startServer } from "../shared/server-process.js";
 import { waitForShutdown } from "../shared/shutdown.js";
@@ -9,13 +9,31 @@ export const ServeCommand = Command.make(
 	"serve",
 	cliCommandOptions,
 	Effect.fnUntraced(function* (args) {
-		const output = createCliOutput(args);
+		const startTime = Date.now();
 		const logLevel = yield* References.MinimumLogLevel;
 		const handle = startServer(toServerOptions(args, logLevel));
-		output.ready({ command: "serve", url: handle.url, pid: handle.pid });
+
+		emitStream({ type: "start", command: "plot-ai serve", ts: new Date().toISOString() });
+		emitStream({
+			type: "log",
+			level: "info",
+			message: `listening on ${handle.url}`,
+			ts: new Date().toISOString(),
+		});
+		diagnostic(`plot-ai serve listening on ${handle.url}`, args.verbose);
 
 		yield* waitForShutdown((signal) => {
-			output.shutdown({ command: "serve", signal });
+			emitStreamResult(
+				"plot-ai serve",
+				{ url: handle.url, signal, uptime_ms: Date.now() - startTime },
+				[
+					{ command: "plot-ai auth status", description: "check authentication status" },
+					{
+						command: `curl http://localhost:${args.port}/healthz`,
+						description: "verify server health",
+					},
+				],
+			);
 			handle.stop();
 		});
 	}),

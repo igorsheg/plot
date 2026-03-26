@@ -6,6 +6,8 @@ import type {
 } from "@mariozechner/pi-ai";
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
 import { CliError, writeNdjson, readNdjson } from "./io.js";
+import { emitResult, emitError } from "./envelope.js";
+import { lookupError } from "./errors.js";
 
 function getEnv(name: string) {
 	if (typeof process === "undefined") {
@@ -172,18 +174,6 @@ export async function logoutWithPlotAuth(providerId?: string) {
 	process.stderr.write(`logged out from ${provider.id}\n`);
 }
 
-export function printPlotAuthStatus() {
-	const authStorage = createPlotAuthStorage();
-	const providers = authStorage.getOAuthProviders();
-	writeBlock("auth status:", [
-		`file — ${getPlotAuthPath()}`,
-		...providers.map((provider) => {
-			const status = authStorage.has(provider.id) ? "logged in" : "logged out";
-			return `${provider.id} — ${status}`;
-		}),
-	]);
-}
-
 function writeBlock(title: string, lines: ReadonlyArray<string>) {
 	const text = [title, ...lines.map((line) => `  ${line}`)].join("\n");
 	process.stderr.write(`${text}\n`);
@@ -202,7 +192,11 @@ export async function loginWithPlotAuthJson(providerId?: string) {
 
 	const provider = providers.find((p) => p.id === providerId);
 	if (!provider) {
-		writeNdjson("error", { message: `unknown provider: ${providerId}` });
+		const { error, fix } = lookupError("PROVIDER_UNKNOWN", `unknown provider: ${providerId}`, { provider: providerId });
+		emitError("plot-ai auth login", error, fix, [
+			{ command: "plot-ai auth status", description: "check authentication status" },
+			{ command: "plot-ai models", description: "list available providers and models" },
+		]);
 		return;
 	}
 
@@ -244,20 +238,17 @@ export async function loginWithPlotAuthJson(providerId?: string) {
 
 	try {
 		await authStorage.login(provider.id, callbacks);
-		writeNdjson("auth:done", { provider: provider.id });
+		emitResult("plot-ai auth login", { provider: provider.id }, [
+			{ command: "plot-ai auth status", description: "check authentication status" },
+			{ command: "plot-ai models", description: "list available providers and models" },
+			{ command: "plot-ai serve", description: "start the server" },
+		]);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		writeNdjson("error", { message });
+		const { error: envError, fix } = lookupError("AUTH_REQUIRED", message, { provider: provider.id });
+		emitError("plot-ai auth login", envError, fix, [
+			{ command: "plot-ai auth login " + provider.id, description: "retry authentication" },
+			{ command: "plot-ai auth status", description: "check authentication status" },
+		]);
 	}
-}
-
-export function printPlotAuthStatusJson() {
-	const authStorage = createPlotAuthStorage();
-	const providers = authStorage.getOAuthProviders();
-	const result = providers.map((provider) => ({
-		id: provider.id,
-		name: provider.name,
-		authenticated: authStorage.has(provider.id),
-	}));
-	writeNdjson("auth:status", { providers: result });
 }
