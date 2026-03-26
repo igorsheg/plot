@@ -1,4 +1,14 @@
-import { Duration, Effect, FileSystem, Layer, Ref, Schema, ServiceMap } from "effect";
+import {
+	Cache,
+	Duration,
+	Effect,
+	Exit,
+	FileSystem,
+	Layer,
+	Ref,
+	Schema,
+	ServiceMap,
+} from "effect";
 import matter from "gray-matter";
 import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
 
@@ -56,72 +66,83 @@ export class WorkflowParseError extends Schema.TaggedErrorClass<WorkflowParseErr
 	}
 }
 
-export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()("WorkflowLoader", {
-	make: Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem;
-		const currentRef = yield* Ref.make<WorkflowDefinition | null>(null);
-		const lastContentRef = yield* Ref.make<string | null>(null);
+export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
+	"WorkflowLoader",
+	{
+		make: Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem;
+			const currentRef = yield* Ref.make<WorkflowDefinition | null>(null);
 
-		const parseWorkflow = Effect.fnUntraced(function* (content: string) {
-			const { configRaw, promptTemplate } = yield* Effect.try({
-				try: () => extractFrontmatter(content),
-				catch: (e) => new WorkflowParseError({ message: String(e) }),
+			const parseWorkflow = Effect.fn(function* (content: string) {
+				const { configRaw, promptTemplate } = yield* Effect.try({
+					try: () => extractFrontmatter(content),
+					catch: (e) => new WorkflowParseError({ message: String(e) }),
+				});
+
+				const config = yield* Schema.decodeUnknownEffect(WorkflowConfig)(
+					configRaw,
+				).pipe(
+					Effect.mapError(
+						(e) =>
+							new WorkflowParseError({ message: `Config validation: ${e}` }),
+					),
+				);
+
+				return new WorkflowDefinition({ config, promptTemplate });
 			});
 
-			const config = yield* Schema.decodeUnknownEffect(WorkflowConfig)(configRaw).pipe(
-				Effect.mapError((e) => new WorkflowParseError({ message: `Config validation: ${e}` })),
-			);
+			const workflowCache = yield* Cache.makeWith({
+				capacity: 4,
+				lookup: (path: string) =>
+					Effect.gen(function* () {
+						const exists = yield* fs
+							.exists(path)
+							.pipe(Effect.mapError(() => new WorkflowFileNotFound({ path })));
+						if (!exists) return yield* new WorkflowFileNotFound({ path });
 
-			return new WorkflowDefinition({ config, promptTemplate });
-		});
+						const content = yield* fs
+							.readFileString(path)
+							.pipe(Effect.mapError(() => new WorkflowFileNotFound({ path })));
 
-		const load = Effect.fnUntraced(function* (path: string) {
-			const exists = yield* fs
-				.exists(path)
-				.pipe(Effect.mapError(() => new WorkflowFileNotFound({ path })));
-			if (!exists) {
-				return yield* new WorkflowFileNotFound({ path });
-			}
+						const definition = yield* parseWorkflow(content);
+						yield* Ref.set(currentRef, definition);
+						return definition;
+					}),
+				timeToLive: (exit) =>
+					Exit.isSuccess(exit) ? Duration.seconds(5) : Duration.zero,
+			});
 
-			const content = yield* fs
-				.readFileString(path)
-				.pipe(Effect.mapError(() => new WorkflowFileNotFound({ path })));
+			const load = Effect.fn(function* (path: string) {
+				return yield* Cache.get(workflowCache, path);
+			});
 
-			const definition = yield* parseWorkflow(content);
-			yield* Ref.set(currentRef, definition);
-			yield* Ref.set(lastContentRef, content);
-			return definition;
-		});
-
-		const startWatching = Effect.fnUntraced(function* (path: string) {
-			const poll = Effect.gen(function* () {
-				const content = yield* fs.readFileString(path).pipe(Effect.orElseSucceed(() => null));
-				if (content === null) return;
-
-				const prev = yield* Ref.get(lastContentRef);
-				if (content === prev) return;
-
-				const result = yield* parseWorkflow(content).pipe(Effect.result);
-				if (result._tag === "Success") {
-					yield* Ref.set(currentRef, result.success);
-					yield* Ref.set(lastContentRef, content);
-				} else {
-					yield* Effect.logError("workflow_reload_failed").pipe(
-						Effect.annotateLogs("path", path),
-						Effect.annotateLogs("error", String(result.failure)),
+			const startWatching = Effect.fn(function* (path: string) {
+				const poll = Effect.gen(function* () {
+					yield* Cache.invalidate(workflowCache, path);
+					yield* Cache.get(workflowCache, path).pipe(
+						Effect.catch((e) =>
+							Effect.logError("workflow_reload_failed").pipe(
+								Effect.annotateLogs("path", path),
+								Effect.annotateLogs("error", String(e)),
+							),
+						),
 					);
-				}
+				});
+
+				yield* poll
+					.pipe(
+						Effect.delay(Duration.seconds(5)),
+						Effect.forever,
+						Effect.forkScoped,
+					)
+					.pipe(Effect.asVoid);
 			});
 
-			yield* poll
-				.pipe(Effect.delay(Duration.seconds(5)), Effect.forever, Effect.forkScoped)
-				.pipe(Effect.asVoid);
-		});
+			const getCurrent = Ref.get(currentRef);
 
-		const getCurrent = Ref.get(currentRef);
-
-		return { load, startWatching, getCurrent };
-	}),
-}) {
+			return { load, startWatching, getCurrent };
+		}),
+	},
+) {
 	static layer = Layer.effect(this, this.make);
 }
