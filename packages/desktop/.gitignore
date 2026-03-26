@@ -1,8 +1,3 @@
-.build/
-.build-app/
-.build-bin/
-.swiftpm/
-Plot.xcodeproj/
-DerivedData/
-*.xcuserdata
-Package.resolved
+build/
+dist/
+*.app/

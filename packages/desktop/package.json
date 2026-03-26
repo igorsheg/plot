@@ -1,0 +1,41 @@
+{
+	"name": "@plot/desktop",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "concurrently \"vite --port 5174\" \"electrobun dev --watch\"",
+		"dev:views": "vite --port 5174",
+		"dev:bun": "electrobun dev --watch",
+		"build:views": "vite build",
+		"build": "vite build && electrobun build",
+		"typecheck": "tsc -b tsconfig.json",
+		"lint": "oxlint src --tsconfig ../../tsconfig.json"
+	},
+	"dependencies": {
+		"@plot/sdk": "workspace:*",
+		"@plot/ui": "workspace:*",
+		"@base-ui/react": "^1.2.0",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
+		"effect": "4.0.0-beta.34",
+		"electrobun": "latest",
+		"gray-matter": "^4.0.3",
+		"lucide-react": "^0.577.0",
+		"react": "^19.1.0",
+		"react-dom": "^19.1.0",
+		"tailwind-merge": "^3.5.0",
+		"yaml": "^2.8.3"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.0.0",
+		"@types/bun": "latest",
+		"@types/react": "^19.1.0",
+		"@types/react-dom": "^19.1.0",
+		"@vitejs/plugin-react": "^4.3.4",
+		"concurrently": "^9.1.0",
+		"tailwindcss": "^4.0.0",
+		"typescript": "^5.8.2",
+		"vite": "npm:rolldown-vite@latest"
+	}
+}
