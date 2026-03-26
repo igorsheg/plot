@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "@plot/ui/tokens.css";
-@source "../../../../../node_modules/@plot/ui/src/**/*.tsx";
+@source "../../../node_modules/@plot/ui/src/**/*.tsx";
 
 @custom-variant dark (&:is(.dark *));
 
