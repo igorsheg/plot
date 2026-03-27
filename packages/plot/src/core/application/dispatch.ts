@@ -1,5 +1,5 @@
 import { Clock, Deferred, Duration, Effect, Exit, Fiber, PubSub, Ref, Scope, Stream } from "effect";
-import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
+import type { AgentRuntimeEvent, Issue, TrackerError, TrackerRunContext } from "@plot/sdk";
 import { compilePrompt } from "../prompt-compiler.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../../agent/agent-service.js";
@@ -31,14 +31,14 @@ export interface DispatchDeps {
 	readonly tracker: {
 		readonly fetchCandidateIssues: (
 			states: string[],
-		) => Effect.Effect<ReadonlyArray<Issue>, unknown>;
+		) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
 		readonly fetchIssueStatesByIds: (
 			ids: readonly string[],
-		) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, unknown>;
+		) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, TrackerError>;
 		readonly fetchRunContext: (
 			issueId: string,
 			state: string,
-		) => Effect.Effect<TrackerRunContext | null, unknown>;
+		) => Effect.Effect<TrackerRunContext | null, TrackerError>;
 	};
 	readonly agentService: {
 		readonly run: (config: AgentRunConfig) => Stream.Stream<AgentRuntimeEvent, unknown>;
@@ -86,7 +86,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			return [previous, next] as const;
 		});
 
-	const clearRetryAttempt = Effect.fn(function* (issueId: string) {
+	const clearRetryAttempt = Effect.fn("DispatchRuntime.clearRetryAttempt")(function* (issueId: string) {
 		const timerFiber = yield* takeRetryTimerFiber(issueId);
 		if (timerFiber) {
 			yield* Fiber.interrupt(timerFiber);
@@ -108,7 +108,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			: Effect.void;
 
 
-	const scheduleRetry = Effect.fn(function* (
+	const scheduleRetry = Effect.fn("DispatchRuntime.scheduleRetry")(function* (
 		issueId: string,
 		identifier: string,
 		attempt: number,
@@ -163,7 +163,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		);
 	});
 
-	const stopRunningIssue = Effect.fn(function* (
+	const stopRunningIssue = Effect.fn("DispatchRuntime.stopRunningIssue")(function* (
 		entry: RunningEntry,
 		config: ResolvedConfig,
 		options: {
@@ -211,7 +211,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		);
 	});
 
-	const handleWorkerExit = Effect.fn(function* ({
+	const handleWorkerExit = Effect.fn("DispatchRuntime.handleWorkerExit")(function* ({
 		issueId,
 		identifier,
 		attempt,
@@ -289,8 +289,15 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		);
 	});
 
-	const dispatchIssue = (issue: Issue, config: ResolvedConfig, attempt: number | null) =>
-		Effect.gen(function* () {
+	const dispatchIssue: (
+		issue: Issue,
+		config: ResolvedConfig,
+		attempt: number | null,
+	) => Effect.Effect<void, unknown, Scope.Scope> = Effect.fn("DispatchRuntime.dispatchIssue")(function* (
+		issue: Issue,
+		config: ResolvedConfig,
+		attempt: number | null,
+	) {
 			const ws = yield* deps.workspaceManager.ensureWorkspace(issue.identifier, config);
 
 			if (config.hooksBeforeRun) {
@@ -381,16 +388,19 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			});
 
 			yield* Deferred.succeed(registered, undefined);
-		}).pipe(
-			Effect.annotateLogs({
+			yield* Effect.annotateCurrentSpan({
 				issue_id: issue.id,
 				identifier: issue.identifier,
 				state: issue.state,
 				priority: String(issue.priority ?? -1),
-			}),
-		);
+			});
+		}
+	);
 
-	const processRetry = Effect.fn(function* (issueId: string, entry: RetryEntry) {
+	const processRetry: (
+		issueId: string,
+		entry: RetryEntry,
+	) => Effect.Effect<void, unknown, Scope.Scope> = Effect.fn("DispatchRuntime.processRetry")(function* (issueId: string, entry: RetryEntry) {
 		yield* takeRetryTimerFiber(issueId);
 		yield* deps.updateState((s) => {
 			const retryAttempts = new Map(s.retryAttempts);

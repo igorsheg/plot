@@ -1,5 +1,5 @@
 import { Clock, Effect, type Scope } from "effect";
-import type { Issue } from "@plot/sdk";
+import type { Issue, TrackerError } from "@plot/sdk";
 import { validateForDispatch, type ResolvedConfig } from "../config-service.js";
 import {
 	clearEventLog,
@@ -29,13 +29,13 @@ export interface ReconcileDeps {
 	readonly tracker: {
 		readonly fetchIssueStatesByIds: (
 			ids: readonly string[],
-		) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, unknown>;
+		) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, TrackerError>;
 		readonly fetchIssuesByStates: (
 			states: ReadonlyArray<string>,
-		) => Effect.Effect<ReadonlyArray<Issue>, unknown>;
+		) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
 		readonly fetchCandidateIssues: (
 			states: ReadonlyArray<string>,
-		) => Effect.Effect<ReadonlyArray<Issue>, unknown>;
+		) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
 	};
 	readonly removeWorkspace: (
 		identifier: string,
@@ -60,7 +60,7 @@ export interface ReconcileDeps {
 }
 
 export function makeTickRuntime(deps: ReconcileDeps) {
-	const reconcile = Effect.fn(function* (config: ResolvedConfig) {
+	const reconcile = Effect.fn("TickRuntime.reconcile")(function* (config: ResolvedConfig) {
 		const state = yield* deps.getState;
 		const runningIds = [...state.running.keys()];
 		if (runningIds.length === 0) return;
@@ -71,7 +71,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 			[] as ReadonlyArray<{ id: string; state: string }>,
 		);
 
-		const stateMap = new Map(stateEntries.map((e) => [e.id, e.state]));
+		const stateMap = new Map<string, string>(stateEntries.map((e) => [e.id, e.state]));
 		let stoppedCount = 0;
 
 		const now = yield* Clock.currentTimeMillis;
@@ -141,7 +141,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 		);
 	});
 
-	const startupTerminalCleanup = Effect.fn(function* (config: ResolvedConfig) {
+	const startupTerminalCleanup = Effect.fn("TickRuntime.startupTerminalCleanup")(function* (config: ResolvedConfig) {
 		const terminalIssues = yield* withTrackerFallback(
 			deps.tracker.fetchIssuesByStates(config.terminalStates),
 			"startup_cleanup",
@@ -213,7 +213,7 @@ export function makeTickRuntime(deps: ReconcileDeps) {
 		);
 	}).pipe(Effect.withLogSpan("tick"));
 
-	const handleRetryDue = Effect.fn(function* (
+	const handleRetryDue = Effect.fn("TickRuntime.handleRetryDue")(function* (
 		command: Extract<OrchestratorCommand, { _tag: "retry_due" }>,
 	) {
 		const retryEntry = (yield* deps.getState).retryAttempts.get(command.issueId);
