@@ -49,11 +49,25 @@ function TabsList({
 	);
 }
 
-function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
+type TabsTabSize = "default" | "sm" | "xs";
+
+const tabSizeClasses: Record<TabsTabSize, string> = {
+	default:
+		"h-9 px-[calc(--spacing(2.5)-1px)] text-base sm:h-8 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4",
+	sm: "h-7 px-[calc(--spacing(2)-1px)] text-sm sm:h-6 sm:text-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
+	xs: "h-6 px-[calc(--spacing(1.5)-1px)] text-xs sm:h-5 sm:text-[0.625rem] [&_svg:not([class*='size-'])]:size-3.5 sm:[&_svg:not([class*='size-'])]:size-3",
+};
+
+function TabsTab({
+	className,
+	size = "default",
+	...props
+}: TabsPrimitive.Tab.Props & { size?: TabsTabSize }) {
 	return (
 		<TabsPrimitive.Tab
 			className={cn(
-				"[&_svg]:-mx-0.5 relative flex h-9 shrink-0 grow cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-[calc(--spacing(2.5)-1px)] font-medium text-base outline-none transition-[color,background-color,box-shadow] hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-[orientation=vertical]:w-full data-[orientation=vertical]:justify-start data-active:text-foreground data-disabled:opacity-64 sm:h-8 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				"[&_svg]:-mx-0.5 relative flex shrink-0 grow cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent font-medium outline-none transition-[color,background-color,box-shadow] hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-[orientation=vertical]:w-full data-[orientation=vertical]:justify-start data-active:text-foreground data-disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				tabSizeClasses[size],
 				className,
 			)}
 			data-slot="tabs-tab"

@@ -3,8 +3,11 @@ import type * as React from "react";
 
 import { cn } from "../lib/utils";
 
-type InputProps = Omit<InputPrimitive.Props & React.RefAttributes<HTMLInputElement>, "size"> & {
-	size?: "sm" | "default" | "lg" | number;
+type InputProps = Omit<
+	InputPrimitive.Props & React.RefAttributes<HTMLInputElement>,
+	"size"
+> & {
+	size?: "xs" | "sm" | "default" | "lg" | number;
 	unstyled?: boolean;
 	nativeInput?: boolean;
 };
@@ -18,7 +21,10 @@ function Input({
 }: InputProps) {
 	const inputClassName = cn(
 		"h-8.5 w-full min-w-0 rounded-[inherit] px-[calc(--spacing(3)-1px)] leading-8.5 outline-none placeholder:text-muted-foreground/72 sm:h-7.5 sm:leading-7.5 [transition:background-color_5000000s_ease-in-out_0s]",
-		size === "sm" && "h-7.5 px-[calc(--spacing(2.5)-1px)] leading-7.5 sm:h-6.5 sm:leading-6.5",
+		size === "sm" &&
+			"h-7.5 px-[calc(--spacing(2.5)-1px)] leading-7.5 sm:h-6.5 sm:leading-6.5",
+		size === "xs" &&
+			"h-6 px-[calc(--spacing(1.5)-1px)] text-xs leading-6 sm:h-5.5 sm:leading-5.5",
 		size === "lg" && "h-9.5 leading-9.5 sm:h-8.5 sm:leading-8.5",
 		props.type === "search" &&
 			"[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none [&::-webkit-search-results-button]:appearance-none [&::-webkit-search-results-decoration]:appearance-none",

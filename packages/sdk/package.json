@@ -25,6 +25,9 @@
 		"typecheck": "tsc -b tsconfig.json",
 		"lint": "oxlint src --tsconfig ../../tsconfig.json"
 	},
+	"dependencies": {
+		"@mariozechner/pi-ai": "^0.57.1"
+	},
 	"peerDependencies": {
 		"effect": ">=4.0.0-beta.0"
 	},

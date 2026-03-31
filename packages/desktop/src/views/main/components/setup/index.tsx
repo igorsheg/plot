@@ -1,0 +1,401 @@
+import {
+	createContext,
+	use,
+	useState,
+	useCallback,
+	useMemo,
+	type ReactNode,
+} from "react";
+import type { WorkflowConfig, TrackerConfig } from "../../../../shared/rpc";
+import { AppContext } from "../../context/app-context";
+import { rpc } from "../../context/rpc";
+import { Button } from "@plot/ui/components/button";
+import { Input } from "@plot/ui/components/input";
+import { RadioGroup, Radio } from "@plot/ui/components/radio-group";
+import { Tabs, TabsList, TabsTab, TabsPanel } from "@plot/ui/components/tabs";
+import {
+	Select,
+	SelectTrigger,
+	SelectValue,
+	SelectPopup,
+	SelectItem,
+} from "@plot/ui/components/select";
+import { useAuthFlowController, AuthFlow } from "../auth-flow";
+
+// ── Context ──────────────────────────────────────────
+
+interface SetupState {
+	tracker: TrackerConfig;
+	model: string;
+}
+
+interface SetupActions {
+	setTracker: (tracker: TrackerConfig) => void;
+	setModel: (model: string) => void;
+	finish: () => void;
+}
+
+interface SetupContextValue {
+	state: SetupState;
+	actions: SetupActions;
+}
+
+const SetupContext = createContext<SetupContextValue | null>(null);
+
+function useSetup() {
+	const ctx = use(SetupContext);
+	if (!ctx) throw new Error("Setup.* must be used inside Setup component");
+	return ctx;
+}
+
+// ── Tracker presets ──────────────────────────────────
+
+const TRACKER_PRESETS: Record<string, TrackerConfig> = {
+	github: {
+		kind: "github",
+		dispatchStates: ["plot:todo", "plot:in-progress"],
+		parkedStates: ["plot:human-review"],
+		terminalStates: ["plot:done"],
+	},
+	beads: {
+		kind: "beads",
+		dispatchStates: ["ready"],
+		terminalStates: ["closed"],
+	},
+};
+
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4-20250514";
+
+// ── Provider ─────────────────────────────────────────
+
+function SetupProvider({
+	projectId,
+	children,
+}: {
+	projectId: string;
+	children: ReactNode;
+}) {
+	const { state: appState, actions: appActions } = use(AppContext)!;
+	const project = appState.project;
+
+	const [tracker, setTracker] = useState<TrackerConfig>(
+		TRACKER_PRESETS.github!,
+	);
+	const [model, setModel] = useState(DEFAULT_MODEL);
+
+	const finish = useCallback(async () => {
+		if (!project) return;
+		const config: WorkflowConfig = {
+			tracker,
+			agent: { model, maxConcurrentAgents: 1, maxTurns: 50 },
+			workspace: { root: "./workspaces" },
+		};
+		await rpc().request.createWorkflow({ projectPath: project.path, config });
+		appActions.refreshProject();
+	}, [project, tracker, model, appActions]);
+
+	const value = useMemo<SetupContextValue>(
+		() => ({
+			state: { tracker, model },
+			actions: { setTracker, setModel, finish },
+		}),
+		[tracker, model, finish],
+	);
+
+	return <SetupContext value={value}>{children}</SetupContext>;
+}
+
+// ── Tracker Section ──────────────────────────────────
+
+type TrackerKind = "github" | "beads" | "custom";
+
+function TrackerSection() {
+	const { state, actions } = useSetup();
+	const [customInput, setCustomInput] = useState("");
+
+	const trackerKind: TrackerKind =
+		state.tracker.kind === "github"
+			? "github"
+			: state.tracker.kind === "beads"
+				? "beads"
+				: "custom";
+
+	const handleTrackerChange = (value: string) => {
+		const kind = value as TrackerKind;
+		if (kind === "github" || kind === "beads") {
+			actions.setTracker(TRACKER_PRESETS[kind]!);
+			setCustomInput("");
+		} else {
+			actions.setTracker({ kind: customInput || "npm:" });
+			if (!customInput) setCustomInput("npm:");
+		}
+	};
+
+	return (
+		<section className="space-y-2">
+			<h3 className="px-1 pb-2 text-[10px] font-medium text-muted-foreground">
+				Tracker
+			</h3>
+			<RadioGroup
+				value={trackerKind}
+				onValueChange={handleTrackerChange}
+				className="space-y-1"
+			>
+				<label className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors hover:bg-muted/50 has-data-checked:bg-accent/50">
+					<Radio size="xs" value="github" />
+					<span className="text-sm">GitHub Issues</span>
+				</label>
+				<label className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors hover:bg-muted/50 has-data-checked:bg-accent/50">
+					<Radio size="xs" value="beads" />
+					<span className="text-sm">Beads</span>
+				</label>
+				<label className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors hover:bg-muted/50 has-data-checked:bg-accent/50">
+					<Radio size="xs" value="custom" />
+					<span className="text-sm">Custom package</span>
+				</label>
+			</RadioGroup>
+			{trackerKind === "custom" && (
+				<Input
+					size="sm"
+					value={customInput}
+					onChange={(e) => {
+						setCustomInput(e.target.value);
+						actions.setTracker({ kind: e.target.value });
+					}}
+					placeholder="npm:@org/my-tracker"
+					className="mt-1.5"
+					autoFocus
+				/>
+			)}
+		</section>
+	);
+}
+
+// ── Provider Section ─────────────────────────────────
+
+type AuthPath = "subscription" | "api_key";
+
+function ProviderSection() {
+	const { state, actions } = useSetup();
+	const auth = useAuthFlowController();
+	const [authPath, setAuthPath] = useState<AuthPath>(() => {
+		const current = state.model.includes("/") ? state.model.split("/")[0]! : "";
+		const currentProvider = auth.state.providers.find((p) => p.id === current);
+		if (currentProvider && !currentProvider.supportsOAuth) return "api_key";
+		return "subscription";
+	});
+
+	const subscriptionProviders = auth.state.providers.filter(
+		(p) => p.supportsOAuth,
+	);
+	const apiKeyProviders = auth.state.providers.filter((p) => !p.supportsOAuth);
+
+	const selectedProvider = state.model.includes("/")
+		? state.model.split("/")[0]!
+		: "";
+
+	const selectProvider = (providerId: string) => {
+		const provider = auth.state.providers.find((p) => p.id === providerId);
+		const firstModel = provider?.models[0];
+		actions.setModel(
+			firstModel ? `${providerId}/${firstModel.id}` : providerId,
+		);
+	};
+
+	const handleTabChange = (value: string | number) => {
+		const next = value as AuthPath;
+		setAuthPath(next);
+		const providers =
+			next === "subscription" ? subscriptionProviders : apiKeyProviders;
+		const first = providers[0];
+		if (first) selectProvider(first.id);
+	};
+
+	return (
+		<section className="space-y-2">
+			<h3 className="px-1 pb-2 text-[10px] font-medium text-muted-foreground">
+				Provider
+			</h3>
+			<Tabs value={authPath} onValueChange={handleTabChange}>
+				<TabsList className="w-full">
+					<TabsTab value="subscription" size="sm">
+						Subscription
+					</TabsTab>
+					<TabsTab value="api_key" size="sm">
+						API Key
+					</TabsTab>
+				</TabsList>
+
+				<TabsPanel value="subscription" className="pt-3">
+					<div className="space-y-1">
+						{subscriptionProviders.map((p) => (
+							<AuthFlow.Provider key={p.id} controller={auth} providerId={p.id}>
+								<Button
+									variant="ghost"
+									size="xs"
+									onClick={() => selectProvider(p.id)}
+									className={`w-full justify-between ${
+										selectedProvider === p.id
+											? "bg-accent/50"
+											: ""
+									}`}
+								>
+									<span>{p.name}</span>
+									<AuthFlow.Badge />
+								</Button>
+							</AuthFlow.Provider>
+						))}
+					</div>
+					{selectedProvider &&
+						subscriptionProviders.some((p) => p.id === selectedProvider) && (
+							<AuthFlow.Provider
+								controller={auth}
+								providerId={selectedProvider}
+							>
+								<div className="mt-2 space-y-2">
+									<AuthFlow.ConnectButton
+										variant="outline"
+										size="sm"
+										className="w-full"
+									>
+										Connect{" "}
+										{subscriptionProviders.find(
+											(p) => p.id === selectedProvider,
+										)?.name ?? selectedProvider}
+									</AuthFlow.ConnectButton>
+									<AuthFlow.Status.Inline />
+								</div>
+							</AuthFlow.Provider>
+						)}
+				</TabsPanel>
+
+				<TabsPanel value="api_key" className="pt-3">
+					<div className="space-y-3">
+						<div className="space-y-1">
+							{apiKeyProviders.map((p) => (
+								<AuthFlow.Provider key={p.id} controller={auth} providerId={p.id}>
+									<Button
+										variant="ghost"
+										size="xs"
+										onClick={() => selectProvider(p.id)}
+										className={`w-full justify-between ${
+											selectedProvider === p.id
+												? "bg-accent/50"
+												: ""
+										}`}
+									>
+										<span>{p.name}</span>
+										<AuthFlow.Badge />
+									</Button>
+								</AuthFlow.Provider>
+							))}
+						</div>
+						{selectedProvider &&
+							apiKeyProviders.some((p) => p.id === selectedProvider) && (
+								<AuthFlow.Provider
+									controller={auth}
+									providerId={selectedProvider}
+								>
+									<AuthFlow.ApiKeyInput />
+								</AuthFlow.Provider>
+							)}
+					</div>
+				</TabsPanel>
+			</Tabs>
+		</section>
+	);
+}
+
+// ── Model Section ────────────────────────────────────
+
+function ModelSection() {
+	const { state, actions } = useSetup();
+	const auth = useAuthFlowController();
+
+	const selectedProvider = state.model.includes("/")
+		? state.model.split("/")[0]!
+		: "";
+	const providerModels =
+		auth.state.providers.find((p) => p.id === selectedProvider)?.models ?? [];
+	const selectedModelId = state.model.includes("/")
+		? state.model.split("/").slice(1).join("/")
+		: "";
+
+	const setModelId = (modelId: string) => {
+		actions.setModel(
+			selectedProvider ? `${selectedProvider}/${modelId}` : modelId,
+		);
+	};
+
+	if (!selectedProvider || providerModels.length === 0) return null;
+
+	return (
+		<section className="space-y-2">
+			<h3 className="px-1 pb-2 text-[10px] font-medium text-muted-foreground">
+				Model
+			</h3>
+			<Select
+				value={selectedModelId}
+				onValueChange={(v) => {
+					if (v) setModelId(v);
+				}}
+			>
+				<SelectTrigger size="sm" className="w-[140px]">
+					<SelectValue placeholder="Select model" />
+				</SelectTrigger>
+				<SelectPopup size="xs">
+					{providerModels.map((m) => (
+						<SelectItem size="xs" key={m.id} value={m.id}>
+							{m.name}
+						</SelectItem>
+					))}
+				</SelectPopup>
+			</Select>
+		</section>
+	);
+}
+
+// ── Create Button ────────────────────────────────────
+
+function CreateButton() {
+	const { state, actions } = useSetup();
+	const canFinish = !!state.tracker.kind && !!state.model;
+
+	return (
+		<Button
+			size="sm"
+			onClick={actions.finish}
+			disabled={!canFinish}
+			className="w-full active:scale-[0.98]"
+		>
+			Create Workflow
+		</Button>
+	);
+}
+
+// ── Export ────────────────────────────────────────────
+
+export function Setup({ projectId }: { projectId: string }) {
+	return (
+		<SetupProvider projectId={projectId}>
+			<SetupContent />
+		</SetupProvider>
+	);
+}
+
+function SetupContent() {
+	return (
+		<div className="flex flex-1 flex-col min-h-0">
+			<div className="flex-1 overflow-y-auto">
+				<div className="space-y-5 px-4 py-3">
+					<TrackerSection />
+					<ProviderSection />
+					<ModelSection />
+				</div>
+			</div>
+			<div className="border-t border-border/30 px-4 py-2.5">
+				<CreateButton />
+			</div>
+		</div>
+	);
+}

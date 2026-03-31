@@ -1,121 +1,30 @@
-@import "tailwindcss";
 @import "@plot/ui/tokens.css";
 @source "../../../node_modules/@plot/ui/src/**/*.tsx";
 
-@custom-variant dark (&:is(.dark *));
-
-.desktop-ui {
-	--slate-tint: oklch(0.6 0.08 215);
-
-	--neutral-0: oklch(1 0 0);
-	--neutral-50: color-mix(in oklch, oklch(0.99 0 0), var(--slate-tint) 2.5%);
-	--neutral-100: color-mix(in oklch, oklch(0.97 0 0), var(--slate-tint) 4%);
-	--neutral-200: color-mix(in oklch, oklch(0.94 0 0), var(--slate-tint) 5.5%);
-	--neutral-300: color-mix(in oklch, oklch(0.88 0 0), var(--slate-tint) 8%);
-	--neutral-400: color-mix(in oklch, oklch(0.76 0 0), var(--slate-tint) 10%);
-	--neutral-500: color-mix(in oklch, oklch(0.64 0 0), var(--slate-tint) 12%);
-	--neutral-600: color-mix(in oklch, oklch(0.48 0 0), var(--slate-tint) 12%);
-	--neutral-700: color-mix(in oklch, oklch(0.38 0 0), var(--slate-tint) 12%);
-	--neutral-800: color-mix(in oklch, oklch(0.26 0 0), var(--slate-tint) 11%);
-	--neutral-900: color-mix(in oklch, oklch(0.18 0 0), var(--slate-tint) 10%);
-	--neutral-950: color-mix(in oklch, oklch(0.1 0 0), var(--slate-tint) 10%);
-
-	--brand-50: oklch(0.97 0.02 265);
-	--brand-100: oklch(0.93 0.05 265);
-	--brand-200: oklch(0.87 0.08 265);
-	--brand-500: oklch(0.6 0.2 265);
-	--brand-600: oklch(0.5 0.23 265);
-	--brand-700: oklch(0.4 0.2 265);
-
-	--radius: 0.5rem;
-
-	--background: var(--neutral-0);
-	--foreground: var(--neutral-900);
-	--surface: color-mix(in oklch, var(--background), var(--accent) 80%);
-
-	--card: var(--neutral-0);
-	--card-foreground: var(--neutral-900);
-	--popover: var(--neutral-0);
-	--popover-foreground: var(--neutral-900);
-
-	--primary: var(--brand-600);
-	--primary-foreground: var(--neutral-0);
-
-	--secondary: var(--neutral-100);
-	--secondary-foreground: var(--neutral-900);
-
-	--muted: var(--neutral-100);
-	--muted-foreground: var(--neutral-500);
-	--hint: var(--neutral-400);
-
-	--accent: var(--neutral-100);
-	--accent-foreground: var(--neutral-900);
-
-	--destructive: oklch(0.6 0.22 25);
-	--destructive-foreground: oklch(0.45 0.18 25);
-
-	--info: oklch(0.6 0.18 240);
-	--info-foreground: oklch(0.45 0.14 240);
-	--success: oklch(0.6 0.18 145);
-	--success-foreground: oklch(0.4 0.14 145);
-	--warning: oklch(0.75 0.18 70);
-	--warning-foreground: oklch(0.5 0.14 55);
-
-	--border: var(--neutral-200);
-	--input: var(--neutral-100);
-	--input-bg: var(--neutral-100);
-	--input-bg-hover: var(--neutral-200);
-	--input-ring: var(--neutral-950);
-	--ring: var(--neutral-950);
-
+.desktop-ui,
+.desktop-ui body {
 	font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 	-webkit-font-smoothing: antialiased;
 }
 
-.desktop-ui.dark {
-	--background: var(--neutral-950);
-	--foreground: var(--neutral-50);
-	--surface: color-mix(in oklch, var(--background), var(--muted) 50%);
-
-	--card: var(--neutral-900);
-	--card-foreground: var(--neutral-50);
-	--popover: var(--neutral-900);
-	--popover-foreground: var(--neutral-50);
-
-	--primary: var(--brand-500);
-	--primary-foreground: var(--neutral-0);
-
-	--secondary: var(--neutral-800);
-	--secondary-foreground: var(--neutral-100);
-
-	--muted: var(--neutral-800);
-	--muted-foreground: var(--neutral-400);
-	--hint: var(--neutral-600);
-
-	--accent: var(--neutral-800);
-	--accent-foreground: var(--neutral-50);
-
-	--destructive: oklch(0.65 0.2 25);
-	--destructive-foreground: oklch(0.75 0.16 25);
-
-	--info-foreground: oklch(0.7 0.14 240);
-	--success-foreground: oklch(0.7 0.14 145);
-	--warning-foreground: oklch(0.8 0.14 55);
-
-	--border: var(--neutral-800);
-	--input: var(--neutral-800);
-	--input-bg: var(--neutral-800);
-	--input-bg-hover: var(--neutral-700);
-	--input-ring: var(--neutral-400);
-	--ring: var(--brand-500);
-}
-
 @layer base {
-	* {
-		@apply border-border outline-ring/50;
-	}
 	html, body {
-		@apply m-0 p-0 text-foreground overflow-hidden;
+		@apply m-0 p-0 overflow-hidden;
 		background: transparent;
 	}
+}
+
+@keyframes viewFadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.view-enter {
+	animation: viewFadeIn 200ms ease-out;
 }

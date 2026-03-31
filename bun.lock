@@ -19,8 +19,11 @@
       "version": "0.0.1",
       "dependencies": {
         "@base-ui/react": "^1.2.0",
+        "@mariozechner/pi-ai": "^0.57.1",
+        "@mariozechner/pi-coding-agent": "^0.57.1",
         "@plot/sdk": "workspace:*",
         "@plot/ui": "workspace:*",
+        "boring-avatars": "^2.0.4",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "effect": "4.0.0-beta.34",
@@ -69,6 +72,9 @@
     "packages/sdk": {
       "name": "@plot/sdk",
       "version": "0.0.1",
+      "dependencies": {
+        "@mariozechner/pi-ai": "^0.57.1",
+      },
       "devDependencies": {
         "bun-types": "catalog:",
         "effect": "catalog:",
@@ -863,6 +869,8 @@
     "bignumber.js": ["bignumber.js@9.3.1", "", {}, "sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ=="],
 
     "bmp-ts": ["bmp-ts@1.0.9", "", {}, "sha512-cTEHk2jLrPyi+12M3dhpEbnnPOsaZuq7C45ylbbQIiWgDFZq4UVYPEY5mlqjvsj/6gJv9qX5sa+ebDzLXT28Vw=="],
+
+    "boring-avatars": ["boring-avatars@2.0.4", "", { "peerDependencies": { "react": ">=18.0.0", "react-dom": ">=18.0.0" } }, "sha512-xhZO/w/6aFmRfkaWohcl2NfyIy87gK5SBbys8kctZeTGF1Apjpv/10pfUuv+YEfVPkESU/h2Y6tt/Dwp+bIZPw=="],
 
     "bowser": ["bowser@2.14.1", "", {}, "sha512-tzPjzCxygAKWFOJP011oxFHs57HzIhOEracIgAePE4pqB3LikALKnSzUyU4MGs9/iCEUuHlAJTjTc5M+u7YEGg=="],
 

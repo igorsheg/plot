@@ -6,9 +6,8 @@ import {
 	useCallback,
 	type ReactNode,
 } from "react";
-import { electroview } from "../index";
-
-const rpc = () => electroview.rpc!;
+import clsx from "clsx";
+import { rpc } from "../context/rpc";
 
 type WindowChromeContext = {
 	focused: boolean;
@@ -58,9 +57,19 @@ function Root({
 		rpc().request.windowZoom({});
 	}, []);
 
+	const shadow = focused
+		? "0 0 0 0.5px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.16), 0 18px 48px rgba(0,0,0,0.1)"
+		: "0 0 0 0.5px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.06)";
+
 	return (
 		<ChromeContext value={{ focused, close, minimize, zoom }}>
-			<div className={`overflow-hidden rounded-[10px] border border-white/[0.08] ${className ?? ""}`}>
+			<div
+				className={clsx(
+					"flex h-screen flex-col overflow-hidden rounded-[10px] border border-white/[0.08] bg-background transition-shadow duration-200",
+					className,
+				)}
+				style={{ boxShadow: shadow }}
+			>
 				{children}
 			</div>
 		</ChromeContext>
@@ -76,7 +85,10 @@ function Titlebar({
 }) {
 	return (
 		<div
-			className={`electrobun-webkit-app-region-drag flex shrink-0 items-center ${className ?? ""}`}
+			className={clsx(
+				"electrobun-webkit-app-region-drag grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-3",
+				className,
+			)}
 		>
 			{children}
 		</div>
@@ -92,7 +104,10 @@ function Title({
 }) {
 	return (
 		<span
-			className={`electrobun-webkit-app-region-no-drag text-label font-medium text-foreground/80 ${className ?? ""}`}
+			className={clsx(
+				"electrobun-webkit-app-region-no-drag text-sm font-medium text-foreground/80",
+				className,
+			)}
 		>
 			{children}
 		</span>
@@ -100,7 +115,7 @@ function Title({
 }
 
 function Controls({ className }: { className?: string }) {
-	const { focused, close, minimize, zoom } = useChrome();
+	const { focused, close, minimize } = useChrome();
 	const [hovered, setHovered] = useState(false);
 	const [pressed, setPressed] = useState<"close" | "minimize" | "zoom" | null>(null);
 
@@ -108,7 +123,10 @@ function Controls({ className }: { className?: string }) {
 
 	return (
 		<div
-			className={`electrobun-webkit-app-region-no-drag flex items-center gap-2 ${className ?? ""}`}
+			className={clsx(
+				"electrobun-webkit-app-region-no-drag flex items-center gap-2",
+				className,
+			)}
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => { setHovered(false); setPressed(null); }}
 		>
@@ -148,24 +166,9 @@ function Controls({ className }: { className?: string }) {
 					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#e1a73e"/><circle cx="42.7" cy="42.7" r="39.1" fill="#f6be50"/><path d="m17.8 39.1h49.9c1.9 0 3.5 1.6 3.5 3.5v.1c0 1.9-1.6 3.5-3.5 3.5h-49.9c-1.9 0-3.5-1.6-3.5-3.5v-.1c0-1.9 1.5-3.5 3.5-3.5z" fill="#90591d"/></g></svg>
 				)}
 			</button>
-			<button
-				type="button"
-				className="size-3 outline-none"
-				onClick={zoom}
-				onMouseDown={() => setPressed("zoom")}
-				onMouseUp={() => setPressed(null)}
-				aria-label="Zoom"
-			>
-				{!isActive ? (
-					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#d1d0d2"/><circle cx="42.7" cy="42.7" r="39.1" fill="#c7c7c7"/></g></svg>
-				) : !hovered ? (
-					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#2dac2f"/><circle cx="42.7" cy="42.7" r="39.1" fill="#61c555"/></g></svg>
-				) : pressed === "zoom" ? (
-					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#428234"/><circle cx="42.7" cy="42.7" r="39.1" fill="#4a9741"/><path d="m31.2 20.8h26.7c3.6 0 6.5 2.9 6.5 6.5v26.7zm23.2 43.7h-26.8c-3.6 0-6.5-2.9-6.5-6.5v-26.8z" fill="#113107"/></g></svg>
-				) : (
-					<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#2dac2f"/><circle cx="42.7" cy="42.7" r="39.1" fill="#61c555"/><path d="m31.2 20.8h26.7c3.6 0 6.5 2.9 6.5 6.5v26.7zm23.2 43.7h-26.8c-3.6 0-6.5-2.9-6.5-6.5v-26.8z" fill="#2a6218"/></g></svg>
-				)}
-			</button>
+			<div className="size-3" aria-label="Zoom" aria-disabled="true">
+				<svg viewBox="0 0 85.4 85.4" xmlns="http://www.w3.org/2000/svg"><g clipRule="evenodd" fillRule="evenodd"><circle cx="42.7" cy="42.7" r="42.7" fill="#d1d0d2"/><circle cx="42.7" cy="42.7" r="39.1" fill="#c7c7c7"/></g></svg>
+			</div>
 		</div>
 	);
 }
@@ -178,7 +181,7 @@ function Content({
 	className?: string;
 }) {
 	return (
-		<div className={`flex-1 overflow-auto ${className ?? ""}`}>{children}</div>
+		<div className={clsx("flex-1 flex flex-col min-h-0", className)}>{children}</div>
 	);
 }
 

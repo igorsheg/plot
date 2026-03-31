@@ -1,171 +1,195 @@
 import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
-import { BinaryResolver } from "./binary-resolver";
+import { join as joinPath } from "node:path";
+import { homedir } from "node:os";
+import { AuthStorage } from "@mariozechner/pi-coding-agent";
+import type { OAuthLoginCallbacks } from "@mariozechner/pi-ai";
+import { getCatalogProviders } from "@plot/sdk";
 import { Platform } from "./platform";
 import { AuthError } from "./errors";
 import type { AuthState, ProviderInfo } from "../../shared/rpc";
 
-type ActiveAuth = {
-	readonly proc: ReturnType<typeof Bun.spawn>;
+function getPlotAuthPath(): string {
+	const home = process.env["HOME"] ?? process.env["USERPROFILE"] ?? homedir();
+	return joinPath(home, ".plot", "agent", "auth.json");
+}
+
+type PendingPrompt = {
+	readonly providerId: string;
+	readonly resolve: (value: string) => void;
+	readonly reject: (reason: Error) => void;
+	readonly abortController: AbortController;
 };
 
 export class AuthService extends ServiceMap.Service<AuthService>()("AuthService", {
 	make: Effect.gen(function* () {
-		const binary = yield* BinaryResolver;
 		const platform = yield* Platform;
 		const statePubSub = yield* PubSub.bounded<AuthState>(64);
-		const activeRef = yield* Ref.make<ActiveAuth | null>(null);
+		const pendingRef = yield* Ref.make<PendingPrompt | null>(null);
+
+		const authStorage = AuthStorage.create(getPlotAuthPath());
 
 		const publishState = (state: AuthState) => PubSub.publish(statePubSub, state);
 
+		const oauthProviderIds = new Set(
+			authStorage.getOAuthProviders().map((p) => p.id),
+		);
+
 		const getProviders: Effect.Effect<ReadonlyArray<ProviderInfo>, AuthError> =
 			Effect.gen(function* () {
-				const args = yield* binary.resolveArgs;
-				const proc = yield* platform.spawn([...args, "models", "--all"], {
-					stdio: ["ignore", "pipe", "ignore"],
+				const catalog = yield* Effect.try({
+					try: () => getCatalogProviders(),
+					catch: (e) => new AuthError({ code: "catalog_failed", message: String(e) }),
 				});
-				return yield* Effect.tryPromise({
-					try: async () => {
-						const text = await new Response(proc.stdout).text();
-						await proc.exited;
-						const envelope = JSON.parse(text.trim().split("\n").pop() ?? "{}");
-						if (!envelope.ok) return [];
-						return (envelope.result?.providers ?? []).map(
-							(p: {
-								id: string;
-								authenticated: boolean;
-								models: Array<{
-									id: string;
-									name: string;
-									provider: string;
-									reasoning?: boolean;
-									contextWindow?: number;
-									maxTokens?: number;
-								}>;
-							}) => ({
-								id: p.id,
-								authenticated: p.authenticated,
-								modelCount: p.models?.length ?? 0,
-								models: (p.models ?? []).map((m) => ({
-									id: m.id,
-									name: m.name,
-									provider: m.provider,
-									reasoning: m.reasoning ?? false,
-									contextWindow: m.contextWindow ?? 0,
-									maxTokens: m.maxTokens ?? 0,
-								})),
-							}),
-						);
-					},
-					catch: (e) => new AuthError({ code: "models_failed", message: String(e) }),
-				});
+
+				// Reload to get fresh auth state
+				yield* Effect.sync(() => authStorage.reload());
+
+				const oauthProviders = authStorage.getOAuthProviders();
+				const oauthMap = new Map(oauthProviders.map((p) => [p.id, p.name]));
+
+				const result = catalog.map((p) => ({
+					id: p.id,
+					name: oauthMap.get(p.id) ?? p.id,
+					authenticated: authStorage.has(p.id),
+					authMode: (oauthProviderIds.has(p.id) ? "oauth" : "api_key") as "oauth" | "api_key",
+					modelCount: p.modelCount,
+					models: p.models.map((m) => ({
+						id: m.id,
+						name: m.name,
+						provider: m.provider,
+						reasoning: m.reasoning,
+						contextWindow: m.contextWindow,
+						maxTokens: m.maxTokens,
+					})),
+				}));
+				return result;
 			});
 
-		const getAuthStatus: Effect.Effect<
-			ReadonlyArray<{ id: string; name: string; authenticated: boolean }>,
-			AuthError
-		> = Effect.gen(function* () {
-			const args = yield* binary.resolveArgs;
-			const proc = yield* platform.spawn([...args, "auth", "status"], {
-				stdio: ["ignore", "pipe", "ignore"],
+		const clearPending = (reason?: string) =>
+			Effect.gen(function* () {
+				const pending = yield* Ref.get(pendingRef);
+				if (pending) {
+					pending.abortController.abort();
+					pending.reject(new Error(reason ?? "cancelled"));
+					yield* Ref.set(pendingRef, null);
+				}
 			});
-			return yield* Effect.tryPromise({
-				try: async () => {
-					const text = await new Response(proc.stdout).text();
-					await proc.exited;
-					const envelope = JSON.parse(text.trim().split("\n").pop() ?? "{}");
-					if (!envelope.ok) return [];
-					return envelope.result?.providers ?? [];
-				},
-				catch: (e) => new AuthError({ code: "auth_status_failed", message: String(e) }),
-			});
-		});
-
-		const handleNdjsonMessage = (msg: { type?: string; url?: string; message?: string; placeholder?: string; ok?: boolean; error?: { message?: string } }) => {
-			switch (msg.type) {
-				case "auth:url":
-					return platform.openExternal(msg.url ?? "").pipe(
-						Effect.andThen(publishState({ phase: "authenticating" })),
-					);
-				case "auth:prompt":
-					return publishState({
-						phase: "waitingForCode",
-						message: msg.message ?? "",
-						placeholder: msg.placeholder,
-					});
-				case "result":
-					return msg.ok ? publishState({ phase: "success" }) : Effect.void;
-				case "error":
-					return publishState({
-						phase: "failed",
-						error: msg.error?.message ?? "Auth failed",
-					});
-				default:
-					return Effect.void;
-			}
-		};
 
 		const startLogin = (providerId: string) =>
 			Effect.gen(function* () {
-				const active = yield* Ref.get(activeRef);
-				if (active && !active.proc.killed) {
-					yield* Effect.sync(() => active.proc.kill());
-				}
+				// Cancel any in-flight login
+				yield* clearPending("replaced by new login");
 
-				const args = yield* binary.resolveArgs;
-				yield* publishState({ phase: "authenticating" });
+				const abortController = new AbortController();
 
-				const proc = yield* platform.spawn([...args, "auth", "login", providerId], {
-					stdio: ["pipe", "pipe", "ignore"],
-				});
+				yield* publishState({ phase: "authenticating", providerId });
 
-				yield* Ref.set(activeRef, { proc });
-
-				const stdout = proc.stdout as ReadableStream<Uint8Array> | null;
-				if (!stdout) return;
-
-				yield* Stream.fromReadableStream({
-					evaluate: () => stdout,
-					onError: () => new AuthError({ code: "login_stream_failed", message: "stdout read error" }),
-				}).pipe(
-					Stream.decodeText(),
-					Stream.flatMap((chunk: string) => Stream.fromIterable(chunk.split("\n"))),
-					Stream.filter((line: string) => line.trim().length > 0),
-					Stream.mapEffect((line: string) =>
-						Effect.try({ try: () => JSON.parse(line), catch: () => null }).pipe(
-							Effect.flatMap((parsed) =>
-								parsed !== null ? handleNdjsonMessage(parsed) : Effect.void,
+				const callbacks: OAuthLoginCallbacks = {
+					onAuth: ({ url }) => {
+						Effect.runFork(
+							platform.openExternal(url).pipe(
+								Effect.andThen(publishState({ phase: "authenticating", providerId })),
 							),
-						),
-					),
-					Stream.runDrain,
-					Effect.ensuring(Ref.set(activeRef, null)),
-					Effect.catch(() => publishState({ phase: "failed", error: "Auth stream failed" })),
-				);
+						);
+					},
+					onPrompt: ({ message, placeholder, allowEmpty }) => {
+						return new Promise<string>((resolve, reject) => {
+							Effect.runFork(
+								Effect.gen(function* () {
+									yield* Ref.set(pendingRef, { providerId, resolve, reject, abortController });
+									yield* publishState({
+										phase: "waitingForCode",
+										providerId,
+										message,
+										placeholder,
+									});
+								}),
+							);
+						});
+					},
+					onManualCodeInput: () => {
+						return new Promise<string>((resolve, reject) => {
+							Effect.runFork(
+								Effect.gen(function* () {
+									yield* Ref.set(pendingRef, { providerId, resolve, reject, abortController });
+									yield* publishState({
+										phase: "waitingForCode",
+										providerId,
+										message: "Paste authorization code",
+									});
+								}),
+							);
+						});
+					},
+					onProgress: () => {},
+					signal: abortController.signal,
+				};
 
 				yield* Effect.tryPromise({
-					try: () => proc.exited,
-					catch: () => new AuthError({ code: "login_failed", message: "Process exited unexpectedly" }),
-				});
+					try: () => authStorage.login(providerId, callbacks),
+					catch: (e) => new AuthError({ code: "login_failed", message: e instanceof Error ? e.message : String(e) }),
+				}).pipe(
+					Effect.tap(() =>
+						Effect.gen(function* () {
+							yield* Ref.set(pendingRef, null);
+							yield* publishState({ phase: "success", providerId });
+						}),
+					),
+					Effect.catch((e) =>
+						Effect.gen(function* () {
+							yield* Ref.set(pendingRef, null);
+							yield* publishState({
+								phase: "failed",
+								providerId,
+								error: e.message,
+							});
+						}),
+					),
+				);
 			});
 
 		const submitResponse = (value: string) =>
 			Effect.gen(function* () {
-				const active = yield* Ref.get(activeRef);
-				if (!active) return;
-				const stdin = active.proc.stdin;
-				if (!stdin || typeof stdin === "number") return;
-				yield* Effect.sync(() => {
-					stdin.write(JSON.stringify({ type: "response", value }) + "\n");
+				const pending = yield* Ref.get(pendingRef);
+				if (!pending) return;
+				pending.resolve(value);
+				yield* Ref.set(pendingRef, null);
+			});
+
+		const saveApiKey = (providerId: string, key: string) =>
+			Effect.gen(function* () {
+				yield* Effect.try({
+					try: () => authStorage.set(providerId, { type: "api_key", key }),
+					catch: (e) => new AuthError({ code: "save_key_failed", message: String(e) }),
 				});
+				yield* publishState({ phase: "success", providerId });
+			});
+
+		const removeApiKey = (providerId: string) =>
+			Effect.gen(function* () {
+				yield* Effect.try({
+					try: () => authStorage.remove(providerId),
+					catch: (e) => new AuthError({ code: "remove_key_failed", message: String(e) }),
+				});
+				yield* publishState({ phase: "idle", providerId: null });
 			});
 
 		const stateStream = Stream.fromPubSub(statePubSub);
 
-		return { getProviders, getAuthStatus, startLogin, submitResponse, stateStream };
+		const dispose = clearPending("shutdown");
+
+		return {
+			getProviders,
+			startLogin,
+			submitResponse,
+			saveApiKey,
+			removeApiKey,
+			stateStream,
+			dispose,
+		};
 	}),
 }) {
 	static layer = Layer.effect(this, this.make).pipe(
-		Layer.provide(BinaryResolver.layer),
 		Layer.provide(Platform.layer),
 	);
 }

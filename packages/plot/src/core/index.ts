@@ -12,4 +12,6 @@ export {
 	WorkflowParseError,
 	ConfigValidationError,
 	TemplateRenderError,
+	PluginInitError,
+	ServerStartupError,
 } from "./errors.js";

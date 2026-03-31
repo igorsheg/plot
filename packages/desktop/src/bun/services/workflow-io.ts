@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import matter from "gray-matter";
 import { stringify as yamlStringify } from "yaml";
 import { Effect, Layer, ServiceMap } from "effect";
-import type { WorkflowDocument, WorkflowFrontmatter, WorkflowTemplate } from "../../shared/rpc";
+import type { WorkflowDocument, WorkflowConfig } from "../../shared/rpc";
 
 const snakeToCamel = (s: string): string =>
 	s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -35,43 +35,6 @@ const transformKeysToSnake = (obj: unknown): unknown => {
 	return obj;
 };
 
-export function templateDocument(template: WorkflowTemplate): WorkflowDocument {
-	switch (template) {
-		case "github":
-			return {
-				config: {
-					tracker: {
-						kind: "github",
-						dispatchStates: ["plot:todo", "plot:in-progress"],
-						parkedStates: ["plot:human-review"],
-						terminalStates: ["plot:done"],
-					},
-					workspace: { root: "./workspaces" },
-					agent: { maxConcurrentAgents: 1, maxTurns: 50, model: "anthropic/claude-sonnet-4-20250514" },
-				},
-				promptBody: "## Instructions\n\nWork on the assigned issue only.\nKeep diffs minimal.\nProve changes with checks before claiming success.",
-			};
-		case "beads":
-			return {
-				config: {
-					tracker: {
-						kind: "beads",
-						dispatchStates: ["ready"],
-						terminalStates: ["closed"],
-					},
-					workspace: { root: "./workspaces" },
-					agent: { maxConcurrentAgents: 1, maxTurns: 50, model: "anthropic/claude-sonnet-4-20250514" },
-				},
-				promptBody: "## Instructions\n\nWork on the assigned issue only.\nKeep diffs minimal.",
-			};
-		case "blank":
-			return {
-				config: { tracker: { kind: "github" } },
-				promptBody: "",
-			};
-	}
-}
-
 export class WorkflowIO extends ServiceMap.Service<WorkflowIO>()("WorkflowIO", {
 	make: Effect.succeed({
 		read: (projectPath: string) =>
@@ -83,7 +46,7 @@ export class WorkflowIO extends ServiceMap.Service<WorkflowIO>()("WorkflowIO", {
 				const { data, content: body } = matter(content);
 				const config =
 					data && typeof data === "object" && !Array.isArray(data)
-						? (transformKeys(data) as WorkflowFrontmatter)
+						? (transformKeys(data) as WorkflowConfig)
 						: {};
 
 				return { config, promptBody: body.trim() };
@@ -98,9 +61,10 @@ export class WorkflowIO extends ServiceMap.Service<WorkflowIO>()("WorkflowIO", {
 				writeFileSync(filePath, content);
 			}),
 
-		createFromTemplate: (projectPath: string, template: WorkflowTemplate) =>
+		createFromConfig: (projectPath: string, config: WorkflowConfig) =>
 			Effect.sync(() => {
-				const doc = templateDocument(template);
+				const promptBody = "## Instructions\n\nWork on the assigned issue.\nKeep diffs minimal.\nProve changes with checks before claiming success.";
+				const doc: WorkflowDocument = { config, promptBody };
 				const filePath = path.join(projectPath, "WORKFLOW.md");
 				const snaked = transformKeysToSnake(doc.config) as Record<string, unknown>;
 				const yaml = yamlStringify(snaked, { lineWidth: 0 });

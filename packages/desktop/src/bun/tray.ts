@@ -1,5 +1,6 @@
 import { Tray } from "electrobun/bun";
-import type { ProjectInfo, ProjectStatus } from "../shared/rpc";
+import type { ProjectInfo, ProjectSnapshot, ProjectStatus } from "../shared/rpc";
+
 
 const statusDot: Record<ProjectStatus, string> = {
 	streaming: "●",
@@ -12,7 +13,8 @@ const statusDot: Record<ProjectStatus, string> = {
 };
 
 type TrayOpts = {
-	onConfigure: (id: string) => void;
+	onOpen: (projectId?: string) => void;
+	onSettings: () => void;
 	onStartProject: (id: string) => void;
 	onStopProject: (id: string) => void;
 	onStartAll: () => void;
@@ -32,19 +34,36 @@ function divider() {
 }
 
 export function createTray(opts: TrayOpts) {
-	const tray = new Tray({ title: "Plot" });
+	const tray = new Tray({ image: "views://tray-icon.svg" });
 	let projects: ProjectInfo[] = [];
 
-	function buildMenu() {
+	let currentSnapshots: Map<string, ProjectSnapshot> | undefined;
+
+	function buildMenu(snapshots?: Map<string, ProjectSnapshot>) {
 		const items = [];
 
 		for (const p of projects) {
 			const isActive =
 				p.status === "streaming" || p.status === "launching" || p.status === "connecting";
-			const statusText =
-				isActive && p.agentCount > 0
-					? `${p.agentCount} agent${p.agentCount !== 1 ? "s" : ""}`
+			const snapshot = snapshots?.get(p.id);
+
+			let statusText: string;
+			if (isActive && snapshot) {
+				const agentCount = snapshot.running.length;
+				const totalTokens = snapshot.totals.totalTokens;
+				const tokenStr = totalTokens >= 1_000_000
+					? `${(totalTokens / 1_000_000).toFixed(1)}M`
+					: totalTokens >= 1_000
+						? `${(totalTokens / 1_000).toFixed(0)}K`
+						: `${totalTokens}`;
+				statusText = agentCount > 0
+					? `${agentCount} agent${agentCount !== 1 ? "s" : ""}  ${tokenStr} tokens`
 					: p.status;
+			} else if (isActive && p.agentCount > 0) {
+				statusText = `${p.agentCount} agent${p.agentCount !== 1 ? "s" : ""}`;
+			} else {
+				statusText = p.status;
+			}
 
 			items.push({
 				type: "normal" as const,
@@ -77,6 +96,7 @@ export function createTray(opts: TrayOpts) {
 
 		items.push(divider());
 		items.push(normal("Add Project...", "add-project"));
+		items.push(normal("Settings...", "settings"));
 		items.push(divider());
 		items.push(normal("Quit Plot", "quit"));
 
@@ -85,29 +105,33 @@ export function createTray(opts: TrayOpts) {
 
 	function updateTitle() {
 		const running = projects.filter((p) => p.status === "streaming").length;
-		tray.setTitle(running > 0 ? `Plot (${running})` : "Plot");
+		tray.setTitle(running > 0 ? `${running}` : "");
 	}
 
 	tray.on("tray-clicked", (e) => {
 		const { action } = (e as { data: { action: string } }).data;
 		if (!action) {
-			buildMenu();
+			buildMenu(currentSnapshots);
 			return;
 		}
 
 		if (action === "add-project") return opts.onAddProject();
+		if (action === "settings") return opts.onSettings();
 		if (action === "quit") return opts.onQuit();
 		if (action === "start-all") return opts.onStartAll();
 		if (action === "stop-all") return opts.onStopAll();
 
 		const colonIdx = action.indexOf(":");
-		if (colonIdx === -1) return;
+		if (colonIdx === -1) {
+			// Clicking on main tray icon without specific action opens the main window
+			return opts.onOpen();
+		}
 		const cmd = action.slice(0, colonIdx);
 		const id = action.slice(colonIdx + 1);
 
 		switch (cmd) {
 			case "configure":
-				return opts.onConfigure(id);
+				return opts.onOpen(id);
 			case "start":
 				return opts.onStartProject(id);
 			case "stop":
@@ -123,9 +147,10 @@ export function createTray(opts: TrayOpts) {
 	});
 
 	return {
-		refresh(infos: ProjectInfo[]) {
+		refresh(infos: ProjectInfo[], snapshots?: Map<string, ProjectSnapshot>) {
 			projects = infos;
-			buildMenu();
+			currentSnapshots = snapshots;
+			buildMenu(snapshots);
 			updateTitle();
 		},
 	};

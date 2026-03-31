@@ -79,7 +79,7 @@ function ComboboxInput({
 	);
 
 	return (
-		<div className="relative not-has-[>*.w-full]:w-fit w-full text-foreground has-disabled:opacity-64">
+		<div className="relative not-has-[>*.w-full]:w-fit w-full rounded-lg text-foreground has-disabled:opacity-64 [&_[data-slot=input-control]]:!rounded-[inherit] [&_[data-slot=input-control]]:before:!rounded-[inherit]" data-slot="combobox-input-group">
 			{startAddon && (
 				<div
 					aria-hidden="true"

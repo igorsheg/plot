@@ -1,81 +1,9 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap");
 @import "tailwindcss";
+@source "../../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
-
-@theme {
-	--font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-	--font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-
-	--text-display: 2.25rem;
-	--text-display--line-height: 2.5rem;
-	--text-title-lg: 1.5rem;
-	--text-title-lg--line-height: 2rem;
-	--text-title: 1.125rem;
-	--text-title--line-height: 1.5rem;
-	--text-body: 0.875rem;
-	--text-body--line-height: 1.25rem;
-	--text-label: 0.8125rem;
-	--text-label--line-height: 1rem;
-	--text-caption: 0.75rem;
-	--text-caption--line-height: 1rem;
-	--text-micro: 0.6875rem;
-	--text-micro--line-height: 0.875rem;
-	--text-mono: 0.8125rem;
-	--text-mono--line-height: 1.25rem;
-
-	--text-control-xs: 0.6875rem;
-	--text-control-xs--line-height: 0.875rem;
-	--text-control-sm: 0.75rem;
-	--text-control-sm--line-height: 1rem;
-	--text-control: 0.75rem;
-	--text-control--line-height: 1rem;
-	--text-control-lg: 0.8125rem;
-	--text-control-lg--line-height: 1.125rem;
-	--text-control-xl: 0.875rem;
-	--text-control-xl--line-height: 1.25rem;
-
-	--tracking-display: -0.025em;
-	--tracking-title: -0.02em;
-	--tracking-body: -0.006em;
-
-	--radius-xs: 2px;
-	--radius-full: 9999px;
-
-	--blur-sm: 8px;
-	--blur-md: 12px;
-	--blur-lg: 16px;
-
-	--shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-	--shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-	--shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-	--shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-	--shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-
-	--height-control-xs: 1.375rem;
-	--height-control-sm: 1.5rem;
-	--height-control: 1.75rem;
-	--height-control-lg: 1.875rem;
-	--height-control-xl: 2.5rem;
-
-	--duration-instant: 75ms;
-	--duration-fast: 125ms;
-	--duration-normal: 150ms;
-	--duration-moderate: 200ms;
-	--duration-slow: 250ms;
-
-	--ease-out: cubic-bezier(0.33, 1, 0.68, 1);
-	--ease-in: cubic-bezier(0.4, 0, 1, 1);
-	--ease-expo: cubic-bezier(0.32, 0.72, 0, 1);
-
-	--duration-swift: 220ms;
-	--ease-swift: cubic-bezier(0.175, 0.885, 0.32, 1.1);
-
-	--duration-overshoot: 800ms;
-	--ease-overshoot: cubic-bezier(0.175, 0.885, 0.32, 1.275);
-
-	--duration-snappy: 300ms;
-	--ease-snappy: cubic-bezier(0.19, 1, 0.22, 1);
-}
 
 @theme inline {
 	--animate-skeleton: skeleton 2s -1s infinite linear;
@@ -130,17 +58,6 @@
 	--radius-2xl: calc(var(--radius) + 8px);
 	--radius-3xl: calc(var(--radius) + 12px);
 	--radius-4xl: calc(var(--radius) + 16px);
-	--color-surface: var(--surface);
-	--color-hint: var(--hint);
-	--color-input-bg: var(--input-bg);
-	--color-input-bg-hover: var(--input-bg-hover);
-	--color-input-ring: var(--input-ring);
-	--color-brand-50: var(--brand-50);
-	--color-brand-100: var(--brand-100);
-	--color-brand-200: var(--brand-200);
-	--color-brand-500: var(--brand-500);
-	--color-brand-600: var(--brand-600);
-	--color-brand-700: var(--brand-700);
 	@keyframes skeleton {
 		to {
 			background-position: -200% 0;
@@ -203,16 +120,16 @@
 	--warning-foreground: var(--color-amber-400);
 	--accent: --alpha(var(--color-white) / 4%);
 	--accent-foreground: var(--color-neutral-100);
-	--background: hsl(0, 6%, 7%);
-	--border: hsl(0, 3%, 16%);
-	--card: hsl(0, 4%, 9%);
+	--background: #171717;
+	--border: #262626;
+	--card: #1c1c1c;
 	--card-foreground: var(--color-neutral-100);
 	--destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
 	--foreground: var(--color-neutral-100);
 	--input: --alpha(var(--color-white) / 8%);
 	--muted: --alpha(var(--color-white) / 4%);
-	--muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
-	--popover: hsl(0, 4%, 9%);
+	--muted-foreground: var(--color-neutral-400);
+	--popover: #1c1c1c;
 	--popover-foreground: var(--color-neutral-100);
 	--primary: var(--color-neutral-100);
 	--primary-foreground: var(--color-neutral-800);
@@ -224,14 +141,14 @@
 	--chart-3: var(--color-amber-500);
 	--chart-4: var(--color-purple-500);
 	--chart-5: var(--color-rose-500);
-	--code: color-mix(in srgb, var(--background) 98%, var(--color-white));
+	--code: #1a1a1a;
 	--code-foreground: var(--foreground);
 	--code-highlight: --alpha(var(--color-white) / 4%);
-	--sidebar: hsl(0, 5%, 8%);
+	--sidebar: #141414;
 	--sidebar-accent: --alpha(var(--color-white) / 4%);
 	--sidebar-accent-foreground: var(--color-neutral-100);
 	--sidebar-border: --alpha(var(--color-white) / 5%);
-	--sidebar-foreground: color-mix(in srgb, var(--color-neutral-100) 64%, var(--sidebar));
+	--sidebar-foreground: var(--color-neutral-400);
 	--sidebar-primary: var(--color-neutral-100);
 	--sidebar-primary-foreground: var(--color-neutral-800);
 	--sidebar-ring: var(--color-neutral-400);
@@ -262,77 +179,4 @@
 		-webkit-appearance: none;
 		appearance: none;
 	}
-}
-
-@utility transition-fade {
-	transition-property: opacity;
-	transition-duration: var(--duration-fast);
-	transition-timing-function: var(--ease-out);
-}
-
-@utility transition-scale {
-	transition-property: transform, opacity;
-	transition-duration: var(--duration-swift);
-	transition-timing-function: var(--ease-swift);
-}
-
-@utility transition-slide {
-	transition-property: transform, opacity;
-	transition-duration: var(--duration-slow);
-	transition-timing-function: var(--ease-expo);
-}
-
-@utility transition-expand {
-	transition-property: width, height, grid-template-rows;
-	transition-duration: var(--duration-slow);
-	transition-timing-function: var(--ease-expo);
-}
-
-@utility transition-colors-fast {
-	transition-property: color, background-color, border-color;
-	transition-duration: var(--duration-fast);
-	transition-timing-function: var(--ease-out);
-}
-
-@utility transition-panel {
-	transition-property: transform, opacity, width;
-	transition-duration: var(--duration-snappy);
-	transition-timing-function: var(--ease-snappy);
-}
-
-@utility transition-exit {
-	transition-property: transform, opacity;
-	transition-duration: var(--duration-fast);
-	transition-timing-function: var(--ease-in);
-}
-
-@utility void {
-	--muted: var(--neutral-200);
-	--accent: var(--neutral-200);
-	--input-bg-hover: var(--neutral-300);
-}
-
-@utility bg-card {
-	background-color: var(--card);
-	--muted: var(--neutral-100);
-	--accent: var(--neutral-100);
-	--input: var(--neutral-100);
-	--input-bg: var(--neutral-100);
-	--input-bg-hover: var(--neutral-200);
-}
-
-@utility typography-panel {
-	--text-micro: 0.75rem;
-	--text-micro--line-height: 1rem;
-	--text-caption: 0.8125rem;
-	--text-caption--line-height: 1.125rem;
-	--text-label: 0.875rem;
-	--text-label--line-height: 1.25rem;
-	--text-body: 1rem;
-	--text-body--line-height: 1.5rem;
-}
-
-@utility surface-elevated {
-	backdrop-filter: var(--blur-md);
-	background-color: color-mix(in oklab, var(--neutral-500) 80%, transparent);
 }

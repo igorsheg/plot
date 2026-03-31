@@ -6,3 +6,4 @@ export * from "./schemas/workflow.js";
 export * from "./schemas/health.js";
 export * from "./errors.js";
 export * from "./plugin/index.js";
+export * from "./catalog.js";

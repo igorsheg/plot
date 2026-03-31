@@ -1,8 +1,19 @@
-export type ProjectCommand =
-	| { readonly _tag: "start" }
-	| { readonly _tag: "stop"; readonly reason: "user" | "shutdown" | "remove" }
-	| { readonly _tag: "health_ok" }
-	| { readonly _tag: "health_failed"; readonly error: string }
-	| { readonly _tag: "snapshot"; readonly snapshot: unknown }
-	| { readonly _tag: "sse_failed" }
-	| { readonly _tag: "exit"; readonly code: number | null };
+import { Data } from "effect";
+
+export type StartupError = {
+	readonly tag: string;
+	readonly message: string;
+	readonly pluginName?: string;
+	readonly phase?: string;
+	readonly retryable?: boolean;
+};
+
+export type ProjectCommand = Data.TaggedEnum<{
+	Start: {};
+	Stop: { readonly reason: "user" | "shutdown" | "remove" };
+	StartupError: { readonly error: StartupError };
+	Snapshot: { readonly snapshot: unknown };
+	Exit: { readonly code: number | null };
+}>;
+
+export const ProjectCommand = Data.taggedEnum<ProjectCommand>();

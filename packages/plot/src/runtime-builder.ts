@@ -39,6 +39,7 @@ import { Orchestrator, OrchestratorLive, WorkspaceManagerLive } from "./core/ind
 import { WorkflowLoader } from "./core/workflow-loader.js";
 import { type ResolvedConfig } from "./core/config-service.js";
 import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
+import { PluginInitError } from "./core/errors.js";
 
 export function parseServerLogLevel(s: string): LogLevel.LogLevel {
 	switch (s.toLowerCase()) {
@@ -192,29 +193,34 @@ function syncGithubRepoEnv(resolved: ResolvedConfig) {
 function resolveDefinitionConfig(
 	definition: AnyPluginDefinition,
 	rawConfig: TrackerPluginConfig,
-): Effect.Effect<unknown> {
+): Effect.Effect<unknown, PluginInitError> {
 	if (!definition.validateConfig) return Effect.succeed(rawConfig as unknown);
 	return Effect.tryPromise({
 		try: () => Promise.resolve(definition.validateConfig!(rawConfig)),
 		catch: (error) =>
-			new Error(
-				`Plugin "${definition.name}" config validation failed: ${error instanceof Error ? error.message : String(error)}`,
-			),
-	}).pipe(Effect.orDie);
+			new PluginInitError({
+				pluginName: definition.name,
+				message: error instanceof Error ? error.message : String(error),
+				phase: "config",
+				retryable: false,
+			}),
+	});
 }
 
 function makeResolvedPlugin(
 	definition: AnyPluginDefinition,
 	config: unknown,
-): Effect.Effect<ResolvedPlugin> {
+): Effect.Effect<ResolvedPlugin, PluginInitError> {
 	return Effect.tryPromise({
 		try: () => Promise.resolve(definition.factory(config)),
 		catch: (error) =>
-			new Error(
-				`Plugin "${definition.name}" factory failed: ${error instanceof Error ? error.message : String(error)}`,
-			),
+			new PluginInitError({
+				pluginName: definition.name,
+				message: error instanceof Error ? error.message : String(error),
+				phase: "factory",
+				retryable: true,
+			}),
 	}).pipe(
-		Effect.orDie,
 		Effect.map((plain) => ({
 			trackerLayer: adaptTrackerClient(plain),
 		})),
@@ -247,7 +253,7 @@ function detectNpmRegistry(): string | null {
  * Cached by package name hash — subsequent calls reuse the existing install.
  * Returns the absolute path to the package's main entry point.
  */
-function resolveNpmPlugin(packageName: string, options?: { refresh?: boolean }): Effect.Effect<string> {
+function resolveNpmPlugin(packageName: string, options?: { refresh?: boolean }): Effect.Effect<string, PluginInitError> {
 	return Effect.tryPromise({
 		try: async () => {
 			const hash = createHash("sha256").update(packageName).digest("hex").slice(0, 12);
@@ -289,17 +295,20 @@ function resolveNpmPlugin(packageName: string, options?: { refresh?: boolean }):
 			return resolvePath(markerPath, entrypoint);
 		},
 		catch: (cause) =>
-			new Error(
-				`Failed to install tracker plugin "${packageName}": ${cause instanceof Error ? cause.message : String(cause)}`,
-			),
-	}).pipe(Effect.orDie);
+			new PluginInitError({
+				pluginName: packageName,
+				message: cause instanceof Error ? cause.message : String(cause),
+				phase: "resolve",
+				retryable: true,
+			}),
+	});
 }
 
 export interface ResolvePluginOptions {
 	readonly refreshPlugins?: boolean;
 }
 
-export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginOptions): Effect.Effect<ResolvedPlugin> {
+export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginOptions): Effect.Effect<ResolvedPlugin, PluginInitError> {
 	syncGithubRepoEnv(resolved);
 	const rawConfig = buildPluginConfig(resolved);
 	const builtin = builtinTrackers[resolved.trackerKind];
@@ -319,10 +328,13 @@ export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginO
 		const mod = yield* Effect.tryPromise({
 			try: () => import(resolvedPath) as Promise<{ default?: AnyPluginDefinition }>,
 			catch: (cause) =>
-				new Error(
-					`Failed to load tracker plugin "${kind}" (${pluginKind.type}:${pluginKind.specifier}): ${cause instanceof Error ? cause.message : String(cause)}`,
-				),
-		}).pipe(Effect.orDie);
+				new PluginInitError({
+					pluginName: kind,
+					message: cause instanceof Error ? cause.message : String(cause),
+					phase: "load",
+					retryable: false,
+				}),
+		});
 		const definition = mod.default;
 		if (
 			!definition ||
@@ -330,11 +342,12 @@ export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginO
 			typeof definition.name !== "string" ||
 			typeof definition.factory !== "function"
 		) {
-			return yield* Effect.die(
-				new Error(
-					`Tracker plugin "${kind}" does not export a valid default tracker plugin definition`,
-				),
-			);
+			return yield* new PluginInitError({
+				pluginName: kind,
+				message: "does not export a valid default tracker plugin definition",
+				phase: "load",
+				retryable: false,
+			});
 		}
 
 		const config = yield* resolveDefinitionConfig(definition, rawConfig);

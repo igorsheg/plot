@@ -49,3 +49,30 @@ export class TemplateRenderError extends Schema.TaggedErrorClass<TemplateRenderE
 		return `Template render error: ${this.message}`;
 	}
 }
+
+export class PluginInitError extends Schema.TaggedErrorClass<PluginInitError>()(
+	"PluginInitError",
+	{
+		pluginName: Schema.String,
+		message: Schema.String,
+		phase: Schema.Literals(["config", "factory", "resolve", "load"]),
+		retryable: Schema.Boolean,
+		cause: Schema.optional(Schema.Defect),
+	},
+) {
+	override get message(): string {
+		return `Plugin "${this.pluginName}" failed during ${this.phase}: ${this.message}`;
+	}
+}
+
+export class ServerStartupError extends Schema.TaggedErrorClass<ServerStartupError>()(
+	"ServerStartupError",
+	{
+		message: Schema.String,
+		cause: Schema.optional(Schema.Defect),
+	},
+) {
+	override get message(): string {
+		return `Server startup failed: ${this.message}`;
+	}
+}

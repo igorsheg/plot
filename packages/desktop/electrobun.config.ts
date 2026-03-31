@@ -16,6 +16,7 @@ export default {
 		copy: {
 			"dist/index.html": "views/main/index.html",
 			"dist/assets": "views/main/assets",
+			"resources/tray-icon.svg": "views/tray-icon.svg",
 		},
 		watchIgnore: ["dist/**"],
 	},

@@ -108,7 +108,8 @@ async function boot(env: Record<string, string>) {
 
 async function shutdown() {
 	if (runtime) await runtime.dispose();
-	process.exit(0);
+	self.postMessage({ type: "stopped" });
+	self.close();
 }
 
 function redirectProcessOutput(path?: string) {
