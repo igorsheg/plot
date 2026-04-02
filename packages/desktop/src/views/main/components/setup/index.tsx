@@ -69,7 +69,7 @@ const DEFAULT_MODEL = "anthropic/claude-sonnet-4-20250514";
 // ── Provider ─────────────────────────────────────────
 
 function SetupProvider({
-	projectId,
+	_projectId,
 	children,
 }: {
 	projectId: string;
@@ -120,16 +120,27 @@ function TrackerSection() {
 				? "beads"
 				: "custom";
 
-	const handleTrackerChange = (value: string) => {
-		const kind = value as TrackerKind;
-		if (kind === "github" || kind === "beads") {
-			actions.setTracker(TRACKER_PRESETS[kind]!);
-			setCustomInput("");
-		} else {
-			actions.setTracker({ kind: customInput || "npm:" });
-			if (!customInput) setCustomInput("npm:");
-		}
-	};
+	const handleTrackerChange = useCallback(
+		(value: string) => {
+			const kind = value as TrackerKind;
+			if (kind === "github" || kind === "beads") {
+				actions.setTracker(TRACKER_PRESETS[kind]!);
+				setCustomInput("");
+			} else {
+				actions.setTracker({ kind: customInput || "npm:" });
+				if (!customInput) setCustomInput("npm:");
+			}
+		},
+		[actions, customInput],
+	);
+
+	const handleCustomInputChange = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			setCustomInput(e.target.value);
+			actions.setTracker({ kind: e.target.value });
+		},
+		[actions],
+	);
 
 	return (
 		<section className="space-y-2">
@@ -158,10 +169,7 @@ function TrackerSection() {
 				<Input
 					size="sm"
 					value={customInput}
-					onChange={(e) => {
-						setCustomInput(e.target.value);
-						actions.setTracker({ kind: e.target.value });
-					}}
+					onChange={handleCustomInputChange}
 					placeholder="npm:@org/my-tracker"
 					className="mt-1.5"
 					autoFocus
@@ -174,6 +182,35 @@ function TrackerSection() {
 // ── Provider Section ─────────────────────────────────
 
 type AuthPath = "subscription" | "api_key";
+
+function ProviderSelectButton({
+	providerId,
+	name,
+	isSelected,
+	onSelect,
+}: {
+	providerId: string;
+	name: string;
+	isSelected: boolean;
+	onSelect: (id: string) => void;
+}) {
+	const handleClick = useCallback(
+		() => onSelect(providerId),
+		[onSelect, providerId],
+	);
+
+	return (
+		<Button
+			variant="ghost"
+			size="xs"
+			onClick={handleClick}
+			className={`w-full justify-between ${isSelected ? "bg-accent/50" : ""}`}
+		>
+			<span>{name}</span>
+			<AuthFlow.Badge />
+		</Button>
+	);
+}
 
 function ProviderSection() {
 	const { state, actions } = useSetup();
@@ -194,22 +231,28 @@ function ProviderSection() {
 		? state.model.split("/")[0]!
 		: "";
 
-	const selectProvider = (providerId: string) => {
-		const provider = auth.state.providers.find((p) => p.id === providerId);
-		const firstModel = provider?.models[0];
-		actions.setModel(
-			firstModel ? `${providerId}/${firstModel.id}` : providerId,
-		);
-	};
+	const selectProvider = useCallback(
+		(providerId: string) => {
+			const provider = auth.state.providers.find((p) => p.id === providerId);
+			const firstModel = provider?.models[0];
+			actions.setModel(
+				firstModel ? `${providerId}/${firstModel.id}` : providerId,
+			);
+		},
+		[auth.state.providers, actions],
+	);
 
-	const handleTabChange = (value: string | number) => {
-		const next = value as AuthPath;
-		setAuthPath(next);
-		const providers =
-			next === "subscription" ? subscriptionProviders : apiKeyProviders;
-		const first = providers[0];
-		if (first) selectProvider(first.id);
-	};
+	const handleTabChange = useCallback(
+		(value: string | number) => {
+			const next = value as AuthPath;
+			setAuthPath(next);
+			const providers =
+				next === "subscription" ? subscriptionProviders : apiKeyProviders;
+			const first = providers[0];
+			if (first) selectProvider(first.id);
+		},
+		[subscriptionProviders, apiKeyProviders, selectProvider],
+	);
 
 	return (
 		<section className="space-y-2">
@@ -230,19 +273,12 @@ function ProviderSection() {
 					<div className="space-y-1">
 						{subscriptionProviders.map((p) => (
 							<AuthFlow.Provider key={p.id} controller={auth} providerId={p.id}>
-								<Button
-									variant="ghost"
-									size="xs"
-									onClick={() => selectProvider(p.id)}
-									className={`w-full justify-between ${
-										selectedProvider === p.id
-											? "bg-accent/50"
-											: ""
-									}`}
-								>
-									<span>{p.name}</span>
-									<AuthFlow.Badge />
-								</Button>
+								<ProviderSelectButton
+									providerId={p.id}
+									name={p.name}
+									isSelected={selectedProvider === p.id}
+									onSelect={selectProvider}
+								/>
 							</AuthFlow.Provider>
 						))}
 					</div>
@@ -273,20 +309,17 @@ function ProviderSection() {
 					<div className="space-y-3">
 						<div className="space-y-1">
 							{apiKeyProviders.map((p) => (
-								<AuthFlow.Provider key={p.id} controller={auth} providerId={p.id}>
-									<Button
-										variant="ghost"
-										size="xs"
-										onClick={() => selectProvider(p.id)}
-										className={`w-full justify-between ${
-											selectedProvider === p.id
-												? "bg-accent/50"
-												: ""
-										}`}
-									>
-										<span>{p.name}</span>
-										<AuthFlow.Badge />
-									</Button>
+								<AuthFlow.Provider
+									key={p.id}
+									controller={auth}
+									providerId={p.id}
+								>
+									<ProviderSelectButton
+										providerId={p.id}
+										name={p.name}
+										isSelected={selectedProvider === p.id}
+										onSelect={selectProvider}
+									/>
 								</AuthFlow.Provider>
 							))}
 						</div>
@@ -321,11 +354,14 @@ function ModelSection() {
 		? state.model.split("/").slice(1).join("/")
 		: "";
 
-	const setModelId = (modelId: string) => {
-		actions.setModel(
-			selectedProvider ? `${selectedProvider}/${modelId}` : modelId,
-		);
-	};
+	const handleModelChange = useCallback(
+		(v: string | null) => {
+			if (v) {
+				actions.setModel(selectedProvider ? `${selectedProvider}/${v}` : v);
+			}
+		},
+		[actions, selectedProvider],
+	);
 
 	if (!selectedProvider || providerModels.length === 0) return null;
 
@@ -334,12 +370,7 @@ function ModelSection() {
 			<h3 className="px-1 pb-2 text-[10px] font-medium text-muted-foreground">
 				Model
 			</h3>
-			<Select
-				value={selectedModelId}
-				onValueChange={(v) => {
-					if (v) setModelId(v);
-				}}
-			>
+			<Select value={selectedModelId} onValueChange={handleModelChange}>
 				<SelectTrigger size="sm" className="w-[140px]">
 					<SelectValue placeholder="Select model" />
 				</SelectTrigger>

@@ -65,6 +65,18 @@ export class PluginInitError extends Schema.TaggedErrorClass<PluginInitError>()(
 	}
 }
 
+export class TuiStartupError extends Schema.TaggedErrorClass<TuiStartupError>()(
+	"TuiStartupError",
+	{
+		message: Schema.String,
+		cause: Schema.optional(Schema.Defect),
+	},
+) {
+	override get message(): string {
+		return `TUI startup failed: ${this.message}`;
+	}
+}
+
 export class ServerStartupError extends Schema.TaggedErrorClass<ServerStartupError>()(
 	"ServerStartupError",
 	{

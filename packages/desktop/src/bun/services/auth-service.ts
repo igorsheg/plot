@@ -92,7 +92,7 @@ export class AuthService extends ServiceMap.Service<AuthService>()("AuthService"
 							),
 						);
 					},
-					onPrompt: ({ message, placeholder, allowEmpty }) => {
+					onPrompt: ({ message, placeholder, allowEmpty: _allowEmpty }) => {
 						return new Promise<string>((resolve, reject) => {
 							Effect.runFork(
 								Effect.gen(function* () {

@@ -48,10 +48,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 			setLoading(false);
 			return;
 		}
-		rpc().request.getProjectInfo({ projectId }).then((info) => {
-			setProject(info);
-			setLoading(false);
-		}).catch(() => setLoading(false));
+		const load = async () => {
+			try {
+				const info = await rpc().request.getProjectInfo({ projectId });
+				setProject(info);
+			} finally {
+				setLoading(false);
+			}
+		};
+		void load();
 	}, [projectId]);
 
 	useEffect(() => {
@@ -63,11 +68,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 		return () => window.removeEventListener("plot:project-updated", handler);
 	}, []);
 
-	const refreshProject = useCallback(() => {
+	const refreshProject = useCallback(async () => {
 		if (!projectId) return;
-		rpc().request.getProjectInfo({ projectId }).then((info) => {
-			setProject(info);
-		});
+		const info = await rpc().request.getProjectInfo({ projectId });
+		setProject(info);
 	}, [projectId]);
 
 	const value = useMemo<AppContextValue>(() => ({

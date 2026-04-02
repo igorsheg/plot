@@ -114,13 +114,12 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 					);
 				});
 
-				yield* poll
-					.pipe(
-						Effect.delay(Duration.seconds(5)),
-						Effect.forever,
-						Effect.forkScoped,
-					)
-					.pipe(Effect.asVoid);
+				yield* poll.pipe(
+					Effect.delay(Duration.seconds(5)),
+					Effect.forever,
+					Effect.forkScoped,
+					Effect.asVoid,
+				);
 			});
 
 			const getCurrent = Ref.get(currentRef);

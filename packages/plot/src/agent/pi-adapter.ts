@@ -383,12 +383,10 @@ const createEventStream = (
 						model: `${model.provider}/${model.id}`,
 					}),
 				);
-				return yield* Effect.fail(
-					new AgentRunnerError({
-						code: "auth_error",
-						message: `No API key for ${model.provider}/${model.id}. Token may have expired — run '/login ${model.provider}' to re-authenticate.`,
-					}),
-				);
+				return yield* new AgentRunnerError({
+					code: "auth_error",
+					message: `No API key for ${model.provider}/${model.id}. Token may have expired — run '/login ${model.provider}' to re-authenticate.`,
+				});
 			}
 
 			const skillPaths = resolvePlotSkillPaths(config.workspacePath, plotSkillsDir);

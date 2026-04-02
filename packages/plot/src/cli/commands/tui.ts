@@ -1,6 +1,7 @@
 import { Command } from "effect/unstable/cli";
 import { Effect, References } from "effect";
 import { runTui } from "@plot/tui";
+import { TuiStartupError } from "../../core/errors.js";
 import { ensureTuiSupported } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
 import { createTuiRuntimeHandle } from "../shared/tui-runtime.js";
@@ -17,7 +18,8 @@ export function createTuiCommand(name: string) {
 			).pipe(
 				Effect.mapError(
 					(error) =>
-						new Error("failed to start tui runtime; logs: ~/.plot/logs/tui-server.log", {
+						new TuiStartupError({
+							message: "failed to start tui runtime; logs: ~/.plot/logs/tui-server.log",
 							cause: error,
 						}),
 				),

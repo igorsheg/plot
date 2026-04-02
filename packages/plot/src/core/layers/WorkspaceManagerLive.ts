@@ -91,7 +91,7 @@ export const WorkspaceManagerLive = Layer.effect(
 						Effect.catch(
 							Effect.fn(function* (e) {
 								yield* fs.remove(wsPath, { recursive: true }).pipe(Effect.ignore);
-								return yield* Effect.fail(e);
+								return yield* e;
 							}),
 						),
 					);

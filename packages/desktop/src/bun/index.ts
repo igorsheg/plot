@@ -1,9 +1,13 @@
-import { BrowserWindow, BrowserView, Utils, ApplicationMenu } from "electrobun/bun";
+import {
+	BrowserWindow,
+	BrowserView,
+	Utils,
+	ApplicationMenu,
+} from "electrobun/bun";
 import { Effect, ManagedRuntime, Stream } from "effect";
 import type { DesktopRPC, ProjectSnapshot } from "../shared/rpc";
 import { DesktopMain } from "./services/desktop-main";
 import { createTray } from "./tray";
-
 
 const DEV_PORT = 5174;
 const DEV_URL = `http://localhost:${DEV_PORT}`;
@@ -37,9 +41,11 @@ ApplicationMenu.setApplicationMenu([
 
 const runtime = ManagedRuntime.make(DesktopMain.layer);
 
-const run = <A, E>(effect: Effect.Effect<A, E, DesktopMain>) => runtime.runPromise(effect);
+const run = <A, E>(effect: Effect.Effect<A, E, DesktopMain>) =>
+	runtime.runPromise(effect);
 
-const fire = <A, E>(effect: Effect.Effect<A, E, DesktopMain>) => runtime.runFork(effect);
+const fire = <A, E>(effect: Effect.Effect<A, E, DesktopMain>) =>
+	runtime.runFork(effect);
 
 const snapshotCache = new Map<string, ProjectSnapshot>();
 
@@ -188,7 +194,6 @@ async function openMainWindow(opts?: { projectId?: string; view?: string }) {
 						}),
 					),
 
-
 				startAuthFlow: ({ providerId }) => {
 					fire(
 						Effect.gen(function* () {
@@ -309,17 +314,16 @@ const tray = createTray({
 		);
 	},
 	onOpenInFinder: (p) => Utils.showItemInFolder(p),
-	onRemoveProject: (id) => {
-		run(
+	onRemoveProject: async (id) => {
+		const infos = await run(
 			Effect.gen(function* () {
 				const d = yield* DesktopMain;
 				yield* d.removeProject(id);
-				const infos = yield* d.listProjectInfos;
-				return infos;
+				const updatedInfos = yield* d.listProjectInfos;
+				return updatedInfos;
 			}),
-		).then((infos) => {
-			tray.refresh([...infos], snapshotCache);
-		});
+		);
+		tray.refresh([...infos], snapshotCache);
 	},
 	onAddProject: async () => {
 		const chosen = await Utils.openFileDialog({

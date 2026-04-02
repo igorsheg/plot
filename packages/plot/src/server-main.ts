@@ -60,7 +60,7 @@ export async function runServerMain(
 		const resolved = new ResolvedConfig(workflowConfig, config.overrides);
 		const resolvedPlugin = yield* resolvePlugin(resolved, { refreshPlugins: config.refreshPlugins });
 
-		yield* Layer.launch(makeServer(config, resolvedPlugin));
+		return yield* Layer.launch(makeServer(config, resolvedPlugin));
 	}).pipe(
 		Effect.provide(ConfigProvider.layer(provider)),
 		Effect.catchTag("PluginInitError", (e: PluginInitError) =>

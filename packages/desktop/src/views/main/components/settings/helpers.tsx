@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import type { ModelInfo } from "../../../../shared/rpc";
 import {
 	Combobox,
@@ -33,6 +33,8 @@ export function Row({
 	);
 }
 
+const modelToLabel = (m: ModelInfo) => m.name;
+const modelToValue = (m: ModelInfo) => m.id;
 
 export function ModelCombobox({
 	models,
@@ -45,15 +47,20 @@ export function ModelCombobox({
 }) {
 	const selected = models.find((m) => m.id === selectedModel) ?? null;
 
+	const handleValueChange = useCallback(
+		(model: ModelInfo | null) => {
+			if (model) onSelect(model.id);
+		},
+		[onSelect],
+	);
+
 	return (
 		<Combobox<ModelInfo>
 			items={models}
 			value={selected}
-			onValueChange={(model) => {
-				if (model) onSelect(model.id);
-			}}
-			itemToStringLabel={(m) => m.name}
-			itemToStringValue={(m) => m.id}
+			onValueChange={handleValueChange}
+			itemToStringLabel={modelToLabel}
+			itemToStringValue={modelToValue}
 		>
 			<ComboboxInput
 				size="sm"

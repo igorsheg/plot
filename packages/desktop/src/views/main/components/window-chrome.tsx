@@ -4,9 +4,10 @@ import {
 	useState,
 	useEffect,
 	useCallback,
+	useMemo,
 	type ReactNode,
 } from "react";
-import clsx from "clsx";
+import { clsx } from "clsx";
 import { rpc } from "../context/rpc";
 
 type WindowChromeContext = {
@@ -57,18 +58,24 @@ function Root({
 		rpc().request.windowZoom({});
 	}, []);
 
-	const shadow = focused
-		? "0 0 0 0.5px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.16), 0 18px 48px rgba(0,0,0,0.1)"
-		: "0 0 0 0.5px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.06)";
+	const chromeValue = useMemo(() => ({ focused, close, minimize, zoom }), [focused, close, minimize, zoom]);
+	const shadowStyle = useMemo(
+		() => ({
+			boxShadow: focused
+				? "0 0 0 0.5px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.16), 0 18px 48px rgba(0,0,0,0.1)"
+				: "0 0 0 0.5px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.06)",
+		}),
+		[focused],
+	);
 
 	return (
-		<ChromeContext value={{ focused, close, minimize, zoom }}>
+		<ChromeContext value={chromeValue}>
 			<div
 				className={clsx(
 					"flex h-screen flex-col overflow-hidden rounded-[10px] border border-white/[0.08] bg-background transition-shadow duration-200",
 					className,
 				)}
-				style={{ boxShadow: shadow }}
+				style={shadowStyle}
 			>
 				{children}
 			</div>
@@ -119,6 +126,11 @@ function Controls({ className }: { className?: string }) {
 	const [hovered, setHovered] = useState(false);
 	const [pressed, setPressed] = useState<"close" | "minimize" | "zoom" | null>(null);
 
+	const handleMouseEnter = useCallback(() => setHovered(true), []);
+	const handleMouseLeave = useCallback(() => { setHovered(false); setPressed(null); }, []);
+	const handleCloseMouseDown = useCallback(() => setPressed("close"), []);
+	const handleMinimizeMouseDown = useCallback(() => setPressed("minimize"), []);
+	const handleMouseUp = useCallback(() => setPressed(null), []);
 	const isActive = focused || hovered;
 
 	return (
@@ -127,15 +139,15 @@ function Controls({ className }: { className?: string }) {
 				"electrobun-webkit-app-region-no-drag flex items-center gap-2",
 				className,
 			)}
-			onMouseEnter={() => setHovered(true)}
-			onMouseLeave={() => { setHovered(false); setPressed(null); }}
+			onMouseEnter={handleMouseEnter}
+			onMouseLeave={handleMouseLeave}
 		>
 			<button
 				type="button"
 				className="size-3 outline-none"
 				onClick={close}
-				onMouseDown={() => setPressed("close")}
-				onMouseUp={() => setPressed(null)}
+				onMouseDown={handleCloseMouseDown}
+				onMouseUp={handleMouseUp}
 				aria-label="Close"
 			>
 				{!isActive ? (
@@ -152,8 +164,8 @@ function Controls({ className }: { className?: string }) {
 				type="button"
 				className="size-3 outline-none"
 				onClick={minimize}
-				onMouseDown={() => setPressed("minimize")}
-				onMouseUp={() => setPressed(null)}
+				onMouseDown={handleMinimizeMouseDown}
+				onMouseUp={handleMouseUp}
 				aria-label="Minimize"
 			>
 				{!isActive ? (

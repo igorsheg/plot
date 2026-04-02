@@ -1,4 +1,4 @@
-import { createContext, use, useState, useEffect, useMemo, type ReactNode } from "react";
+import { createContext, use, useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { Badge } from "@plot/ui/components/badge";
 import { Button } from "@plot/ui/components/button";
 import { Input } from "@plot/ui/components/input";
@@ -96,7 +96,7 @@ function Provider({
 			},
 			actions: {
 				connect: () => ctrlActions.start(providerId),
-				submit: (value: string) => ctrlActions.submit(value),
+				submit: (v: string) => ctrlActions.submit(v),
 				saveApiKey: (key: string) => ctrlActions.saveApiKey(providerId, key),
 				removeApiKey: () => ctrlActions.removeApiKey(providerId),
 			},
@@ -106,7 +106,7 @@ function Provider({
 				canProceed: authenticated,
 			},
 		};
-	}, [providerId, ctrlState, ctrlActions, authState, providers]);
+	}, [providerId, ctrlActions, authState, providers]);
 
 	return <AuthFlowContext value={value}>{children}</AuthFlowContext>;
 }
@@ -205,24 +205,9 @@ function ApiKeyInput({ className }: { className?: string }) {
 		}
 	}, [state.authenticated]);
 
-	if (state.supportsOAuth) return null;
-	if (state.authenticated) {
-		return (
-			<div className={`flex items-center justify-between gap-2 ${className ?? ""}`}>
-				<p className="text-[12px] text-muted-foreground">API key configured</p>
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={() => actions.removeApiKey()}
-					className="text-destructive hover:text-destructive"
-				>
-					Remove
-				</Button>
-			</div>
-		);
-	}
+	const handleRemoveKey = useCallback(() => actions.removeApiKey(), [actions]);
 
-	const handleSave = async () => {
+	const handleSave = useCallback(async () => {
 		if (!key.trim()) return;
 		setSaving(true);
 		try {
@@ -231,7 +216,29 @@ function ApiKeyInput({ className }: { className?: string }) {
 		} finally {
 			setSaving(false);
 		}
-	};
+	}, [key, actions]);
+
+	const handleKeyChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setKey(e.target.value), []);
+	const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === "Enter" && key.trim()) handleSave();
+	}, [key, handleSave]);
+
+	if (state.supportsOAuth) return null;
+	if (state.authenticated) {
+		return (
+			<div className={`flex items-center justify-between gap-2 ${className ?? ""}`}>
+				<p className="text-[12px] text-muted-foreground">API key configured</p>
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={handleRemoveKey}
+					className="text-destructive hover:text-destructive"
+				>
+					Remove
+				</Button>
+			</div>
+		);
+	}
 
 	return (
 		<div className={`space-y-2 ${className ?? ""}`}>
@@ -240,14 +247,10 @@ function ApiKeyInput({ className }: { className?: string }) {
 					size="sm"
 					type="password"
 					value={key}
-					onChange={(e) => setKey(e.target.value)}
+					onChange={handleKeyChange}
 					placeholder="sk-..."
 					className="flex-1"
-					onKeyDown={(e) => {
-						if (e.key === "Enter" && key.trim()) {
-							handleSave();
-						}
-					}}
+					onKeyDown={handleKeyDown}
 				/>
 				<Button
 					size="sm"
@@ -266,6 +269,15 @@ function ApiKeyInput({ className }: { className?: string }) {
 function StatusInline({ className }: { className?: string }) {
 	const { state, actions } = useAuthFlowProvider();
 	const [input, setInput] = useState("");
+
+	const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value), []);
+	const submitCode = useCallback(() => {
+		actions.submit(input);
+		setInput("");
+	}, [actions, input]);
+	const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === "Enter" && input) submitCode();
+	}, [input, submitCode]);
 
 	if (!state.active) return null;
 
@@ -293,22 +305,14 @@ function StatusInline({ className }: { className?: string }) {
 						<Input
 							size="sm"
 							value={input}
-							onChange={(e) => setInput(e.target.value)}
+							onChange={handleInputChange}
 							placeholder={state.placeholder}
 							className="flex-1"
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && input) {
-									actions.submit(input);
-									setInput("");
-								}
-							}}
+							onKeyDown={handleKeyDown}
 						/>
 						<Button
 							size="sm"
-							onClick={() => {
-								actions.submit(input);
-								setInput("");
-							}}
+							onClick={submitCode}
 							disabled={!input}
 						>
 							Submit
@@ -342,6 +346,15 @@ function StatusAlert({ className }: { className?: string }) {
 	const { state, actions } = useAuthFlowProvider();
 	const [input, setInput] = useState("");
 
+	const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value), []);
+	const submitCode = useCallback(() => {
+		actions.submit(input);
+		setInput("");
+	}, [actions, input]);
+	const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === "Enter" && input) submitCode();
+	}, [input, submitCode]);
+
 	if (!state.active) return null;
 
 	switch (state.phase) {
@@ -365,22 +378,14 @@ function StatusAlert({ className }: { className?: string }) {
 							<Input
 								size="sm"
 								value={input}
-								onChange={(e) => setInput(e.target.value)}
+								onChange={handleInputChange}
 								placeholder={state.placeholder}
 								className="flex-1"
-								onKeyDown={(e) => {
-									if (e.key === "Enter" && input) {
-										actions.submit(input);
-										setInput("");
-									}
-								}}
+								onKeyDown={handleKeyDown}
 							/>
 							<Button
 								size="sm"
-								onClick={() => {
-									actions.submit(input);
-									setInput("");
-								}}
+								onClick={submitCode}
 								disabled={!input}
 							>
 								Submit

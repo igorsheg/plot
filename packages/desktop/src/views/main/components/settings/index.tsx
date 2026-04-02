@@ -6,6 +6,7 @@ import {
 	useMemo,
 	useRef,
 	type ReactNode,
+	type CSSProperties,
 } from "react";
 import type { WorkflowConfig } from "../../../../shared/rpc";
 import { AppContext } from "../../context/app-context";
@@ -23,7 +24,12 @@ import {
 	SidebarProvider,
 	SidebarInset,
 } from "@plot/ui/components/sidebar";
-import { Settings as SettingsIcon, Bot, Wrench, ExternalLink } from "lucide-react";
+import {
+	Settings as SettingsIcon,
+	Bot,
+	Wrench,
+	ExternalLink,
+} from "lucide-react";
 import Avatar from "boring-avatars";
 import {
 	SettingsContext,
@@ -40,6 +46,8 @@ import {
 
 // ── Navigation ───────────────────────────────────────
 
+const SIDEBAR_STYLE = { "--sidebar-width": "14rem" } as CSSProperties;
+
 const NAV_ITEMS = [
 	{ title: "Workflow", icon: SettingsIcon, section: "workflow" as const },
 	{ title: "Agent", icon: Bot, section: "agent" as const },
@@ -49,7 +57,7 @@ const NAV_ITEMS = [
 // ── Provider ─────────────────────────────────────────
 
 function SettingsProvider({
-	projectId,
+	_projectId,
 	children,
 }: {
 	projectId: string;
@@ -85,6 +93,7 @@ function SettingsProvider({
 					setPromptBody(wf.promptBody);
 				}
 				setLoading(false);
+				return undefined;
 			})
 			.catch(() => setLoading(false));
 	}, [projectPath]);
@@ -121,6 +130,32 @@ function SettingsProvider({
 	);
 
 	return <SettingsContext value={value}>{children}</SettingsContext>;
+}
+
+// ── NavItem ──────────────────────────────────────────
+
+function NavItem({
+	item,
+	isActive,
+	onSelect,
+}: {
+	item: (typeof NAV_ITEMS)[number];
+	isActive: boolean;
+	onSelect: (section: SettingsSection) => void;
+}) {
+	const handleClick = useCallback(
+		() => onSelect(item.section),
+		[onSelect, item.section],
+	);
+
+	return (
+		<SidebarMenuItem>
+			<SidebarMenuButton size="sm" isActive={isActive} onClick={handleClick}>
+				<item.icon className="size-3.5" />
+				{item.title}
+			</SidebarMenuButton>
+		</SidebarMenuItem>
+	);
 }
 
 // ── Sidebar ──────────────────────────────────────────
@@ -164,16 +199,12 @@ function SettingsSidebar() {
 				<SidebarGroup>
 					<SidebarMenu>
 						{NAV_ITEMS.map((item) => (
-							<SidebarMenuItem key={item.section}>
-								<SidebarMenuButton
-									size="sm"
-									isActive={state.section === item.section}
-									onClick={() => actions.setSection(item.section)}
-								>
-									<item.icon className="size-3.5" />
-									{item.title}
-								</SidebarMenuButton>
-							</SidebarMenuItem>
+							<NavItem
+								key={item.section}
+								item={item}
+								isActive={state.section === item.section}
+								onSelect={actions.setSection}
+							/>
 						))}
 					</SidebarMenu>
 				</SidebarGroup>
@@ -222,9 +253,7 @@ function SettingsContent() {
 
 	return (
 		<div className="flex-1 overflow-y-auto min-h-0">
-			<div className="space-y-5 px-4 py-3">
-				{SECTIONS[state.section]()}
-			</div>
+			<div className="space-y-5 px-4 py-3">{SECTIONS[state.section]()}</div>
 		</div>
 	);
 }
@@ -237,12 +266,7 @@ export function Settings({ projectId }: { projectId: string }) {
 			<WindowChrome.Root>
 				<WindowChrome.Content>
 					<div className="flex flex-1 min-h-0 view-enter">
-						<SidebarProvider
-							style={
-								{ "--sidebar-width": "14rem" } as React.CSSProperties
-							}
-							className="min-h-0 flex-1"
-						>
+						<SidebarProvider style={SIDEBAR_STYLE} className="min-h-0 flex-1">
 							<SettingsSidebar />
 							<SidebarInset className="flex flex-col min-h-0">
 								<div className="electrobun-webkit-app-region-drag h-10 shrink-0" />

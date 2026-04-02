@@ -43,6 +43,7 @@
 		"@opentui/core": "0.1.87"
 	},
 	"devDependencies": {
+		"@effect/language-service": "^0.84.3",
 		"oxfmt": "latest",
 		"oxlint": "latest",
 		"turbo": "^2.8.13",

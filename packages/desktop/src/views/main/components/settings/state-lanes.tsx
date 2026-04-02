@@ -92,6 +92,37 @@ function Root({
 	);
 }
 
+// ── LabelChip ────────────────────────────────────────
+
+function LabelChip({
+	phase,
+	tag,
+	onRemove,
+}: {
+	phase: Phase;
+	tag: string;
+	onRemove: (phase: Phase, tag: string) => void;
+}) {
+	const handleClick = useCallback(
+		() => onRemove(phase, tag),
+		[onRemove, phase, tag],
+	);
+
+	return (
+		<div className="group flex items-center justify-between rounded-md bg-background/80 px-2 py-1">
+			<span className="text-[10px] text-foreground truncate">{tag}</span>
+			<Button
+				size="icon-2xs"
+				variant="ghost"
+				onClick={handleClick}
+				className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 shrink-0"
+			>
+				<X className="size-2.5" />
+			</Button>
+		</div>
+	);
+}
+
 // ── Lane ─────────────────────────────────────────────
 
 function Lane({
@@ -109,15 +140,31 @@ function Lane({
 	const [input, setInput] = useState("");
 
 	const key = PHASE_KEY[phase];
-	const labels = (state.tracker[key] as string[] | undefined) ?? [];
+	const raw = state.tracker[key] as string[] | undefined;
+	const labels = useMemo(() => raw ?? [], [raw]);
 
-	const addTag = () => {
+	const addTag = useCallback(() => {
 		const trimmed = input.trim();
 		if (trimmed && !labels.includes(trimmed)) {
 			actions.addLabel(phase, trimmed);
 			setInput("");
 		}
-	};
+	}, [input, labels, actions, phase]);
+
+	const handleInputChange = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value),
+		[],
+	);
+
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLInputElement>) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				addTag();
+			}
+		},
+		[addTag],
+	);
 
 	return (
 		<div className="flex flex-col rounded-lg bg-muted/40 p-2.5">
@@ -125,39 +172,22 @@ function Lane({
 				<div className={`size-1.5 rounded-full ${color}`} />
 				<span className="text-[11px] font-medium">{label}</span>
 			</div>
-			<p className="text-[10px] text-muted-foreground pb-2.5">
-				{description}
-			</p>
+			<p className="text-[10px] text-muted-foreground pb-2.5">{description}</p>
 			<div className="flex flex-col gap-1 flex-1">
 				{labels.map((tag) => (
-					<div
+					<LabelChip
 						key={tag}
-						className="group flex items-center justify-between rounded-md bg-background/80 px-2 py-1"
-					>
-						<span className="text-[10px] text-foreground truncate">
-							{tag}
-						</span>
-						<Button
-							size="icon-2xs"
-							variant="ghost"
-							onClick={() => actions.removeLabel(phase, tag)}
-							className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 shrink-0"
-						>
-							<X className="size-2.5" />
-						</Button>
-					</div>
+						phase={phase}
+						tag={tag}
+						onRemove={actions.removeLabel}
+					/>
 				))}
 			</div>
 			<Input
 				size="xs"
 				value={input}
-				onChange={(e) => setInput(e.target.value)}
-				onKeyDown={(e) => {
-					if (e.key === "Enter") {
-						e.preventDefault();
-						addTag();
-					}
-				}}
+				onChange={handleInputChange}
+				onKeyDown={handleKeyDown}
 				placeholder="+ add..."
 				className="mt-1.5"
 			/>

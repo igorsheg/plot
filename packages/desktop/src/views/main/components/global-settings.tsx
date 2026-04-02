@@ -1,4 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import {
+	useState,
+	useRef,
+	useEffect,
+	useCallback,
+	type CSSProperties,
+} from "react";
 import { Cpu, Link, RefreshCw, Unlink } from "lucide-react";
 import Avatar from "boring-avatars";
 import { WindowChrome } from "./window-chrome";
@@ -22,19 +28,29 @@ import {
 	SidebarInset,
 } from "@plot/ui/components/sidebar";
 
+const SIDEBAR_STYLE = { "--sidebar-width": "14rem" } as CSSProperties;
+
 function OAuthCard() {
 	const { state, actions } = useAuthFlowProvider();
+
+	const handleConnect = useCallback(() => actions.connect(), [actions]);
 
 	return (
 		<div className="rounded-lg bg-muted/40 p-2 space-y-2">
 			<div className="flex items-center gap-2">
-				<span className="flex-1 text-xs font-medium">{state.provider?.name}</span>
-				<Button
-					size="xs"
-					variant="ghost"
-					onClick={() => actions.connect()}
-				>
-					{state.authenticated ? <><RefreshCw className="size-3.5" /> Reconnect</> : <><Link className="size-3.5" /> Connect</>}
+				<span className="flex-1 text-xs font-medium">
+					{state.provider?.name}
+				</span>
+				<Button size="xs" variant="ghost" onClick={handleConnect}>
+					{state.authenticated ? (
+						<>
+							<RefreshCw className="size-3.5" /> Reconnect
+						</>
+					) : (
+						<>
+							<Link className="size-3.5" /> Connect
+						</>
+					)}
 				</Button>
 				<div
 					className={`size-1.5 shrink-0 rounded-full ${
@@ -65,7 +81,7 @@ function ApiKeyCard() {
 		};
 	}, []);
 
-	const handleChange = (value: string) => {
+	const handleChange = useCallback((value: string) => {
 		setApiKey(value);
 		if (saveRef.current) clearTimeout(saveRef.current);
 		const trimmed = value.trim();
@@ -74,22 +90,30 @@ function ApiKeyCard() {
 				actions.saveApiKey(trimmed);
 			}, 600);
 		}
-	};
+	}, [actions]);
 
+	const handleRemoveApiKey = useCallback(async () => {
+		if (saveRef.current) clearTimeout(saveRef.current);
+		setApiKey("");
+		await actions.removeApiKey();
+	}, [actions]);
+
+	const handleInputChange = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => handleChange(e.target.value),
+		[handleChange],
+	);
 
 	return (
 		<div className="rounded-lg bg-muted/40 p-2 space-y-2">
 			<div className="flex items-center gap-2">
-				<span className="flex-1 text-xs font-medium">{state.provider?.name}</span>
+				<span className="flex-1 text-xs font-medium">
+					{state.provider?.name}
+				</span>
 				{state.authenticated && (
 					<Button
 						size="xs"
 						variant="ghost"
-						onClick={async () => {
-							if (saveRef.current) clearTimeout(saveRef.current);
-							setApiKey("");
-							await actions.removeApiKey();
-						}}
+						onClick={handleRemoveApiKey}
 						className="text-muted-foreground"
 					>
 						<Unlink className="size-3.5" /> Remove
@@ -105,7 +129,7 @@ function ApiKeyCard() {
 				size="sm"
 				type="password"
 				value={apiKey}
-				onChange={(e) => handleChange(e.target.value)}
+				onChange={handleInputChange}
 				placeholder="sk-..."
 			/>
 		</div>
@@ -127,7 +151,11 @@ function ModelsContent() {
 						</span>
 						<div className="space-y-2">
 							{oauthProviders.map((p) => (
-								<AuthFlow.Provider key={p.id} controller={auth} providerId={p.id}>
+								<AuthFlow.Provider
+									key={p.id}
+									controller={auth}
+									providerId={p.id}
+								>
 									<OAuthCard />
 								</AuthFlow.Provider>
 							))}
@@ -141,7 +169,11 @@ function ModelsContent() {
 						</span>
 						<div className="space-y-2">
 							{apiKeyProviders.map((p) => (
-								<AuthFlow.Provider key={p.id} controller={auth} providerId={p.id}>
+								<AuthFlow.Provider
+									key={p.id}
+									controller={auth}
+									providerId={p.id}
+								>
 									<ApiKeyCard />
 								</AuthFlow.Provider>
 							))}
@@ -158,10 +190,7 @@ export function GlobalSettings() {
 		<WindowChrome.Root>
 			<WindowChrome.Content>
 				<div className="flex flex-1 min-h-0 view-enter">
-					<SidebarProvider
-						style={{ "--sidebar-width": "14rem" } as React.CSSProperties}
-						className="min-h-0 flex-1"
-					>
+					<SidebarProvider style={SIDEBAR_STYLE} className="min-h-0 flex-1">
 						<Sidebar variant="floating" collapsible="none">
 							<SidebarHeader className="electrobun-webkit-app-region-drag pt-4 pl-3">
 								<div className="electrobun-webkit-app-region-no-drag pb-2">
@@ -169,7 +198,10 @@ export function GlobalSettings() {
 								</div>
 								<SidebarMenu>
 									<SidebarMenuItem>
-										<SidebarMenuButton size="lg" className="cursor-default electrobun-webkit-app-region-no-drag">
+										<SidebarMenuButton
+											size="lg"
+											className="cursor-default electrobun-webkit-app-region-no-drag"
+										>
 											<Avatar
 												name="Plot"
 												variant="beam"

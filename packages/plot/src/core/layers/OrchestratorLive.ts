@@ -307,16 +307,7 @@ export const OrchestratorLive = Layer.effect(
 				Match.discriminator("_tag")("runtime_event", (cmd) => consumeEvent(cmd.event)),
 				Match.discriminator("_tag")("retry_due", (cmd) => tickRuntime.handleRetryDue(cmd)),
 				Match.discriminator("_tag")("worker_exit", (cmd) =>
-					dispatchRuntime.handleWorkerExit(cmd).pipe(
-						Effect.catch((e) =>
-							Effect.logError("worker_exit_failed").pipe(
-								Effect.annotateLogs({
-									issue_id: cmd.issueId,
-									error: String(e),
-								}),
-							),
-						),
-					),
+					dispatchRuntime.handleWorkerExit(cmd),
 				),
 				Match.exhaustive,
 			);
@@ -397,12 +388,10 @@ export const OrchestratorLive = Layer.effect(
 			const state = yield* withOrchestratorAvailability(getState);
 			const log = [...state.eventLogs.values()].find((l) => l.issueIdentifier === identifier);
 			if (!log) {
-				return yield* Effect.fail(
-					new IssueNotFound({
+				return yield* new IssueNotFound({
 						identifier,
 						message: `Event log not found: ${identifier}`,
-					}),
-				);
+					});
 			}
 			return new IssueEventLog({
 				issueId: log.issueId,

@@ -1,6 +1,7 @@
-import { use, useState, useEffect } from "react";
+import { use, useState, useEffect, useMemo, useCallback } from "react";
 import { AppContext } from "../../context/app-context";
 import { rpc } from "../../context/rpc";
+import type { ProviderInfo } from "../../../../shared/rpc";
 import { useSettings } from "./context";
 import { Row, ModelCombobox } from "./helpers";
 import { StateLanes } from "./state-lanes";
@@ -25,22 +26,35 @@ import { Button } from "@plot/ui/components/button";
 // ── Tracker ──────────────────────────────────────────
 
 export function TrackerSection() {
-	const { state: { config }, actions: { update } } = useSettings();
-	const tracker = config.tracker ?? { kind: "github" };
+	const {
+		state: { config },
+		actions: { update },
+	} = useSettings();
+	const tracker = useMemo(
+		() => config.tracker ?? { kind: "github" },
+		[config.tracker],
+	);
+
+	const handleKindChange = useCallback(
+		(val: string | null) => {
+			if (val !== null)
+				update((c) => ({
+					...c,
+					tracker: { ...tracker, kind: val },
+				}));
+		},
+		[tracker, update],
+	);
+
+	const handleTrackerChange = useCallback(
+		(next: typeof tracker) => update((c) => ({ ...c, tracker: next })),
+		[update],
+	);
 
 	return (
 		<div className="space-y-4">
 			<Row label="Issue source" description="Where Plot finds work items">
-				<Select
-					value={tracker.kind}
-					onValueChange={(val) => {
-						if (val !== null)
-							update((c) => ({
-								...c,
-								tracker: { ...tracker, kind: val },
-							}));
-					}}
-				>
+				<Select value={tracker.kind} onValueChange={handleKindChange}>
 					<SelectTrigger size="sm" className="w-[160px]">
 						<SelectValue placeholder="Select source" />
 					</SelectTrigger>
@@ -59,10 +73,7 @@ export function TrackerSection() {
 					</SelectPopup>
 				</Select>
 			</Row>
-			<StateLanes.Root
-				tracker={tracker}
-				onTrackerChange={(next) => update((c) => ({ ...c, tracker: next }))}
-			>
+			<StateLanes.Root tracker={tracker} onTrackerChange={handleTrackerChange}>
 				<StateLanes.Lane
 					phase="dispatch"
 					label="Active"
@@ -88,13 +99,59 @@ export function TrackerSection() {
 
 // ── Agent ────────────────────────────────────────────
 
+function ProviderItem({
+	provider,
+	isSelected,
+	selectedModelId,
+	onModelChange,
+}: {
+	provider: ProviderInfo;
+	isSelected: boolean;
+	selectedModelId: string;
+	onModelChange: (fullModel: string) => void;
+}) {
+	const handleSelect = useCallback(
+		(modelId: string) => onModelChange(`${provider.id}/${modelId}`),
+		[provider.id, onModelChange],
+	);
+
+	return (
+		<div
+			className={`rounded-lg p-2 transition-all duration-200 ${
+				isSelected ? "bg-accent/80" : "bg-muted/40 hover:bg-muted/60"
+			}`}
+		>
+			<label className="flex items-center gap-2 cursor-pointer">
+				<Radio size="xs" value={provider.id} />
+				<span className="flex-1 text-xs font-medium">{provider.name}</span>
+				<div className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+			</label>
+			{isSelected && provider.models.length > 0 && (
+				<div className="pt-2 pl-5">
+					<ModelCombobox
+						models={provider.models}
+						selectedModel={selectedModelId}
+						onSelect={handleSelect}
+					/>
+				</div>
+			)}
+		</div>
+	);
+}
+
 export function AgentSection() {
-	const { state: { config }, actions: { update } } = useSettings();
+	const {
+		state: { config },
+		actions: { update },
+	} = useSettings();
 	const auth = useAuthFlowController();
 
 	const currentModel = config.agent?.model ?? "";
-	const onModelChange = (fullModel: string) =>
-		update((c) => ({ ...c, agent: { ...c.agent, model: fullModel } }));
+	const onModelChange = useCallback(
+		(fullModel: string) =>
+			update((c) => ({ ...c, agent: { ...c.agent, model: fullModel } })),
+		[update],
+	);
 
 	const authenticatedProviders = auth.state.providers.filter(
 		(p) => p.authenticated,
@@ -107,13 +164,16 @@ export function AgentSection() {
 		? currentModel.split("/").slice(1).join("/")
 		: "";
 
-	const selectProvider = (value: string) => {
-		if (value !== selectedProvider) {
-			const provider = authenticatedProviders.find((p) => p.id === value);
-			const firstModel = provider?.models[0];
-			onModelChange(firstModel ? `${value}/${firstModel.id}` : value);
-		}
-	};
+	const selectProvider = useCallback(
+		(value: string) => {
+			if (value !== selectedProvider) {
+				const provider = authenticatedProviders.find((p) => p.id === value);
+				const firstModel = provider?.models[0];
+				onModelChange(firstModel ? `${value}/${firstModel.id}` : value);
+			}
+		},
+		[selectedProvider, authenticatedProviders, onModelChange],
+	);
 
 	if (authenticatedProviders.length === 0) {
 		return (
@@ -124,33 +184,20 @@ export function AgentSection() {
 	}
 
 	return (
-		<RadioGroup value={selectedProvider} onValueChange={selectProvider} className="gap-2">
-			{authenticatedProviders.map((p) => {
-				const isSelected = selectedProvider === p.id;
-				return (
-					<div
-						key={p.id}
-						className={`rounded-lg p-2 transition-all duration-200 ${
-							isSelected ? "bg-accent/80" : "bg-muted/40 hover:bg-muted/60"
-						}`}
-					>
-						<label className="flex items-center gap-2 cursor-pointer">
-							<Radio size="xs" value={p.id} />
-							<span className="flex-1 text-xs font-medium">{p.name}</span>
-							<div className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-						</label>
-						{isSelected && p.models.length > 0 && (
-							<div className="pt-2 pl-5">
-								<ModelCombobox
-									models={p.models}
-									selectedModel={selectedModelId}
-									onSelect={(modelId) => onModelChange(`${p.id}/${modelId}`)}
-								/>
-							</div>
-						)}
-					</div>
-				);
-			})}
+		<RadioGroup
+			value={selectedProvider}
+			onValueChange={selectProvider}
+			className="gap-2"
+		>
+			{authenticatedProviders.map((p) => (
+				<ProviderItem
+					key={p.id}
+					provider={p}
+					isSelected={selectedProvider === p.id}
+					selectedModelId={selectedModelId}
+					onModelChange={onModelChange}
+				/>
+			))}
 		</RadioGroup>
 	);
 }
@@ -158,7 +205,28 @@ export function AgentSection() {
 // ── Agent Limits ─────────────────────────────────────
 
 export function AgentLimitsSection() {
-	const { state: { config }, actions: { update } } = useSettings();
+	const {
+		state: { config },
+		actions: { update },
+	} = useSettings();
+
+	const handleMaxAgentsChange = useCallback(
+		(val: number | null) =>
+			update((c) => ({
+				...c,
+				agent: { ...c.agent, maxConcurrentAgents: val ?? 1 },
+			})),
+		[update],
+	);
+
+	const handleMaxTurnsChange = useCallback(
+		(val: number | null) =>
+			update((c) => ({
+				...c,
+				agent: { ...c.agent, maxTurns: val ?? 50 },
+			})),
+		[update],
+	);
 
 	return (
 		<div>
@@ -167,12 +235,7 @@ export function AgentLimitsSection() {
 					value={config.agent?.maxConcurrentAgents ?? 1}
 					min={1}
 					max={10}
-					onValueChange={(val) =>
-						update((c) => ({
-							...c,
-							agent: { ...c.agent, maxConcurrentAgents: val ?? 1 },
-						}))
-					}
+					onValueChange={handleMaxAgentsChange}
 					size="sm"
 					className="w-auto"
 				>
@@ -189,12 +252,7 @@ export function AgentLimitsSection() {
 					min={1}
 					max={500}
 					step={10}
-					onValueChange={(val) =>
-						update((c) => ({
-							...c,
-							agent: { ...c.agent, maxTurns: val ?? 50 },
-						}))
-					}
+					onValueChange={handleMaxTurnsChange}
 					size="sm"
 					className="w-auto"
 				>
@@ -212,7 +270,10 @@ export function AgentLimitsSection() {
 // ── Workspace ────────────────────────────────────────
 
 export function WorkspaceSection() {
-	const { state: { config }, actions: { update } } = useSettings();
+	const {
+		state: { config },
+		actions: { update },
+	} = useSettings();
 	const { state: appState } = use(AppContext)!;
 	const projectPath = appState.project?.path;
 	const [displayPath, setDisplayPath] = useState<string | null>(null);
@@ -236,23 +297,22 @@ export function WorkspaceSection() {
 		return () => window.removeEventListener("plot:folder-picked", handler);
 	}, [projectPath, update]);
 
-	const pickFolder = () => {
+	const pickFolder = useCallback(() => {
 		rpc().request.pickProjectFolder({});
-	};
+	}, []);
 
 	const shown = displayPath ?? config.workspace?.root ?? "./workspaces";
 
 	return (
-		<Row label="Workspace folder" description="Where agent branches are checked out">
+		<Row
+			label="Workspace folder"
+			description="Where agent branches are checked out"
+		>
 			<div className="flex items-center gap-2">
 				<span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
 					{shown}
 				</span>
-				<Button
-					size="xs"
-					variant="outline"
-					onClick={pickFolder}
-				>
+				<Button size="xs" variant="outline" onClick={pickFolder}>
 					Change
 				</Button>
 			</div>

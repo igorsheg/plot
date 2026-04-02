@@ -186,7 +186,7 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 					}
 				};
 
-				worker.onerror = (errorEvent: ErrorEvent) => {
+				worker.onerror = (_errorEvent: ErrorEvent) => {
 					Queue.offerUnsafe(mailbox, ProjectCommand.Exit({ code: 1 }));
 				};
 

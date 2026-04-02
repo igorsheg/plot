@@ -1,5 +1,6 @@
 {
 	"compilerOptions": {
+		"plugins": [{ "name": "@effect/language-service" }],
 		"target": "ESNext",
 		"module": "ESNext",
 		"moduleResolution": "bundler",

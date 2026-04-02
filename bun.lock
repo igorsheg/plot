@@ -8,6 +8,7 @@
         "@opentui/core": "0.1.87",
       },
       "devDependencies": {
+        "@effect/language-service": "^0.84.3",
         "oxfmt": "latest",
         "oxlint": "latest",
         "turbo": "^2.8.13",
@@ -275,6 +276,8 @@
     "@date-fns/tz": ["@date-fns/tz@1.4.1", "", {}, "sha512-P5LUNhtbj6YfI3iJjw5EL9eUAG6OitD0W3fWQcpQjDRc/QIsL0tRNuO1PcDvPccWL1fSTXXdE1ds+l95DV/OFA=="],
 
     "@dimforge/rapier2d-simd-compat": ["@dimforge/rapier2d-simd-compat@0.17.3", "", {}, "sha512-bijvwWz6NHsNj5e5i1vtd3dU2pDhthSaTUZSh14DUGGKJfw8eMnlWZsxwHBxB/a3AXVNDjL9abuHw1k9FGR+jg=="],
+
+    "@effect/language-service": ["@effect/language-service@0.84.3", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-zpxi6rLCwst/cBQd7ElwDvt36Y6Jvz8v6bCLnNiOL6OXvdLmqjOFWyzWZdMh92vvBQA/aVKhfIAAOP3o4wKt0A=="],
 
     "@effect/platform-bun": ["@effect/platform-bun@4.0.0-beta.34", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-beta.34" }, "peerDependencies": { "effect": "^4.0.0-beta.34" } }, "sha512-5tkieXTPz5DZMjsv2tLJn5sE+xUHk60W4Okebr7ygpmv4VXp637von4ERqtJZRJIJZMETp8v/uezOKf12HzBuQ=="],
 
