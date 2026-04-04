@@ -1,105 +1,94 @@
-import { Schema } from "effect";
-import { AgentRuntimeEvent } from "./events.js";
+import type { AgentRuntimeEvent } from "./events.js";
 
-export class ToolExecution extends Schema.Class<ToolExecution>("ToolExecution")({
-	toolCallId: Schema.String,
-	toolName: Schema.String,
-}) {}
+export type AgentPhase = "idle" | "thinking" | "tool_execution" | "compacting" | "retrying";
 
-export const AgentPhase = Schema.Literals([
-	"idle",
-	"thinking",
-	"tool_execution",
-	"compacting",
-	"retrying",
-]);
-export type AgentPhase = typeof AgentPhase.Type;
+export interface ToolExecution {
+	readonly toolCallId: string;
+	readonly toolName: string;
+}
 
-export class LiveSession extends Schema.Class<LiveSession>("LiveSession")({
-	sessionId: Schema.String,
-	threadId: Schema.String,
-	turnId: Schema.String,
-	agentPid: Schema.NullOr(Schema.String),
-	lastEvent: Schema.NullOr(Schema.String),
-	lastEventAt: Schema.NullOr(Schema.DateTimeUtcFromString),
-	lastMessage: Schema.NullOr(Schema.String),
-	inputTokens: Schema.Number,
-	outputTokens: Schema.Number,
-	totalTokens: Schema.Number,
-	turnCount: Schema.Number,
-	phase: AgentPhase,
-	activeTools: Schema.Array(ToolExecution),
-	lastAssistantMessage: Schema.NullOr(Schema.String),
-}) {}
+export interface LiveSession {
+	readonly sessionId: string;
+	readonly threadId: string;
+	readonly turnId: string;
+	readonly agentPid: string | null;
+	readonly lastEvent: string | null;
+	readonly lastEventAt: string | null;
+	readonly lastMessage: string | null;
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly totalTokens: number;
+	readonly turnCount: number;
+	readonly phase: AgentPhase;
+	readonly activeTools: readonly ToolExecution[];
+	readonly lastAssistantMessage: string | null;
+}
 
-export class RunningEntry extends Schema.Class<RunningEntry>("RunningEntry")({
-	issueId: Schema.String,
-	issueIdentifier: Schema.String,
-	state: Schema.String,
-	startedAt: Schema.DateTimeUtcFromString,
-	workspacePath: Schema.NullOr(Schema.String),
-	session: LiveSession,
-}) {}
+export interface RunningEntry {
+	readonly issueId: string;
+	readonly issueIdentifier: string;
+	readonly state: string;
+	readonly startedAt: string;
+	readonly workspacePath: string | null;
+	readonly session: LiveSession;
+}
 
-export class RetryEntry extends Schema.Class<RetryEntry>("RetryEntry")({
-	issueId: Schema.String,
-	identifier: Schema.String,
-	attempt: Schema.Number,
-	dueAt: Schema.DateTimeUtcFromString,
-	error: Schema.NullOr(Schema.String),
-}) {}
+export interface RetryEntry {
+	readonly issueId: string;
+	readonly identifier: string;
+	readonly attempt: number;
+	readonly dueAt: string;
+	readonly error: string | null;
+}
 
+export interface TokenTotals {
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly totalTokens: number;
+	readonly secondsRunning: number;
+}
 
-export class TokenTotals extends Schema.Class<TokenTotals>("TokenTotals")({
-	inputTokens: Schema.Number,
-	outputTokens: Schema.Number,
-	totalTokens: Schema.Number,
-	secondsRunning: Schema.Number,
-}) {}
+export interface RuntimeObservability {
+	readonly commandQueueDepth: number;
+	readonly commandQueuePeak: number;
+	readonly commandQueuePressureCount: number;
+	readonly staleRetryDropCount: number;
+	readonly retriesScheduledByReason: {
+		readonly continuation: number;
+		readonly failure: number;
+		readonly stall: number;
+		readonly backpressure: number;
+		readonly merge_conflict: number;
+	};
+	readonly workerStopsByReason: {
+		readonly terminal: number;
+		readonly inactive: number;
+		readonly stalled: number;
+	};
+	readonly workerExitsByReason: {
+		readonly success: number;
+		readonly interrupted: number;
+		readonly failure: number;
+	};
+}
 
-export class RuntimeObservability extends Schema.Class<RuntimeObservability>(
-	"RuntimeObservability",
-)({
-	commandQueueDepth: Schema.Number,
-	commandQueuePeak: Schema.Number,
-	commandQueuePressureCount: Schema.Number,
-	staleRetryDropCount: Schema.Number,
-	retriesScheduledByReason: Schema.Struct({
-		continuation: Schema.Number,
-		failure: Schema.Number,
-		stall: Schema.Number,
-		backpressure: Schema.Number,
-		merge_conflict: Schema.Number,
-	}),
-	workerStopsByReason: Schema.Struct({
-		terminal: Schema.Number,
-		inactive: Schema.Number,
-		stalled: Schema.Number,
-	}),
-	workerExitsByReason: Schema.Struct({
-		success: Schema.Number,
-		interrupted: Schema.Number,
-		failure: Schema.Number,
-	}),
-}) {}
+export interface RuntimeSnapshot {
+	readonly generatedAt: string;
+	readonly running: readonly RunningEntry[];
+	readonly retrying: readonly RetryEntry[];
+	readonly codexTotals: TokenTotals;
+	readonly observability: RuntimeObservability;
+}
 
-export class RuntimeSnapshot extends Schema.Class<RuntimeSnapshot>("RuntimeSnapshot")({
-	generatedAt: Schema.DateTimeUtcFromString,
-	running: Schema.Array(RunningEntry),
-	retrying: Schema.Array(RetryEntry),
-	codexTotals: TokenTotals,
-	observability: RuntimeObservability,
-}) {}
+export interface IssueEventLog {
+	readonly issueId: string;
+	readonly issueIdentifier: string;
+	readonly events: readonly AgentRuntimeEvent[];
+}
 
-export class IssueEventLog extends Schema.Class<IssueEventLog>("IssueEventLog")({
-	issueId: Schema.String,
-	issueIdentifier: Schema.String,
-	events: Schema.Array(AgentRuntimeEvent),
-}) {}
-
-export class RefreshResult extends Schema.Class<RefreshResult>("RefreshResult")({
-	queued: Schema.Boolean,
-	coalesced: Schema.Boolean,
-	requestedAt: Schema.DateTimeUtcFromString,
-	operations: Schema.Array(Schema.String),
-}) {}
+export interface RefreshResult {
+	readonly queued: boolean;
+	readonly coalesced: boolean;
+	readonly requestedAt: string;
+	readonly operations: readonly string[];
+}

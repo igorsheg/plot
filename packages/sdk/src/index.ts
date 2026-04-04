@@ -7,3 +7,4 @@ export * from "./schemas/health.js";
 export * from "./errors.js";
 export * from "./plugin/index.js";
 export * from "./catalog.js";
+export * from "./protocol.js";

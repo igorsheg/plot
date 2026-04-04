@@ -28,16 +28,7 @@
 	"dependencies": {
 		"@mariozechner/pi-ai": "^0.57.1"
 	},
-	"peerDependencies": {
-		"effect": ">=4.0.0-beta.0"
-	},
-	"peerDependenciesMeta": {
-		"effect": {
-			"optional": true
-		}
-	},
 	"devDependencies": {
-		"bun-types": "catalog:",
-		"effect": "catalog:"
+		"bun-types": "catalog:"
 	}
 }

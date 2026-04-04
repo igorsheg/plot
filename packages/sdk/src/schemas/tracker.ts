@@ -1,45 +1,15 @@
-import { Effect, Schema, ServiceMap } from "effect";
-import type { Issue, IssueStateEntry } from "./issue.js";
-import type { TrackerError } from "../errors.js";
-
-export class WorkpadSection extends Schema.Class<WorkpadSection>("WorkpadSection")({
-	title: Schema.String,
-	body: Schema.String,
-	itemCount: Schema.Number,
-}) {}
-
-export class TrackerRunContext extends Schema.Class<TrackerRunContext>("TrackerRunContext")({
-	raw: Schema.NullOr(Schema.String),
-	promptContext: Schema.NullOr(Schema.String),
-	workpad: Schema.NullOr(Schema.String),
-	reviewFeedback: Schema.NullOr(Schema.String),
-	workpadSections: Schema.Array(WorkpadSection),
-}) {}
-
-
-
-export interface TrackerClientShape {
-	readonly fetchCandidateIssues: (
-		dispatchStates: ReadonlyArray<string>,
-	) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
-
-	readonly fetchIssuesByStates: (
-		states: ReadonlyArray<string>,
-	) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
-
-	readonly fetchIssueStatesByIds: (
-		ids: ReadonlyArray<string>,
-	) => Effect.Effect<ReadonlyArray<IssueStateEntry>, TrackerError>;
-
-	readonly fetchRunContext: (
-		issueId: string,
-		state: string,
-	) => Effect.Effect<TrackerRunContext | null, TrackerError>;
-
+export interface WorkpadSection {
+	readonly title: string;
+	readonly body: string;
+	readonly itemCount: number;
 }
 
-export class TrackerClient extends ServiceMap.Service<TrackerClient, TrackerClientShape>()(
-	"TrackerClient",
-) {}
+export interface TrackerRunContext {
+	readonly raw: string | null;
+	readonly promptContext: string | null;
+	readonly workpad: string | null;
+	readonly reviewFeedback: string | null;
+	readonly workpadSections: readonly WorkpadSection[];
+}
 
 export type { TrackerPluginConfig } from "../plugin/types.js";

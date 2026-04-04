@@ -1,68 +1,63 @@
-import { Schema } from "effect";
+export interface TrackerConfig {
+	readonly kind: string;
+	readonly endpoint?: string;
+	readonly apiKey?: string;
+	readonly projectSlug?: string;
+	readonly dispatchStates?: readonly string[];
+	readonly parkedStates?: readonly string[];
+	readonly terminalStates?: readonly string[];
+	readonly [key: string]: unknown;
+}
 
-export const TrackerConfig = Schema.StructWithRest(
-	Schema.Struct({
-		kind: Schema.String,
-		endpoint: Schema.optional(Schema.String),
-		apiKey: Schema.optional(Schema.String),
-		projectSlug: Schema.optional(Schema.String),
-		dispatchStates: Schema.optional(Schema.Array(Schema.String)),
-		parkedStates: Schema.optional(Schema.Array(Schema.String)),
-		terminalStates: Schema.optional(Schema.Array(Schema.String)),
-	}),
-	[Schema.Record(Schema.String, Schema.Unknown)],
-);
-export type TrackerConfig = typeof TrackerConfig.Type;
+export interface PollingConfig {
+	readonly intervalMs?: number;
+}
 
-export class PollingConfig extends Schema.Class<PollingConfig>("PollingConfig")({
-	intervalMs: Schema.optional(Schema.Number),
-}) {}
+export interface WorkspaceConfig {
+	readonly root?: string;
+}
 
-export class WorkspaceConfig extends Schema.Class<WorkspaceConfig>("WorkspaceConfig")({
-	root: Schema.optional(Schema.String),
-}) {}
+export interface HooksConfig {
+	readonly afterCreate?: string;
+	readonly beforeRun?: string;
+	readonly afterRun?: string;
+	readonly beforeRemove?: string;
+	readonly timeoutMs?: number;
+}
 
-export class HooksConfig extends Schema.Class<HooksConfig>("HooksConfig")({
-	afterCreate: Schema.optional(Schema.String),
-	beforeRun: Schema.optional(Schema.String),
-	afterRun: Schema.optional(Schema.String),
-	beforeRemove: Schema.optional(Schema.String),
-	timeoutMs: Schema.optional(Schema.Number),
-}) {}
+export interface AgentConfig {
+	readonly maxConcurrentAgents?: number;
+	readonly maxTurns?: number;
+	readonly maxRetryBackoffMs?: number;
+	readonly maxConcurrentAgentsByState?: Record<string, number>;
+	readonly model?: string;
+	readonly modelByState?: Record<string, string>;
+	readonly modelByLabel?: Record<string, string>;
+}
 
-export class AgentConfig extends Schema.Class<AgentConfig>("AgentConfig")({
-	maxConcurrentAgents: Schema.optional(Schema.Number),
-	maxTurns: Schema.optional(Schema.Number),
-	maxRetryBackoffMs: Schema.optional(Schema.Number),
-	maxConcurrentAgentsByState: Schema.optional(Schema.Record(Schema.String, Schema.Number)),
-	model: Schema.optional(Schema.String),
-	modelByState: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-	modelByLabel: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-}) {}
+export interface AgentRuntimeConfig {
+	readonly command?: string;
+	readonly approvalPolicy?: string;
+	readonly turnTimeoutMs?: number;
+	readonly readTimeoutMs?: number;
+	readonly stallTimeoutMs?: number;
+}
 
-export class AgentRuntimeConfig extends Schema.Class<AgentRuntimeConfig>("AgentRuntimeConfig")({
-	command: Schema.optional(Schema.String),
-	approvalPolicy: Schema.optional(Schema.String),
-	turnTimeoutMs: Schema.optional(Schema.Number),
-	readTimeoutMs: Schema.optional(Schema.Number),
-	stallTimeoutMs: Schema.optional(Schema.Number),
-}) {}
+export interface ServerConfig {
+	readonly port?: number;
+}
 
-export class ServerConfig extends Schema.Class<ServerConfig>("ServerConfig")({
-	port: Schema.optional(Schema.Number),
-}) {}
+export interface WorkflowConfig {
+	readonly tracker?: TrackerConfig;
+	readonly polling?: PollingConfig;
+	readonly workspace?: WorkspaceConfig;
+	readonly hooks?: HooksConfig;
+	readonly agent?: AgentConfig;
+	readonly codex?: AgentRuntimeConfig;
+	readonly server?: ServerConfig;
+}
 
-export class WorkflowConfig extends Schema.Class<WorkflowConfig>("WorkflowConfig")({
-	tracker: Schema.optional(TrackerConfig),
-	polling: Schema.optional(PollingConfig),
-	workspace: Schema.optional(WorkspaceConfig),
-	hooks: Schema.optional(HooksConfig),
-	agent: Schema.optional(AgentConfig),
-	codex: Schema.optional(AgentRuntimeConfig),
-	server: Schema.optional(ServerConfig),
-}) {}
-
-export class WorkflowDefinition extends Schema.Class<WorkflowDefinition>("WorkflowDefinition")({
-	config: WorkflowConfig,
-	promptTemplate: Schema.String,
-}) {}
+export interface WorkflowDefinition {
+	readonly config: WorkflowConfig;
+	readonly promptTemplate: string;
+}
