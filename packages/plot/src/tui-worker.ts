@@ -1,17 +1,8 @@
 import { Console } from "node:console";
 import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import {
-	Config,
-	ConfigProvider,
-	Effect,
-	ManagedRuntime,
-	Stream,
-} from "effect";
-import type {
-	AgentRuntimeEvent,
-	RuntimeSnapshot,
-} from "@plot/sdk";
+import { Config, ConfigProvider, Effect, ManagedRuntime, Stream } from "effect";
+import { notification } from "@plot/sdk";
 import { Orchestrator } from "./core/index.js";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { ResolvedConfig } from "./core/config-service.js";
@@ -27,15 +18,6 @@ let runtime: ManagedRuntime.ManagedRuntime<
 	Orchestrator,
 	Config.ConfigError
 > | null = null;
-let orchestrator: Orchestrator["Service"] | null = null;
-
-function postSnapshot(snapshot: RuntimeSnapshot) {
-	self.postMessage({ type: "snapshot", snapshot });
-}
-
-function postEvent(event: AgentRuntimeEvent) {
-	self.postMessage({ type: "event", event });
-}
 
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
 	const message = event.data;
@@ -68,18 +50,20 @@ async function boot(env: Record<string, string>) {
 		const projectDir = dirname(config.workflowPath);
 		const overrides = await resolveOverrides(config.overrides, projectDir);
 		const resolved = new ResolvedConfig(workflowConfig, overrides, projectDir);
-		const resolvedPlugin = await Effect.runPromise(resolvePlugin(resolved, { refreshPlugins: config.refreshPlugins }));
+		const resolvedPlugin = await Effect.runPromise(
+			resolvePlugin(resolved, { refreshPlugins: config.refreshPlugins }),
+		);
 		runtime = makeOrchestratorRuntime(config, resolvedPlugin);
-		orchestrator = await runtime.runPromise(
+		const orchestrator = await runtime.runPromise(
 			Effect.gen(function* () {
 				return yield* Orchestrator;
 			}),
 		);
 
 		runtime.runFork(
-			Stream.runForEach(orchestrator.snapshotStream, (snap) =>
+			Stream.runForEach(orchestrator.snapshotStream, (snapshot) =>
 				Effect.sync(() => {
-					postSnapshot(snap);
+					self.postMessage(notification("state/update", { snapshot }));
 				}),
 			),
 		);
@@ -87,12 +71,17 @@ async function boot(env: Record<string, string>) {
 		runtime.runFork(
 			Stream.runForEach(orchestrator.eventStream, (event) =>
 				Effect.sync(() => {
-					postEvent(event);
+					self.postMessage(
+						notification("issue/event", { issueId: event.issueId, event }),
+					);
 				}),
 			),
 		);
 
-		postSnapshot(await runtime.runPromise(orchestrator.getSnapshot));
+		const initialSnapshot = await runtime.runPromise(orchestrator.getSnapshot);
+		self.postMessage(
+			notification("state/update", { snapshot: initialSnapshot }),
+		);
 		self.postMessage({ type: "ready" });
 	} catch (error) {
 		self.postMessage({

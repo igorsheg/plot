@@ -33,7 +33,11 @@ export function startWebServer(opts: {
 			const url = new URL(req.url);
 
 			if (url.pathname === "/events") {
-				return proxySse(engineUrl, url.pathname);
+				return proxySse(engineUrl, url.pathname + url.search);
+			}
+
+			if (url.pathname === "/rpc" && req.method === "POST") {
+				return proxyRpc(engineUrl, req);
 			}
 
 			if (url.pathname === "/health") {
@@ -52,8 +56,11 @@ export function startWebServer(opts: {
 	};
 }
 
-async function proxySse(engineUrl: string, path: string): Promise<Response> {
-	const upstream = await fetch(`${engineUrl}${path}`);
+async function proxySse(
+	engineUrl: string,
+	pathAndQuery: string,
+): Promise<Response> {
+	const upstream = await fetch(`${engineUrl}${pathAndQuery}`);
 
 	if (!upstream.ok || !upstream.body) {
 		return new Response(upstream.statusText, { status: upstream.status });
@@ -66,6 +73,18 @@ async function proxySse(engineUrl: string, path: string): Promise<Response> {
 			"X-Accel-Buffering": "no",
 			Connection: "keep-alive",
 		},
+	});
+}
+
+async function proxyRpc(engineUrl: string, req: Request): Promise<Response> {
+	const upstream = await fetch(`${engineUrl}/rpc`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: req.body,
+	});
+	return new Response(upstream.body, {
+		status: upstream.status,
+		headers: { "Content-Type": "application/json" },
 	});
 }
 
