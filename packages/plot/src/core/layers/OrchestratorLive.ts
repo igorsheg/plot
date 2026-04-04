@@ -29,7 +29,9 @@ import {
 	TrackerClient,
 	LiveSession,
 } from "@plot/sdk";
+import { dirname } from "node:path";
 import { ResolvedConfig } from "../config-service.js";
+import { resolveOverrides } from "../../lib/detect-repo.js";
 import { AgentService } from "../../agent/agent-service.js";
 import { WorkflowLoader } from "../workflow-loader.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
@@ -254,9 +256,41 @@ export const OrchestratorLive = Layer.effect(
 			});
 		});
 
+		const logAgentEvent = (event: AgentRuntimeEvent) => {
+			const annotations: Record<string, string> = {
+				issue_id: event.issueId,
+				identifier: event.issueIdentifier,
+			};
+			if (event.toolName) annotations["tool"] = event.toolName;
+			if (event.isError) annotations["error"] = "true";
+			if (event.usage) {
+				annotations["tokens_in"] = String(event.usage.inputTokens);
+				annotations["tokens_out"] = String(event.usage.outputTokens);
+			}
+			if (event.message) annotations["message"] = event.message.slice(0, 200);
+
+			switch (event.event) {
+				case "agent_start":
+				case "agent_end":
+					return Effect.logInfo(event.event).pipe(Effect.annotateLogs(annotations));
+				case "turn_start":
+				case "turn_end":
+				case "tool_execution_start":
+				case "tool_execution_end":
+					return Effect.logDebug(event.event).pipe(Effect.annotateLogs(annotations));
+				case "notification":
+					return event.isError
+						? Effect.logWarning(event.event).pipe(Effect.annotateLogs(annotations))
+						: Effect.logInfo(event.event).pipe(Effect.annotateLogs(annotations));
+				default:
+					return Effect.void;
+			}
+		};
+
 		const consumeEvent = Effect.fn(function* (event: AgentRuntimeEvent) {
 			const now = yield* Clock.currentTimeMillis;
 			yield* updateState((s) => consumeRuntimeEvent(s, event, now));
+			yield* logAgentEvent(event);
 		});
 
 		const dispatchRuntime = makeDispatchRuntime({
@@ -337,17 +371,19 @@ export const OrchestratorLive = Layer.effect(
 			yield* Effect.sleep(`${interval} millis`);
 		}).pipe(Effect.forever);
 
-		const syncConfig = Effect.gen(function* () {
+		const syncConfig = (projectDir: string) => Effect.gen(function* () {
 			const wf = yield* workflowLoader.getCurrent;
 			if (!wf) return;
-			const resolved = new ResolvedConfig(wf.config, overrides);
-			yield* Effect.sync(() => registry.set(configAtom, resolved));
+			const resolved = yield* Effect.promise(() => resolveOverrides(overrides, projectDir));
+			const config = new ResolvedConfig(wf.config, resolved, projectDir);
+			yield* Effect.sync(() => registry.set(configAtom, config));
 		});
 
 		const start = Effect.fn(function* (workflowPath: string) {
 			yield* workflowLoader.load(workflowPath).pipe(Effect.catch((e) => Effect.die(e)));
+			const projectDir = dirname(workflowPath);
 
-			yield* syncConfig;
+			yield* syncConfig(projectDir);
 
 			const config = yield* getConfig;
 
@@ -361,7 +397,7 @@ export const OrchestratorLive = Layer.effect(
 
 			yield* workflowLoader.startWatching(workflowPath);
 
-			const configWatchLoop = syncConfig.pipe(
+			const configWatchLoop = syncConfig(projectDir).pipe(
 				Effect.delay(Duration.seconds(5)),
 				Effect.forever,
 				Effect.forkScoped,

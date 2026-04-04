@@ -17,6 +17,7 @@ import { Orchestrator } from "./core/index.js";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { ResolvedConfig } from "./core/config-service.js";
 import { makeOrchestratorRuntime, resolvePlugin } from "./runtime-builder.js";
+import { resolveOverrides } from "./lib/detect-repo.js";
 
 type StartMessage = { type: "start"; env: Record<string, string> };
 type StopMessage = { type: "stop" };
@@ -68,7 +69,9 @@ async function boot(env: Record<string, string>) {
 		);
 		const content = readFileSync(config.workflowPath, "utf-8");
 		const workflowConfig = parseWorkflowFrontmatter(content);
-		const resolved = new ResolvedConfig(workflowConfig, config.overrides);
+		const projectDir = dirname(config.workflowPath);
+		const overrides = await resolveOverrides(config.overrides, projectDir);
+		const resolved = new ResolvedConfig(workflowConfig, overrides, projectDir);
 		const resolvedPlugin = await Effect.runPromise(resolvePlugin(resolved, { refreshPlugins: config.refreshPlugins }));
 		runtime = makeOrchestratorRuntime(config, resolvedPlugin);
 		orchestrator = await runtime.runPromise(

@@ -84,6 +84,7 @@ const fetchCandidateIssues = async (options: {
 
 	const config = await plugin.validateConfig!({
 		kind: "github",
+		githubRepo: "test-owner/test-repo",
 		dispatchStates: options.dispatchStates,
 		parkedStates: options.parkedStates,
 		terminalStates: options.terminalStates,

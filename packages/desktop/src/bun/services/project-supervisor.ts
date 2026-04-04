@@ -33,7 +33,7 @@ function buildWorkerEnv(workflowPath: string, logPath: string): Record<string, s
 		PLOT_WORKFLOW: workflowPath,
 		PLOT_PORT: "0",
 		PLOT_LOG_FORMAT: "json",
-		PLOT_LOG_LEVEL: "none",
+		PLOT_LOG_LEVEL: "info",
 		PLOT_WEB_ENABLED: "0",
 		PLOT_WEB_DIST_DIR: "",
 		PLOT_TUI_SERVER_LOG_PATH: logPath,

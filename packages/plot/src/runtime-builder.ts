@@ -351,8 +351,7 @@ export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginO
 		}
 
 		const config = yield* resolveDefinitionConfig(definition, rawConfig);
-		const result = yield* makeResolvedPlugin(definition, config);
-		return result;
+		return yield* makeResolvedPlugin(definition, config);
 	});
 }
 

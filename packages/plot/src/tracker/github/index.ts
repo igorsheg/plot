@@ -48,16 +48,6 @@ function parseRepoSlug(slug: string): { owner: string; repo: string } {
 	return { owner, repo };
 }
 
-async function detectRepo(): Promise<{ owner: string; repo: string }> {
-	const data = await ghApiJson<{ nameWithOwner: string }>([
-		"repo",
-		"view",
-		"--json",
-		"nameWithOwner",
-	]);
-	return parseRepoSlug(data.nameWithOwner);
-}
-
 interface GhIssue {
 	readonly number: number;
 	readonly title: string;
@@ -256,9 +246,10 @@ export default defineTracker<GithubTrackerConfig, GithubSetup>({
 	},
 	async setup(ctx) {
 		await getAuthToken();
-		const { owner, repo } = ctx.config.githubRepo
-			? parseRepoSlug(ctx.config.githubRepo)
-			: await detectRepo();
+		if (!ctx.config.githubRepo) {
+			throw new Error("githubRepo is required — it should be resolved at startup from the project directory or set explicitly via github_repo in WORKFLOW.md");
+		}
+		const { owner, repo } = parseRepoSlug(ctx.config.githubRepo);
 		const repoArgs = ["--repo", `${owner}/${repo}`];
 		const ops = createGithubOps({
 			owner,

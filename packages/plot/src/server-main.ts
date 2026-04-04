@@ -1,10 +1,12 @@
 import { BunRuntime } from "@effect/platform-bun";
 import { ConfigProvider, Effect, Layer } from "effect";
+import { dirname } from "node:path";
 import { makeServer } from "./server.js";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { ResolvedConfig } from "./core/config-service.js";
 import { resolvePlugin } from "./runtime-builder.js";
 import { PluginInitError, ServerStartupError } from "./core/errors.js";
+import { resolveOverrides } from "./lib/detect-repo.js";
 
 interface StartupErrorPayload {
 	readonly _tag: string;
@@ -57,7 +59,9 @@ export async function runServerMain(
 			Bun.file(config.workflowPath).text(),
 		);
 		const workflowConfig = parseWorkflowFrontmatter(content);
-		const resolved = new ResolvedConfig(workflowConfig, config.overrides);
+		const projectDir = dirname(config.workflowPath);
+		const overrides = yield* Effect.promise(() => resolveOverrides(config.overrides, projectDir));
+		const resolved = new ResolvedConfig(workflowConfig, overrides, projectDir);
 		const resolvedPlugin = yield* resolvePlugin(resolved, { refreshPlugins: config.refreshPlugins });
 
 		return yield* Layer.launch(makeServer(config, resolvedPlugin));

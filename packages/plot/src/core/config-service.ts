@@ -58,8 +58,10 @@ export class ResolvedConfig {
 	readonly stallTimeoutMs: number;
 	readonly serverPort: number | undefined;
 	readonly githubRepo: string;
+	readonly projectDir: string;
 
-	constructor(wf: WorkflowConfig, overrides?: WorkflowOverrides) {
+	constructor(wf: WorkflowConfig, overrides?: WorkflowOverrides, projectDir?: string) {
+		this.projectDir = projectDir ?? process.cwd();
 		this.trackerKind = overrides?.trackerKind ?? wf.tracker?.kind ?? "github";
 		this.trackerEndpoint = wf.tracker?.endpoint ?? "";
 		this.trackerApiKey = resolveEnvValue(wf.tracker?.apiKey);
