@@ -6,10 +6,9 @@ import {
 	ConfigProvider,
 	Effect,
 	ManagedRuntime,
-	Schema,
 	Stream,
 } from "effect";
-import {
+import type {
 	AgentRuntimeEvent,
 	RuntimeSnapshot,
 } from "@plot/sdk";
@@ -23,9 +22,6 @@ type StartMessage = { type: "start"; env: Record<string, string> };
 type StopMessage = { type: "stop" };
 type WorkerMessage = StartMessage | StopMessage;
 
-const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
-const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
-
 let started = false;
 let runtime: ManagedRuntime.ManagedRuntime<
 	Orchestrator,
@@ -34,11 +30,11 @@ let runtime: ManagedRuntime.ManagedRuntime<
 let orchestrator: Orchestrator["Service"] | null = null;
 
 function postSnapshot(snapshot: RuntimeSnapshot) {
-	self.postMessage({ type: "snapshot", snapshot: encodeSnapshot(snapshot) });
+	self.postMessage({ type: "snapshot", snapshot });
 }
 
 function postEvent(event: AgentRuntimeEvent) {
-	self.postMessage({ type: "event", event: encodeEvent(event) });
+	self.postMessage({ type: "event", event });
 }
 
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {

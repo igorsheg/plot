@@ -6,11 +6,10 @@ import {
 	FileSystem,
 	Layer,
 	Ref,
-	Schema,
 	ServiceMap,
 } from "effect";
 import matter from "gray-matter";
-import { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
+import type { WorkflowDefinition, WorkflowConfig } from "@plot/sdk";
 import { WorkflowFileNotFound, WorkflowParseError } from "./errors.js";
 
 const snakeToCamel = (s: string): string =>
@@ -64,16 +63,9 @@ export class WorkflowLoader extends ServiceMap.Service<WorkflowLoader>()(
 					catch: (e) => new WorkflowParseError({ message: String(e) }),
 				});
 
-				const config = yield* Schema.decodeUnknownEffect(WorkflowConfig)(
-					configRaw,
-				).pipe(
-					Effect.mapError(
-						(e) =>
-							new WorkflowParseError({ message: `Config validation: ${e}` }),
-					),
-				);
+				const config = configRaw as WorkflowConfig;
 
-				return new WorkflowDefinition({ config, promptTemplate });
+				return { config, promptTemplate } satisfies WorkflowDefinition;
 			});
 
 			const workflowCache = yield* Cache.makeWith({

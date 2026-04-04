@@ -1,5 +1,5 @@
-import { Config, Effect, Option, Schema } from "effect";
-import { WorkflowConfig } from "@plot/sdk";
+import { Config, Effect, Option } from "effect";
+import type { WorkflowConfig } from "@plot/sdk";
 import { WorkflowParseError } from "./core/errors.js";
 import { extractFrontmatter } from "./core/workflow-loader.js";
 
@@ -66,7 +66,7 @@ export const ServerConfig: Config.Config<ServerConfig> = Config.all({
 export function parseWorkflowFrontmatter(content: string): WorkflowConfig {
 	try {
 		const { configRaw } = extractFrontmatter(content);
-		return Schema.decodeUnknownSync(WorkflowConfig)(configRaw);
+		return configRaw as WorkflowConfig;
 	} catch (error) {
 		throw new WorkflowParseError({
 			message: error instanceof Error ? error.message : `workflow parse failed: ${String(error)}`,

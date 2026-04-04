@@ -2,7 +2,6 @@ import {
 	Cause,
 	Clock,
 	Config,
-	DateTime,
 	Duration,
 	Effect,
 	Fiber,
@@ -14,21 +13,20 @@ import {
 	Stream,
 } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
-import {
-	type AgentRuntimeEvent,
+import type {
+	AgentRuntimeEvent,
 	IssueEventLog,
-	IssueNotFound,
-	OrchestratorUnavailable,
 	RefreshResult,
-	RetryEntry,
-	RunningEntry,
-	RuntimeObservability,
+	RunningEntry as SdkRunningEntry,
+	RetryEntry as SdkRetryEntry,
 	RuntimeSnapshot,
 	TokenTotals,
+	RuntimeObservability,
 	ToolExecution,
-	TrackerClient,
 	LiveSession,
 } from "@plot/sdk";
+import { IssueNotFound, OrchestratorUnavailable } from "@plot/sdk";
+import { TrackerClient } from "../services/TrackerClient.js";
 import { dirname } from "node:path";
 import { ResolvedConfig } from "../config-service.js";
 import { resolveOverrides } from "../../lib/detect-repo.js";
@@ -75,31 +73,31 @@ const mapRunningEntry = (r: {
 	phase?: "idle" | "thinking" | "tool_execution" | "compacting" | "retrying";
 	activeTools?: ReadonlyArray<{ toolCallId: string; toolName: string }>;
 	lastAssistantMessage?: string | null;
-}) => {
+}): SdkRunningEntry => {
 	const { threadId, turnId } = parseSessionId(r.sessionId);
-	return new RunningEntry({
+	return {
 		issueId: r.issueId,
 		issueIdentifier: r.issueIdentifier,
 		state: r.state,
-		startedAt: DateTime.fromDateUnsafe(new Date(r.startedAt)),
+		startedAt: new Date(r.startedAt).toISOString(),
 		workspacePath: r.workspacePath,
-		session: new LiveSession({
+		session: {
 			sessionId: r.sessionId ?? "",
 			threadId,
 			turnId,
 			agentPid: null,
 			lastEvent: null,
-			lastEventAt: r.lastEventAt ? DateTime.fromDateUnsafe(new Date(r.lastEventAt)) : null,
+			lastEventAt: r.lastEventAt ? new Date(r.lastEventAt).toISOString() : null,
 			lastMessage: r.lastMessage,
 			inputTokens: r.inputTokens,
 			outputTokens: r.outputTokens,
 			totalTokens: r.totalTokens,
 			turnCount: r.turnCount,
 			phase: r.phase ?? "idle",
-			activeTools: (r.activeTools ?? []).map((t) => new ToolExecution(t)),
+			activeTools: (r.activeTools ?? []).map((t): ToolExecution => ({ toolCallId: t.toolCallId, toolName: t.toolName })),
 			lastAssistantMessage: r.lastAssistantMessage ?? null,
-		}),
-	});
+		} satisfies LiveSession,
+	};
 };
 
 const mapRetryEntry = (r: {
@@ -108,14 +106,13 @@ const mapRetryEntry = (r: {
 	attempt: number;
 	dueAtMs: number;
 	error: string | null;
-}) =>
-	new RetryEntry({
-		issueId: r.issueId,
-		identifier: r.identifier,
-		attempt: r.attempt,
-		dueAt: DateTime.fromDateUnsafe(new Date(r.dueAtMs)),
-		error: r.error,
-	});
+}): SdkRetryEntry => ({
+	issueId: r.issueId,
+	identifier: r.identifier,
+	attempt: r.attempt,
+	dueAt: new Date(r.dueAtMs).toISOString(),
+	error: r.error,
+});
 
 const withOrchestratorAvailability = <A, E>(
 	effect: Effect.Effect<A, E>,
@@ -157,7 +154,7 @@ const mapRuntimeSnapshot = (state: {
 		interrupted: number;
 		failure: number;
 	};
-}) => {
+}): RuntimeSnapshot => {
 	const running = [...state.running.values()].map(mapRunningEntry);
 	const retrying = [...state.retryAttempts.values()].map(mapRetryEntry);
 	const now = Date.now();
@@ -166,17 +163,17 @@ const mapRuntimeSnapshot = (state: {
 		0,
 	);
 
-	return new RuntimeSnapshot({
-		generatedAt: DateTime.nowUnsafe(),
+	return {
+		generatedAt: new Date().toISOString(),
 		running,
 		retrying,
-		codexTotals: new TokenTotals({
+		codexTotals: {
 			inputTokens: state.totalInputTokens,
 			outputTokens: state.totalOutputTokens,
 			totalTokens: state.totalTokens,
 			secondsRunning: state.endedSessionSeconds + activeSeconds,
-		}),
-		observability: new RuntimeObservability({
+		} satisfies TokenTotals,
+		observability: {
 			commandQueueDepth: state.commandQueueDepth,
 			commandQueuePeak: state.commandQueuePeak,
 			commandQueuePressureCount: state.commandQueuePressureCount,
@@ -184,8 +181,8 @@ const mapRuntimeSnapshot = (state: {
 			retriesScheduledByReason: state.retriesScheduledByReason,
 			workerStopsByReason: state.workerStopsByReason,
 			workerExitsByReason: state.workerExitsByReason,
-		}),
-	});
+		} satisfies RuntimeObservability,
+	};
 };
 
 export const OrchestratorLive = Layer.effect(
@@ -424,26 +421,26 @@ export const OrchestratorLive = Layer.effect(
 			const state = yield* withOrchestratorAvailability(getState);
 			const log = [...state.eventLogs.values()].find((l) => l.issueIdentifier === identifier);
 			if (!log) {
-				return yield* new IssueNotFound({
+				return yield* Effect.fail(new IssueNotFound({
 						identifier,
 						message: `Event log not found: ${identifier}`,
-					});
+					}));
 			}
-			return new IssueEventLog({
+			return {
 				issueId: log.issueId,
 				issueIdentifier: log.issueIdentifier,
 				events: [...log.events],
-			});
+			} satisfies IssueEventLog;
 		});
 
 		const triggerRefresh = Effect.gen(function* () {
 			yield* withOrchestratorAvailability(tick);
-			return new RefreshResult({
+			return {
 				queued: true,
 				coalesced: false,
-				requestedAt: DateTime.nowUnsafe(),
+				requestedAt: new Date().toISOString(),
 				operations: ["poll", "reconcile"],
-			});
+			} satisfies RefreshResult;
 		});
 
 		return {

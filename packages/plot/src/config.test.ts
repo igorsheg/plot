@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ConfigProvider, Effect } from "effect";
-import { TrackerConfig, WorkflowConfig } from "@plot/sdk";
+import type { TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
 import { WorkflowParseError } from "./core/errors.js";
 import { ResolvedConfig } from "./core/config-service.js";
@@ -107,7 +107,7 @@ template content`;
 
 describe("ResolvedConfig", () => {
 	test("uses namespaced github tracker defaults", () => {
-		const config = new ResolvedConfig(new WorkflowConfig({}));
+		const config = new ResolvedConfig({} satisfies WorkflowConfig);
 
 		expect(config.dispatchStates).toEqual(["plot:todo", "plot:in-progress"]);
 		expect(config.parkedStates).toEqual(["plot:human-review"]);
@@ -121,11 +121,11 @@ describe("ResolvedConfig", () => {
 	});
 
 	test("uses github repo override", () => {
-		const workflowConfig = new WorkflowConfig({
+		const workflowConfig: WorkflowConfig = {
 			tracker: {
 				kind: "github",
 			} as TrackerConfig,
-		});
+		};
 
 		expect(new ResolvedConfig(workflowConfig).githubRepo).toBe("");
 		expect(new ResolvedConfig(workflowConfig, { githubRepo: "override/repo" }).githubRepo).toBe(

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TrackerClient } from "@plot/sdk";
+import { TrackerClient } from "../core/services/TrackerClient.js";
 import { Effect } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

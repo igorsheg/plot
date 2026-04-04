@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DateTime } from "effect";
-import { AgentRuntimeEvent } from "@plot/sdk";
+import type { AgentRuntimeEvent } from "@plot/sdk";
 import { appendToEventLog, clearEventLog, initialState } from "./orchestrator-state.js";
 
 const makeEvent = (
@@ -10,16 +9,15 @@ const makeEvent = (
 		issueId: string;
 		timestamp: number;
 	}> = {},
-) =>
-	new AgentRuntimeEvent({
-		event: overrides.event ?? "notification",
-		timestamp: DateTime.makeUnsafe(overrides.timestamp ?? Date.now()),
-		agentPid: null,
-		issueId: overrides.issueId ?? "issue-1",
-		issueIdentifier: "#1",
-		sessionId: null,
-		message: overrides.message ?? "hello",
-	});
+): AgentRuntimeEvent => ({
+	event: overrides.event ?? "notification",
+	timestamp: new Date(overrides.timestamp ?? Date.now()).toISOString(),
+	agentPid: null,
+	issueId: overrides.issueId ?? "issue-1",
+	issueIdentifier: "#1",
+	sessionId: null,
+	message: overrides.message ?? "hello",
+});
 
 describe("appendToEventLog", () => {
 	test("appends non-notification events normally", () => {
@@ -76,7 +74,7 @@ describe("appendToEventLog", () => {
 		state = appendToEventLog(state, makeEvent({ message: "b", timestamp: 2000 }));
 
 		const events = state.eventLogs.get("issue-1")!.events;
-		expect(Number(DateTime.toEpochMillis(events[0]!.timestamp))).toBe(2000);
+		expect(new Date(events[0]!.timestamp).getTime()).toBe(2000);
 	});
 });
 

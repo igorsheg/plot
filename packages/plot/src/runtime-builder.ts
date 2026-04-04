@@ -25,13 +25,9 @@ import {
 	TrackerNotFoundError,
 	TrackerRateLimitError,
 	TrackerValidationError,
-	TrackerClient,
-	TrackerRunContext,
-	WorkpadSection,
-	Issue,
-	IssueStateEntry,
-	BlockerRef,
 } from "@plot/sdk";
+import type { Issue, IssueStateEntry, TrackerRunContext, WorkpadSection, BlockerRef } from "@plot/sdk";
+import { TrackerClient } from "./core/services/TrackerClient.js";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
 import { Orchestrator, OrchestratorLive, WorkspaceManagerLive } from "./core/index.js";
@@ -95,7 +91,7 @@ function mapPluginError(error: unknown, operation: string): TrackerError {
 
 
 function normalizeIssue(plain: TrackerIssue): Issue {
-	return new Issue({
+	return {
 		id: plain.id,
 		identifier: plain.identifier,
 		title: plain.title,
@@ -106,57 +102,60 @@ function normalizeIssue(plain: TrackerIssue): Issue {
 		url: plain.url ?? null,
 		labels: Array.from(plain.labels),
 		blockedBy: plain.blockedBy?.map(
-			(b) =>
-				new BlockerRef({
-					id: b.id ?? null,
-					identifier: b.identifier ?? null,
-					state: b.state ?? null,
-				}),
+			(b): BlockerRef => ({
+				id: b.id ?? null,
+				identifier: b.identifier ?? null,
+				state: b.state ?? null,
+			}),
 		),
 		metadata: plain.metadata,
 		autoMerge: plain.autoMerge,
 		createdAt: plain.createdAt,
 		updatedAt: plain.updatedAt,
-	});
+	};
 }
 
 function normalizeIssueStateEntry(plain: TrackerIssueState): IssueStateEntry {
-	return new IssueStateEntry({ id: plain.id, state: plain.state });
+	return { id: plain.id, state: plain.state };
 }
 
 function normalizeRunContext(raw: TrackerRunContextRaw | null): TrackerRunContext | null {
 	if (raw == null) return null;
 	const built = buildRunContext(raw);
 	if (built == null) return null;
-	return new TrackerRunContext({
+	return {
 		raw: built.raw ?? null,
 		promptContext: built.promptContext ?? null,
 		workpad: built.workpad ?? null,
 		reviewFeedback: built.reviewFeedback ?? null,
-		workpadSections: (built.workpadSections ?? []).map((s) => new WorkpadSection(s)),
-	});
+		workpadSections: (built.workpadSections ?? []).map((s): WorkpadSection => ({
+			title: s.title,
+			body: s.body,
+			itemCount: s.itemCount,
+		})),
+	};
 }
 
 function adaptTrackerClient(plain: TrackerPluginClient): Layer.Layer<TrackerClient> {
 	return Layer.succeed(
 		TrackerClient,
 		TrackerClient.of({
-			fetchCandidateIssues: (dispatchStates) =>
+			fetchCandidateIssues: (dispatchStates: ReadonlyArray<string>) =>
 				Effect.tryPromise({
 					try: () => plain.fetchCandidateIssues(dispatchStates),
 					catch: (e) => mapPluginError(e, "fetchCandidateIssues"),
 				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
-			fetchIssuesByStates: (states) =>
+			fetchIssuesByStates: (states: ReadonlyArray<string>) =>
 				Effect.tryPromise({
 					try: () => plain.fetchIssuesByStates?.(states) ?? Promise.resolve([]),
 					catch: (e) => mapPluginError(e, "fetchIssuesByStates"),
 				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
-			fetchIssueStatesByIds: (ids) =>
+			fetchIssueStatesByIds: (ids: ReadonlyArray<string>) =>
 				Effect.tryPromise({
 					try: () => plain.fetchIssueStatesByIds?.(ids) ?? Promise.resolve([]),
 					catch: (e) => mapPluginError(e, "fetchIssueStatesByIds"),
 				}).pipe(Effect.map((entries) => entries.map(normalizeIssueStateEntry))),
-			fetchRunContext: (issueId, state) =>
+			fetchRunContext: (issueId: string, state: string) =>
 				Effect.tryPromise({
 					try: () => plain.fetchRunContext?.(issueId, state) ?? Promise.resolve(null),
 					catch: (e) => mapPluginError(e, "fetchRunContext"),

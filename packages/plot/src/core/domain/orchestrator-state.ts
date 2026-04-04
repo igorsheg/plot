@@ -1,6 +1,6 @@
 import { Fiber } from "effect";
-import { AgentRuntimeEvent, normalizeState } from "@plot/sdk";
-import type { Issue } from "@plot/sdk";
+import { normalizeState } from "@plot/sdk";
+import type { AgentRuntimeEvent, Issue } from "@plot/sdk";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentEventType, AgentPhase } from "@plot/sdk";
 
@@ -384,11 +384,11 @@ const coalesceNotification = (
 	if (event.event !== "notification" || prev.length === 0) return null;
 	const last = prev[prev.length - 1]!;
 	if (last.event !== "notification" || last.issueId !== event.issueId) return null;
-	const merged = new AgentRuntimeEvent({
+	const merged: AgentRuntimeEvent = {
 		...last,
 		timestamp: event.timestamp,
 		message: (last.message ?? "") + (event.message ?? ""),
-	});
+	};
 	const next = prev.slice(0, -1);
 	return [...next, merged];
 };

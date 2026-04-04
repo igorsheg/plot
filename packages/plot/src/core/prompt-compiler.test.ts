@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Issue, TrackerRunContext, WorkpadSection } from "@plot/sdk";
+import type { Issue, TrackerRunContext, WorkpadSection } from "@plot/sdk";
 import { buildRunContext } from "@plot/sdk";
 import { compilePrompt } from "./prompt-compiler.js";
 
-const issue = new Issue({
+const issue: Issue = {
 	id: "1",
 	identifier: "#1",
 	title: "stabilize prompt compiler",
@@ -15,7 +15,7 @@ const issue = new Issue({
 	blockedBy: [],
 	createdAt: null,
 	updatedAt: null,
-});
+};
 
 describe("compilePrompt", () => {
 	test("splits stable system policy from volatile user context", async () => {
@@ -34,16 +34,20 @@ describe("compilePrompt", () => {
 - blocked: none`,
 			reviewFeedback: "need clearer retry context",
 		});
-		const runContext = plain
-			? new TrackerRunContext({
+		const runContext: TrackerRunContext | null = plain
+			? {
 					raw: plain.raw ?? null,
 					promptContext: plain.promptContext ?? null,
 					workpad: plain.workpad ?? null,
 					reviewFeedback: plain.reviewFeedback ?? null,
 					workpadSections: (plain.workpadSections ?? []).map(
-						(s) => new WorkpadSection(s),
+						(s): WorkpadSection => ({
+							title: s.title,
+							body: s.body,
+							itemCount: s.itemCount,
+						}),
 					),
-				})
+				}
 			: null;
 
 		const compiled = await Effect.runPromise(

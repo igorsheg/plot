@@ -1,5 +1,4 @@
-import { Schema } from "effect";
-import {
+import type {
 	AgentRuntimeEvent,
 	RuntimeSnapshot,
 } from "@plot/sdk";
@@ -18,9 +17,6 @@ type WorkerMessage =
 	| WorkerSnapshotMessage
 	| WorkerEventMessage
 	| WorkerErrorMessage;
-
-const decodeSnapshot = Schema.decodeUnknownSync(RuntimeSnapshot);
-const decodeEvent = Schema.decodeUnknownSync(AgentRuntimeEvent);
 
 export interface TuiRuntimeHandle {
 	api: RuntimeApi;
@@ -52,11 +48,11 @@ export async function createTuiRuntimeHandle(
 				return;
 			}
 			if (message.type === "snapshot") {
-				onSnapshot?.(decodeSnapshot(message.snapshot));
+				onSnapshot?.(message.snapshot as RuntimeSnapshot);
 				return;
 			}
 			if (message.type === "event") {
-				onEvent?.(decodeEvent(message.event));
+				onEvent?.(message.event as AgentRuntimeEvent);
 				return;
 			}
 			if (message.type === "error") {
@@ -98,7 +94,7 @@ export async function createTuiRuntimeHandle(
 					onEvent = null;
 				};
 			},
-		},
+		} as RuntimeApi,
 		close,
 		logPath,
 	};

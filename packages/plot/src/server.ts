@@ -1,7 +1,7 @@
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { BunHttpServer } from "@effect/platform-bun";
-import { Effect, Layer, Schedule, Schema, Stream } from "effect";
-import { RuntimeSnapshot, AgentRuntimeEvent, HealthResponse, HealthCheckResult } from "@plot/sdk";
+import { Effect, Layer, Schedule, Stream } from "effect";
+import type { HealthResponse, HealthCheckResult } from "@plot/sdk";
 import { Orchestrator } from "./core/index.js";
 import type { ServerConfig } from "./config.js";
 import {
@@ -19,8 +19,6 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	const StartupLive = makeStartupLayer(config, resolvedPlugin);
 
 	const encoder = new TextEncoder();
-	const encodeSnapshot = Schema.encodeSync(RuntimeSnapshot);
-	const encodeEvent = Schema.encodeSync(AgentRuntimeEvent);
 
 	let nextId = 0;
 	function sseFrame(event: string, data: string): Uint8Array {
@@ -38,10 +36,10 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 						Stream.mapEffect((get) => get),
 					);
 					const snapshots = Stream.concat(initial, orchestrator.snapshotStream).pipe(
-						Stream.map((s) => sseFrame("snapshot", JSON.stringify(encodeSnapshot(s)))),
+						Stream.map((s) => sseFrame("snapshot", JSON.stringify(s))),
 					);
 					const agents = orchestrator.eventStream.pipe(
-						Stream.map((e) => sseFrame("agent", JSON.stringify(encodeEvent(e)))),
+						Stream.map((e) => sseFrame("agent", JSON.stringify(e))),
 					);
 					const heartbeat = Stream.repeat(
 						Stream.succeed(encoder.encode(": heartbeat\n\n")),
@@ -64,7 +62,6 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 	).pipe(Layer.provide(OrchestratorLive));
 
 	const startedAt = Date.now();
-	const encodeHealth = Schema.encodeSync(HealthResponse);
 
 	const HealthLive = HttpRouter.use(
 		Effect.fn(function* (router) {
@@ -77,29 +74,29 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 					const uptimeSeconds = Math.floor((Date.now() - startedAt) / 1000);
 					const version = process.env["PLOT_VERSION"] ?? "0.0.1";
 
-					const response = new HealthResponse({
+					const response: HealthResponse = {
 						status: "pass",
 						version,
 						description: "plot-ai orchestrator",
 						checks: {
 							"orchestrator:uptime": [
-								new HealthCheckResult({
+								{
 									observedValue: uptimeSeconds,
 									observedUnit: "s",
 									status: "pass",
-								}),
+								} satisfies HealthCheckResult,
 							],
 							"orchestrator:agents": [
-								new HealthCheckResult({
+								{
 									observedValue: snapshot.running.length,
 									observedUnit: "count",
 									status: "pass",
-								}),
+								} satisfies HealthCheckResult,
 							],
 						},
-					});
+					};
 
-					return yield* HttpServerResponse.json(encodeHealth(response), {
+					return yield* HttpServerResponse.json(response, {
 						headers: {
 							"Content-Type": "application/health+json",
 							"Cache-Control": "no-cache",
@@ -108,7 +105,7 @@ export function makeServer(config: ServerConfig, resolvedPlugin: ResolvedPlugin)
 				}).pipe(
 					Effect.catch(() =>
 						HttpServerResponse.json(
-							encodeHealth(new HealthResponse({ status: "fail" })),
+							{ status: "fail" } satisfies HealthResponse,
 							{ status: 503, headers: { "Content-Type": "application/health+json" } },
 						),
 					),

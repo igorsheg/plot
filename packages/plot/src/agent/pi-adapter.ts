@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { Cause, Config, DateTime, Effect, Layer, Queue, Ref, Stream } from "effect";
+import { Cause, Config, Effect, Layer, Queue, Ref, Stream } from "effect";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, TextContent, Usage } from "@mariozechner/pi-ai";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
@@ -15,7 +15,7 @@ import {
 	createCodingTools,
 } from "@mariozechner/pi-coding-agent";
 import { getModel, type Api, type Model } from "@mariozechner/pi-ai";
-import { AgentRuntimeEvent } from "@plot/sdk";
+import type { AgentRuntimeEvent } from "@plot/sdk";
 import { AgentRunnerError, AgentService, type AgentRunConfig } from "./agent-service.js";
 
 function parseModelSpec(spec: string): { provider: string; modelId: string } | null {
@@ -129,7 +129,7 @@ function mapSessionEvent(
 	issueId: string,
 	issueIdentifier: string,
 ): readonly [MapperState, ReadonlyArray<AgentRuntimeEvent>] {
-	const now = DateTime.nowUnsafe();
+	const now = new Date().toISOString();
 	const base = {
 		agentPid: null,
 		issueId,
@@ -143,13 +143,13 @@ function mapSessionEvent(
 			return [
 				{ ...acc, sessionId },
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "agent_start",
 						timestamp: now,
 						...base,
 						sessionId,
 						message: null,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 		}
@@ -158,12 +158,12 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "agent_end",
 						timestamp: now,
 						...base,
 						message: null,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -172,12 +172,12 @@ function mapSessionEvent(
 			return [
 				nextAcc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "turn_start",
 						timestamp: now,
 						...base,
 						message: null,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 		}
@@ -198,7 +198,7 @@ function mapSessionEvent(
 			return [
 				nextAcc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "turn_end",
 						timestamp: now,
 						...base,
@@ -209,7 +209,7 @@ function mapSessionEvent(
 							outputTokens,
 							totalTokens: inputTokens + outputTokens,
 						},
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 		}
@@ -218,12 +218,12 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "message_start",
 						timestamp: now,
 						...base,
 						message: null,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -232,12 +232,12 @@ function mapSessionEvent(
 				return [
 					acc,
 					[
-						new AgentRuntimeEvent({
+						{
 							event: "notification",
 							timestamp: now,
 							...base,
 							message: event.assistantMessageEvent.delta,
-						}),
+						} satisfies AgentRuntimeEvent,
 					],
 				];
 			}
@@ -247,12 +247,12 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "message_end",
 						timestamp: now,
 						...base,
 						message: getMessageText(event.message),
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -260,14 +260,14 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "tool_execution_start",
 						timestamp: now,
 						...base,
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
 						message: summarizeArgs(event.args),
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -278,7 +278,7 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "tool_execution_end",
 						timestamp: now,
 						...base,
@@ -286,7 +286,7 @@ function mapSessionEvent(
 						toolName: event.toolName,
 						isError: event.isError,
 						message: null,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -294,12 +294,12 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "auto_compaction_start",
 						timestamp: now,
 						...base,
 						message: event.reason ?? null,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -307,12 +307,12 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "auto_compaction_end",
 						timestamp: now,
 						...base,
 						message: event.aborted ? "aborted" : null,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -320,12 +320,12 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "auto_retry_start",
 						timestamp: now,
 						...base,
 						message: `retry attempt ${event.attempt}/${event.maxAttempts} in ${event.delayMs}ms: ${event.errorMessage}`,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 
@@ -333,14 +333,14 @@ function mapSessionEvent(
 			return [
 				acc,
 				[
-					new AgentRuntimeEvent({
+					{
 						event: "auto_retry_end",
 						timestamp: now,
 						...base,
 						message: event.success
 							? `succeeded on attempt ${event.attempt}`
 							: `failed: ${event.finalError ?? "unknown"}`,
-					}),
+					} satisfies AgentRuntimeEvent,
 				],
 			];
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AgentConfig, AgentRuntimeConfig, Issue, TrackerConfig, WorkflowConfig } from "@plot/sdk";
+import type { AgentConfig, AgentRuntimeConfig, Issue, TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { Effect, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
@@ -15,38 +15,37 @@ const makeConfig = (options?: {
 	readonly stallTimeoutMs?: number;
 }) =>
 	new ResolvedConfig(
-		new WorkflowConfig({
+		{
 			tracker: {
 				kind: "local-fs",
 				dispatchStates: ["plot:todo", "plot:in-progress"],
 				parkedStates: ["plot:human-review"],
 				terminalStates: ["plot:done"],
 			} as TrackerConfig,
-			agent: new AgentConfig({
+			agent: {
 				maxConcurrentAgents: options?.maxConcurrentAgents ?? 2,
 				maxRetryBackoffMs: 60_000,
-			}),
-			codex: new AgentRuntimeConfig({
+			} satisfies AgentConfig,
+			codex: {
 				stallTimeoutMs: options?.stallTimeoutMs ?? 1_000,
-			}),
-		}),
+			} satisfies AgentRuntimeConfig,
+		} satisfies WorkflowConfig,
 	);
 
-const makeIssue = (overrides?: Partial<Issue>) =>
-	new Issue({
-		id: overrides?.id ?? "issue-1",
-		identifier: overrides?.identifier ?? "plot-1",
-		title: overrides?.title ?? "test issue",
-		description: overrides?.description ?? null,
-		priority: overrides?.priority ?? 1,
-		state: overrides?.state ?? "plot:todo",
-		branchName: overrides?.branchName,
-		url: overrides?.url ?? null,
-		labels: overrides?.labels ?? [],
-		blockedBy: overrides?.blockedBy ?? [],
-		createdAt: overrides?.createdAt ?? null,
-		updatedAt: overrides?.updatedAt ?? null,
-	});
+const makeIssue = (overrides?: Partial<Issue>): Issue => ({
+	id: overrides?.id ?? "issue-1",
+	identifier: overrides?.identifier ?? "plot-1",
+	title: overrides?.title ?? "test issue",
+	description: overrides?.description ?? null,
+	priority: overrides?.priority ?? 1,
+	state: overrides?.state ?? "plot:todo",
+	branchName: overrides?.branchName,
+	url: overrides?.url ?? null,
+	labels: overrides?.labels ?? [],
+	blockedBy: overrides?.blockedBy ?? [],
+	createdAt: overrides?.createdAt ?? null,
+	updatedAt: overrides?.updatedAt ?? null,
+});
 
 const makeDeps = async (
 	state: OrchestratorState,
