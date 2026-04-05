@@ -7,23 +7,21 @@ import { ProjectCommand } from "./project-command";
 import { Projects } from "./projects";
 import { SupervisorError } from "./errors";
 import type { ProjectStatus, ProjectSnapshot } from "../../shared/rpc";
+import type { RuntimeSnapshot } from "@plot/sdk";
 
-function resolveWorkerUrl(): URL {
-	const workerPath = process.env["PLOT_WORKER_PATH"];
-	if (workerPath && existsSync(workerPath)) {
-		return new URL(`file://${workerPath}`);
-	}
+function resolvePlotBinary(): string[] {
 	const cliEntry = process.env["PLOT_CLI_ENTRY"];
-	if (cliEntry) {
-		const derived = path.resolve(path.dirname(cliEntry), "../tui-worker.ts");
-		if (existsSync(derived)) return new URL(`file://${derived}`);
+	if (cliEntry && existsSync(cliEntry)) {
+		return [process.execPath, cliEntry];
 	}
-	const relative = path.resolve(import.meta.dirname, "../../../../plot/src/tui-worker.ts");
-	if (existsSync(relative)) return new URL(`file://${relative}`);
-	throw new Error("Could not resolve orchestrator worker. Set PLOT_WORKER_PATH or PLOT_CLI_ENTRY.");
+	const plotBin = path.resolve(import.meta.dirname, "../../../../plot/src/cli/index.ts");
+	if (existsSync(plotBin)) {
+		return [process.execPath, plotBin];
+	}
+	throw new Error("Could not resolve plot-ai binary. Set PLOT_CLI_ENTRY.");
 }
 
-function buildWorkerEnv(workflowPath: string, logPath: string): Record<string, string> {
+function buildSubprocessEnv(workflowPath: string, logPath: string): Record<string, string> {
 	const env: Record<string, string> = {};
 	for (const [k, v] of Object.entries(process.env)) {
 		if (v !== undefined) env[k] = v;
@@ -35,56 +33,84 @@ function buildWorkerEnv(workflowPath: string, logPath: string): Record<string, s
 		PLOT_LOG_FORMAT: "json",
 		PLOT_LOG_LEVEL: "info",
 		PLOT_WEB_ENABLED: "0",
-		PLOT_WEB_DIST_DIR: "",
-		PLOT_TUI_SERVER_LOG_PATH: logPath,
 	};
 }
 
 function mapToProjectSnapshot(raw: unknown): ProjectSnapshot | null {
 	if (!raw || typeof raw !== "object") return null;
-	const obj = raw as Record<string, unknown>;
-	const running = Array.isArray(obj.running) ? obj.running.map((r: any) => ({
-		issueId: r.issueId ?? "",
-		issueIdentifier: r.issueIdentifier ?? "",
-		state: r.state ?? "",
-		startedAt: r.startedAt ?? "",
-		workspacePath: r.workspacePath ?? null,
-		session: {
-			sessionId: r.session?.sessionId ?? "",
-			turnCount: r.session?.turnCount ?? 0,
-			phase: r.session?.phase ?? "idle",
-			inputTokens: r.session?.inputTokens ?? 0,
-			outputTokens: r.session?.outputTokens ?? 0,
-			totalTokens: r.session?.totalTokens ?? 0,
-			activeTools: r.session?.activeTools ?? [],
-			lastMessage: r.session?.lastMessage ?? null,
-		},
-	})) : [];
-	const retrying = Array.isArray(obj.retrying) ? obj.retrying.map((r: any) => ({
-		issueId: r.issueId ?? "",
-		identifier: r.identifier ?? "",
-		attempt: r.attempt ?? 0,
-		dueAt: r.dueAt ?? "",
-		error: r.error ?? null,
-	})) : [];
-	const totals = (obj.codexTotals as any) ?? {};
+	const snapshot = raw as RuntimeSnapshot;
 	return {
-		generatedAt: (obj.generatedAt as string) ?? new Date().toISOString(),
-		running,
-		retrying,
+		generatedAt: snapshot.generatedAt ?? new Date().toISOString(),
+		running: (snapshot.running ?? []).map((r) => ({
+			issueId: r.issueId ?? "",
+			issueIdentifier: r.issueIdentifier ?? "",
+			state: r.state ?? "",
+			startedAt: r.startedAt ?? "",
+			workspacePath: r.workspacePath ?? null,
+			session: {
+				sessionId: r.session?.sessionId ?? "",
+				turnCount: r.session?.turnCount ?? 0,
+				phase: r.session?.phase ?? "idle",
+				inputTokens: r.session?.inputTokens ?? 0,
+				outputTokens: r.session?.outputTokens ?? 0,
+				totalTokens: r.session?.totalTokens ?? 0,
+				activeTools: (r.session?.activeTools ?? []).map((t) => ({ toolCallId: t.toolCallId, toolName: t.toolName })),
+				lastMessage: r.session?.lastMessage ?? null,
+			},
+		})),
+		retrying: (snapshot.retrying ?? []).map((r) => ({
+			issueId: r.issueId ?? "",
+			identifier: r.identifier ?? "",
+			attempt: r.attempt ?? 0,
+			dueAt: r.dueAt ?? "",
+			error: r.error ?? null,
+		})),
 		totals: {
-			inputTokens: totals.inputTokens ?? 0,
-			outputTokens: totals.outputTokens ?? 0,
-			totalTokens: totals.totalTokens ?? 0,
-			secondsRunning: totals.secondsRunning ?? 0,
+			inputTokens: snapshot.codexTotals?.inputTokens ?? 0,
+			outputTokens: snapshot.codexTotals?.outputTokens ?? 0,
+			totalTokens: snapshot.codexTotals?.totalTokens ?? 0,
+			secondsRunning: snapshot.codexTotals?.secondsRunning ?? 0,
 		},
 	};
+}
+
+async function readNdjsonStream(
+	stream: ReadableStream<Uint8Array>,
+	onMessage: (msg: unknown) => void,
+	onEnd: () => void,
+) {
+	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop() ?? "";
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				try {
+					onMessage(JSON.parse(line));
+				} catch { /* skip malformed */ }
+			}
+		}
+		if (buffer.trim()) {
+			try { onMessage(JSON.parse(buffer)); } catch { /* skip */ }
+		}
+	} catch { /* stream error */ }
+	onEnd();
+}
+
+function isJsonRpcNotification(msg: unknown): msg is { jsonrpc: "2.0"; method: string; params: unknown } {
+	return typeof msg === "object" && msg !== null && "jsonrpc" in msg && "method" in msg;
 }
 
 type ProjectRuntime = {
 	readonly mailbox: Queue.Queue<ProjectCommand>;
 	readonly fiber: Fiber.Fiber<void, never>;
-	readonly worker: Worker;
+	readonly process: ReturnType<typeof Bun.spawn>;
 };
 
 export type ProjectStatusEvent = {
@@ -114,10 +140,10 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 		const statusPubSub = yield* PubSub.bounded<ProjectStatusEvent>(256);
 		const snapshotPubSub = yield* PubSub.bounded<SnapshotEvent>(256);
 
-		let cachedWorkerUrl: URL | null = null;
-		const getWorkerUrl = () => {
-			if (!cachedWorkerUrl) cachedWorkerUrl = resolveWorkerUrl();
-			return cachedWorkerUrl;
+		let cachedCmd: string[] | null = null;
+		const getCmd = () => {
+			if (!cachedCmd) cachedCmd = resolvePlotBinary();
+			return cachedCmd;
 		};
 
 		const updateState = (projectId: string, fn: (s: ProjectState) => ProjectState) =>
@@ -150,8 +176,8 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 					});
 				}
 
-				const workerUrl = yield* Effect.try({
-					try: () => getWorkerUrl(),
+				const cmd = yield* Effect.try({
+					try: () => getCmd(),
 					catch: (e) => new SupervisorError({
 						code: "worker_resolve_failed",
 						message: e instanceof Error ? e.message : String(e),
@@ -161,38 +187,43 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 
 				const workflowPath = path.join(project.path, "WORKFLOW.md");
 				const logPath = path.join(homedir(), ".plot", "logs", `desktop-${projectId}.log`);
-				const env = buildWorkerEnv(workflowPath, logPath);
+				const env = buildSubprocessEnv(workflowPath, logPath);
 				const mailbox = yield* Queue.bounded<ProjectCommand>(64);
 
-				const worker = yield* Effect.sync(() => new Worker(workerUrl, { type: "module" }));
+				const proc = yield* Effect.sync(() =>
+					Bun.spawn([...cmd, "--mode", "rpc", "--workflow", workflowPath], {
+						stdio: ["pipe", "pipe", "pipe"],
+						env,
+					}),
+				);
 
-				worker.onmessage = (event: MessageEvent) => {
-					const msg = event.data as { type: string; snapshot?: unknown; event?: unknown; error?: string };
-					switch (msg.type) {
-						case "ready":
-							Queue.offerUnsafe(mailbox, ProjectCommand.Start());
-							break;
-						case "snapshot":
-							Queue.offerUnsafe(mailbox, ProjectCommand.Snapshot({ snapshot: msg.snapshot }));
-							break;
-						case "stopped":
-							Queue.offerUnsafe(mailbox, ProjectCommand.Exit({ code: 0 }));
-							break;
-						case "error":
-							Queue.offerUnsafe(mailbox, ProjectCommand.StartupError({
-								error: { tag: "WorkerError", message: msg.error ?? "Unknown worker error" },
-							}));
-							break;
-					}
-				};
+				let readySent = false;
 
-				worker.onerror = (_errorEvent: ErrorEvent) => {
-					Queue.offerUnsafe(mailbox, ProjectCommand.Exit({ code: 1 }));
-				};
+				readNdjsonStream(
+					proc.stdout as ReadableStream<Uint8Array>,
+					(msg) => {
+						if (!isJsonRpcNotification(msg)) return;
+						switch (msg.method) {
+							case "state/update": {
+								const params = msg.params as { snapshot: unknown };
+								if (!readySent) {
+									readySent = true;
+									Queue.offerUnsafe(mailbox, ProjectCommand.Start());
+								}
+								Queue.offerUnsafe(mailbox, ProjectCommand.Snapshot({ snapshot: params.snapshot }));
+								break;
+							}
+						}
+					},
+					() => {
+						Queue.offerUnsafe(mailbox, ProjectCommand.Exit({ code: proc.exitCode }));
+					},
+				);
+
+				// Drain stderr to prevent buffer pressure
+				readNdjsonStream(proc.stderr as ReadableStream<Uint8Array>, () => {}, () => {});
 
 				yield* updateState(projectId, () => ({ status: "launching", agentCount: 0 }));
-
-				yield* Effect.sync(() => worker.postMessage({ type: "start", env }));
 
 				const handle = (command: ProjectCommand): Effect.Effect<void> => {
 					switch (command._tag) {
@@ -225,7 +256,9 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 							return Effect.gen(function* () {
 								yield* updateState(projectId, (s) => ({ ...s, status: "stopping" }));
 								yield* Effect.sync(() => {
-									worker.postMessage({ type: "stop" });
+									const stopCmd = JSON.stringify({ jsonrpc: "2.0", method: "stop", params: {}, id: Date.now() }) + "\n";
+									proc.stdin.write(stopCmd);
+									proc.stdin.end();
 								});
 							});
 
@@ -235,7 +268,7 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 							return updateState(projectId, () => ({
 								status,
 								agentCount: 0,
-								error: status === "failed" ? `Worker exited with code ${command.code}` : undefined,
+								error: status === "failed" ? `Process exited with code ${command.code}` : undefined,
 							}));
 						}
 					}
@@ -254,7 +287,9 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 					Effect.gen(function* () {
 						yield* Effect.addFinalizer(() =>
 							Effect.gen(function* () {
-								yield* Effect.sync(() => worker.terminate());
+								yield* Effect.sync(() => {
+									if (!proc.killed) proc.kill();
+								});
 								yield* Ref.update(runtimesRef, (m) => {
 									const next = new Map(m);
 									next.delete(projectId);
@@ -270,7 +305,7 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 
 				yield* Ref.update(runtimesRef, (m) => {
 					const next = new Map(m);
-					next.set(projectId, { mailbox, fiber, worker });
+					next.set(projectId, { mailbox, fiber, process: proc });
 					return next;
 				});
 			});
