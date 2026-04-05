@@ -23,7 +23,6 @@
 		"@opentui/core": "0.1.87",
 		"@opentui/react": "^0.1.87",
 		"@plot/sdk": "workspace:*",
-		"effect": "catalog:",
 		"react": "^19.2.4"
 	},
 	"devDependencies": {
