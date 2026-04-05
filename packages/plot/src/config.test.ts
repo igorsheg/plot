@@ -15,19 +15,10 @@ function resolveConfig(env: Record<string, string>) {
 }
 
 describe("ServerConfig", () => {
-	test("reads explicit config from env", async () => {
-		const config = await resolveConfig({
-			PLOT_PORT: "4123",
-		});
-
-		expect(config.port).toBe(4123);
-	});
-
 	test("uses defaults when env is missing", async () => {
 		const config = await resolveConfig({});
 
 		expect(config.workflowPath).toBe("./WORKFLOW.md");
-		expect(config.port).toBe(3000);
 		expect(config.logFormat).toBe("pretty");
 		expect(config.logLevel).toBe("info");
 		expect(config.overrides).toEqual({
@@ -52,14 +43,6 @@ describe("ServerConfig", () => {
 
 	test("rejects invalid log level", async () => {
 		await expect(resolveConfig({ PLOT_LOG_LEVEL: "trace" })).rejects.toThrow();
-	});
-
-	test("rejects invalid port (out of range)", async () => {
-		await expect(resolveConfig({ PLOT_PORT: "70000" })).rejects.toThrow();
-	});
-
-	test("rejects invalid port (not a number)", async () => {
-		await expect(resolveConfig({ PLOT_PORT: "wat" })).rejects.toThrow();
 	});
 });
 

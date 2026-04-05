@@ -20,7 +20,6 @@ export const WorkflowOverridesConfig: Config.Config<WorkflowOverrides> = Config.
 
 export interface ServerConfig {
 	readonly workflowPath: string;
-	readonly port: number;
 	readonly logFormat: "pretty" | "json";
 	readonly logLevel: "debug" | "info" | "warning" | "error" | "none";
 	readonly refreshPlugins: boolean;
@@ -29,14 +28,6 @@ export interface ServerConfig {
 
 export const ServerConfig: Config.Config<ServerConfig> = Config.all({
 	workflowPath: Config.string("WORKFLOW").pipe(Config.withDefault("./WORKFLOW.md")),
-	port: Config.int("PORT").pipe(
-		Config.withDefault(3000),
-		Config.mapOrFail((port) =>
-			port >= 0 && port <= 65535
-				? Effect.succeed(port)
-				: Effect.die(`port must be 0-65535, got ${port}`),
-		),
-	),
 	logFormat: Config.string("LOG_FORMAT").pipe(
 		Config.withDefault("pretty"),
 		Config.mapOrFail((s) => {

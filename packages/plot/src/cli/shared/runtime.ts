@@ -46,7 +46,6 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
 	const env: Record<string, string> = {
 		...(process.env as Record<string, string>),
 		PLOT_WORKFLOW: opts.workflow,
-		PLOT_PORT: String(opts.port),
 		PLOT_LOG_FORMAT: opts["log-format"],
 		PLOT_LOG_LEVEL: opts["log-level"],
 		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),

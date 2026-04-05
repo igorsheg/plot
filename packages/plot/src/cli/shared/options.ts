@@ -7,10 +7,6 @@ export const cliCommandOptions = {
 			"enable diagnostic output on stderr (quiet by default)",
 		),
 	),
-	port: Flag.integer("port").pipe(
-		Flag.withDescription("server port"),
-		Flag.withDefault(3000),
-	),
 	workflow: Flag.string("workflow").pipe(
 		Flag.withDescription("path to WORKFLOW.md"),
 		Flag.withDefault("./WORKFLOW.md"),
@@ -26,7 +22,7 @@ export const cliCommandOptions = {
 		Flag.optional,
 	),
 	"log-format": Flag.choice("log-format", ["pretty", "json"] as const).pipe(
-		Flag.withDescription("server log format"),
+		Flag.withDescription("log format"),
 		Flag.withDefault("pretty"),
 	),
 	"refresh-plugins": Flag.boolean("refresh-plugins").pipe(
@@ -34,24 +30,16 @@ export const cliCommandOptions = {
 			"re-fetch tracker plugins, ignoring cached installations",
 		),
 	),
-	mode: Flag.choice("mode", ["tui", "rpc"] as const).pipe(
-		Flag.withDescription(
-			"output mode: tui (terminal dashboard) or rpc (JSON-RPC on stdin/stdout)",
-		),
-		Flag.withDefault("tui"),
-	),
 } as const;
 
 export type ServerOptions = {
 	verbose: boolean;
-	port: number;
 	workflow: string;
 	tracker?: string;
 	"github-repo"?: string;
 	"log-format": "pretty" | "json";
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
 	"refresh-plugins"?: boolean;
-	mode?: "tui" | "rpc";
 };
 
 type ParsedCliCommandOptions = {
@@ -68,14 +56,12 @@ export function toServerOptions(
 ): ServerOptions {
 	return {
 		verbose: options.verbose,
-		port: options.port,
 		workflow: options.workflow,
 		tracker: Option.getOrUndefined(options.tracker),
 		"github-repo": Option.getOrUndefined(options["github-repo"]),
 		"log-format": options["log-format"],
 		"log-level": toServerLogLevel(logLevel),
 		"refresh-plugins": options["refresh-plugins"],
-		mode: options.mode,
 	};
 }
 

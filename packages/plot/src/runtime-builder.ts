@@ -378,7 +378,6 @@ export function makeStartupLayer(config: ServerConfig, resolvedPlugin: ResolvedP
 			yield* Effect.logInfo("server started").pipe(
 				Effect.annotateLogs({
 					component: "server",
-					port: String(config.port),
 					workflow: config.workflowPath,
 				}),
 			);

@@ -7,7 +7,8 @@ import { CliError } from "./shared/io.js";
 import { emitError, emitResult } from "./shared/envelope.js";
 import { ModelsCommand } from "./commands/models.js";
 import { resolveCliArgs } from "./shared/runtime.js";
-import { createTuiCommand } from "./commands/tui.js";
+import { createRootCommand } from "./commands/tui.js";
+import { ServeCommand } from "./commands/serve.js";
 import { LoginCommand } from "./commands/login.js";
 import { LogoutCommand } from "./commands/logout.js";
 import { AuthCommand } from "./commands/auth.js";
@@ -15,20 +16,16 @@ import { AuthCommand } from "./commands/auth.js";
 const VERSION = process.env["PLOT_VERSION"] ?? "0.0.1";
 const CLI_NAME = process.env["PLOT_CLI_NAME"] ?? "plot-ai";
 const argv = resolveCliArgs(process.argv);
-const [internalCommand] = argv;
 
 const SUBCOMMANDS = [
+	{ name: "serve", description: "run the orchestrator headless (JSON-RPC on stdin/stdout)", usage: `${CLI_NAME} serve [--workflow <path>]` },
 	{ name: "auth", description: "manage authentication (status, login, logout)", usage: `${CLI_NAME} auth <status|login|logout> [provider]` },
 	{ name: "models", description: "list available providers and models", usage: `${CLI_NAME} models` },
 	{ name: "login", description: "authenticate with a model provider (interactive)", usage: `${CLI_NAME} login [provider]` },
 	{ name: "logout", description: "revoke credentials for a model provider", usage: `${CLI_NAME} logout [provider]` },
 ];
 
-if (internalCommand === "__internal-rpc") {
-	const { runRpcMain } = await import("../rpc-main.js");
-	await runRpcMain(process.env as Record<string, string | undefined>);
-	await new Promise(() => {});
-} else if (argv.length === 0 && !process.stdout.isTTY) {
+if (argv.length === 0 && !process.stdout.isTTY) {
 	emitResult(CLI_NAME, {
 		name: CLI_NAME,
 		version: VERSION,
@@ -39,8 +36,8 @@ if (internalCommand === "__internal-rpc") {
 		{ command: `${CLI_NAME} models`, description: "list available providers and models" },
 	]);
 } else {
-	const command = createTuiCommand(CLI_NAME).pipe(
-		Command.withSubcommands([LoginCommand, LogoutCommand, AuthCommand, ModelsCommand]),
+	const command = createRootCommand(CLI_NAME).pipe(
+		Command.withSubcommands([ServeCommand, LoginCommand, LogoutCommand, AuthCommand, ModelsCommand]),
 	);
 
 	await Command.runWith(command, { version: VERSION })(argv).pipe(

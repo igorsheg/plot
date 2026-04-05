@@ -29,7 +29,7 @@ function buildSubprocessEnv(workflowPath: string, logPath: string): Record<strin
 	return {
 		...env,
 		PLOT_WORKFLOW: workflowPath,
-		PLOT_PORT: "0",
+		
 		PLOT_LOG_FORMAT: "json",
 		PLOT_LOG_LEVEL: "info",
 		PLOT_WEB_ENABLED: "0",
@@ -191,7 +191,7 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 				const mailbox = yield* Queue.bounded<ProjectCommand>(64);
 
 				const proc = yield* Effect.sync(() =>
-					Bun.spawn([...cmd, "--mode", "rpc", "--workflow", workflowPath], {
+					Bun.spawn([...cmd, "serve"], {
 						stdio: ["pipe", "pipe", "pipe"],
 						env,
 					}),

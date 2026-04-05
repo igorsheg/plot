@@ -17,20 +17,13 @@ function writeLine(obj: unknown) {
 	process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
-export async function runRpcMain(
-	env: Record<string, string | undefined>,
-): Promise<void> {
+export async function runRpcMain(): Promise<void> {
 	console.log = (...args) => process.stderr.write(args.join(" ") + "\n");
 	console.info = (...args) => process.stderr.write(args.join(" ") + "\n");
 	console.warn = (...args) => process.stderr.write(args.join(" ") + "\n");
 	console.debug = (...args) => process.stderr.write(args.join(" ") + "\n");
 
-	const filteredEnv = Object.fromEntries(
-		Object.entries(env).filter(
-			(entry): entry is [string, string] => entry[1] !== undefined,
-		),
-	);
-	const provider = ConfigProvider.fromEnv({ env: filteredEnv });
+	const provider = ConfigProvider.fromEnv();
 
 	let runtime: ManagedRuntime.ManagedRuntime<Orchestrator, any> | null = null;
 	const startedAt = Date.now();
