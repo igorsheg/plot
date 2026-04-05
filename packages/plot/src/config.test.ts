@@ -15,16 +15,12 @@ function resolveConfig(env: Record<string, string>) {
 }
 
 describe("ServerConfig", () => {
-	test("reads explicit web config from env", async () => {
+	test("reads explicit config from env", async () => {
 		const config = await resolveConfig({
 			PLOT_PORT: "4123",
-			PLOT_WEB_DIST_DIR: "/tmp/plot-web",
-			PLOT_WEB_ENABLED: "true",
 		});
 
 		expect(config.port).toBe(4123);
-		expect(config.webDistDir).toBe("/tmp/plot-web");
-		expect(config.webEnabled).toBe(true);
 	});
 
 	test("uses defaults when env is missing", async () => {
@@ -32,7 +28,6 @@ describe("ServerConfig", () => {
 
 		expect(config.workflowPath).toBe("./WORKFLOW.md");
 		expect(config.port).toBe(3000);
-		expect(config.webEnabled).toBe(false);
 		expect(config.logFormat).toBe("pretty");
 		expect(config.logLevel).toBe("info");
 		expect(config.overrides).toEqual({

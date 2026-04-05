@@ -13,5 +13,4 @@ export {
 	ConfigValidationError,
 	TemplateRenderError,
 	PluginInitError,
-	ServerStartupError,
 } from "./errors.js";

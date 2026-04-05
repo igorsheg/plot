@@ -3,7 +3,6 @@
 	"references": [
 		{ "path": "packages/sdk" },
 		{ "path": "packages/plot" },
-		{ "path": "packages/tui" },
-		{ "path": "packages/web" }
+		{ "path": "packages/tui" }
 	]
 }

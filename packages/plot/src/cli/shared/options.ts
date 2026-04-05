@@ -51,7 +51,6 @@ export type ServerOptions = {
 	"log-format": "pretty" | "json";
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
 	"refresh-plugins"?: boolean;
-	web?: boolean;
 	mode?: "tui" | "rpc";
 };
 
@@ -66,7 +65,6 @@ type ParsedCliCommandOptions = {
 export function toServerOptions(
 	options: ParsedCliCommandOptions,
 	logLevel: LogLevel.LogLevel,
-	overrides?: Pick<ServerOptions, "web">,
 ): ServerOptions {
 	return {
 		verbose: options.verbose,
@@ -78,7 +76,6 @@ export function toServerOptions(
 		"log-level": toServerLogLevel(logLevel),
 		"refresh-plugins": options["refresh-plugins"],
 		mode: options.mode,
-		...overrides,
 	};
 }
 

@@ -21,8 +21,6 @@ export const WorkflowOverridesConfig: Config.Config<WorkflowOverrides> = Config.
 export interface ServerConfig {
 	readonly workflowPath: string;
 	readonly port: number;
-	readonly webDistDir: string;
-	readonly webEnabled: boolean;
 	readonly logFormat: "pretty" | "json";
 	readonly logLevel: "debug" | "info" | "warning" | "error" | "none";
 	readonly refreshPlugins: boolean;
@@ -39,8 +37,6 @@ export const ServerConfig: Config.Config<ServerConfig> = Config.all({
 				: Effect.die(`port must be 0-65535, got ${port}`),
 		),
 	),
-	webDistDir: Config.string("WEB_DIST_DIR").pipe(Config.withDefault("")),
-	webEnabled: Config.boolean("WEB_ENABLED").pipe(Config.withDefault(false)),
 	logFormat: Config.string("LOG_FORMAT").pipe(
 		Config.withDefault("pretty"),
 		Config.mapOrFail((s) => {

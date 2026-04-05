@@ -76,15 +76,3 @@ export class TuiStartupError extends Schema.TaggedErrorClass<TuiStartupError>()(
 		return `TUI startup failed: ${this.message}`;
 	}
 }
-
-export class ServerStartupError extends Schema.TaggedErrorClass<ServerStartupError>()(
-	"ServerStartupError",
-	{
-		message: Schema.String,
-		cause: Schema.optional(Schema.Defect),
-	},
-) {
-	override get message(): string {
-		return `Server startup failed: ${this.message}`;
-	}
-}

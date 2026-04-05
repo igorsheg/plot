@@ -8,13 +8,6 @@ const cliDir = dirname(fileURLToPath(import.meta.url));
 const binDir = compiled ? dirname(process.execPath) : null;
 const packageDir = binDir ? dirname(binDir) : null;
 
-export function resolveBundledWebDistDir() {
-	return (
-		process.env["PLOT_WEB_DIST_DIR"] ??
-		(packageDir ? join(packageDir, "web-dist") : join(cliDir, "../../../../web/dist"))
-	);
-}
-
 export function resolveBundledPiSkillsDir() {
 	return (
 		process.env["PLOT_PI_SKILLS_DIR"] ??
@@ -56,8 +49,6 @@ export function toServerEnv(opts: ServerOptions): Record<string, string> {
 		PLOT_PORT: String(opts.port),
 		PLOT_LOG_FORMAT: opts["log-format"],
 		PLOT_LOG_LEVEL: opts["log-level"],
-		PLOT_WEB_ENABLED: opts.web ? "1" : "0",
-		PLOT_WEB_DIST_DIR: resolveBundledWebDistDir(),
 		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),
 	};
 

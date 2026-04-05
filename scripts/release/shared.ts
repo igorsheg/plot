@@ -9,7 +9,6 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 export const repoDir = join(scriptDir, "../..");
 export const releaseDir = join(repoDir, "dist/release");
 export const plotPackageDir = join(repoDir, "packages/plot");
-export const webDistDir = join(repoDir, "packages/web/dist");
 export const piSkillsDir = join(repoDir, "packages/plot/resources/skills");
 
 export const plotPackage = readJson(join(plotPackageDir, "package.json")) as {

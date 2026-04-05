@@ -21,7 +21,6 @@ import {
 	releaseTargets,
 	repoDir,
 	version,
-	webDistDir,
 } from "./shared.js";
 
 const tuiPackage = readJson(join(repoDir, "packages/tui/package.json")) as {
@@ -34,11 +33,6 @@ rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
 
 await $`bun run --filter @plot/sdk build`.cwd(repoDir);
-await $`bun run --filter @plot/web build`.cwd(repoDir);
-
-if (!existsSync(webDistDir)) {
-	throw new Error(`missing web build output at ${webDistDir}`);
-}
 
 if (!existsSync(piSkillsDir)) {
 	throw new Error(`missing pi skills at ${piSkillsDir}`);
@@ -73,8 +67,6 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 		chmodSync(join(binDir, target.binName), 0o755);
 	}
 
-
-	cpSync(webDistDir, join(packageDir, "web-dist"), { recursive: true });
 	cpSync(piSkillsDir, join(packageDir, "pi-resources", "skills"), {
 		recursive: true,
 	});
@@ -93,7 +85,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 		os: target.os,
 		cpu: target.cpu,
 		publishConfig: { access: "public" },
-		files: ["bin", "web-dist", "pi-resources", "package.json"],
+		files: ["bin", "pi-resources", "package.json"],
 	});
 
 	writeJson(join(binDir, "package.json"), {
@@ -202,6 +194,6 @@ function copyTrackerSkills(binDir: string) {
 	}
 }
 
-function writeJson(path: string, value: unknown) {
-	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+function writeJson(path: string, data: unknown) {
+	writeFileSync(path, JSON.stringify(data, null, "\t") + "\n");
 }
