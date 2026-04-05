@@ -22,7 +22,7 @@ const registry: Record<ErrorCode, ErrorDef> = {
 		retryable: true,
 		fix: (ctx) => {
 			const port = ctx?.["port"] ?? "3000";
-			return `check that the server is running on port ${port}, or start it with: plot-ai serve --port ${port}`;
+			return `check that the server is running on port ${port}, or start it with: plot-ai --mode rpc`;
 		},
 	},
 	AUTH_REQUIRED: {

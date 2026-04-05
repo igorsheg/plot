@@ -41,7 +41,7 @@ export const ModelsCommand = Command.make(
 				.filter((p) => !p.authenticated && oauthProviderIds.has(p.id))
 				.map((p) => p.id);
 			const nextActions: NextAction[] = [
-				{ command: "plot-ai serve", description: "start the server" },
+				{ command: "plot-ai --mode rpc", description: "start headless JSON-RPC mode" },
 				{ command: "plot-ai auth status", description: "check authentication status" },
 			];
 			if (unauthenticated.length > 0) {

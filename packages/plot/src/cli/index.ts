@@ -8,7 +8,6 @@ import { emitError, emitResult } from "./shared/envelope.js";
 import { ModelsCommand } from "./commands/models.js";
 import { resolveCliArgs } from "./shared/runtime.js";
 import { createRootCommand } from "./commands/tui.js";
-import { ServeCommand } from "./commands/serve.js";
 import { LoginCommand } from "./commands/login.js";
 import { LogoutCommand } from "./commands/logout.js";
 import { AuthCommand } from "./commands/auth.js";
@@ -18,7 +17,6 @@ const CLI_NAME = process.env["PLOT_CLI_NAME"] ?? "plot-ai";
 const argv = resolveCliArgs(process.argv);
 
 const SUBCOMMANDS = [
-	{ name: "serve", description: "run the orchestrator headless (JSON-RPC on stdin/stdout)", usage: `${CLI_NAME} serve [--workflow <path>]` },
 	{ name: "auth", description: "manage authentication (status, login, logout)", usage: `${CLI_NAME} auth <status|login|logout> [provider]` },
 	{ name: "models", description: "list available providers and models", usage: `${CLI_NAME} models` },
 	{ name: "login", description: "authenticate with a model provider (interactive)", usage: `${CLI_NAME} login [provider]` },
@@ -37,7 +35,7 @@ if (argv.length === 0 && !process.stdout.isTTY) {
 	]);
 } else {
 	const command = createRootCommand(CLI_NAME).pipe(
-		Command.withSubcommands([ServeCommand, LoginCommand, LogoutCommand, AuthCommand, ModelsCommand]),
+		Command.withSubcommands([LoginCommand, LogoutCommand, AuthCommand, ModelsCommand]),
 	);
 
 	await Command.runWith(command, { version: VERSION })(argv).pipe(

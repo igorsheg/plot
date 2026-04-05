@@ -191,7 +191,7 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 				const mailbox = yield* Queue.bounded<ProjectCommand>(64);
 
 				const proc = yield* Effect.sync(() =>
-					Bun.spawn([...cmd, "serve"], {
+					Bun.spawn([...cmd, "--mode", "rpc"], {
 						stdio: ["pipe", "pipe", "pipe"],
 						env,
 					}),

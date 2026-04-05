@@ -44,7 +44,7 @@ export async function createTuiRuntimeHandle(
 		onStatus?.(next);
 	};
 
-	const cmdArgs = resolveSelfCommandArgs("serve");
+	const cmdArgs = [...resolveSelfCommandArgs("--mode"), "rpc"];
 	const env = toTuiServerEnv(serverOptions);
 
 	const proc = spawn(cmdArgs, {

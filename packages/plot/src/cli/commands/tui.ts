@@ -1,6 +1,7 @@
 import { Command } from "effect/unstable/cli";
-import { Effect, References } from "effect";
+import { Effect, Option, References } from "effect";
 import { runTui } from "@plot/tui";
+import { runRpcMain } from "../../rpc-main.js";
 import { TuiStartupError } from "../../core/errors.js";
 import { ensureTuiSupported } from "../shared/io.js";
 import { cliCommandOptions, toServerOptions } from "../shared/options.js";
@@ -11,6 +12,12 @@ export function createRootCommand(name: string) {
 		name,
 		cliCommandOptions,
 		Effect.fn(function* (args) {
+			const mode = Option.getOrUndefined(args.mode);
+			if (mode === "rpc") {
+				yield* Effect.promise(() => runRpcMain());
+				return;
+			}
+
 			ensureTuiSupported();
 			const logLevel = yield* References.MinimumLogLevel;
 			const runtime = yield* Effect.promise(() =>

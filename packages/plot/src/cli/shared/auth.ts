@@ -241,7 +241,7 @@ export async function loginWithPlotAuthJson(providerId?: string) {
 		emitResult("plot-ai auth login", { provider: provider.id }, [
 			{ command: "plot-ai auth status", description: "check authentication status" },
 			{ command: "plot-ai models", description: "list available providers and models" },
-			{ command: "plot-ai serve", description: "start the server" },
+			{ command: "plot-ai --mode rpc", description: "start headless JSON-RPC mode" },
 		]);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

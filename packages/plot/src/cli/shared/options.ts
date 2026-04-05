@@ -7,6 +7,10 @@ export const cliCommandOptions = {
 			"enable diagnostic output on stderr (quiet by default)",
 		),
 	),
+	mode: Flag.choice("mode", ["rpc"] as const).pipe(
+		Flag.withDescription("output mode: rpc (JSON-RPC on stdin/stdout)"),
+		Flag.optional,
+	),
 	workflow: Flag.string("workflow").pipe(
 		Flag.withDescription("path to WORKFLOW.md"),
 		Flag.withDefault("./WORKFLOW.md"),
@@ -34,6 +38,7 @@ export const cliCommandOptions = {
 
 export type ServerOptions = {
 	verbose: boolean;
+	mode?: "rpc";
 	workflow: string;
 	tracker?: string;
 	"github-repo"?: string;
@@ -47,7 +52,9 @@ type ParsedCliCommandOptions = {
 		| "github-repo"
 		| "tracker"
 		? Option.Option<string>
-		: ServerOptions[Key];
+		: Key extends "mode"
+			? Option.Option<"rpc">
+			: ServerOptions[Key];
 };
 
 export function toServerOptions(
@@ -56,6 +63,7 @@ export function toServerOptions(
 ): ServerOptions {
 	return {
 		verbose: options.verbose,
+		mode: Option.getOrUndefined(options.mode),
 		workflow: options.workflow,
 		tracker: Option.getOrUndefined(options.tracker),
 		"github-repo": Option.getOrUndefined(options["github-repo"]),

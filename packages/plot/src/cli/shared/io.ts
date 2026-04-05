@@ -13,7 +13,7 @@ export class CliError extends Error {
 
 export function ensureTuiSupported(): void {
 	if (process.stdout.isTTY && process.stdin.isTTY) return;
-	throw new CliError("usage", "tui requires an interactive terminal; use serve", 2);
+	throw new CliError("usage", "tui requires an interactive terminal; use --mode rpc", 2);
 }
 
 /**
