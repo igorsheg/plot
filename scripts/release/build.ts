@@ -73,17 +73,6 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 		chmodSync(join(binDir, target.binName), 0o755);
 	}
 
-	const workerResult = await Bun.build({
-		entrypoints: [join(repoDir, "packages/plot/src/tui-worker.ts")],
-		target: "bun",
-		outdir: binDir,
-		naming: "tui-worker.js",
-		tsconfig: join(repoDir, "packages/plot/tsconfig.json"),
-	});
-
-	if (!workerResult.success) {
-		throw new Error(`failed to bundle tui-worker for ${target.packageName}`);
-	}
 
 	cpSync(webDistDir, join(packageDir, "web-dist"), { recursive: true });
 	cpSync(piSkillsDir, join(packageDir, "pi-resources", "skills"), {

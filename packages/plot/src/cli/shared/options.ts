@@ -3,9 +3,14 @@ import { LogLevel, Option } from "effect";
 
 export const cliCommandOptions = {
 	verbose: Flag.boolean("verbose").pipe(
-		Flag.withDescription("enable diagnostic output on stderr (quiet by default)"),
+		Flag.withDescription(
+			"enable diagnostic output on stderr (quiet by default)",
+		),
 	),
-	port: Flag.integer("port").pipe(Flag.withDescription("server port"), Flag.withDefault(3000)),
+	port: Flag.integer("port").pipe(
+		Flag.withDescription("server port"),
+		Flag.withDefault(3000),
+	),
 	workflow: Flag.string("workflow").pipe(
 		Flag.withDescription("path to WORKFLOW.md"),
 		Flag.withDefault("./WORKFLOW.md"),
@@ -25,7 +30,15 @@ export const cliCommandOptions = {
 		Flag.withDefault("pretty"),
 	),
 	"refresh-plugins": Flag.boolean("refresh-plugins").pipe(
-		Flag.withDescription("re-fetch tracker plugins, ignoring cached installations"),
+		Flag.withDescription(
+			"re-fetch tracker plugins, ignoring cached installations",
+		),
+	),
+	mode: Flag.choice("mode", ["tui", "rpc"] as const).pipe(
+		Flag.withDescription(
+			"output mode: tui (terminal dashboard) or rpc (JSON-RPC on stdin/stdout)",
+		),
+		Flag.withDefault("tui"),
 	),
 } as const;
 
@@ -39,10 +52,13 @@ export type ServerOptions = {
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
 	"refresh-plugins"?: boolean;
 	web?: boolean;
+	mode?: "tui" | "rpc";
 };
 
 type ParsedCliCommandOptions = {
-	readonly [Key in keyof typeof cliCommandOptions]: Key extends "github-repo" | "tracker"
+	readonly [Key in keyof typeof cliCommandOptions]: Key extends
+		| "github-repo"
+		| "tracker"
 		? Option.Option<string>
 		: ServerOptions[Key];
 };
@@ -61,11 +77,14 @@ export function toServerOptions(
 		"log-format": options["log-format"],
 		"log-level": toServerLogLevel(logLevel),
 		"refresh-plugins": options["refresh-plugins"],
+		mode: options.mode,
 		...overrides,
 	};
 }
 
-function toServerLogLevel(logLevel: LogLevel.LogLevel): ServerOptions["log-level"] {
+function toServerLogLevel(
+	logLevel: LogLevel.LogLevel,
+): ServerOptions["log-level"] {
 	switch (logLevel) {
 		case "All":
 		case "Trace":

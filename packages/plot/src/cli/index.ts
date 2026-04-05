@@ -32,6 +32,10 @@ const SUBCOMMANDS = [
 if (internalCommand === "__internal-server") {
 	await runServerMain(process.env as Record<string, string | undefined>);
 	await new Promise(() => {});
+} else if (internalCommand === "__internal-rpc") {
+	const { runRpcMain } = await import("../rpc-main.js");
+	await runRpcMain(process.env as Record<string, string | undefined>);
+	await new Promise(() => {});
 } else if (argv.length === 0 && !process.stdout.isTTY) {
 	emitResult(CLI_NAME, {
 		name: CLI_NAME,

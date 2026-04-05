@@ -1,34 +1,23 @@
+import { spawn } from "bun";
 import type {
 	AgentRuntimeEvent,
 	RuntimeSnapshot,
 	JsonRpcNotification,
 } from "@plot/sdk";
-type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 import type { RuntimeApi } from "@plot/tui";
 import type { ServerOptions } from "./options.js";
 import {
+	resolveSelfCommandArgs,
 	resolveTuiServerLogPath,
-	resolveTuiWorkerUrl,
 	toTuiServerEnv,
 } from "./runtime.js";
 
-type WorkerReadyMessage = { type: "ready" };
-type WorkerErrorMessage = { type: "error"; error: string };
-type WorkerStoppedMessage = { type: "stopped" };
-
-type WorkerLifecycleMessage =
-	| WorkerReadyMessage
-	| WorkerErrorMessage
-	| WorkerStoppedMessage;
+type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
 export interface TuiRuntimeHandle {
 	api: RuntimeApi;
 	close: () => void;
 	logPath: string;
-}
-
-function isLifecycleMessage(msg: unknown): msg is WorkerLifecycleMessage {
-	return typeof msg === "object" && msg !== null && "type" in msg;
 }
 
 function isJsonRpcNotification(msg: unknown): msg is JsonRpcNotification {
@@ -44,7 +33,6 @@ function isJsonRpcNotification(msg: unknown): msg is JsonRpcNotification {
 export async function createTuiRuntimeHandle(
 	serverOptions: ServerOptions,
 ): Promise<TuiRuntimeHandle> {
-	const worker = new Worker(resolveTuiWorkerUrl(), { type: "module" });
 	const logPath = resolveTuiServerLogPath();
 	let status: SseStatus = "connecting";
 	let onSnapshot: ((snapshot: RuntimeSnapshot) => void) | null = null;
@@ -56,54 +44,85 @@ export async function createTuiRuntimeHandle(
 		onStatus?.(next);
 	};
 
+	const cmdArgs = resolveSelfCommandArgs("__internal-rpc");
+	const env = toTuiServerEnv(serverOptions);
+
+	const proc = spawn(cmdArgs, {
+		stdio: ["pipe", "pipe", "pipe"],
+		env,
+	});
+
+	drainStream(proc.stderr);
+
 	const ready = new Promise<void>((resolve, reject) => {
-		worker.onmessage = (event: MessageEvent) => {
-			const message = event.data;
-
-			if (isLifecycleMessage(message)) {
-				if (message.type === "ready") {
-					setStatus("connected");
-					resolve();
-					return;
-				}
-				if (message.type === "error") {
-					setStatus("disconnected");
-					reject(new Error(message.error));
-					return;
-				}
-				if (message.type === "stopped") {
-					setStatus("disconnected");
-					return;
-				}
+		let resolved = false;
+		const timeout = setTimeout(() => {
+			if (!resolved) {
+				resolved = true;
+				reject(new Error("RPC subprocess did not become ready within 30s"));
 			}
+		}, 30_000);
 
-			if (isJsonRpcNotification(message)) {
-				switch (message.method) {
-					case "state/update":
-						onSnapshot?.(
-							(message.params as { snapshot: RuntimeSnapshot }).snapshot,
-						);
+		readNdjsonLines(
+			proc.stdout,
+			(msg) => {
+				if (!isJsonRpcNotification(msg)) return;
+
+				switch (msg.method) {
+					case "state/update": {
+						const params = msg.params as { snapshot: RuntimeSnapshot };
+						if (!resolved) {
+							resolved = true;
+							clearTimeout(timeout);
+							setStatus("connected");
+							resolve();
+						}
+						onSnapshot?.(params.snapshot);
 						break;
-					case "issue/event":
-						onEvent?.((message.params as { event: AgentRuntimeEvent }).event);
+					}
+					case "issue/event": {
+						const params = msg.params as {
+							issueId: string;
+							event: AgentRuntimeEvent;
+						};
+						onEvent?.(params.event);
 						break;
+					}
 				}
-			}
-		};
-		worker.onerror = (event) => {
-			setStatus("disconnected");
-			reject(new Error(event.message));
-		};
+			},
+			() => {
+				if (!resolved) {
+					resolved = true;
+					clearTimeout(timeout);
+					reject(new Error("RPC subprocess exited before ready"));
+				}
+				setStatus("disconnected");
+			},
+		);
+	});
+
+	void proc.exited.then(() => {
+		setStatus("disconnected");
 	});
 
 	setStatus("connecting");
-	worker.postMessage({ type: "start", env: toTuiServerEnv(serverOptions) });
 	await ready;
+
+	const sendRequest = (method: string, params: Record<string, unknown> = {}, id: number = 1) => {
+		try {
+			proc.stdin.write(
+				JSON.stringify({ jsonrpc: "2.0", method, params, id }) + "\n",
+			);
+		} catch {
+			// stdin may already be closed
+		}
+	};
 
 	const close = () => {
 		setStatus("disconnected");
-		worker.postMessage({ type: "stop" });
-		worker.terminate();
+		sendRequest("stop", {}, 1);
+		try { proc.stdin.end(); } catch { /* already closed */ }
+		if (!proc.killed) proc.kill();
 	};
 
 	return {
@@ -127,4 +146,45 @@ export async function createTuiRuntimeHandle(
 		close,
 		logPath,
 	};
+}
+
+async function readNdjsonLines(
+	stream: ReadableStream<Uint8Array>,
+	onMessage: (msg: unknown) => void,
+	onEnd: () => void,
+) {
+	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop() ?? "";
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				try {
+					onMessage(JSON.parse(line));
+				} catch {
+					/* skip malformed */
+				}
+			}
+		}
+		if (buffer.trim()) {
+			try {
+				onMessage(JSON.parse(buffer));
+			} catch {
+				/* skip */
+			}
+		}
+	} catch {
+		/* stream read error */
+	}
+	onEnd();
+}
+
+function drainStream(stream: ReadableStream<Uint8Array>) {
+	stream.pipeTo(new WritableStream()).catch(() => undefined);
 }
