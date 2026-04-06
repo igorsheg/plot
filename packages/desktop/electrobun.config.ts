@@ -17,7 +17,8 @@ export default {
 			"dist/index.html": "views/main/index.html",
 			"dist/assets": "views/main/assets",
 			"resources/tray-icon.svg": "views/tray-icon.svg",
+			"bin/plot-ai": "bin/plot-ai",
 		},
-		watchIgnore: ["dist/**"],
+		watchIgnore: ["dist/**", "bin/**"],
 	},
 } satisfies ElectrobunConfig;

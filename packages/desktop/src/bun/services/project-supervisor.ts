@@ -10,15 +10,29 @@ import type { ProjectStatus, ProjectSnapshot } from "../../shared/rpc";
 import type { RuntimeSnapshot } from "@plot/sdk";
 
 function resolvePlotBinary(): string[] {
+	// 1. Explicit override (dev/CI)
 	const cliEntry = process.env["PLOT_CLI_ENTRY"];
 	if (cliEntry && existsSync(cliEntry)) {
 		return [process.execPath, cliEntry];
 	}
-	const plotBin = path.resolve(import.meta.dirname, "../../../../plot/src/cli/index.ts");
-	if (existsSync(plotBin)) {
-		return [process.execPath, plotBin];
+
+	// 2. Bundled compiled binary (production desktop app)
+	const bundledBin = path.resolve(import.meta.dirname, "../bin/plot-ai");
+	if (existsSync(bundledBin)) {
+		return [bundledBin];
 	}
-	throw new Error("Could not resolve plot-ai binary. Set PLOT_CLI_ENTRY.");
+
+	// 3. Monorepo sibling (dev fallback)
+	const monorepoBin = path.resolve(import.meta.dirname, "../../../../plot/src/cli/index.ts");
+	if (existsSync(monorepoBin)) {
+		return [process.execPath, monorepoBin];
+	}
+
+	throw new Error(
+		"Could not resolve plot-ai binary. " +
+		"In development, set PLOT_CLI_ENTRY. " +
+		"In production, ensure bin/plot-ai is bundled in the app."
+	);
 }
 
 function buildSubprocessEnv(workflowPath: string, logPath: string): Record<string, string> {
@@ -32,7 +46,6 @@ function buildSubprocessEnv(workflowPath: string, logPath: string): Record<strin
 		
 		PLOT_LOG_FORMAT: "json",
 		PLOT_LOG_LEVEL: "info",
-		PLOT_WEB_ENABLED: "0",
 	};
 }
 
