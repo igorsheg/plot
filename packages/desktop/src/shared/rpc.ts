@@ -103,29 +103,24 @@ export type AuthState =
 	| { phase: "failed"; providerId: string; error: string };
 
 // ── Workflow ─────────────────────────────────────────
+//
+// Re-exported from @plot/sdk so the desktop ↔ webview RPC schema stays in
+// lockstep with the orchestrator's canonical config shape. Adding fields
+// here means: update the SDK type, and the desktop UI/serialization picks
+// it up automatically.
 
-export type TrackerConfig = {
-	kind: string;
-	dispatchStates?: string[];
-	parkedStates?: string[];
-	terminalStates?: string[];
-};
+export type {
+	TrackerConfig,
+	PollingConfig,
+	WorkspaceConfig,
+	HooksConfig,
+	AgentConfig,
+	AgentRuntimeConfig,
+	ServerConfig as WorkflowServerConfig,
+	WorkflowConfig,
+} from "@plot/sdk";
 
-export type AgentConfig = {
-	model?: string;
-	maxConcurrentAgents?: number;
-	maxTurns?: number;
-};
-
-export type WorkspaceConfig = {
-	root?: string;
-};
-
-export type WorkflowConfig = {
-	tracker?: TrackerConfig;
-	agent?: AgentConfig;
-	workspace?: WorkspaceConfig;
-};
+import type { WorkflowConfig } from "@plot/sdk";
 
 export type WorkflowDocument = {
 	config: WorkflowConfig;

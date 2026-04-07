@@ -53,7 +53,7 @@ function useSetup() {
 const TRACKER_PRESETS: Record<string, TrackerConfig> = {
 	github: {
 		kind: "github",
-		dispatchStates: ["plot:todo", "plot:in-progress"],
+		dispatchStates: ["plot:todo", "plot:in-progress", "plot:rework", "plot:merging"],
 		parkedStates: ["plot:human-review"],
 		terminalStates: ["plot:done"],
 	},
@@ -65,6 +65,25 @@ const TRACKER_PRESETS: Record<string, TrackerConfig> = {
 };
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4-20250514";
+
+// ── Workflow defaults ─────────────────────────────────
+//
+// Mirrors packages/plot/examples/WORKFLOW.github.md (minus model_by_state).
+// The git worktree hook does not assume any package manager — users add
+// project-specific install steps (bun install, cargo build, etc.) by hand.
+
+const DEFAULT_POLLING_INTERVAL_MS = 15_000;
+const DEFAULT_WORKSPACE_ROOT = "./workspaces";
+const DEFAULT_HOOK_AFTER_CREATE =
+	'WS=$PWD && cd ../.. && rmdir "$WS" && git worktree add "$WS" HEAD --detach';
+const DEFAULT_HOOK_BEFORE_REMOVE =
+	'WS=$PWD && cd ../.. && git worktree remove "$WS" --force || true';
+const DEFAULT_HOOK_TIMEOUT_MS = 120_000;
+const DEFAULT_MAX_CONCURRENT_AGENTS = 1;
+const DEFAULT_MAX_TURNS = 50;
+const DEFAULT_MAX_RETRY_BACKOFF_MS = 60_000;
+const DEFAULT_TURN_TIMEOUT_MS = 1_800_000;
+const DEFAULT_STALL_TIMEOUT_MS = 300_000;
 
 // ── Provider ─────────────────────────────────────────
 
@@ -87,8 +106,23 @@ function SetupProvider({
 		if (!project) return;
 		const config: WorkflowConfig = {
 			tracker,
-			agent: { model, maxConcurrentAgents: 1, maxTurns: 50 },
-			workspace: { root: "./workspaces" },
+			polling: { intervalMs: DEFAULT_POLLING_INTERVAL_MS },
+			workspace: { root: DEFAULT_WORKSPACE_ROOT },
+			hooks: {
+				afterCreate: DEFAULT_HOOK_AFTER_CREATE,
+				beforeRemove: DEFAULT_HOOK_BEFORE_REMOVE,
+				timeoutMs: DEFAULT_HOOK_TIMEOUT_MS,
+			},
+			agent: {
+				model,
+				maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS,
+				maxTurns: DEFAULT_MAX_TURNS,
+				maxRetryBackoffMs: DEFAULT_MAX_RETRY_BACKOFF_MS,
+			},
+			codex: {
+				turnTimeoutMs: DEFAULT_TURN_TIMEOUT_MS,
+				stallTimeoutMs: DEFAULT_STALL_TIMEOUT_MS,
+			},
 		};
 		await rpc().request.createWorkflow({ projectPath: project.path, config });
 		appActions.refreshProject();
