@@ -203,10 +203,16 @@ export class ProjectSupervisor extends ServiceMap.Service<ProjectSupervisor>()("
 				const env = buildSubprocessEnv(workflowPath, logPath);
 				const mailbox = yield* Queue.bounded<ProjectCommand>(64);
 
+				// cwd = project.path is the contract: plot and any shell hooks it
+				// executes inherit the project as their working directory. relative
+				// paths in WORKFLOW.md (workspace.root, hooks) resolve against this.
+				// plot also resolves paths internally against projectDir (see
+				// ResolvedConfig.workspaceRoot), so this is belt-and-suspenders.
 				const proc = yield* Effect.sync(() =>
 					Bun.spawn([...cmd, "--mode", "rpc"], {
 						stdio: ["pipe", "pipe", "pipe"],
 						env,
+						cwd: project.path,
 					}),
 				);
 

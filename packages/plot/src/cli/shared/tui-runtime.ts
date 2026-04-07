@@ -1,4 +1,5 @@
 import { spawn } from "bun";
+import { dirname, resolve } from "node:path";
 import type {
 	AgentRuntimeEvent,
 	RuntimeSnapshot,
@@ -47,9 +48,17 @@ export async function createTuiRuntimeHandle(
 	const cmdArgs = [...resolveSelfCommandArgs("--mode"), "rpc"];
 	const env = toTuiServerEnv(serverOptions);
 
+	// Resolve the project directory from the workflow path and use it as the
+	// subprocess cwd. This makes relative paths in WORKFLOW.md (workspace.root,
+	// hooks) behave predictably regardless of where the user invoked plot-ai
+	// from. Plot also resolves paths internally against projectDir — this is
+	// the outer defense.
+	const projectDir = dirname(resolve(serverOptions.workflow));
+
 	const proc = spawn(cmdArgs, {
 		stdio: ["pipe", "pipe", "pipe"],
 		env,
+		cwd: projectDir,
 	});
 
 	drainStream(proc.stderr);
