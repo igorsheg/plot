@@ -4,6 +4,19 @@ import matter from "gray-matter";
 import { stringify as yamlStringify } from "yaml";
 import { Effect, Layer, ServiceMap } from "effect";
 import type { WorkflowDocument, WorkflowConfig } from "../../shared/rpc";
+import { GITHUB_WORKFLOW_BODY } from "./templates/github-workflow-body";
+
+const MINIMAL_DEFAULT_BODY = "## Instructions\n\nWork on the assigned issue.\nKeep diffs minimal.\nProve changes with checks before claiming success.";
+
+/**
+ * Default prompt body for new projects, selected by tracker kind.
+ * github → full plot workflow protocol (state machine, workpad contract, flows)
+ * other  → minimal placeholder
+ */
+function defaultPromptBody(config: WorkflowConfig): string {
+	if (config.tracker?.kind === "github") return GITHUB_WORKFLOW_BODY;
+	return MINIMAL_DEFAULT_BODY;
+}
 
 const snakeToCamel = (s: string): string =>
 	s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -63,7 +76,7 @@ export class WorkflowIO extends ServiceMap.Service<WorkflowIO>()("WorkflowIO", {
 
 		createFromConfig: (projectPath: string, config: WorkflowConfig) =>
 			Effect.sync(() => {
-				const promptBody = "## Instructions\n\nWork on the assigned issue.\nKeep diffs minimal.\nProve changes with checks before claiming success.";
+				const promptBody = defaultPromptBody(config);
 				const doc: WorkflowDocument = { config, promptBody };
 				const filePath = path.join(projectPath, "WORKFLOW.md");
 				const snaked = transformKeysToSnake(doc.config) as Record<string, unknown>;

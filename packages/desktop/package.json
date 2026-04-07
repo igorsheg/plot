@@ -8,10 +8,11 @@
 		"dev:views": "vite --port 5174",
 		"dev:bun": "PLOT_CLI_ENTRY=$(cd ../plot && pwd)/src/cli/index.ts electrobun dev --watch",
 		"build:views": "vite build",
-		"build": "bun run build:cli && vite build && electrobun build",
+		"build": "bun run sync:templates && bun run build:cli && vite build && electrobun build",
 		"typecheck": "tsc -b tsconfig.json",
 		"lint": "oxlint src --tsconfig ../../tsconfig.json",
-		"build:cli": "bun run scripts/build-cli.ts"
+		"build:cli": "bun run scripts/build-cli.ts",
+		"sync:templates": "bun run scripts/sync-templates.ts"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.2.0",
