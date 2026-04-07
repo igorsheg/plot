@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
 	AgentConfig,
-	AgentRuntimeConfig,
 	Issue,
 	TrackerConfig,
 	WorkflowConfig,
@@ -29,10 +28,8 @@ const makeConfig = (options?: { readonly maxConcurrentAgents?: number }) =>
 			agent: {
 				maxConcurrentAgents: options?.maxConcurrentAgents ?? 1,
 				maxRetryBackoffMs: 60_000,
-			} satisfies AgentConfig,
-			codex: {
 				stallTimeoutMs: 1_000,
-			} satisfies AgentRuntimeConfig,
+			} satisfies AgentConfig,
 		} satisfies WorkflowConfig,
 	);
 

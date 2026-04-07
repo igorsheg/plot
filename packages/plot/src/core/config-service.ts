@@ -125,10 +125,10 @@ export class ResolvedConfig {
 			}
 		}
 		this.modelByLabel = byLabelModel;
-		this.agentCommand = wf.codex?.command ?? "pi";
-		this.turnTimeoutMs = wf.codex?.turnTimeoutMs ?? 3_600_000;
-		this.readTimeoutMs = wf.codex?.readTimeoutMs ?? 5_000;
-		this.stallTimeoutMs = wf.codex?.stallTimeoutMs ?? 300_000;
+		this.agentCommand = wf.agent?.command ?? "pi";
+		this.turnTimeoutMs = wf.agent?.turnTimeoutMs ?? 3_600_000;
+		this.readTimeoutMs = wf.agent?.readTimeoutMs ?? 5_000;
+		this.stallTimeoutMs = wf.agent?.stallTimeoutMs ?? 300_000;
 		this.serverPort = wf.server?.port;
 		this.githubRepo = overrides?.githubRepo ?? "";
 	}

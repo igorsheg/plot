@@ -118,8 +118,6 @@ function SetupProvider({
 				maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS,
 				maxTurns: DEFAULT_MAX_TURNS,
 				maxRetryBackoffMs: DEFAULT_MAX_RETRY_BACKOFF_MS,
-			},
-			codex: {
 				turnTimeoutMs: DEFAULT_TURN_TIMEOUT_MS,
 				stallTimeoutMs: DEFAULT_STALL_TIMEOUT_MS,
 			},

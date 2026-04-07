@@ -26,16 +26,18 @@ export interface HooksConfig {
 }
 
 export interface AgentConfig {
+	// scheduling / fan-out
 	readonly maxConcurrentAgents?: number;
+	readonly maxConcurrentAgentsByState?: Record<string, number>;
 	readonly maxTurns?: number;
 	readonly maxRetryBackoffMs?: number;
-	readonly maxConcurrentAgentsByState?: Record<string, number>;
+
+	// model selection
 	readonly model?: string;
 	readonly modelByState?: Record<string, string>;
 	readonly modelByLabel?: Record<string, string>;
-}
 
-export interface AgentRuntimeConfig {
+	// runtime (previously nested under `codex:` — legacy name from the go port)
 	readonly command?: string;
 	readonly approvalPolicy?: string;
 	readonly turnTimeoutMs?: number;
@@ -53,7 +55,6 @@ export interface WorkflowConfig {
 	readonly workspace?: WorkspaceConfig;
 	readonly hooks?: HooksConfig;
 	readonly agent?: AgentConfig;
-	readonly codex?: AgentRuntimeConfig;
 	readonly server?: ServerConfig;
 }
 

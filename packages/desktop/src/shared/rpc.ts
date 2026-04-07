@@ -115,7 +115,6 @@ export type {
 	WorkspaceConfig,
 	HooksConfig,
 	AgentConfig,
-	AgentRuntimeConfig,
 	ServerConfig as WorkflowServerConfig,
 	WorkflowConfig,
 } from "@plot/sdk";

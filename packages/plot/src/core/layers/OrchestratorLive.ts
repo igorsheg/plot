@@ -167,7 +167,7 @@ const mapRuntimeSnapshot = (state: {
 		generatedAt: new Date().toISOString(),
 		running,
 		retrying,
-		codexTotals: {
+		agentTotals: {
 			inputTokens: state.totalInputTokens,
 			outputTokens: state.totalOutputTokens,
 			totalTokens: state.totalTokens,

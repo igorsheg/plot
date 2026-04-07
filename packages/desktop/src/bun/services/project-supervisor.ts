@@ -79,10 +79,10 @@ function mapToProjectSnapshot(raw: unknown): ProjectSnapshot | null {
 			error: r.error ?? null,
 		})),
 		totals: {
-			inputTokens: snapshot.codexTotals?.inputTokens ?? 0,
-			outputTokens: snapshot.codexTotals?.outputTokens ?? 0,
-			totalTokens: snapshot.codexTotals?.totalTokens ?? 0,
-			secondsRunning: snapshot.codexTotals?.secondsRunning ?? 0,
+			inputTokens: snapshot.agentTotals?.inputTokens ?? 0,
+			outputTokens: snapshot.agentTotals?.outputTokens ?? 0,
+			totalTokens: snapshot.agentTotals?.totalTokens ?? 0,
+			secondsRunning: snapshot.agentTotals?.secondsRunning ?? 0,
 		},
 	};
 }

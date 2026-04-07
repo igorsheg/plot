@@ -76,7 +76,7 @@ export interface RuntimeSnapshot {
 	readonly generatedAt: string;
 	readonly running: readonly RunningEntry[];
 	readonly retrying: readonly RetryEntry[];
-	readonly codexTotals: TokenTotals;
+	readonly agentTotals: TokenTotals;
 	readonly observability: RuntimeObservability;
 }
 

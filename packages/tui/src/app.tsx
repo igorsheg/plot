@@ -130,8 +130,8 @@ function Header({
 		`● ${sseStatus}`,
 		`${runningCount} active`,
 		retryingCount > 0 ? `${retryingCount} retrying` : null,
-		snapshot ? `tokens ${formatTokens(snapshot.codexTotals.totalTokens)}` : null,
-		snapshot ? `up ${formatDuration(snapshot.codexTotals.secondsRunning)}` : null,
+		snapshot ? `tokens ${formatTokens(snapshot.agentTotals.totalTokens)}` : null,
+		snapshot ? `up ${formatDuration(snapshot.agentTotals.secondsRunning)}` : null,
 	]
 		.filter(Boolean)
 		.join(" │ ");

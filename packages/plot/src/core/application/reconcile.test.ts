@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentConfig, AgentRuntimeConfig, Issue, TrackerConfig, WorkflowConfig } from "@plot/sdk";
+import type { AgentConfig, Issue, TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { Effect, Ref } from "effect";
 import { ResolvedConfig } from "../config-service.js";
 import {
@@ -25,10 +25,8 @@ const makeConfig = (options?: {
 			agent: {
 				maxConcurrentAgents: options?.maxConcurrentAgents ?? 2,
 				maxRetryBackoffMs: 60_000,
-			} satisfies AgentConfig,
-			codex: {
 				stallTimeoutMs: options?.stallTimeoutMs ?? 1_000,
-			} satisfies AgentRuntimeConfig,
+			} satisfies AgentConfig,
 		} satisfies WorkflowConfig,
 	);
 
