@@ -17,16 +17,26 @@ const resolveEnvValue = (value: string | undefined): string | undefined => {
 	return value;
 };
 
-const resolvePath = (value: string | undefined, fallback: string): string => {
+/**
+ * Resolve a user-configured path (from WORKFLOW.md) against a project base.
+ * Relative paths resolve against `projectDir` — NOT `process.cwd()` — so that
+ * spawning plot as a subprocess from another working directory (e.g. desktop
+ * app) still lands workspaces inside the project, not the spawner's cwd.
+ */
+const resolvePath = (
+	value: string | undefined,
+	fallback: string,
+	projectDir: string,
+): string => {
 	if (!value) return fallback;
 	const resolved = resolveEnvValue(value) ?? value;
-	if (resolved.startsWith("~")) {
-		return resolve(process.env["HOME"] ?? "/", resolved.slice(1));
+	if (resolved.startsWith("~/") || resolved === "~") {
+		return resolve(process.env["HOME"] ?? "/", resolved.slice(2));
 	}
 	if (resolved.includes("/") || resolved.includes("\\")) {
-		return resolve(resolved);
+		return resolve(projectDir, resolved);
 	}
-	return resolved;
+	return resolve(projectDir, resolved);
 };
 
 export class ResolvedConfig {
@@ -83,6 +93,7 @@ export class ResolvedConfig {
 		this.workspaceRoot = resolvePath(
 			wf.workspace?.root,
 			resolve(tmpdir(), "plot_workspaces"),
+			this.projectDir,
 		);
 		this.hooksAfterCreate = wf.hooks?.afterCreate;
 		this.hooksBeforeRun = wf.hooks?.beforeRun;
