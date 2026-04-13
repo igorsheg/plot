@@ -8,13 +8,6 @@ const cliDir = dirname(fileURLToPath(import.meta.url));
 const binDir = compiled ? dirname(process.execPath) : null;
 const packageDir = binDir ? dirname(binDir) : null;
 
-export function resolveBundledWebDistDir() {
-	return (
-		process.env["PLOT_WEB_DIST_DIR"] ??
-		(packageDir ? join(packageDir, "web-dist") : join(cliDir, "../../../../web/dist"))
-	);
-}
-
 export function resolveBundledPiSkillsDir() {
 	return (
 		process.env["PLOT_PI_SKILLS_DIR"] ??
@@ -49,26 +42,12 @@ export function resolveTuiServerLogPath() {
 	return join(homedir(), ".plot", "logs", "tui-server.log");
 }
 
-export function resolveTuiWorkerUrl(): URL {
-	const envPath = process.env["PLOT_TUI_WORKER_PATH"];
-	if (envPath) {
-		return new URL(`file://${envPath}`);
-	}
-	if (binDir) {
-		return new URL(`file://${join(binDir, "tui-worker.js")}`);
-	}
-	return new URL("../../tui-worker.ts", import.meta.url);
-}
-
 export function toServerEnv(opts: ServerOptions): Record<string, string> {
 	const env: Record<string, string> = {
 		...(process.env as Record<string, string>),
 		PLOT_WORKFLOW: opts.workflow,
-		PLOT_PORT: String(opts.port),
-		PLOT_LOG_FORMAT: opts.json ? "json" : opts["log-format"],
+		PLOT_LOG_FORMAT: opts["log-format"],
 		PLOT_LOG_LEVEL: opts["log-level"],
-		PLOT_WEB_ENABLED: opts.web ? "1" : "0",
-		PLOT_WEB_DIST_DIR: resolveBundledWebDistDir(),
 		PLOT_PI_SKILLS_DIR: resolveBundledPiSkillsDir(),
 	};
 

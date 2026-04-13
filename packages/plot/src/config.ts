@@ -1,6 +1,6 @@
-import { Config, Effect, Option, Schema } from "effect";
-import { WorkflowConfig } from "@plot/sdk";
-import { WorkflowParseError } from "./core/workflow-loader.js";
+import { Config, Effect, Option } from "effect";
+import type { WorkflowConfig } from "@plot/sdk";
+import { WorkflowParseError } from "./core/errors.js";
 import { extractFrontmatter } from "./core/workflow-loader.js";
 
 export interface WorkflowOverrides {
@@ -20,9 +20,6 @@ export const WorkflowOverridesConfig: Config.Config<WorkflowOverrides> = Config.
 
 export interface ServerConfig {
 	readonly workflowPath: string;
-	readonly port: number;
-	readonly webDistDir: string;
-	readonly webEnabled: boolean;
 	readonly logFormat: "pretty" | "json";
 	readonly logLevel: "debug" | "info" | "warning" | "error" | "none";
 	readonly refreshPlugins: boolean;
@@ -31,16 +28,6 @@ export interface ServerConfig {
 
 export const ServerConfig: Config.Config<ServerConfig> = Config.all({
 	workflowPath: Config.string("WORKFLOW").pipe(Config.withDefault("./WORKFLOW.md")),
-	port: Config.int("PORT").pipe(
-		Config.withDefault(3000),
-		Config.mapOrFail((port) =>
-			port >= 0 && port <= 65535
-				? Effect.succeed(port)
-				: Effect.die(`port must be 0-65535, got ${port}`),
-		),
-	),
-	webDistDir: Config.string("WEB_DIST_DIR").pipe(Config.withDefault("")),
-	webEnabled: Config.boolean("WEB_ENABLED").pipe(Config.withDefault(false)),
 	logFormat: Config.string("LOG_FORMAT").pipe(
 		Config.withDefault("pretty"),
 		Config.mapOrFail((s) => {
@@ -66,7 +53,7 @@ export const ServerConfig: Config.Config<ServerConfig> = Config.all({
 export function parseWorkflowFrontmatter(content: string): WorkflowConfig {
 	try {
 		const { configRaw } = extractFrontmatter(content);
-		return Schema.decodeUnknownSync(WorkflowConfig)(configRaw);
+		return configRaw as WorkflowConfig;
 	} catch (error) {
 		throw new WorkflowParseError({
 			message: error instanceof Error ? error.message : `workflow parse failed: ${String(error)}`,

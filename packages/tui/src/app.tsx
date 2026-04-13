@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { DateTime } from "effect";
-import { AgentRuntimeEvent, IssueEventLog } from "@plot/sdk";
+import type { AgentRuntimeEvent, IssueEventLog } from "@plot/sdk";
 import type {
-	RefreshResult,
 	RuntimeSnapshot,
 	LiveSession,
 } from "@plot/sdk";
-
 type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
 export interface RuntimeApi {
-	triggerRefresh: () => Promise<RefreshResult>;
-	getEventLog: (identifier: string) => Promise<IssueEventLog>;
 	connectSnapshots: (
 		handleSnapshot: (snapshot: RuntimeSnapshot) => void,
 		handleStatus: (status: SseStatus) => void,
@@ -22,8 +17,9 @@ export interface RuntimeApi {
 
 type PaneFocus = "issues" | "events";
 
-function toEpochMs(dt: DateTime.Utc): number {
-	return Number(DateTime.toEpochMillis(dt));
+function toEpochMs(dt: string | null): number {
+	if (!dt) return 0;
+	return new Date(dt).getTime();
 }
 
 function formatTokens(n: number): string {
@@ -82,12 +78,12 @@ function eventSummary(event: AgentRuntimeEvent): string {
 	return "";
 }
 
-function formatClock(dt: DateTime.Utc): string {
-	return new Date(toEpochMs(dt)).toISOString().slice(11, 19);
+function formatClock(dt: string): string {
+	return new Date(dt).toISOString().slice(11, 19);
 }
 
-function formatIso(dt: DateTime.Utc): string {
-	return new Date(toEpochMs(dt)).toISOString();
+function formatIso(dt: string): string {
+	return new Date(dt).toISOString();
 }
 
 function summarizeReasonCounts(reasons: Record<string, number>): string {
@@ -134,8 +130,8 @@ function Header({
 		`● ${sseStatus}`,
 		`${runningCount} active`,
 		retryingCount > 0 ? `${retryingCount} retrying` : null,
-		snapshot ? `tokens ${formatTokens(snapshot.codexTotals.totalTokens)}` : null,
-		snapshot ? `up ${formatDuration(snapshot.codexTotals.secondsRunning)}` : null,
+		snapshot ? `tokens ${formatTokens(snapshot.agentTotals.totalTokens)}` : null,
+		snapshot ? `up ${formatDuration(snapshot.agentTotals.secondsRunning)}` : null,
 	]
 		.filter(Boolean)
 		.join(" │ ");
@@ -280,7 +276,7 @@ function EventList({
 						const label = shortLabelMap[event.event] ?? event.event;
 						return (
 							<text
-								key={`${toEpochMs(event.timestamp)}-${index}`}
+								key={`${event.timestamp}-${index}`}
 								fg={selected ? "#22d3ee" : "#a1a1aa"}
 							>
 								{selected ? "› " : "  "}
@@ -383,7 +379,7 @@ function OpsPanel({ snapshot }: { snapshot: RuntimeSnapshot | null }) {
 				<text fg="#71717a">none</text>
 			) : (
 				snapshot.retrying.map((retry) => {
-					const dueIn = Math.max(0, Math.round((toEpochMs(retry.dueAt) - Date.now()) / 1000));
+					const dueIn = Math.max(0, Math.round((new Date(retry.dueAt).getTime() - Date.now()) / 1000));
 					return (
 						<box key={retry.issueId}>
 							<text fg="#fbbf24">
@@ -483,30 +479,6 @@ export function App({ api }: { api: RuntimeApi }) {
 		}
 	}, [railIdentifiers, focusedIdentifier]);
 
-	// fetch event log when focused issue changes
-	useEffect(() => {
-		if (!focusedIdentifier) {
-			setEventLog(null);
-			eventLogIdRef.current = null;
-			return;
-		}
-		if (eventLogIdRef.current === focusedIdentifier) return;
-		eventLogIdRef.current = focusedIdentifier;
-		setEventLog(null);
-		setSelectedEventIndex(0);
-		void api
-			.getEventLog(focusedIdentifier)
-			.then((log) => {
-				if (eventLogIdRef.current !== focusedIdentifier) return;
-				setEventLog(log);
-				setSelectedEventIndex(Math.max(0, log.events.length - 1));
-			})
-			.catch(() => {
-				if (eventLogIdRef.current !== focusedIdentifier) return;
-				setEventLog(null);
-			});
-	}, [focusedIdentifier, api]);
-
 	// connect SSE
 	useEffect(() => {
 		const disconnectSnapshots = api.connectSnapshots(
@@ -522,17 +494,17 @@ export function App({ api }: { api: RuntimeApi }) {
 					prev.events[prev.events.length - 1]?.event === "notification"
 				) {
 					const last = prev.events[prev.events.length - 1]!;
-					const merged = new AgentRuntimeEvent({
+					const merged: AgentRuntimeEvent = {
 						...last,
 						timestamp: event.timestamp,
 						message: (last.message ?? "") + (event.message ?? ""),
-					});
-					return new IssueEventLog({
+					};
+					return {
 						...prev,
 						events: [...prev.events.slice(0, -1), merged],
-					});
+					} satisfies IssueEventLog;
 				}
-				return new IssueEventLog({ ...prev, events: [...prev.events, event] });
+				return { ...prev, events: [...prev.events, event] } satisfies IssueEventLog;
 			});
 		});
 
@@ -571,9 +543,6 @@ export function App({ api }: { api: RuntimeApi }) {
 		}
 		if (key.name === "o") {
 			setOpsVisible((prev) => !prev);
-		}
-		if (key.name === "r") {
-			void api.triggerRefresh();
 		}
 		if (key.name === "j" || key.name === "down") {
 			if (focusPane === "issues") {

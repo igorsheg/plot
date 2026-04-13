@@ -8,4 +8,4 @@ export const LoginCommand = Command.make(
 		provider: Argument.string("provider").pipe(Argument.optional),
 	},
 	({ provider }) => Effect.promise(() => loginWithPlotAuth(Option.getOrUndefined(provider))),
-).pipe(Command.withDescription("login to a model provider for plot"));
+).pipe(Command.withDescription("authenticate with a model provider (interactive)"));

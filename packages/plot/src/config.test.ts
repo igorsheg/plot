@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { ConfigProvider, Effect } from "effect";
-import { TrackerConfig, WorkflowConfig } from "@plot/sdk";
+import type { TrackerConfig, WorkflowConfig } from "@plot/sdk";
 import { ServerConfig, parseWorkflowFrontmatter } from "./config.js";
-import { WorkflowParseError } from "./core/workflow-loader.js";
+import { WorkflowParseError } from "./core/errors.js";
 import { ResolvedConfig } from "./core/config-service.js";
 
 function resolveConfig(env: Record<string, string>) {
@@ -15,24 +15,10 @@ function resolveConfig(env: Record<string, string>) {
 }
 
 describe("ServerConfig", () => {
-	test("reads explicit web config from env", async () => {
-		const config = await resolveConfig({
-			PLOT_PORT: "4123",
-			PLOT_WEB_DIST_DIR: "/tmp/plot-web",
-			PLOT_WEB_ENABLED: "true",
-		});
-
-		expect(config.port).toBe(4123);
-		expect(config.webDistDir).toBe("/tmp/plot-web");
-		expect(config.webEnabled).toBe(true);
-	});
-
 	test("uses defaults when env is missing", async () => {
 		const config = await resolveConfig({});
 
 		expect(config.workflowPath).toBe("./WORKFLOW.md");
-		expect(config.port).toBe(3000);
-		expect(config.webEnabled).toBe(false);
 		expect(config.logFormat).toBe("pretty");
 		expect(config.logLevel).toBe("info");
 		expect(config.overrides).toEqual({
@@ -57,14 +43,6 @@ describe("ServerConfig", () => {
 
 	test("rejects invalid log level", async () => {
 		await expect(resolveConfig({ PLOT_LOG_LEVEL: "trace" })).rejects.toThrow();
-	});
-
-	test("rejects invalid port (out of range)", async () => {
-		await expect(resolveConfig({ PLOT_PORT: "70000" })).rejects.toThrow();
-	});
-
-	test("rejects invalid port (not a number)", async () => {
-		await expect(resolveConfig({ PLOT_PORT: "wat" })).rejects.toThrow();
 	});
 });
 
@@ -107,7 +85,7 @@ template content`;
 
 describe("ResolvedConfig", () => {
 	test("uses namespaced github tracker defaults", () => {
-		const config = new ResolvedConfig(new WorkflowConfig({}));
+		const config = new ResolvedConfig({} satisfies WorkflowConfig);
 
 		expect(config.dispatchStates).toEqual(["plot:todo", "plot:in-progress"]);
 		expect(config.parkedStates).toEqual(["plot:human-review"]);
@@ -121,11 +99,11 @@ describe("ResolvedConfig", () => {
 	});
 
 	test("uses github repo override", () => {
-		const workflowConfig = new WorkflowConfig({
+		const workflowConfig: WorkflowConfig = {
 			tracker: {
 				kind: "github",
 			} as TrackerConfig,
-		});
+		};
 
 		expect(new ResolvedConfig(workflowConfig).githubRepo).toBe("");
 		expect(new ResolvedConfig(workflowConfig, { githubRepo: "override/repo" }).githubRepo).toBe(

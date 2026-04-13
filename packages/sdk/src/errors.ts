@@ -1,50 +1,66 @@
-import { Schema } from "effect";
+export class IssueNotFound extends Error {
+	readonly _tag = "IssueNotFound" as const;
+	readonly identifier: string;
+	constructor(opts: { identifier: string; message: string }) {
+		super(`Issue not found: ${opts.identifier} — ${opts.message}`);
+		this.name = "IssueNotFound";
+		this.identifier = opts.identifier;
+	}
+}
 
-export class IssueNotFound extends Schema.TaggedErrorClass<IssueNotFound>()("IssueNotFound", {
-	identifier: Schema.String,
-	message: Schema.String,
-}) {}
+export class OrchestratorUnavailable extends Error {
+	readonly _tag = "OrchestratorUnavailable" as const;
+	constructor(opts: { message: string }) {
+		super(`Orchestrator unavailable: ${opts.message}`);
+		this.name = "OrchestratorUnavailable";
+	}
+}
 
-export class OrchestratorUnavailable extends Schema.TaggedErrorClass<OrchestratorUnavailable>()(
-	"OrchestratorUnavailable",
-	{
-		message: Schema.String,
-	},
-) {}
+export class TrackerAuthError extends Error {
+	readonly _tag = "TrackerAuthError" as const;
+	constructor(opts: { message: string }) {
+		super(`Tracker auth error: ${opts.message}`);
+		this.name = "TrackerAuthError";
+	}
+}
 
-export class TrackerAuthError extends Schema.TaggedErrorClass<TrackerAuthError>()(
-	"TrackerAuthError",
-	{ message: Schema.String },
-) {}
+export class TrackerRateLimitError extends Error {
+	readonly _tag = "TrackerRateLimitError" as const;
+	readonly retryAfterMs?: number;
+	constructor(opts: { message: string; retryAfterMs?: number }) {
+		super(`Tracker rate limited: ${opts.message}${opts.retryAfterMs !== undefined ? ` (retry after ${opts.retryAfterMs}ms)` : ""}`);
+		this.name = "TrackerRateLimitError";
+		this.retryAfterMs = opts.retryAfterMs;
+	}
+}
 
-export class TrackerRateLimitError extends Schema.TaggedErrorClass<TrackerRateLimitError>()(
-	"TrackerRateLimitError",
-	{
-		message: Schema.String,
-		retryAfterMs: Schema.optional(Schema.Number),
-	},
-) {}
+export class TrackerNotFoundError extends Error {
+	readonly _tag = "TrackerNotFoundError" as const;
+	readonly resourceId: string;
+	constructor(opts: { message: string; resourceId: string }) {
+		super(`Tracker resource not found: ${opts.resourceId} — ${opts.message}`);
+		this.name = "TrackerNotFoundError";
+		this.resourceId = opts.resourceId;
+	}
+}
 
-export class TrackerNotFoundError extends Schema.TaggedErrorClass<TrackerNotFoundError>()(
-	"TrackerNotFoundError",
-	{
-		message: Schema.String,
-		resourceId: Schema.String,
-	},
-) {}
+export class TrackerNetworkError extends Error {
+	readonly _tag = "TrackerNetworkError" as const;
+	constructor(opts: { message: string }) {
+		super(`Tracker network error: ${opts.message}`);
+		this.name = "TrackerNetworkError";
+	}
+}
 
-export class TrackerNetworkError extends Schema.TaggedErrorClass<TrackerNetworkError>()(
-	"TrackerNetworkError",
-	{ message: Schema.String },
-) {}
-
-export class TrackerValidationError extends Schema.TaggedErrorClass<TrackerValidationError>()(
-	"TrackerValidationError",
-	{
-		message: Schema.String,
-		field: Schema.optional(Schema.String),
-	},
-) {}
+export class TrackerValidationError extends Error {
+	readonly _tag = "TrackerValidationError" as const;
+	readonly field?: string;
+	constructor(opts: { message: string; field?: string }) {
+		super(`Tracker validation error${opts.field ? ` at ${opts.field}` : ""}: ${opts.message}`);
+		this.name = "TrackerValidationError";
+		this.field = opts.field;
+	}
+}
 
 export type TrackerError =
 	| TrackerAuthError
@@ -53,5 +69,4 @@ export type TrackerError =
 	| TrackerNetworkError
 	| TrackerValidationError;
 
-export const PlotApiError = Schema.Union([IssueNotFound, OrchestratorUnavailable]);
-export type PlotApiError = typeof PlotApiError.Type;
+export type PlotApiError = IssueNotFound | OrchestratorUnavailable;

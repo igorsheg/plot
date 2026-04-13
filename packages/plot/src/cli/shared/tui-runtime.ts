@@ -1,37 +1,19 @@
-import { Schema } from "effect";
-import {
+import { spawn } from "bun";
+import { dirname, resolve } from "node:path";
+import type {
 	AgentRuntimeEvent,
-	IssueEventLog,
-	RefreshResult,
 	RuntimeSnapshot,
+	JsonRpcNotification,
 } from "@plot/sdk";
-
-type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 import type { RuntimeApi } from "@plot/tui";
 import type { ServerOptions } from "./options.js";
-import { resolveTuiServerLogPath, resolveTuiWorkerUrl, toTuiServerEnv } from "./runtime.js";
+import {
+	resolveSelfCommandArgs,
+	resolveTuiServerLogPath,
+	toTuiServerEnv,
+} from "./runtime.js";
 
-type WorkerReadyMessage = { type: "ready" };
-type WorkerSnapshotMessage = { type: "snapshot"; snapshot: unknown };
-type WorkerEventMessage = { type: "event"; event: unknown };
-type WorkerErrorMessage = { type: "error"; error: string };
-type WorkerResponseMessage =
-	| { type: "response"; id: number; ok: true; result: unknown }
-	| { type: "response"; id: number; ok: false; error: string };
-
-type WorkerMethod = "triggerRefresh" | "getEventLog";
-
-type WorkerMessage =
-	| WorkerReadyMessage
-	| WorkerSnapshotMessage
-	| WorkerEventMessage
-	| WorkerErrorMessage
-	| WorkerResponseMessage;
-
-const decodeSnapshot = Schema.decodeUnknownSync(RuntimeSnapshot);
-const decodeEvent = Schema.decodeUnknownSync(AgentRuntimeEvent);
-const decodeRefreshResult = Schema.decodeUnknownSync(RefreshResult);
-const decodeIssueEventLog = Schema.decodeUnknownSync(IssueEventLog);
+type SseStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
 export interface TuiRuntimeHandle {
 	api: RuntimeApi;
@@ -39,94 +21,121 @@ export interface TuiRuntimeHandle {
 	logPath: string;
 }
 
+function isJsonRpcNotification(msg: unknown): msg is JsonRpcNotification {
+	return (
+		typeof msg === "object" &&
+		msg !== null &&
+		"jsonrpc" in msg &&
+		(msg as Record<string, unknown>)["jsonrpc"] === "2.0" &&
+		"method" in msg
+	);
+}
+
 export async function createTuiRuntimeHandle(
 	serverOptions: ServerOptions,
 ): Promise<TuiRuntimeHandle> {
-	const worker = new Worker(resolveTuiWorkerUrl(), { type: "module" });
 	const logPath = resolveTuiServerLogPath();
 	let status: SseStatus = "connecting";
 	let onSnapshot: ((snapshot: RuntimeSnapshot) => void) | null = null;
 	let onStatus: ((status: SseStatus) => void) | null = null;
 	let onEvent: ((event: AgentRuntimeEvent) => void) | null = null;
-	let nextId = 1;
-	const pending = new Map<
-		number,
-		{ resolve: (value: unknown) => void; reject: (error: Error) => void }
-	>();
 
 	const setStatus = (next: SseStatus) => {
 		status = next;
 		onStatus?.(next);
 	};
 
-	const failPending = (message: string) => {
-		for (const request of pending.values()) {
-			request.reject(new Error(message));
-		}
-		pending.clear();
-	};
+	const cmdArgs = [...resolveSelfCommandArgs("--mode"), "rpc"];
+	const env = toTuiServerEnv(serverOptions);
+
+	// Resolve the project directory from the workflow path and use it as the
+	// subprocess cwd. This makes relative paths in WORKFLOW.md (workspace.root,
+	// hooks) behave predictably regardless of where the user invoked plot-ai
+	// from. Plot also resolves paths internally against projectDir — this is
+	// the outer defense.
+	const projectDir = dirname(resolve(serverOptions.workflow));
+
+	const proc = spawn(cmdArgs, {
+		stdio: ["pipe", "pipe", "pipe"],
+		env,
+		cwd: projectDir,
+	});
+
+	drainStream(proc.stderr);
 
 	const ready = new Promise<void>((resolve, reject) => {
-		worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-			const message = event.data;
-			if (message.type === "ready") {
-				setStatus("connected");
-				resolve();
-				return;
+		let resolved = false;
+		const timeout = setTimeout(() => {
+			if (!resolved) {
+				resolved = true;
+				reject(new Error("RPC subprocess did not become ready within 30s"));
 			}
-			if (message.type === "snapshot") {
-				onSnapshot?.(decodeSnapshot(message.snapshot));
-				return;
-			}
-			if (message.type === "event") {
-				onEvent?.(decodeEvent(message.event));
-				return;
-			}
-			if (message.type === "error") {
+		}, 30_000);
+
+		readNdjsonLines(
+			proc.stdout,
+			(msg) => {
+				if (!isJsonRpcNotification(msg)) return;
+
+				switch (msg.method) {
+					case "state/update": {
+						const params = msg.params as { snapshot: RuntimeSnapshot };
+						if (!resolved) {
+							resolved = true;
+							clearTimeout(timeout);
+							setStatus("connected");
+							resolve();
+						}
+						onSnapshot?.(params.snapshot);
+						break;
+					}
+					case "issue/event": {
+						const params = msg.params as {
+							issueId: string;
+							event: AgentRuntimeEvent;
+						};
+						onEvent?.(params.event);
+						break;
+					}
+				}
+			},
+			() => {
+				if (!resolved) {
+					resolved = true;
+					clearTimeout(timeout);
+					reject(new Error("RPC subprocess exited before ready"));
+				}
 				setStatus("disconnected");
-				failPending(message.error);
-				reject(new Error(message.error));
-				return;
-			}
-			const request = pending.get(message.id);
-			if (!request) return;
-			pending.delete(message.id);
-			if (message.ok) {
-				request.resolve(message.result);
-				return;
-			}
-			request.reject(new Error(message.error));
-		};
-		worker.onerror = (event) => {
-			setStatus("disconnected");
-			failPending(event.message);
-			reject(new Error(event.message));
-		};
+			},
+		);
+	});
+
+	void proc.exited.then(() => {
+		setStatus("disconnected");
 	});
 
 	setStatus("connecting");
-	worker.postMessage({ type: "start", env: toTuiServerEnv(serverOptions) });
 	await ready;
 
-	const call = (method: WorkerMethod, identifier?: string) =>
-		new Promise<unknown>((resolve, reject) => {
-			const id = nextId++;
-			pending.set(id, { resolve, reject });
-			worker.postMessage({ type: "call", id, method, identifier });
-		});
+	const sendRequest = (method: string, params: Record<string, unknown> = {}, id: number = 1) => {
+		try {
+			proc.stdin.write(
+				JSON.stringify({ jsonrpc: "2.0", method, params, id }) + "\n",
+			);
+		} catch {
+			// stdin may already be closed
+		}
+	};
 
 	const close = () => {
 		setStatus("disconnected");
-		failPending("tui runtime closed");
-		worker.postMessage({ type: "stop" });
-		worker.terminate();
+		sendRequest("stop", {}, 1);
+		try { proc.stdin.end(); } catch { /* already closed */ }
+		if (!proc.killed) proc.kill();
 	};
 
 	return {
 		api: {
-			triggerRefresh: async () => decodeRefreshResult(await call("triggerRefresh")),
-			getEventLog: async (identifier: string) =>
-				decodeIssueEventLog(await call("getEventLog", identifier)),
 			connectSnapshots: (handleSnapshot, handleStatus) => {
 				onSnapshot = handleSnapshot;
 				onStatus = handleStatus;
@@ -142,8 +151,49 @@ export async function createTuiRuntimeHandle(
 					onEvent = null;
 				};
 			},
-		},
+		} as RuntimeApi,
 		close,
 		logPath,
 	};
+}
+
+async function readNdjsonLines(
+	stream: ReadableStream<Uint8Array>,
+	onMessage: (msg: unknown) => void,
+	onEnd: () => void,
+) {
+	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop() ?? "";
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				try {
+					onMessage(JSON.parse(line));
+				} catch {
+					/* skip malformed */
+				}
+			}
+		}
+		if (buffer.trim()) {
+			try {
+				onMessage(JSON.parse(buffer));
+			} catch {
+				/* skip */
+			}
+		}
+	} catch {
+		/* stream read error */
+	}
+	onEnd();
+}
+
+function drainStream(stream: ReadableStream<Uint8Array>) {
+	stream.pipeTo(new WritableStream()).catch(() => undefined);
 }

@@ -1,5 +1,5 @@
 import { Clock, Deferred, Duration, Effect, Exit, Fiber, PubSub, Ref, Scope, Stream } from "effect";
-import type { AgentRuntimeEvent, Issue, TrackerRunContext } from "@plot/sdk";
+import type { AgentRuntimeEvent, Issue, TrackerError, TrackerRunContext } from "@plot/sdk";
 import { compilePrompt } from "../prompt-compiler.js";
 import type { ResolvedConfig } from "../config-service.js";
 import type { AgentRunConfig } from "../../agent/agent-service.js";
@@ -31,14 +31,14 @@ export interface DispatchDeps {
 	readonly tracker: {
 		readonly fetchCandidateIssues: (
 			states: string[],
-		) => Effect.Effect<ReadonlyArray<Issue>, unknown>;
+		) => Effect.Effect<ReadonlyArray<Issue>, TrackerError>;
 		readonly fetchIssueStatesByIds: (
 			ids: readonly string[],
-		) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, unknown>;
+		) => Effect.Effect<ReadonlyArray<{ id: string; state: string }>, TrackerError>;
 		readonly fetchRunContext: (
 			issueId: string,
 			state: string,
-		) => Effect.Effect<TrackerRunContext | null, unknown>;
+		) => Effect.Effect<TrackerRunContext | null, TrackerError>;
 	};
 	readonly agentService: {
 		readonly run: (config: AgentRunConfig) => Stream.Stream<AgentRuntimeEvent, unknown>;
@@ -86,7 +86,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			return [previous, next] as const;
 		});
 
-	const clearRetryAttempt = Effect.fnUntraced(function* (issueId: string) {
+	const clearRetryAttempt = Effect.fn("DispatchRuntime.clearRetryAttempt")(function* (issueId: string) {
 		const timerFiber = yield* takeRetryTimerFiber(issueId);
 		if (timerFiber) {
 			yield* Fiber.interrupt(timerFiber);
@@ -108,7 +108,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			: Effect.void;
 
 
-	const scheduleRetry = Effect.fnUntraced(function* (
+	const scheduleRetry = Effect.fn("DispatchRuntime.scheduleRetry")(function* (
 		issueId: string,
 		identifier: string,
 		attempt: number,
@@ -116,6 +116,8 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		error: string | null,
 		reason: RetryReason,
 	) {
+		yield* clearRetryAttempt(issueId);
+
 		const now = yield* Clock.currentTimeMillis;
 		const dueAtMs = now + Duration.toMillis(delay);
 		yield* deps.updateState((s) => {
@@ -156,13 +158,12 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			Effect.andThen(deps.enqueueCommand({ _tag: "retry_due", issueId, attempt })),
 			Effect.forkScoped,
 		);
-		const previousTimerFiber = yield* replaceRetryTimerFiber(issueId, timerFiber);
-		if (previousTimerFiber) {
-			yield* Fiber.interrupt(previousTimerFiber);
-		}
+		yield* replaceRetryTimerFiber(issueId, timerFiber).pipe(
+			Effect.flatMap((previous) => (previous ? Fiber.interrupt(previous) : Effect.void)),
+		);
 	});
 
-	const stopRunningIssue = Effect.fnUntraced(function* (
+	const stopRunningIssue = Effect.fn("DispatchRuntime.stopRunningIssue")(function* (
 		entry: RunningEntry,
 		config: ResolvedConfig,
 		options: {
@@ -210,7 +211,7 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 		);
 	});
 
-	const handleWorkerExit = Effect.fnUntraced(function* ({
+	const handleWorkerExit = Effect.fn("DispatchRuntime.handleWorkerExit")(function* ({
 		issueId,
 		identifier,
 		attempt,
@@ -241,42 +242,62 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 
 		yield* runAfterRunHook(config, workspacePath);
 
-		if (exitReason === "success") {
-			yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY, null, "continuation");
-		} else if (exitReason === "interrupted") {
-			yield* releaseClaim(issueId);
-			yield* Effect.logInfo("worker_interrupted").pipe(
-				Effect.annotateLogs({ issue_id: issueId, identifier }),
-			);
-		} else {
-			const error = exitErrorString ?? "unknown";
-			const isStall = error.includes("runner_stalled");
-			const isMergeConflict =
-				error.includes("merge conflict") ||
-				error.includes("CONFLICT") ||
-				error.includes("rebase --abort");
-			yield* Effect.logError(
-				isStall ? "agent_stalled" : isMergeConflict ? "merge_conflict" : "agent_failed",
-			).pipe(Effect.annotateLogs({ issue_id: issueId, identifier, error }));
-			const nextAttempt = (attempt ?? 0) + 1;
-			const retryError = isStall
-				? `Previous attempt stalled (no output). The task may need to be broken into smaller pieces. Original error: ${error}`
-				: isMergeConflict
-					? `${MERGE_CONFLICT_INSTRUCTION} Original error: ${error}`
-					: error;
-			yield* scheduleRetry(
-				issueId,
-				identifier,
-				nextAttempt,
-				retryDelay(nextAttempt, config.maxRetryBackoffMs),
-				retryError,
-				isStall ? "stall" : isMergeConflict ? "merge_conflict" : "failure",
-			);
-		}
+		yield* Effect.gen(function* () {
+			if (exitReason === "success") {
+				yield* scheduleRetry(issueId, identifier, 1, CONTINUATION_DELAY, null, "continuation");
+			} else if (exitReason === "interrupted") {
+				yield* releaseClaim(issueId);
+				yield* Effect.logInfo("worker_interrupted").pipe(
+					Effect.annotateLogs({ issue_id: issueId, identifier }),
+				);
+			} else {
+				const error = exitErrorString ?? "unknown";
+				const isStall = error.includes("runner_stalled");
+				const isMergeConflict =
+					error.includes("merge conflict") ||
+					error.includes("CONFLICT") ||
+					error.includes("rebase --abort");
+				yield* Effect.logError(
+					isStall ? "agent_stalled" : isMergeConflict ? "merge_conflict" : "agent_failed",
+				).pipe(Effect.annotateLogs({ issue_id: issueId, identifier, error }));
+				const nextAttempt = (attempt ?? 0) + 1;
+				const retryError = isStall
+					? `Previous attempt stalled (no output). The task may need to be broken into smaller pieces. Original error: ${error}`
+					: isMergeConflict
+						? `${MERGE_CONFLICT_INSTRUCTION} Original error: ${error}`
+						: error;
+				yield* scheduleRetry(
+					issueId,
+					identifier,
+					nextAttempt,
+					retryDelay(nextAttempt, config.maxRetryBackoffMs),
+					retryError,
+					isStall ? "stall" : isMergeConflict ? "merge_conflict" : "failure",
+				);
+			}
+		}).pipe(
+			Effect.catchCause((cause) =>
+				Effect.logError("worker_exit_handling_failed").pipe(
+					Effect.annotateLogs({
+						issue_id: issueId,
+						identifier,
+						error: String(cause),
+					}),
+					Effect.andThen(releaseClaim(issueId)),
+				),
+			),
+		);
 	});
 
-	const dispatchIssue = (issue: Issue, config: ResolvedConfig, attempt: number | null) =>
-		Effect.gen(function* () {
+	const dispatchIssue: (
+		issue: Issue,
+		config: ResolvedConfig,
+		attempt: number | null,
+	) => Effect.Effect<void, unknown, Scope.Scope> = Effect.fn("DispatchRuntime.dispatchIssue")(function* (
+		issue: Issue,
+		config: ResolvedConfig,
+		attempt: number | null,
+	) {
 			const ws = yield* deps.workspaceManager.ensureWorkspace(issue.identifier, config);
 
 			if (config.hooksBeforeRun) {
@@ -367,16 +388,19 @@ export function makeDispatchRuntime(deps: DispatchDeps) {
 			});
 
 			yield* Deferred.succeed(registered, undefined);
-		}).pipe(
-			Effect.annotateLogs({
+			yield* Effect.annotateCurrentSpan({
 				issue_id: issue.id,
 				identifier: issue.identifier,
 				state: issue.state,
 				priority: String(issue.priority ?? -1),
-			}),
-		);
+			});
+		}
+	);
 
-	const processRetry = Effect.fnUntraced(function* (issueId: string, entry: RetryEntry) {
+	const processRetry: (
+		issueId: string,
+		entry: RetryEntry,
+	) => Effect.Effect<void, unknown, Scope.Scope> = Effect.fn("DispatchRuntime.processRetry")(function* (issueId: string, entry: RetryEntry) {
 		yield* takeRetryTimerFiber(issueId);
 		yield* deps.updateState((s) => {
 			const retryAttempts = new Map(s.retryAttempts);

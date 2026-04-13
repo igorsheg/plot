@@ -1,14 +1,11 @@
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import type { WorkflowConfig } from "@plot/sdk";
 
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { WorkflowOverrides } from "../config.js";
+import { ConfigValidationError } from "./errors.js";
 
-export class ConfigValidationError extends Schema.TaggedErrorClass<ConfigValidationError>()(
-	"ConfigValidationError",
-	{ message: Schema.String, field: Schema.optional(Schema.String) },
-) {}
 
 const resolveEnvValue = (value: string | undefined): string | undefined => {
 	if (!value) return undefined;
@@ -20,16 +17,26 @@ const resolveEnvValue = (value: string | undefined): string | undefined => {
 	return value;
 };
 
-const resolvePath = (value: string | undefined, fallback: string): string => {
+/**
+ * Resolve a user-configured path (from WORKFLOW.md) against a project base.
+ * Relative paths resolve against `projectDir` — NOT `process.cwd()` — so that
+ * spawning plot as a subprocess from another working directory (e.g. desktop
+ * app) still lands workspaces inside the project, not the spawner's cwd.
+ */
+const resolvePath = (
+	value: string | undefined,
+	fallback: string,
+	projectDir: string,
+): string => {
 	if (!value) return fallback;
 	const resolved = resolveEnvValue(value) ?? value;
-	if (resolved.startsWith("~")) {
-		return resolve(process.env["HOME"] ?? "/", resolved.slice(1));
+	if (resolved.startsWith("~/") || resolved === "~") {
+		return resolve(process.env["HOME"] ?? "/", resolved.slice(2));
 	}
 	if (resolved.includes("/") || resolved.includes("\\")) {
-		return resolve(resolved);
+		return resolve(projectDir, resolved);
 	}
-	return resolved;
+	return resolve(projectDir, resolved);
 };
 
 export class ResolvedConfig {
@@ -61,8 +68,10 @@ export class ResolvedConfig {
 	readonly stallTimeoutMs: number;
 	readonly serverPort: number | undefined;
 	readonly githubRepo: string;
+	readonly projectDir: string;
 
-	constructor(wf: WorkflowConfig, overrides?: WorkflowOverrides) {
+	constructor(wf: WorkflowConfig, overrides?: WorkflowOverrides, projectDir?: string) {
+		this.projectDir = projectDir ?? process.cwd();
 		this.trackerKind = overrides?.trackerKind ?? wf.tracker?.kind ?? "github";
 		this.trackerEndpoint = wf.tracker?.endpoint ?? "";
 		this.trackerApiKey = resolveEnvValue(wf.tracker?.apiKey);
@@ -84,6 +93,7 @@ export class ResolvedConfig {
 		this.workspaceRoot = resolvePath(
 			wf.workspace?.root,
 			resolve(tmpdir(), "plot_workspaces"),
+			this.projectDir,
 		);
 		this.hooksAfterCreate = wf.hooks?.afterCreate;
 		this.hooksBeforeRun = wf.hooks?.beforeRun;
@@ -126,10 +136,10 @@ export class ResolvedConfig {
 			}
 		}
 		this.modelByLabel = byLabelModel;
-		this.agentCommand = wf.codex?.command ?? "pi";
-		this.turnTimeoutMs = wf.codex?.turnTimeoutMs ?? 3_600_000;
-		this.readTimeoutMs = wf.codex?.readTimeoutMs ?? 5_000;
-		this.stallTimeoutMs = wf.codex?.stallTimeoutMs ?? 300_000;
+		this.agentCommand = wf.agent?.command ?? "pi";
+		this.turnTimeoutMs = wf.agent?.turnTimeoutMs ?? 3_600_000;
+		this.readTimeoutMs = wf.agent?.readTimeoutMs ?? 5_000;
+		this.stallTimeoutMs = wf.agent?.stallTimeoutMs ?? 300_000;
 		this.serverPort = wf.server?.port;
 		this.githubRepo = overrides?.githubRepo ?? "";
 	}
@@ -149,7 +159,7 @@ export class ResolvedConfig {
 	}
 }
 
-export const validateForDispatch = Effect.fnUntraced(function* (
+export const validateForDispatch = Effect.fn(function* (
 	config: ResolvedConfig,
 ) {
 	if (!config.trackerKind) {

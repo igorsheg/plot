@@ -5,7 +5,9 @@ import type {
 	OAuthProviderInterface,
 } from "@mariozechner/pi-ai";
 import { AuthStorage } from "@mariozechner/pi-coding-agent";
-import { CliError } from "./io.js";
+import { CliError, writeNdjson, readNdjson } from "./io.js";
+import { emitResult, emitError } from "./envelope.js";
+import { lookupError } from "./errors.js";
 
 function getEnv(name: string) {
 	if (typeof process === "undefined") {
@@ -172,19 +174,81 @@ export async function logoutWithPlotAuth(providerId?: string) {
 	process.stderr.write(`logged out from ${provider.id}\n`);
 }
 
-export function printPlotAuthStatus() {
-	const authStorage = createPlotAuthStorage();
-	const providers = authStorage.getOAuthProviders();
-	writeBlock("auth status:", [
-		`file — ${getPlotAuthPath()}`,
-		...providers.map((provider) => {
-			const status = authStorage.has(provider.id) ? "logged in" : "logged out";
-			return `${provider.id} — ${status}`;
-		}),
-	]);
-}
-
 function writeBlock(title: string, lines: ReadonlyArray<string>) {
 	const text = [title, ...lines.map((line) => `  ${line}`)].join("\n");
 	process.stderr.write(`${text}\n`);
+}
+
+export async function loginWithPlotAuthJson(providerId?: string) {
+	const authStorage = createPlotAuthStorage();
+	const providers = authStorage.getOAuthProviders();
+
+	if (!providerId) {
+		writeNdjson("auth:providers", {
+			providers: providers.map((p) => ({ id: p.id, name: p.name })),
+		});
+		return;
+	}
+
+	const provider = providers.find((p) => p.id === providerId);
+	if (!provider) {
+		const { error, fix } = lookupError("PROVIDER_UNKNOWN", `unknown provider: ${providerId}`, { provider: providerId });
+		emitError("plot-ai auth login", error, fix, [
+			{ command: "plot-ai auth status", description: "check authentication status" },
+			{ command: "plot-ai models", description: "list available providers and models" },
+		]);
+		return;
+	}
+
+	const callbacks: OAuthLoginCallbacks = {
+		onAuth: ({ url, instructions }: { url: string; instructions?: string }) => {
+			writeNdjson("auth:url", { url, instructions });
+		},
+		onPrompt: async ({
+			message,
+			placeholder,
+			allowEmpty,
+		}: {
+			message: string;
+			placeholder?: string;
+			allowEmpty?: boolean;
+		}) => {
+			writeNdjson("auth:prompt", { message, placeholder, allowEmpty: allowEmpty ?? false });
+			const response = await readNdjson();
+			if (response.type !== "response" || typeof response["value"] !== "string") {
+				throw new CliError("runtime", "invalid response from client", 1);
+			}
+			if (!allowEmpty && (response["value"] as string).length === 0) {
+				throw new CliError("usage", "input cannot be empty", 2);
+			}
+			return response["value"] as string;
+		},
+		onManualCodeInput: async () => {
+			writeNdjson("auth:prompt", { message: "Paste authorization code", allowEmpty: false });
+			const response = await readNdjson();
+			if (response.type !== "response" || typeof response["value"] !== "string") {
+				throw new CliError("runtime", "invalid response from client", 1);
+			}
+			return response["value"] as string;
+		},
+		onProgress: (message: string) => {
+			writeNdjson("auth:progress", { message });
+		},
+	};
+
+	try {
+		await authStorage.login(provider.id, callbacks);
+		emitResult("plot-ai auth login", { provider: provider.id }, [
+			{ command: "plot-ai auth status", description: "check authentication status" },
+			{ command: "plot-ai models", description: "list available providers and models" },
+			{ command: "plot-ai --mode rpc", description: "start headless JSON-RPC mode" },
+		]);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const { error: envError, fix } = lookupError("AUTH_REQUIRED", message, { provider: provider.id });
+		emitError("plot-ai auth login", envError, fix, [
+			{ command: "plot-ai auth login " + provider.id, description: "retry authentication" },
+			{ command: "plot-ai auth status", description: "check authentication status" },
+		]);
+	}
 }

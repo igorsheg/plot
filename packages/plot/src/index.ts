@@ -1,4 +1,3 @@
-export { makeServer } from "./server.js";
 export { ServerConfig, parseWorkflowFrontmatter, type WorkflowOverrides } from "./config.js";
 export { ResolvedConfig, validateForDispatch } from "./core/config-service.js";
 export {
@@ -6,7 +5,6 @@ export {
 	makeLoggingLayer,
 	makeOrchestratorLayer,
 	makeOrchestratorRuntime,
-	makeStartupLayer,
 	parseServerLogLevel,
 	resolvePlugin,
 	type ResolvedPlugin,

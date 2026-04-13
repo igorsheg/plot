@@ -25,21 +25,17 @@ import {
 	TrackerNotFoundError,
 	TrackerRateLimitError,
 	TrackerValidationError,
-	TrackerClient,
-	TrackerRunContext,
-	WorkpadSection,
-	Issue,
-	IssueStateEntry,
-	BlockerRef,
 } from "@plot/sdk";
+import type { Issue, IssueStateEntry, TrackerRunContext, WorkpadSection, BlockerRef } from "@plot/sdk";
+import { TrackerClient } from "./core/services/TrackerClient.js";
 import { PiAgentLive } from "./agent/index.js";
 import type { ServerConfig } from "./config.js";
-import { Orchestrator } from "./core/index.js";
+import { Orchestrator, OrchestratorLive, WorkspaceManagerLive } from "./core/index.js";
 
 import { WorkflowLoader } from "./core/workflow-loader.js";
-import { WorkspaceManager } from "./core/workspace-manager.js";
 import { type ResolvedConfig } from "./core/config-service.js";
 import { beadsTrackerPlugin, githubTrackerPlugin } from "./tracker/index.js";
+import { PluginInitError } from "./core/errors.js";
 
 export function parseServerLogLevel(s: string): LogLevel.LogLevel {
 	switch (s.toLowerCase()) {
@@ -63,6 +59,7 @@ export function makeLoggingLayer(config: ServerConfig) {
 	return Layer.mergeAll(
 		Logger.layer([logger]),
 		Layer.succeed(References.MinimumLogLevel, parseServerLogLevel(config.logLevel)),
+		Layer.succeed(Logger.LogToStderr, true),
 	);
 }
 
@@ -94,7 +91,7 @@ function mapPluginError(error: unknown, operation: string): TrackerError {
 
 
 function normalizeIssue(plain: TrackerIssue): Issue {
-	return new Issue({
+	return {
 		id: plain.id,
 		identifier: plain.identifier,
 		title: plain.title,
@@ -105,57 +102,60 @@ function normalizeIssue(plain: TrackerIssue): Issue {
 		url: plain.url ?? null,
 		labels: Array.from(plain.labels),
 		blockedBy: plain.blockedBy?.map(
-			(b) =>
-				new BlockerRef({
-					id: b.id ?? null,
-					identifier: b.identifier ?? null,
-					state: b.state ?? null,
-				}),
+			(b): BlockerRef => ({
+				id: b.id ?? null,
+				identifier: b.identifier ?? null,
+				state: b.state ?? null,
+			}),
 		),
 		metadata: plain.metadata,
 		autoMerge: plain.autoMerge,
 		createdAt: plain.createdAt,
 		updatedAt: plain.updatedAt,
-	});
+	};
 }
 
 function normalizeIssueStateEntry(plain: TrackerIssueState): IssueStateEntry {
-	return new IssueStateEntry({ id: plain.id, state: plain.state });
+	return { id: plain.id, state: plain.state };
 }
 
 function normalizeRunContext(raw: TrackerRunContextRaw | null): TrackerRunContext | null {
 	if (raw == null) return null;
 	const built = buildRunContext(raw);
 	if (built == null) return null;
-	return new TrackerRunContext({
+	return {
 		raw: built.raw ?? null,
 		promptContext: built.promptContext ?? null,
 		workpad: built.workpad ?? null,
 		reviewFeedback: built.reviewFeedback ?? null,
-		workpadSections: (built.workpadSections ?? []).map((s) => new WorkpadSection(s)),
-	});
+		workpadSections: (built.workpadSections ?? []).map((s): WorkpadSection => ({
+			title: s.title,
+			body: s.body,
+			itemCount: s.itemCount,
+		})),
+	};
 }
 
 function adaptTrackerClient(plain: TrackerPluginClient): Layer.Layer<TrackerClient> {
 	return Layer.succeed(
 		TrackerClient,
 		TrackerClient.of({
-			fetchCandidateIssues: (dispatchStates) =>
+			fetchCandidateIssues: (dispatchStates: ReadonlyArray<string>) =>
 				Effect.tryPromise({
 					try: () => plain.fetchCandidateIssues(dispatchStates),
 					catch: (e) => mapPluginError(e, "fetchCandidateIssues"),
 				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
-			fetchIssuesByStates: (states) =>
+			fetchIssuesByStates: (states: ReadonlyArray<string>) =>
 				Effect.tryPromise({
 					try: () => plain.fetchIssuesByStates?.(states) ?? Promise.resolve([]),
 					catch: (e) => mapPluginError(e, "fetchIssuesByStates"),
 				}).pipe(Effect.map((issues) => issues.map(normalizeIssue))),
-			fetchIssueStatesByIds: (ids) =>
+			fetchIssueStatesByIds: (ids: ReadonlyArray<string>) =>
 				Effect.tryPromise({
 					try: () => plain.fetchIssueStatesByIds?.(ids) ?? Promise.resolve([]),
 					catch: (e) => mapPluginError(e, "fetchIssueStatesByIds"),
 				}).pipe(Effect.map((entries) => entries.map(normalizeIssueStateEntry))),
-			fetchRunContext: (issueId, state) =>
+			fetchRunContext: (issueId: string, state: string) =>
 				Effect.tryPromise({
 					try: () => plain.fetchRunContext?.(issueId, state) ?? Promise.resolve(null),
 					catch: (e) => mapPluginError(e, "fetchRunContext"),
@@ -192,29 +192,34 @@ function syncGithubRepoEnv(resolved: ResolvedConfig) {
 function resolveDefinitionConfig(
 	definition: AnyPluginDefinition,
 	rawConfig: TrackerPluginConfig,
-): Effect.Effect<unknown> {
+): Effect.Effect<unknown, PluginInitError> {
 	if (!definition.validateConfig) return Effect.succeed(rawConfig as unknown);
 	return Effect.tryPromise({
 		try: () => Promise.resolve(definition.validateConfig!(rawConfig)),
 		catch: (error) =>
-			new Error(
-				`Plugin "${definition.name}" config validation failed: ${error instanceof Error ? error.message : String(error)}`,
-			),
-	}).pipe(Effect.orDie);
+			new PluginInitError({
+				pluginName: definition.name,
+				message: error instanceof Error ? error.message : String(error),
+				phase: "config",
+				retryable: false,
+			}),
+	});
 }
 
 function makeResolvedPlugin(
 	definition: AnyPluginDefinition,
 	config: unknown,
-): Effect.Effect<ResolvedPlugin> {
+): Effect.Effect<ResolvedPlugin, PluginInitError> {
 	return Effect.tryPromise({
 		try: () => Promise.resolve(definition.factory(config)),
 		catch: (error) =>
-			new Error(
-				`Plugin "${definition.name}" factory failed: ${error instanceof Error ? error.message : String(error)}`,
-			),
+			new PluginInitError({
+				pluginName: definition.name,
+				message: error instanceof Error ? error.message : String(error),
+				phase: "factory",
+				retryable: true,
+			}),
 	}).pipe(
-		Effect.orDie,
 		Effect.map((plain) => ({
 			trackerLayer: adaptTrackerClient(plain),
 		})),
@@ -247,7 +252,7 @@ function detectNpmRegistry(): string | null {
  * Cached by package name hash — subsequent calls reuse the existing install.
  * Returns the absolute path to the package's main entry point.
  */
-function resolveNpmPlugin(packageName: string, options?: { refresh?: boolean }): Effect.Effect<string> {
+function resolveNpmPlugin(packageName: string, options?: { refresh?: boolean }): Effect.Effect<string, PluginInitError> {
 	return Effect.tryPromise({
 		try: async () => {
 			const hash = createHash("sha256").update(packageName).digest("hex").slice(0, 12);
@@ -289,17 +294,20 @@ function resolveNpmPlugin(packageName: string, options?: { refresh?: boolean }):
 			return resolvePath(markerPath, entrypoint);
 		},
 		catch: (cause) =>
-			new Error(
-				`Failed to install tracker plugin "${packageName}": ${cause instanceof Error ? cause.message : String(cause)}`,
-			),
-	}).pipe(Effect.orDie);
+			new PluginInitError({
+				pluginName: packageName,
+				message: cause instanceof Error ? cause.message : String(cause),
+				phase: "resolve",
+				retryable: true,
+			}),
+	});
 }
 
 export interface ResolvePluginOptions {
 	readonly refreshPlugins?: boolean;
 }
 
-export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginOptions): Effect.Effect<ResolvedPlugin> {
+export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginOptions): Effect.Effect<ResolvedPlugin, PluginInitError> {
 	syncGithubRepoEnv(resolved);
 	const rawConfig = buildPluginConfig(resolved);
 	const builtin = builtinTrackers[resolved.trackerKind];
@@ -319,10 +327,13 @@ export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginO
 		const mod = yield* Effect.tryPromise({
 			try: () => import(resolvedPath) as Promise<{ default?: AnyPluginDefinition }>,
 			catch: (cause) =>
-				new Error(
-					`Failed to load tracker plugin "${kind}" (${pluginKind.type}:${pluginKind.specifier}): ${cause instanceof Error ? cause.message : String(cause)}`,
-				),
-		}).pipe(Effect.orDie);
+				new PluginInitError({
+					pluginName: kind,
+					message: cause instanceof Error ? cause.message : String(cause),
+					phase: "load",
+					retryable: false,
+				}),
+		});
 		const definition = mod.default;
 		if (
 			!definition ||
@@ -330,16 +341,16 @@ export function resolvePlugin(resolved: ResolvedConfig, options?: ResolvePluginO
 			typeof definition.name !== "string" ||
 			typeof definition.factory !== "function"
 		) {
-			return yield* Effect.die(
-				new Error(
-					`Tracker plugin "${kind}" does not export a valid default tracker plugin definition`,
-				),
-			);
+			return yield* new PluginInitError({
+				pluginName: kind,
+				message: "does not export a valid default tracker plugin definition",
+				phase: "load",
+				retryable: false,
+			});
 		}
 
 		const config = yield* resolveDefinitionConfig(definition, rawConfig);
-		const result = yield* makeResolvedPlugin(definition, config);
-		return result;
+		return yield* makeResolvedPlugin(definition, config);
 	});
 }
 
@@ -351,12 +362,12 @@ export function makeAppLayer(resolvedPlugin: ResolvedPlugin) {
 		PiAgentLive,
 		platformDeps,
 		WorkflowLoader.layer.pipe(Layer.provide(platformDeps)),
-		WorkspaceManager.layer.pipe(Layer.provide(platformDeps)),
+		WorkspaceManagerLive.pipe(Layer.provide(platformDeps)),
 	);
 }
 
 export function makeOrchestratorLayer(resolvedPlugin: ResolvedPlugin) {
-	return Orchestrator.layer.pipe(Layer.provide(makeAppLayer(resolvedPlugin)));
+	return OrchestratorLive.pipe(Layer.provide(makeAppLayer(resolvedPlugin)));
 }
 
 export function makeStartupLayer(config: ServerConfig, resolvedPlugin: ResolvedPlugin) {
@@ -367,7 +378,6 @@ export function makeStartupLayer(config: ServerConfig, resolvedPlugin: ResolvedP
 			yield* Effect.logInfo("server started").pipe(
 				Effect.annotateLogs({
 					component: "server",
-					port: String(config.port),
 					workflow: config.workflowPath,
 				}),
 			);

@@ -2,11 +2,15 @@ import { Flag } from "effect/unstable/cli";
 import { LogLevel, Option } from "effect";
 
 export const cliCommandOptions = {
-	json: Flag.boolean("json").pipe(Flag.withDescription("emit machine-readable ndjson on stdout")),
 	verbose: Flag.boolean("verbose").pipe(
-		Flag.withDescription("enable non-error human output (quiet by default)"),
+		Flag.withDescription(
+			"enable diagnostic output on stderr (quiet by default)",
+		),
 	),
-	port: Flag.integer("port").pipe(Flag.withDescription("server port"), Flag.withDefault(3000)),
+	mode: Flag.choice("mode", ["rpc"] as const).pipe(
+		Flag.withDescription("output mode: rpc (JSON-RPC on stdin/stdout)"),
+		Flag.optional,
+	),
 	workflow: Flag.string("workflow").pipe(
 		Flag.withDescription("path to WORKFLOW.md"),
 		Flag.withDefault("./WORKFLOW.md"),
@@ -22,53 +26,56 @@ export const cliCommandOptions = {
 		Flag.optional,
 	),
 	"log-format": Flag.choice("log-format", ["pretty", "json"] as const).pipe(
-		Flag.withDescription("server log format"),
+		Flag.withDescription("log format"),
 		Flag.withDefault("pretty"),
 	),
 	"refresh-plugins": Flag.boolean("refresh-plugins").pipe(
-		Flag.withDescription("re-fetch tracker plugins, ignoring cached installations"),
+		Flag.withDescription(
+			"re-fetch tracker plugins, ignoring cached installations",
+		),
 	),
 } as const;
 
 export type ServerOptions = {
-	json: boolean;
 	verbose: boolean;
-	port: number;
+	mode?: "rpc";
 	workflow: string;
 	tracker?: string;
 	"github-repo"?: string;
 	"log-format": "pretty" | "json";
 	"log-level": "debug" | "info" | "warning" | "error" | "none";
 	"refresh-plugins"?: boolean;
-	web?: boolean;
 };
 
 type ParsedCliCommandOptions = {
-	readonly [Key in keyof typeof cliCommandOptions]: Key extends "github-repo" | "tracker"
+	readonly [Key in keyof typeof cliCommandOptions]: Key extends
+		| "github-repo"
+		| "tracker"
 		? Option.Option<string>
-		: ServerOptions[Key];
+		: Key extends "mode"
+			? Option.Option<"rpc">
+			: ServerOptions[Key];
 };
 
 export function toServerOptions(
 	options: ParsedCliCommandOptions,
 	logLevel: LogLevel.LogLevel,
-	overrides?: Pick<ServerOptions, "web">,
 ): ServerOptions {
 	return {
-		json: options.json,
 		verbose: options.verbose,
-		port: options.port,
+		mode: Option.getOrUndefined(options.mode),
 		workflow: options.workflow,
 		tracker: Option.getOrUndefined(options.tracker),
 		"github-repo": Option.getOrUndefined(options["github-repo"]),
 		"log-format": options["log-format"],
 		"log-level": toServerLogLevel(logLevel),
 		"refresh-plugins": options["refresh-plugins"],
-		...overrides,
 	};
 }
 
-function toServerLogLevel(logLevel: LogLevel.LogLevel): ServerOptions["log-level"] {
+function toServerLogLevel(
+	logLevel: LogLevel.LogLevel,
+): ServerOptions["log-level"] {
 	switch (logLevel) {
 		case "All":
 		case "Trace":

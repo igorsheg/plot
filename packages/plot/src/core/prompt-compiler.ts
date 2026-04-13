@@ -121,7 +121,7 @@ interface CompiledPrompt {
 	readonly snapshot: PromptSnapshot;
 }
 
-export const compilePrompt = Effect.fnUntraced(function* (
+export const compilePrompt = Effect.fn(function* (
 	template: string,
 	issue: Issue,
 	attempt: number | null,

@@ -1,37 +1,35 @@
-import { Schema } from "effect";
-import type { TrackerIssue } from "../plugin/types.js";
-import type { TrackerIssueState } from "../plugin/types.js";
+import type { TrackerIssue, TrackerIssueState } from "../plugin/types.js";
 
-export class BlockerRef extends Schema.Class<BlockerRef>("BlockerRef")({
-	id: Schema.NullOr(Schema.String),
-	identifier: Schema.NullOr(Schema.String),
-	state: Schema.NullOr(Schema.String),
-}) {}
+export interface BlockerRef {
+	readonly id: string | null;
+	readonly identifier: string | null;
+	readonly state: string | null;
+}
 
-export class Issue extends Schema.Class<Issue>("Issue")({
-	id: Schema.String,
-	identifier: Schema.String,
-	title: Schema.String,
-	description: Schema.NullOr(Schema.String),
-	priority: Schema.optional(Schema.Int),
-	state: Schema.String,
-	branchName: Schema.optional(Schema.String),
-	url: Schema.NullOr(Schema.String),
-	labels: Schema.Array(Schema.String),
-	blockedBy: Schema.optional(Schema.Array(BlockerRef)),
-	autoMerge: Schema.optional(Schema.Boolean),
-	metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
-	createdAt: Schema.NullOr(Schema.String),
-	updatedAt: Schema.NullOr(Schema.String),
-}) {}
+export interface Issue {
+	readonly id: string;
+	readonly identifier: string;
+	readonly title: string;
+	readonly description: string | null;
+	readonly priority?: number;
+	readonly state: string;
+	readonly branchName?: string;
+	readonly url: string | null;
+	readonly labels: readonly string[];
+	readonly blockedBy?: readonly BlockerRef[];
+	readonly autoMerge?: boolean;
+	readonly metadata?: Record<string, unknown>;
+	readonly createdAt: string | null;
+	readonly updatedAt: string | null;
+}
 
 /** Compile-time proof: Issue fields must stay in sync with TrackerIssue. */
-export type _IssueEncodedMatchesTrackerIssue = typeof Issue.Encoded extends TrackerIssue ? true : never;
+export type _IssueEncodedMatchesTrackerIssue = Issue extends TrackerIssue ? true : never;
 
-export class IssueStateEntry extends Schema.Class<IssueStateEntry>("IssueStateEntry")({
-	id: Schema.String,
-	state: Schema.String,
-}) {}
+export interface IssueStateEntry {
+	readonly id: string;
+	readonly state: string;
+}
 
 /** Compile-time proof: IssueStateEntry fields must stay in sync with TrackerIssueState. */
-export type _IssueStateEntryMatchesTrackerIssueState = typeof IssueStateEntry.Encoded extends TrackerIssueState ? true : never;
+export type _IssueStateEntryMatchesTrackerIssueState = IssueStateEntry extends TrackerIssueState ? true : never;

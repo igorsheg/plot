@@ -1,0 +1,30 @@
+@import "@plot/ui/tokens.css";
+@source "../../../node_modules/@plot/ui/src/**/*.tsx";
+
+.desktop-ui,
+.desktop-ui body {
+	font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+
+@layer base {
+	html, body {
+		@apply m-0 p-0 overflow-hidden;
+		background: transparent;
+	}
+}
+
+@keyframes viewFadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.view-enter {
+	animation: viewFadeIn 200ms ease-out;
+}
