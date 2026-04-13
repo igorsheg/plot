@@ -28,6 +28,10 @@ plot-ai uses lockstep semver across the public npm surface.
 ```bash
 PLOT_VERSION=0.0.1 bun run release:build
 bun run release:smoke
-PLOT_CHANNEL=latest bun run release:publish:dry-run
+PLOT_VERSION=0.0.1 PLOT_CHANNEL=latest bun run release:publish:dry-run
 PLOT_VERSION=0.0.1 PLOT_CHANNEL=latest bun run release:publish
 ```
+
+`release:publish:dry-run` still asks npm to validate whether the package version can be published. If the version in `dist/release` was already published, npm rejects the dry-run with `You cannot publish over the previously published versions`.
+
+Use the same unpublished `PLOT_VERSION` for `release:build`, `release:publish:dry-run`, and `release:publish`. For local release validation, prefer an unpublished prerelease-style version such as `0.0.1-beta.0` with `PLOT_CHANNEL=beta` so you do not collide with an existing stable release.
