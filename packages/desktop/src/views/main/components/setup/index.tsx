@@ -87,13 +87,7 @@ const DEFAULT_STALL_TIMEOUT_MS = 300_000;
 
 // ── Provider ─────────────────────────────────────────
 
-function SetupProvider({
-	_projectId,
-	children,
-}: {
-	projectId: string;
-	children: ReactNode;
-}) {
+function SetupProvider({ children }: { children: ReactNode }) {
 	const { state: appState, actions: appActions } = use(AppContext)!;
 	const project = appState.project;
 
@@ -438,9 +432,9 @@ function CreateButton() {
 
 // ── Export ────────────────────────────────────────────
 
-export function Setup({ projectId }: { projectId: string }) {
+export function Setup() {
 	return (
-		<SetupProvider projectId={projectId}>
+		<SetupProvider>
 			<SetupContent />
 		</SetupProvider>
 	);

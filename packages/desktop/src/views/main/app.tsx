@@ -56,7 +56,7 @@ function AppShell() {
 	}
 
 	if (project.hasWorkflow) {
-		return <Settings projectId={project.id} />;
+		return <Settings />;
 	}
 
 	return (
@@ -69,7 +69,7 @@ function AppShell() {
 			</WindowChrome.Titlebar>
 			<WindowChrome.Content>
 				<div className="flex flex-1 flex-col min-h-0 view-enter">
-					<Setup projectId={project.id} />
+					<Setup />
 				</div>
 			</WindowChrome.Content>
 		</WindowChrome.Root>

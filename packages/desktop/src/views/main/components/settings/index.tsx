@@ -56,13 +56,7 @@ const NAV_ITEMS = [
 
 // ── Provider ─────────────────────────────────────────
 
-function SettingsProvider({
-	_projectId,
-	children,
-}: {
-	projectId: string;
-	children: ReactNode;
-}) {
+function SettingsProvider({ children }: { children: ReactNode }) {
 	const { state: appState } = use(AppContext)!;
 	const project = appState.project;
 
@@ -260,9 +254,9 @@ function SettingsContent() {
 
 // ── Settings ─────────────────────────────────────────
 
-export function Settings({ projectId }: { projectId: string }) {
+export function Settings() {
 	return (
-		<SettingsProvider projectId={projectId}>
+		<SettingsProvider>
 			<WindowChrome.Root>
 				<WindowChrome.Content>
 					<div className="flex flex-1 min-h-0 view-enter">
