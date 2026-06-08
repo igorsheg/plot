@@ -13,6 +13,9 @@
         "typescript": "^5.8.2",
       },
     },
+    "packages/@repo": {
+      "name": "@repo/tsconfig",
+    },
     "packages/common": {
       "name": "@plot/common",
       "dependencies": {
@@ -34,9 +37,6 @@
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
       },
-    },
-    "packages/repo": {
-      "name": "@repo/tsconfig",
     },
   },
   "packages": {
@@ -244,7 +244,7 @@
 
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.1", "", {}, "sha512-oOAWABowe8EAbMyWKM0tYDKi8Yaox52D+HWZhAIJqQXbqe0xI/GV7FhLWqlEKreMkfDjshR5FKgi3mnle0h6Eg=="],
 
-    "@repo/tsconfig": ["@repo/tsconfig@workspace:packages/repo"],
+    "@repo/tsconfig": ["@repo/tsconfig@workspace:packages/@repo"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 

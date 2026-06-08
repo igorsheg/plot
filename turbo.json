@@ -4,7 +4,7 @@
 	"tasks": {
 		"typecheck": {
 			"dependsOn": ["^typecheck"],
-			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../repo/*.json"],
+			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../@repo/*.json"],
 			"outputs": []
 		},
 		"lint": {
@@ -14,7 +14,7 @@
 		},
 		"lint:effect": {
 			"dependsOn": ["^lint:effect"],
-			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../repo/*.json"],
+			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../@repo/*.json"],
 			"outputs": []
 		},
 		"test": {
