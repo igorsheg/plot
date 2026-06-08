@@ -14,6 +14,7 @@ This file applies to the whole repository. If a closer `AGENTS.md` is added late
 1. **Symphony core** — implement the core Symphony scheduler moat: `tick -> reconcile -> act`. The orchestrator is the single runtime-state owner; reconciliation always happens before dispatch.
 2. **Effect native** — use Effect v4, currently `effect@4.0.0-beta.78`. For Effect work, load the `effect-ts` skill and follow current Effect v4 source patterns.
 3. **pi-mono SDK** — use pi-mono as the LLM/agent SDK behind an `AgentRunner` seam. The orchestrator must not depend on provider or SDK details.
+4. **Tests must mean something** — prefer 1-2 behavior tests that prove important contracts over 50 shallow AI-slop tests. Do not add tests just to spray green checkmarks.
 
 ## Verification
 
