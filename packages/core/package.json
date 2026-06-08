@@ -12,8 +12,6 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "0.79.0",
-		"@earendil-works/pi-ai": "0.79.0",
 		"@earendil-works/pi-coding-agent": "0.79.0",
 		"@plot/common": "workspace:*",
 		"effect": "4.0.0-beta.78"
