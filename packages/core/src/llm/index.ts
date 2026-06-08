@@ -7,10 +7,20 @@ import {
 	type CreateAgentSessionResult,
 	type PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import { logWideEvent, withFields, withWideEvent, type Fields } from "@plot/common/observability";
+import {
+	logWideEvent,
+	withFields,
+	withWideEvent,
+	type Fields,
+} from "@plot/common/observability";
 
-const PiMonoAgentSessionErrorPhase = Schema.Literals(["create", "prompt", "dispose"]);
-export type PiMonoAgentSessionErrorPhase = typeof PiMonoAgentSessionErrorPhase.Type;
+const PiMonoAgentSessionErrorPhase = Schema.Literals([
+	"create",
+	"prompt",
+	"dispose",
+]);
+export type PiMonoAgentSessionErrorPhase =
+	typeof PiMonoAgentSessionErrorPhase.Type;
 
 export class PiMonoAgentSessionError extends Schema.TaggedErrorClass<PiMonoAgentSessionError>()(
 	"PiMonoAgentSessionError",
@@ -58,7 +68,11 @@ const disposeSession = (session: AgentSession) =>
 		catch: (error) => createError("dispose", error),
 	}).pipe(
 		Effect.catch((error) =>
-			Effect.logError({ operation: "llm.session.dispose", outcome: "error", error: error.message }),
+			Effect.logError({
+				operation: "llm.session.dispose",
+				outcome: "error",
+				error: error.message,
+			}),
 		),
 		Effect.asVoid,
 	);
@@ -69,57 +83,70 @@ const sessionEventFields = (event: AgentSessionEvent): Fields => {
 		fields["tool_name"] = event.toolName;
 	if ("toolCallId" in event && typeof event.toolCallId === "string")
 		fields["tool_call_id"] = event.toolCallId;
-	if (event.type === "auto_retry_start") fields["retry_attempt"] = event.attempt;
+	if (event.type === "auto_retry_start")
+		fields["retry_attempt"] = event.attempt;
 	if (event.type === "auto_retry_end") fields["retry_success"] = event.success;
 	return fields;
 };
 
-export const makePiMonoAgentSessionLayer = (options: PiMonoAgentSessionLayerOptions = {}) => {
+export const makePiMonoAgentSessionLayer = (
+	options: PiMonoAgentSessionLayerOptions = {},
+) => {
 	const create = options.createAgentSession ?? createAgentSession;
 
 	return Layer.succeed(AgentSessionClient, {
 		prompt: (request) => {
 			const log = request.log ?? {};
-			return Stream.callback<AgentSessionEvent, PiMonoAgentSessionError>((queue) =>
-				Effect.gen(function* () {
-					const result = yield* withWideEvent(
-						"llm.session.create",
-						log,
-						Effect.tryPromise({
-							try: () => create(request.create),
-							catch: (error) => createError("create", error),
-						}),
-					);
-					const session = result.session;
-					const unsubscribe = session.subscribe((event) => {
-						Queue.offerUnsafe(queue, event);
-						if (event.type === "agent_end") Queue.endUnsafe(queue);
-					});
-
-					yield* Effect.addFinalizer(() =>
-						Effect.sync(() => unsubscribe()).pipe(Effect.andThen(disposeSession(session))),
-					);
-
-					yield* withFields(
-						log,
-						withWideEvent(
-							"llm.session.prompt",
+			return Stream.callback<AgentSessionEvent, PiMonoAgentSessionError>(
+				(queue) =>
+					Effect.gen(function* () {
+						const result = yield* withWideEvent(
+							"llm.session.create",
 							log,
 							Effect.tryPromise({
-								try: () => session.prompt(request.prompt, request.promptOptions),
-								catch: (error) => createError("prompt", error),
+								try: () => create(request.create),
+								catch: (error) => createError("create", error),
 							}),
-						).pipe(
-							Effect.catch((error: PiMonoAgentSessionError) =>
-								Effect.sync(() => Queue.failCauseUnsafe(queue, Cause.fail(error))),
+						);
+						const session = result.session;
+						const unsubscribe = session.subscribe((event) => {
+							Queue.offerUnsafe(queue, event);
+							if (event.type === "agent_end") Queue.endUnsafe(queue);
+						});
+
+						yield* Effect.addFinalizer(() =>
+							Effect.sync(() => unsubscribe()).pipe(
+								Effect.andThen(disposeSession(session)),
 							),
-							Effect.forkScoped,
-						),
-					);
-				}),
+						);
+
+						yield* withFields(
+							log,
+							withWideEvent(
+								"llm.session.prompt",
+								log,
+								Effect.tryPromise({
+									try: () =>
+										session.prompt(request.prompt, request.promptOptions),
+									catch: (error) => createError("prompt", error),
+								}),
+							).pipe(
+								Effect.catch((error: PiMonoAgentSessionError) =>
+									Effect.sync(() =>
+										Queue.failCauseUnsafe(queue, Cause.fail(error)),
+									),
+								),
+								Effect.forkScoped,
+							),
+						);
+					}),
 			).pipe(
 				Stream.tap((event) =>
-					logWideEvent({ operation: "llm.session.event", ...log, ...sessionEventFields(event) }),
+					logWideEvent({
+						operation: "llm.session.event",
+						...log,
+						...sessionEventFields(event),
+					}),
 				),
 			);
 		},

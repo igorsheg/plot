@@ -59,7 +59,10 @@ describe("llm pi-mono adapter", () => {
 		}).pipe(Effect.provide(layer));
 
 		const events = await Effect.runPromise(program);
-		expect(events.map((event) => event.type)).toEqual(["agent_start", "agent_end"]);
+		expect(events.map((event) => event.type)).toEqual([
+			"agent_start",
+			"agent_end",
+		]);
 		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
 	});
 
@@ -71,7 +74,9 @@ describe("llm pi-mono adapter", () => {
 
 		const program = Effect.gen(function* () {
 			const client = yield* AgentSessionClient;
-			return yield* client.prompt({ prompt: "hello" }).pipe(Stream.runCollect, Effect.exit);
+			return yield* client
+				.prompt({ prompt: "hello" })
+				.pipe(Stream.runCollect, Effect.exit);
 		}).pipe(Effect.provide(layer));
 
 		const exit = await Effect.runPromise(program);
