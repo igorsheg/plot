@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Exit } from "effect";
-import { withWideEvent } from "../src/observability/index.js";
+import { withWideEvent } from "../src/observability.js";
 
 describe("observability wide events", () => {
 	test("preserves success values", async () => {

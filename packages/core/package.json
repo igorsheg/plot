@@ -3,8 +3,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./llm": "./src/llm/index.ts"
+		"./llm": "./src/llm.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",

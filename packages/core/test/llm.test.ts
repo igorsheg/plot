@@ -10,7 +10,7 @@ import {
 	AgentSessionClient,
 	makePiMonoAgentSessionLayer,
 	PiMonoAgentSessionError,
-} from "../src/llm/index.js";
+} from "../src/llm.js";
 
 const fakeResult = (session: AgentSession) =>
 	({ session, extensionsResult: {} }) as unknown as CreateAgentSessionResult;
