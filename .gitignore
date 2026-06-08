@@ -43,4 +43,4 @@ coverage/
 .turbo/
 .*.bun-build
 
-.references
+.references/
