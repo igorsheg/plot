@@ -3,6 +3,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./domain": "./src/domain.ts",
 		"./llm": "./src/llm.ts",
 		"./loop": "./src/loop.ts",
 		"./plugin": "./src/plugin.ts"

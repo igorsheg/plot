@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
 import type { CapabilityDefinition, PlotPlugin } from "../src/plugin.js";
 
@@ -131,6 +131,18 @@ describe("task-agnostic Plot loop", () => {
 						},
 					]),
 			},
+			{
+				id: "schema-plugin",
+				manifest: { uses: ["schema-capability"] },
+				plan: () =>
+					Effect.succeed([
+						{
+							capability: "schema-capability",
+							input: "not-the-schema",
+							subject: "e",
+						},
+					]),
+			},
 		];
 		const capabilities: CapabilityDefinition[] = [
 			{
@@ -149,6 +161,15 @@ describe("task-agnostic Plot loop", () => {
 						return subject;
 					}),
 			},
+			{
+				id: "schema-capability",
+				input: Schema.Struct({ ok: Schema.Boolean }),
+				execute: ({ subject }) =>
+					Effect.sync(() => {
+						calls.push(`schema:${subject}`);
+						return subject;
+					}),
+			},
 		];
 
 		const result = await Effect.runPromise(
@@ -164,6 +185,7 @@ describe("task-agnostic Plot loop", () => {
 							grants: {
 								"builtin-style-plugin": ["builtin-capability"],
 								"user-style-plugin": ["user-capability"],
+								"schema-plugin": ["schema-capability"],
 							},
 						},
 					}),
@@ -182,9 +204,13 @@ describe("task-agnostic Plot loop", () => {
 				(completion) => completion.status === "rejected",
 			),
 		).toHaveLength(2);
+		expect(
+			result.completions.filter((completion) => completion.status === "failed"),
+		).toHaveLength(1);
 		expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
 			"plugin is not granted capability use",
 			"plugin did not declare capability use",
+			'SchemaError: Expected object, got "not-the-schema"',
 		]);
 	});
 });

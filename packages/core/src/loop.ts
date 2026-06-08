@@ -1,5 +1,6 @@
 import {
 	Cause,
+	Clock,
 	Context,
 	Effect,
 	Exit,
@@ -7,14 +8,15 @@ import {
 	Option,
 	Queue,
 	Ref,
+	Schema,
 	Semaphore,
 } from "effect";
-import { withWideEvent } from "@plot/common/observability";
+import { logWideEvent, withWideEvent } from "@plot/common/observability";
+import * as Domain from "./domain.js";
 import type {
 	ActionId,
 	ActionRequest,
 	AdmittedAction,
-	CapabilityDefinition,
 	CapabilityId,
 	Completion,
 	Diagnostic,
@@ -22,13 +24,16 @@ import type {
 	IdempotencyKey,
 	Observation,
 	OrchestratorMessage,
-	OrchestratorPolicy,
 	PluginId,
-	PlotPlugin,
 	ReconcileProposal,
 	RuntimeSnapshot,
 	SubjectKey,
 	TickResult,
+} from "./domain.js";
+import type {
+	CapabilityDefinition,
+	OrchestratorPolicy,
+	PlotPlugin,
 } from "./plugin.js";
 
 interface RuntimeState {
@@ -260,11 +265,31 @@ const admitActions = (
 	return { admitted, rejected, diagnostics, ledger, nextActionIndex };
 };
 
+const decodeObservations = (value: unknown) =>
+	Schema.decodeUnknownEffect(Schema.Array(Domain.Observation))(value);
+
+const decodeProposals = (value: unknown) =>
+	Schema.decodeUnknownEffect(Schema.Array(Domain.ReconcileProposal))(value);
+
+const decodeActions = (value: unknown) =>
+	Schema.decodeUnknownEffect(Schema.Array(Domain.ActionRequest))(value);
+
+const decodeWithSchema = (
+	schema: Schema.Decoder<unknown>,
+	value: unknown,
+): Effect.Effect<unknown, unknown> =>
+	Effect.suspend(() => {
+		const exit = Schema.decodeUnknownExit(schema)(value);
+		if (Exit.isSuccess(exit)) return Effect.succeed(exit.value);
+		return Effect.failCause(exit.cause);
+	});
+
 const runPluginObserve = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 	if (!plugin.observeTick) return Effect.succeed([] as readonly Observation[]);
 	return plugin
 		.observeTick({ pluginId: plugin.id, tickId: snapshot.tickId, snapshot })
 		.pipe(
+			Effect.flatMap(decodeObservations),
 			Effect.catch((error) =>
 				Effect.succeed([hookDiagnostic("observe", plugin.id, error)]),
 			),
@@ -280,6 +305,7 @@ const runPluginReconcile = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 	return plugin
 		.reconcile({ pluginId: plugin.id, tickId: snapshot.tickId, snapshot })
 		.pipe(
+			Effect.flatMap(decodeProposals),
 			Effect.map((proposals) => ({
 				proposals,
 				diagnostics: [] as readonly Diagnostic[],
@@ -302,6 +328,7 @@ const runPluginPlan = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 	return plugin
 		.plan({ pluginId: plugin.id, tickId: snapshot.tickId, snapshot })
 		.pipe(
+			Effect.flatMap(decodeActions),
 			Effect.map((planned) => ({
 				planned,
 				diagnostics: [] as readonly Diagnostic[],
@@ -323,55 +350,78 @@ const executeAction = (
 	readonly completion: Completion;
 	readonly diagnostic?: Diagnostic;
 }> =>
-	withWideEvent(
-		"orchestrator.action.execute",
-		{
+	Effect.gen(function* () {
+		const startedAt = yield* Clock.currentTimeMillis;
+		const fields = {
+			operation: "orchestrator.action.execute",
 			tick_id: tickId,
 			plugin_id: action.pluginId,
 			capability_id: action.capability,
 			action_id: action.actionId,
 			subject: action.subject,
-		},
-		Effect.exit(
-			capability.execute(
-				{
-					pluginId: action.pluginId,
-					tickId,
-					actionId: action.actionId,
-					capabilityId: action.capability,
-					...optionalSubject(action.subject),
-				},
-				action.input,
-			),
-		).pipe(
-			Effect.map((exit) => {
-				if (Exit.isSuccess(exit)) {
-					return {
-						completion: {
-							actionId: action.actionId,
-							pluginId: action.pluginId,
-							capabilityId: action.capability,
-							status: "succeeded",
-							...optionalSubject(action.subject),
-							...optionalOutput(exit.value),
-						},
-					};
-				}
-				const error = Cause.pretty(exit.cause);
-				return {
-					completion: {
-						actionId: action.actionId,
+		};
+		const exit = yield* Effect.exit(
+			Effect.gen(function* () {
+				const input = capability.input
+					? yield* decodeWithSchema(capability.input, action.input)
+					: action.input;
+				const output = yield* capability.execute(
+					{
 						pluginId: action.pluginId,
+						tickId,
+						actionId: action.actionId,
 						capabilityId: action.capability,
-						status: "failed",
 						...optionalSubject(action.subject),
-						error,
 					},
-					diagnostic: capabilityDiagnostic(action, error),
-				};
+					input,
+				);
+				return capability.output
+					? yield* decodeWithSchema(capability.output, output)
+					: output;
 			}),
-		),
-	);
+		);
+		const duration_ms = (yield* Clock.currentTimeMillis) - startedAt;
+		if (Exit.isSuccess(exit)) {
+			yield* logWideEvent({
+				...fields,
+				outcome: "success",
+				status: "succeeded",
+				duration_ms,
+			});
+			return {
+				completion: {
+					actionId: action.actionId,
+					pluginId: action.pluginId,
+					capabilityId: action.capability,
+					status: "succeeded",
+					...optionalSubject(action.subject),
+					...optionalOutput(exit.value),
+				},
+			};
+		}
+		const error = Cause.pretty(exit.cause);
+		yield* logWideEvent(
+			{
+				...fields,
+				outcome: "error",
+				status: "failed",
+				error,
+				duration_ms,
+			},
+			"error",
+		);
+		return {
+			completion: {
+				actionId: action.actionId,
+				pluginId: action.pluginId,
+				capabilityId: action.capability,
+				status: "failed",
+				...optionalSubject(action.subject),
+				error,
+			},
+			diagnostic: capabilityDiagnostic(action, error),
+		};
+	});
 
 export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 	const plugins = options.plugins;
@@ -594,7 +644,11 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			return {
 				tickOnce,
 				snapshot,
-				offer: (message) => Queue.offer(queue, message),
+				offer: (message) =>
+					Schema.decodeUnknownEffect(Domain.OrchestratorMessage)(message).pipe(
+						Effect.flatMap((decoded) => Queue.offer(queue, decoded)),
+						Effect.catch(() => Effect.succeed(false)),
+					),
 			} satisfies OrchestratorShape;
 		}),
 	);
