@@ -1,0 +1,123 @@
+import { Cause, Context, Effect, Layer, Queue, Schema, Stream } from "effect";
+import {
+	createAgentSession,
+	type AgentSession,
+	type AgentSessionEvent,
+	type CreateAgentSessionOptions,
+	type CreateAgentSessionResult,
+	type PromptOptions,
+} from "@earendil-works/pi-coding-agent";
+import { logWideEvent, withFields, withWideEvent, type Fields } from "../observability/index.js";
+
+const PiMonoAgentSessionErrorPhase = Schema.Literals(["create", "prompt", "dispose"]);
+export type PiMonoAgentSessionErrorPhase = typeof PiMonoAgentSessionErrorPhase.Type;
+
+export class PiMonoAgentSessionError extends Schema.TaggedErrorClass<PiMonoAgentSessionError>()(
+	"PiMonoAgentSessionError",
+	{
+		phase: PiMonoAgentSessionErrorPhase,
+		message: Schema.String,
+	},
+) {}
+
+export interface PromptAgentSessionOptions {
+	readonly create?: CreateAgentSessionOptions;
+	readonly prompt: string;
+	readonly promptOptions?: PromptOptions;
+	readonly log?: Fields;
+}
+
+export interface AgentSessionClientShape {
+	readonly prompt: (
+		options: PromptAgentSessionOptions,
+	) => Stream.Stream<AgentSessionEvent, PiMonoAgentSessionError>;
+}
+
+export class AgentSessionClient extends Context.Service<AgentSessionClient, AgentSessionClientShape>()(
+	"@plot/core/llm/AgentSessionClient",
+) {}
+
+export type CreateAgentSession = (
+	options?: CreateAgentSessionOptions,
+) => Promise<CreateAgentSessionResult>;
+
+export interface PiMonoAgentSessionLayerOptions {
+	readonly createAgentSession?: CreateAgentSession;
+}
+
+const errorMessage = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
+
+const createError = (phase: PiMonoAgentSessionErrorPhase, error: unknown) =>
+	new PiMonoAgentSessionError({ phase, message: errorMessage(error) });
+
+const disposeSession = (session: AgentSession) =>
+	Effect.sync(() => session.dispose()).pipe(
+		Effect.catch((error) => Effect.logError({ operation: "llm.session.dispose", outcome: "error", error: errorMessage(error) })),
+		Effect.asVoid,
+	);
+
+const sessionEventFields = (event: AgentSessionEvent): Fields => {
+	const fields: Fields = { event_type: event.type };
+	if ("toolName" in event && typeof event.toolName === "string") fields["tool_name"] = event.toolName;
+	if ("toolCallId" in event && typeof event.toolCallId === "string") fields["tool_call_id"] = event.toolCallId;
+	if (event.type === "auto_retry_start") fields["retry_attempt"] = event.attempt;
+	if (event.type === "auto_retry_end") fields["retry_success"] = event.success;
+	return fields;
+};
+
+export const makePiMonoAgentSessionLayer = (options: PiMonoAgentSessionLayerOptions = {}) => {
+	const create = options.createAgentSession ?? createAgentSession;
+
+	return Layer.succeed(AgentSessionClient, {
+		prompt: (request) => {
+			const log = request.log ?? {};
+			return Stream.callback<AgentSessionEvent, PiMonoAgentSessionError>((queue) =>
+				Effect.gen(function* () {
+					const result = yield* withWideEvent(
+						"llm.session.create",
+						log,
+						Effect.tryPromise({
+							try: () => create(request.create),
+							catch: (error) => createError("create", error),
+						}),
+					);
+					const session = result.session;
+					const unsubscribe = session.subscribe((event) => {
+						Queue.offerUnsafe(queue, event);
+						if (event.type === "agent_end") Queue.endUnsafe(queue);
+					});
+
+					yield* Effect.addFinalizer(() =>
+						Effect.sync(() => unsubscribe()).pipe(
+							Effect.andThen(disposeSession(session)),
+						),
+					);
+
+					yield* withFields(
+						log,
+						withWideEvent(
+							"llm.session.prompt",
+							log,
+							Effect.tryPromise({
+								try: () => session.prompt(request.prompt, request.promptOptions),
+								catch: (error) => createError("prompt", error),
+							}),
+						).pipe(
+							Effect.catch((error: PiMonoAgentSessionError) =>
+								Effect.sync(() => Queue.failCauseUnsafe(queue, Cause.fail(error))),
+							),
+							Effect.forkScoped,
+						),
+					);
+				}),
+			).pipe(
+				Stream.tap((event) =>
+					logWideEvent({ operation: "llm.session.event", ...log, ...sessionEventFields(event) }),
+				),
+			);
+		},
+	} satisfies AgentSessionClientShape);
+};
+
+export const PiMonoAgentSessionLive = makePiMonoAgentSessionLayer();

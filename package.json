@@ -1,15 +1,13 @@
 {
-	"name": "plot-alpha",
+	"name": "plot",
 	"private": true,
 	"type": "module",
-	"description": "Effect-native Symphony core for orchestrating coding agents.",
+	"description": "LLM that ticks()",
+	"workspaces": ["packages/*"],
 	"scripts": {
 		"typecheck": "tsc --noEmit",
-		"test": "bun test",
+		"test": "bun test packages",
 		"check": "bun run typecheck && bun run test"
-	},
-	"dependencies": {
-		"effect": "4.0.0-beta.78"
 	},
 	"devDependencies": {
 		"@effect/language-service": "^0.84.3",

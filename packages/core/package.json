@@ -1,0 +1,16 @@
+{
+	"name": "@plot/core",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./llm": "./src/llm/index.ts",
+		"./observability": "./src/observability/index.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-agent-core": "0.79.0",
+		"@earendil-works/pi-ai": "0.79.0",
+		"@earendil-works/pi-coding-agent": "0.79.0",
+		"effect": "4.0.0-beta.78"
+	}
+}
