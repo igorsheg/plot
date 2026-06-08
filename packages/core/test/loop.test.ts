@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Fiber, Schema } from "effect";
+import { Deferred, Effect, Schema } from "effect";
 import {
 	capabilityId,
 	idempotencyKey,
 	pluginId,
+	PlotLoopError,
 	subjectKey,
 } from "../src/domain.js";
 import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
@@ -36,6 +37,24 @@ const runWith = <A>(
 	);
 
 describe("task-agnostic Plot loop", () => {
+	test("setup rejects invalid runtime config with typed loop errors", async () => {
+		const error = await Effect.runPromise(
+			Effect.service(Orchestrator).pipe(
+				Effect.provide(
+					makeOrchestratorLayer({
+						plugins: [],
+						queueCapacity: 0,
+					}),
+				),
+				Effect.flip,
+			),
+		);
+
+		expect(error).toBeInstanceOf(PlotLoopError);
+		expect(error.phase).toBe("setup");
+		expect(error.message).toBe("queueCapacity must be a positive integer");
+	});
+
 	test("reconciles observations before planning, and action completions wait for the next reconciliation", async () => {
 		const work = subjectKey("work-1");
 		const plugin: PlotPlugin = {
@@ -79,6 +98,7 @@ describe("task-agnostic Plot loop", () => {
 				const orchestrator = yield* Orchestrator;
 				const first = yield* orchestrator.tickOnce();
 				const afterFirst = yield* orchestrator.snapshot();
+				yield* Effect.yieldNow;
 				const second = yield* orchestrator.tickOnce();
 				return { first, afterFirst, second };
 			}),
@@ -90,6 +110,59 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.afterFirst.facts.has("completed:work-1")).toBe(false);
 		expect(result.second.snapshot.facts.get("completed:work-1")).toBe(
 			"succeeded",
+		);
+	});
+
+	test("tickOnce admits long actions without waiting for completion", async () => {
+		const capability = capabilityId("slow-capability");
+		const release = Deferred.makeUnsafe<string>();
+		const plugin: PlotPlugin = {
+			id: pluginId("slow-plugin"),
+			manifest: { uses: [capability] },
+			plan: () =>
+				Effect.succeed([
+					{
+						capability,
+						input: "ok",
+						idempotencyKey: idempotencyKey("slow-once"),
+					},
+				]),
+		};
+
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				const first = yield* orchestrator.tickOnce();
+				yield* Deferred.succeed(release, "finished");
+				yield* Effect.yieldNow;
+				const second = yield* orchestrator.tickOnce();
+				return { first, second };
+			}).pipe(
+				Effect.provide(
+					makeOrchestratorLayer({
+						plugins: [plugin],
+						policy: {
+							grants: {
+								[plugin.id]: [capability],
+							},
+						},
+						capabilities: [
+							{
+								id: capability,
+								input: Schema.String,
+								output: Schema.String,
+								execute: () => Deferred.await(release),
+							},
+						],
+					}),
+				),
+			),
+		);
+
+		expect(result.first.admitted).toHaveLength(1);
+		expect(result.first.completions).toHaveLength(0);
+		expect(result.second.completions).toContainEqual(
+			expect.objectContaining({ status: "succeeded", output: "finished" }),
 		);
 	});
 
@@ -113,10 +186,10 @@ describe("task-agnostic Plot loop", () => {
 			[plugin],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
-				const fiber = yield* orchestrator.run().pipe(Effect.forkChild);
+				yield* orchestrator.start();
 				yield* orchestrator.offer({ type: "tick" });
-				yield* orchestrator.offer({ type: "shutdown" });
-				yield* Fiber.join(fiber);
+				yield* orchestrator.shutdown();
+				yield* Effect.yieldNow;
 				return yield* orchestrator.snapshot();
 			}),
 		);
@@ -142,6 +215,7 @@ describe("task-agnostic Plot loop", () => {
 							capability: builtinCapability,
 							input: "ok",
 							subject: subjectKey("a"),
+							idempotencyKey: idempotencyKey("builtin:a"),
 						},
 					]),
 			},
@@ -154,6 +228,7 @@ describe("task-agnostic Plot loop", () => {
 							capability: userCapability,
 							input: "ok",
 							subject: subjectKey("b"),
+							idempotencyKey: idempotencyKey("user:b"),
 						},
 					]),
 			},
@@ -189,6 +264,7 @@ describe("task-agnostic Plot loop", () => {
 							capability: schemaCapability,
 							input: "not-the-schema",
 							subject: subjectKey("e"),
+							idempotencyKey: idempotencyKey("schema:e"),
 						},
 					]),
 			},
@@ -224,7 +300,10 @@ describe("task-agnostic Plot loop", () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
-				return yield* orchestrator.tickOnce();
+				const first = yield* orchestrator.tickOnce();
+				yield* Effect.yieldNow;
+				const second = yield* orchestrator.tickOnce();
+				return { first, second };
 			}).pipe(
 				Effect.provide(
 					makeOrchestratorLayer({
@@ -244,21 +323,24 @@ describe("task-agnostic Plot loop", () => {
 
 		expect(calls).toEqual(["builtin:a", "user:b"]);
 		expect(
-			result.completions.filter(
+			result.second.completions.filter(
 				(completion) => completion.status === "succeeded",
 			),
 		).toHaveLength(2);
 		expect(
-			result.completions.filter(
+			result.first.completions.filter(
 				(completion) => completion.status === "rejected",
 			),
 		).toHaveLength(2);
 		expect(
-			result.completions.filter((completion) => completion.status === "failed"),
+			result.second.completions.filter(
+				(completion) => completion.status === "failed",
+			),
 		).toHaveLength(1);
-		const diagnosticMessages = result.diagnostics.map(
-			(diagnostic) => diagnostic.message,
-		);
+		const diagnosticMessages = [
+			...result.first.diagnostics,
+			...result.second.diagnostics,
+		].map((diagnostic) => diagnostic.message);
 		expect(diagnosticMessages.slice(0, 2)).toEqual([
 			"plugin is not granted capability use",
 			"plugin did not declare capability use",

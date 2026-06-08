@@ -9,6 +9,7 @@ import {
 	Queue,
 	Ref,
 	Schema,
+	Scope,
 	Semaphore,
 } from "effect";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
@@ -28,6 +29,7 @@ import type {
 	ReconcileProposal,
 	RuntimeSnapshot,
 	SubjectKey,
+	TickId,
 	TickResult,
 } from "./domain.js";
 import type {
@@ -37,7 +39,7 @@ import type {
 } from "./plugin.js";
 
 interface RuntimeState {
-	readonly tickId: number;
+	readonly tickId: TickId;
 	readonly facts: ReadonlyMap<string, unknown>;
 	readonly observations: readonly Observation[];
 	readonly completions: readonly Completion[];
@@ -47,10 +49,12 @@ interface RuntimeState {
 }
 
 export interface OrchestratorShape {
+	readonly start: () => Effect.Effect<void>;
 	readonly run: () => Effect.Effect<void>;
 	readonly tickOnce: () => Effect.Effect<TickResult>;
 	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
 	readonly offer: (message: OrchestratorMessage) => Effect.Effect<boolean>;
+	readonly shutdown: () => Effect.Effect<boolean>;
 }
 
 export class Orchestrator extends Context.Service<
@@ -66,7 +70,7 @@ export interface OrchestratorLayerOptions {
 }
 
 const initialState: RuntimeState = {
-	tickId: 0,
+	tickId: Domain.tickId(0),
 	facts: new Map(),
 	observations: [],
 	completions: [],
@@ -186,6 +190,20 @@ const optionalSubject = (subject: SubjectKey | undefined) =>
 
 const optionalOutput = (output: unknown) =>
 	output === undefined ? {} : { output };
+
+const completionDiagnostic = (
+	completion: Completion,
+): Diagnostic | undefined => {
+	if (completion.status !== "failed") return undefined;
+	return {
+		level: "error",
+		phase: "capability",
+		pluginId: completion.pluginId,
+		capabilityId: completion.capabilityId,
+		actionId: completion.actionId,
+		message: completion.error ?? "capability failed",
+	};
+};
 
 const makeRejectedCompletion = (
 	action: ActionRequest,
@@ -347,7 +365,7 @@ const runPluginPlan = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 };
 
 const executeAction = (
-	tickId: number,
+	tickId: TickId,
 	capability: CapabilityDefinition,
 	action: AdmittedAction,
 ): Effect.Effect<{
@@ -362,7 +380,7 @@ const executeAction = (
 			plugin_id: action.pluginId,
 			capability_id: action.capability,
 			action_id: action.actionId,
-			subject: action.subject,
+			...optionalSubject(action.subject),
 		};
 		const exit = yield* Effect.exit(
 			Effect.gen(function* () {
@@ -427,28 +445,90 @@ const executeAction = (
 		};
 	});
 
+const ensureUniquePlugins = (plugins: readonly PlotPlugin[]) =>
+	Effect.gen(function* () {
+		const seen = new Set<PluginId>();
+		for (const plugin of plugins) {
+			if (seen.has(plugin.id)) {
+				return yield* new Domain.PlotLoopError({
+					phase: "setup",
+					plugin_id: plugin.id,
+					message: `duplicate plugin id: ${plugin.id}`,
+				});
+			}
+			seen.add(plugin.id);
+		}
+	});
+
+const ensureUniqueCapabilities = (
+	capabilities: readonly CapabilityDefinition[],
+) =>
+	Effect.gen(function* () {
+		const seen = new Set<CapabilityId>();
+		for (const capability of capabilities) {
+			if (seen.has(capability.id)) {
+				return yield* new Domain.PlotLoopError({
+					phase: "setup",
+					capability_id: capability.id,
+					message: `duplicate capability id: ${capability.id}`,
+				});
+			}
+			seen.add(capability.id);
+		}
+	});
+
+const decodePositiveInt = (value: number, message: string) =>
+	Schema.decodeUnknownEffect(Domain.PositiveInt)(value).pipe(
+		Effect.mapError(
+			() =>
+				new Domain.PlotLoopError({
+					phase: "setup",
+					message,
+				}),
+		),
+	);
+
 export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 	const plugins = options.plugins;
-	const capabilities = new Map(
-		(options.capabilities ?? []).map((capability) => [
-			capability.id,
-			capability,
-		]),
-	);
+	const rawCapabilities = options.capabilities ?? [];
 	const policy = options.policy ?? {};
 
 	return Layer.effect(
 		Orchestrator,
 		Effect.gen(function* () {
-			const stateRef = yield* Ref.make(initialState);
-			const queue = yield* Queue.bounded<OrchestratorMessage>(
+			yield* ensureUniquePlugins(plugins);
+			yield* ensureUniqueCapabilities(rawCapabilities);
+			const queueCapacity = yield* decodePositiveInt(
 				options.queueCapacity ?? 64,
+				"queueCapacity must be a positive integer",
 			);
+			if (policy.maxActionsPerTick !== undefined) {
+				yield* decodePositiveInt(
+					policy.maxActionsPerTick,
+					"maxActionsPerTick must be a positive integer",
+				);
+			}
+			const capabilities = new Map(
+				rawCapabilities.map((capability) => [capability.id, capability]),
+			);
+			const stateRef = yield* Ref.make(initialState);
+			const snapshotRef = yield* Ref.make(snapshotFrom(initialState));
+			const queue = yield* Queue.bounded<OrchestratorMessage>(queueCapacity);
 			const tickLock = yield* Semaphore.make(1);
+			const actorScope = yield* Scope.make();
+			const actionScope = yield* Scope.make();
+			const actorStarted = yield* Ref.make(false);
+			yield* Effect.addFinalizer((exit) =>
+				Scope.close(actionScope, exit).pipe(
+					Effect.andThen(Scope.close(actorScope, exit)),
+				),
+			);
+
+			const publishSnapshot = (state: RuntimeState) =>
+				Ref.set(snapshotRef, snapshotFrom(state));
 
 			const snapshot = Effect.fn("Orchestrator.snapshot")(function* () {
-				const state = yield* Ref.get(stateRef);
-				return snapshotFrom(state);
+				return yield* Ref.get(snapshotRef);
 			});
 
 			const collectQueuedMessages = Effect.fn(
@@ -477,15 +557,22 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 						Effect.gen(function* () {
 							const messages = yield* collectQueuedMessages(initialMessages);
 							const drained = drainMessages(messages);
+							const completionDiagnostics = drained.completions.flatMap(
+								(completion) => {
+									const diagnostic = completionDiagnostic(completion);
+									return diagnostic ? [diagnostic] : [];
+								},
+							);
 							const starting = yield* Ref.modify(stateRef, (state) => {
 								const next = {
 									...state,
-									tickId: state.tickId + 1,
+									tickId: Domain.tickId(state.tickId + 1),
 									observations: [
 										...state.observations,
 										...drained.observations,
 									],
 									completions: [...state.completions, ...drained.completions],
+									diagnostics: [...state.diagnostics, ...completionDiagnostics],
 								};
 								return [next, next] as const;
 							});
@@ -558,6 +645,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							);
 							if (policyFailed) {
 								const current = yield* Ref.get(stateRef);
+								yield* publishSnapshot(current);
 								return {
 									shutdownRequested: drained.shutdownRequested,
 									result: {
@@ -568,6 +656,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 										admitted: [],
 										completions: [],
 										diagnostics: [
+											...completionDiagnostics,
 											...observeDiagnostics,
 											...reconcileDiagnostics,
 											...policyDiagnostics,
@@ -577,7 +666,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								};
 							}
 
-							const planSnapshot = yield* snapshot();
+							const planSnapshot = snapshotFrom(afterReconcile);
 							const planResults = yield* Effect.forEach(plugins, (plugin) =>
 								runPluginPlan(plugin, planSnapshot).pipe(
 									Effect.map((result) => ({ plugin, result })),
@@ -611,34 +700,38 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								],
 							}));
 
-							const executed = yield* Effect.forEach(
+							yield* Effect.forEach(
 								admittedResult.admitted,
 								(action) =>
 									executeAction(
 										tickId,
 										capabilities.get(action.capability)!,
 										action,
+									).pipe(
+										Effect.flatMap((result) =>
+											Queue.offer(queue, {
+												type: "completion",
+												completion: result.completion,
+											}),
+										),
+										Effect.ignore,
+										Effect.forkIn(actionScope, { startImmediately: true }),
 									),
-							);
-							const actionCompletions = executed.map(
-								(result) => result.completion,
-							);
-							const actionDiagnostics = executed.flatMap((result) =>
-								result.diagnostic ? [result.diagnostic] : [],
+								{ discard: true },
 							);
 							const completions = [
+								...drained.completions,
 								...admittedResult.rejected,
-								...actionCompletions,
 							];
 							const finalState = yield* Ref.modify(stateRef, (state) => {
 								const next = {
 									...state,
 									completions: [...state.completions, ...completions],
-									diagnostics: [...state.diagnostics, ...actionDiagnostics],
 								};
 								return [next, next] as const;
 							});
 
+							yield* publishSnapshot(finalState);
 							return {
 								shutdownRequested: drained.shutdownRequested,
 								result: {
@@ -649,12 +742,12 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 									admitted: admittedResult.admitted,
 									completions,
 									diagnostics: [
+										...completionDiagnostics,
 										...observeDiagnostics,
 										...reconcileDiagnostics,
 										...policyDiagnostics,
 										...planDiagnostics,
 										...admittedResult.diagnostics,
-										...actionDiagnostics,
 									],
 									snapshot: snapshotFrom(finalState),
 								},
@@ -687,13 +780,31 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 					const tick = yield* runTick([message]);
 					running = !tick.shutdownRequested;
 				}
+				yield* Scope.close(actionScope, Exit.void);
+			});
+
+			const start = Effect.fn("Orchestrator.start")(function* () {
+				const alreadyStarted = yield* Ref.get(actorStarted);
+				if (alreadyStarted) return;
+				yield* Ref.set(actorStarted, true);
+				yield* run().pipe(
+					Effect.ensuring(Ref.set(actorStarted, false)),
+					Effect.forkIn(actorScope, { startImmediately: true }),
+					Effect.asVoid,
+				);
+			});
+
+			const shutdown = Effect.fn("Orchestrator.shutdown")(function* () {
+				return yield* offer({ type: "shutdown" });
 			});
 
 			return {
+				start,
 				run,
 				tickOnce,
 				snapshot,
 				offer,
+				shutdown,
 			} satisfies OrchestratorShape;
 		}),
 	);

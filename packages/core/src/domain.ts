@@ -1,33 +1,71 @@
 import { Schema } from "effect";
 
-export const PluginId = Schema.String.pipe(Schema.brand("PluginId"));
+const IdentifierText = Schema.NonEmptyString.pipe(
+	Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]+$/)),
+);
+const NonNegativeInt = Schema.Number.pipe(
+	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+);
+
+export const PositiveInt = Schema.Number.pipe(
+	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+	Schema.brand("PositiveInt"),
+);
+export type PositiveInt = typeof PositiveInt.Type;
+export const positiveInt = (value: number): PositiveInt =>
+	Schema.decodeUnknownSync(PositiveInt)(value);
+
+export const TickId = NonNegativeInt.pipe(Schema.brand("TickId"));
+export type TickId = typeof TickId.Type;
+export const tickId = (value: number): TickId =>
+	Schema.decodeUnknownSync(TickId)(value);
+
+export const Priority = NonNegativeInt.pipe(Schema.brand("Priority"));
+export type Priority = typeof Priority.Type;
+export const priority = (value: number): Priority =>
+	Schema.decodeUnknownSync(Priority)(value);
+
+export const PluginId = IdentifierText.pipe(Schema.brand("PluginId"));
 export type PluginId = typeof PluginId.Type;
 export const pluginId = (value: string): PluginId =>
 	Schema.decodeUnknownSync(PluginId)(value);
 
-export const CapabilityId = Schema.String.pipe(Schema.brand("CapabilityId"));
+export const CapabilityId = IdentifierText.pipe(Schema.brand("CapabilityId"));
 export type CapabilityId = typeof CapabilityId.Type;
 export const capabilityId = (value: string): CapabilityId =>
 	Schema.decodeUnknownSync(CapabilityId)(value);
 
-export const SubjectKey = Schema.String.pipe(Schema.brand("SubjectKey"));
+export const SubjectKey = Schema.NonEmptyString.pipe(
+	Schema.brand("SubjectKey"),
+);
 export type SubjectKey = typeof SubjectKey.Type;
 export const subjectKey = (value: string): SubjectKey =>
 	Schema.decodeUnknownSync(SubjectKey)(value);
 
-export const ActionId = Schema.String.pipe(Schema.brand("ActionId"));
+export const ActionId = IdentifierText.pipe(Schema.brand("ActionId"));
 export type ActionId = typeof ActionId.Type;
 export const actionId = (value: string): ActionId =>
 	Schema.decodeUnknownSync(ActionId)(value);
 
-export const IdempotencyKey = Schema.String.pipe(
+export const IdempotencyKey = Schema.NonEmptyString.pipe(
 	Schema.brand("IdempotencyKey"),
 );
 export type IdempotencyKey = typeof IdempotencyKey.Type;
 export const idempotencyKey = (value: string): IdempotencyKey =>
 	Schema.decodeUnknownSync(IdempotencyKey)(value);
 
-export const HookPhase = Schema.Literals([
+export const LoopPhase = Schema.Literals([
+	"setup",
+	"observe",
+	"reconcile",
+	"plan",
+	"admit",
+	"policy",
+	"capability",
+]);
+export type LoopPhase = typeof LoopPhase.Type;
+
+export const HookPhase = LoopPhase.pick([
 	"observe",
 	"reconcile",
 	"plan",
@@ -38,7 +76,7 @@ export type HookPhase = typeof HookPhase.Type;
 export class PlotLoopError extends Schema.TaggedErrorClass<PlotLoopError>()(
 	"PlotLoopError",
 	{
-		phase: HookPhase,
+		phase: LoopPhase,
 		message: Schema.String,
 		plugin_id: Schema.optionalKey(PluginId),
 		capability_id: Schema.optionalKey(CapabilityId),
@@ -76,7 +114,7 @@ export const ActionRequest = Schema.Struct({
 	input: Schema.Unknown,
 	subject: Schema.optionalKey(SubjectKey),
 	reason: Schema.optionalKey(Schema.String),
-	priority: Schema.optionalKey(Schema.Number),
+	priority: Schema.optionalKey(Priority),
 	idempotencyKey: Schema.optionalKey(IdempotencyKey),
 });
 export type ActionRequest = typeof ActionRequest.Type;
@@ -117,7 +155,7 @@ export const Diagnostic = Schema.Struct({
 export type Diagnostic = typeof Diagnostic.Type;
 
 export const RuntimeSnapshot = Schema.Struct({
-	tickId: Schema.Number,
+	tickId: TickId,
 	facts: Schema.ReadonlyMap(Schema.String, Schema.Unknown),
 	observations: Schema.Array(Observation),
 	completions: Schema.Array(Completion),
@@ -132,7 +170,7 @@ export const PluginManifest = Schema.Struct({
 export type PluginManifest = typeof PluginManifest.Type;
 
 export const TickResult = Schema.Struct({
-	tickId: Schema.Number,
+	tickId: TickId,
 	observations: Schema.Array(Observation),
 	proposals: Schema.Array(ReconcileProposal),
 	planned: Schema.Array(ActionRequest),
