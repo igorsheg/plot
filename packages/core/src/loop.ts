@@ -189,7 +189,7 @@ const makeRejectedCompletion = (
 	index: number,
 	error: string,
 ): Completion => ({
-	actionId: `rejected-${pluginId}-${index}`,
+	actionId: Domain.actionId(`rejected-${pluginId}-${index}`),
 	pluginId,
 	capabilityId: action.capability,
 	status: "rejected",
@@ -256,7 +256,7 @@ const admitActions = (
 			continue;
 		}
 
-		const actionId = `action-${nextActionIndex}`;
+		const actionId = Domain.actionId(`action-${nextActionIndex}`);
 		nextActionIndex += 1;
 		if (action.idempotencyKey) ledger.set(action.idempotencyKey, actionId);
 		admitted.push({ ...action, actionId, pluginId: plugin.id });

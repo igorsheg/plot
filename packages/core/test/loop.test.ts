@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
+import {
+	capabilityId,
+	idempotencyKey,
+	pluginId,
+	subjectKey,
+} from "../src/domain.js";
 import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
 import type { CapabilityDefinition, PlotPlugin } from "../src/plugin.js";
+
+const markReviewed = capabilityId("mark-reviewed");
+const builtinCapability = capabilityId("builtin-capability");
+const userCapability = capabilityId("user-capability");
+const schemaCapability = capabilityId("schema-capability");
 
 const runWith = <A>(
 	plugins: readonly PlotPlugin[],
@@ -26,10 +37,11 @@ const runWith = <A>(
 
 describe("task-agnostic Plot loop", () => {
 	test("reconciles observations before planning, and action completions wait for the next reconciliation", async () => {
+		const work = subjectKey("work-1");
 		const plugin: PlotPlugin = {
-			id: "demo",
-			manifest: { uses: ["mark-reviewed"] },
-			observeTick: () => Effect.succeed([{ type: "seen", subject: "work-1" }]),
+			id: pluginId("demo"),
+			manifest: { uses: [markReviewed] },
+			observeTick: () => Effect.succeed([{ type: "seen", subject: work }]),
 			reconcile: ({ snapshot }) =>
 				Effect.succeed([
 					...snapshot.observations.map((observation) => ({
@@ -48,16 +60,16 @@ describe("task-agnostic Plot loop", () => {
 				!snapshot.facts.has("completed:work-1")
 					? Effect.succeed([
 							{
-								capability: "mark-reviewed",
+								capability: markReviewed,
 								input: { ok: true },
-								subject: "work-1",
-								idempotencyKey: "review:work-1",
+								subject: work,
+								idempotencyKey: idempotencyKey("review:work-1"),
 							},
 						])
 					: Effect.succeed([]),
 		};
 		const capability: CapabilityDefinition = {
-			id: "mark-reviewed",
+			id: markReviewed,
 			execute: () => Effect.succeed({ wrote: true }),
 		};
 
@@ -83,70 +95,76 @@ describe("task-agnostic Plot loop", () => {
 
 	test("built-in and user capabilities use the same declaration and grant admission path", async () => {
 		const calls: string[] = [];
+		const builtinPlugin = pluginId("builtin-style-plugin");
+		const userPlugin = pluginId("user-style-plugin");
+		const ungrantedPlugin = pluginId("ungranted-plugin");
+		const undeclaredPlugin = pluginId("undeclared-plugin");
+		const schemaPlugin = pluginId("schema-plugin");
+
 		const plugins: PlotPlugin[] = [
 			{
-				id: "builtin-style-plugin",
-				manifest: { uses: ["builtin-capability"] },
+				id: builtinPlugin,
+				manifest: { uses: [builtinCapability] },
 				plan: () =>
 					Effect.succeed([
 						{
-							capability: "builtin-capability",
+							capability: builtinCapability,
 							input: "ok",
-							subject: "a",
+							subject: subjectKey("a"),
 						},
 					]),
 			},
 			{
-				id: "user-style-plugin",
-				manifest: { uses: ["user-capability"] },
+				id: userPlugin,
+				manifest: { uses: [userCapability] },
 				plan: () =>
 					Effect.succeed([
 						{
-							capability: "user-capability",
+							capability: userCapability,
 							input: "ok",
-							subject: "b",
+							subject: subjectKey("b"),
 						},
 					]),
 			},
 			{
-				id: "ungranted-plugin",
-				manifest: { uses: ["user-capability"] },
+				id: ungrantedPlugin,
+				manifest: { uses: [userCapability] },
 				plan: () =>
 					Effect.succeed([
 						{
-							capability: "user-capability",
+							capability: userCapability,
 							input: "blocked",
-							subject: "c",
+							subject: subjectKey("c"),
 						},
 					]),
 			},
 			{
-				id: "undeclared-plugin",
+				id: undeclaredPlugin,
 				plan: () =>
 					Effect.succeed([
 						{
-							capability: "user-capability",
+							capability: userCapability,
 							input: "blocked",
-							subject: "d",
+							subject: subjectKey("d"),
 						},
 					]),
 			},
 			{
-				id: "schema-plugin",
-				manifest: { uses: ["schema-capability"] },
+				id: schemaPlugin,
+				manifest: { uses: [schemaCapability] },
 				plan: () =>
 					Effect.succeed([
 						{
-							capability: "schema-capability",
+							capability: schemaCapability,
 							input: "not-the-schema",
-							subject: "e",
+							subject: subjectKey("e"),
 						},
 					]),
 			},
 		];
 		const capabilities: CapabilityDefinition[] = [
 			{
-				id: "builtin-capability",
+				id: builtinCapability,
 				execute: ({ subject }) =>
 					Effect.sync(() => {
 						calls.push(`builtin:${subject}`);
@@ -154,7 +172,7 @@ describe("task-agnostic Plot loop", () => {
 					}),
 			},
 			{
-				id: "user-capability",
+				id: userCapability,
 				execute: ({ subject }) =>
 					Effect.sync(() => {
 						calls.push(`user:${subject}`);
@@ -162,7 +180,7 @@ describe("task-agnostic Plot loop", () => {
 					}),
 			},
 			{
-				id: "schema-capability",
+				id: schemaCapability,
 				input: Schema.Struct({ ok: Schema.Boolean }),
 				execute: ({ subject }) =>
 					Effect.sync(() => {
@@ -183,9 +201,9 @@ describe("task-agnostic Plot loop", () => {
 						capabilities,
 						policy: {
 							grants: {
-								"builtin-style-plugin": ["builtin-capability"],
-								"user-style-plugin": ["user-capability"],
-								"schema-plugin": ["schema-capability"],
+								[builtinPlugin]: [builtinCapability],
+								[userPlugin]: [userCapability],
+								[schemaPlugin]: [schemaCapability],
 							},
 						},
 					}),

@@ -1,19 +1,31 @@
 import { Schema } from "effect";
 
-export const PluginId = Schema.String;
+export const PluginId = Schema.String.pipe(Schema.brand("PluginId"));
 export type PluginId = typeof PluginId.Type;
+export const pluginId = (value: string): PluginId =>
+	Schema.decodeUnknownSync(PluginId)(value);
 
-export const CapabilityId = Schema.String;
+export const CapabilityId = Schema.String.pipe(Schema.brand("CapabilityId"));
 export type CapabilityId = typeof CapabilityId.Type;
+export const capabilityId = (value: string): CapabilityId =>
+	Schema.decodeUnknownSync(CapabilityId)(value);
 
-export const SubjectKey = Schema.String;
+export const SubjectKey = Schema.String.pipe(Schema.brand("SubjectKey"));
 export type SubjectKey = typeof SubjectKey.Type;
+export const subjectKey = (value: string): SubjectKey =>
+	Schema.decodeUnknownSync(SubjectKey)(value);
 
-export const ActionId = Schema.String;
+export const ActionId = Schema.String.pipe(Schema.brand("ActionId"));
 export type ActionId = typeof ActionId.Type;
+export const actionId = (value: string): ActionId =>
+	Schema.decodeUnknownSync(ActionId)(value);
 
-export const IdempotencyKey = Schema.String;
+export const IdempotencyKey = Schema.String.pipe(
+	Schema.brand("IdempotencyKey"),
+);
 export type IdempotencyKey = typeof IdempotencyKey.Type;
+export const idempotencyKey = (value: string): IdempotencyKey =>
+	Schema.decodeUnknownSync(IdempotencyKey)(value);
 
 export const HookPhase = Schema.Literals([
 	"observe",
