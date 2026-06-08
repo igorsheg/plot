@@ -1,8 +1,19 @@
 {
-	"files": [],
-	"references": [
-		{ "path": "packages/sdk" },
-		{ "path": "packages/plot" },
-		{ "path": "packages/tui" }
-	]
+	"compilerOptions": {
+		"plugins": [{ "name": "@effect/language-service" }],
+		"strict": true,
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"verbatimModuleSyntax": true,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"noPropertyAccessFromIndexSignature": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"types": ["bun-types"]
+	},
+	"include": ["src/**/*.ts", "test/**/*.ts"]
 }

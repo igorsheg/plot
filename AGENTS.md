@@ -1,59 +1,76 @@
 # AGENTS.md
 
-## scope
+## Scope
 
-- this file applies to the whole monorepo.
-- no package-local `AGENTS.md` files exist yet. if a closer one is added later, prefer the closest file over this root file.
-- treat `README.md`, `WORKFLOW.md`, and package-local config as the source of truth for discoverable commands and architecture.
+- This file applies to the whole repository.
+- Plot is being rebuilt from a clean alpha branch. Do not assume any previous `packages/*`, release scripts, Docker assets, or workflow files still exist.
+- If a closer `AGENTS.md` is added later, prefer the closest file.
 
-## landmines
+## Product invariant
 
-- `packages/web/components/ui/*` are generated from the coss ui registry. do not hand-edit them. use `bun run ui:add` from the repo root when that surface needs to change.
-- follow the existing effect style: services use `Effect.Service`, and typed effect errors use `Schema.TaggedError`.
-- react 19 code in this repo does not use `forwardRef`. match nearby components instead of reintroducing it.
+Plot implements the core of the OpenAI Symphony service specification:
 
-## verification
+- Reference: <https://github.com/openai/symphony/blob/main/SPEC.md>
+- Local reference used for this reset: `~/.cache/checkouts/github.com/openai/symphony/SPEC.md`
 
-- run verification from the repo root in this order: `bun run typecheck`, `bun run lint`, `bun run test`, `bun run build`.
+The moat is the orchestrator loop. Keep it small, explicit, and correct:
 
-## Landing the Plane (Session Completion)
+1. **Tick** — the single time owner. A tick begins one serialized scheduler decision cycle.
+2. **Reconcile** — always run before new work. Refresh running issue states, detect stalls, stop ineligible runs, clean terminal workspaces.
+3. **Act** — validate dispatch config, fetch active candidates, sort by priority, claim eligible issues, dispatch within bounds, or schedule/release retries.
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+Do not dilute this into a generic workflow engine. Plot is a scheduler/runner for coding-agent work, not a broad automation platform.
 
-**MANDATORY WORKFLOW:**
+## Architecture invariants
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+- One orchestrator owner mutates runtime state: `running`, `claimed`, retry queue, session metrics, and event log state.
+- Cross-owner communication is data: commands, completions, tracker snapshots, agent events.
+- Reconciliation before dispatch is mandatory.
+- Dispatch is bounded by global and per-state concurrency.
+- Retry/backoff is explicit and observable.
+- Restart recovery is tracker/filesystem-driven; do not add a database unless a concrete invariant requires it.
+- Workspaces are deterministic per issue identifier and persistent across attempts unless terminal cleanup applies.
+- Tracker writes and PR/comment policy belong to the agent/workflow policy, not core scheduler business logic.
 
-**CRITICAL RULES:**
+## Technology invariants
 
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+- Plot is Effect v4 native.
+- Current baseline dependency: `effect@4.0.0-beta.78`.
+- Use `ServiceMap.Service` for services, `Layer` for dependency wiring, `Effect.fn` for service methods, and `Schema.TaggedErrorClass` for typed Effect errors.
+- Before writing or reviewing Effect code, load the `effect-ts` skill and consult current Effect source. Prefer repo-local `.agent-sources/effect/` and keep it out of commits.
+- The LLM/agent infrastructure behind the scheduler is pi-mono used as an SDK. Keep this behind an `AgentRunner` seam so the orchestrator never depends on provider details.
+- TypeScript extensions may call Node/Bun stdlib. Keep extension execution behind explicit seams; do not let extension code mutate orchestrator state directly.
 
-## CLI Command Checklist
+## Initial module shape
 
-When adding a new CLI command, verify:
+Start boring and deep:
 
-- [ ] Returns JSON envelope (`ok`, `command`, `timestamp`, `result`, `next_actions`)
-- [ ] `Command.withDescription()` set (shows in `--help`)
-- [ ] Error responses include `fix` field and `error.retryable` boolean
-- [ ] Root command lists this command in its `SUBCOMMANDS` array (`packages/plot/src/cli/index.ts`)
-- [ ] Output is context-safe (use `truncateForContext` for potentially large results)
-- [ ] `next_actions` are contextual to what just happened
-- [ ] `next_actions` with variable parts use template syntax (`<required>`, `[--flag <value>]`) + `params`
-- [ ] Context-specific values pre-filled via `params.*.value`
-- [ ] No plain text on stdout — all output is JSON
-- [ ] Works when piped (no TTY detection for output format)
+- `src/domain` — Symphony domain model and pure eligibility/sorting/retry rules.
+- `src/orchestrator` — tick/reconcile/act owner loop and runtime state authority.
+- `src/workflow` — `WORKFLOW.md` parser/config view when workflow support returns.
+- `src/tracker` — tracker client contract and adapters.
+- `src/workspace` — deterministic workspace mapping and lifecycle hooks.
+- `src/agent` — pi-mono SDK adapter and agent event normalization.
+- `src/extension-host` — TypeScript extension loading/execution boundary.
+
+Do not create a module until it hides meaningful implementation behind a small interface.
+
+## Coding rules
+
+- Prefer deletion and direct code over speculative abstraction.
+- Keep state ownership obvious in types and file layout.
+- Make invalid lifecycle ordering fail early.
+- All queues, retries, timeouts, and concurrency must have explicit bounds.
+- Tests should target behavior at module interfaces: eligibility, tick ordering, reconciliation stops, retry scheduling, workspace path safety, and adapter error mapping.
+- No generated or build output in commits.
+
+## Verification
+
+For code changes, run from the repo root:
+
+```bash
+bun run typecheck
+bun run test
+```
+
+Add narrower checks as the codebase grows.
