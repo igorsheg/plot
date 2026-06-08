@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { Cause, Effect, Stream } from "effect";
+import { Cause, Effect, Exit, Stream } from "effect";
 import type {
 	AgentSession,
 	AgentSessionEvent,
 	AgentSessionEventListener,
 	CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
-import { AgentSessionClient, makePiMonoAgentSessionLayer, PiMonoAgentSessionError } from "../src/llm/index.js";
+import {
+	AgentSessionClient,
+	makePiMonoAgentSessionLayer,
+	PiMonoAgentSessionError,
+} from "../src/llm/index.js";
 
 const fakeResult = (session: AgentSession) =>
 	({ session, extensionsResult: {} }) as unknown as CreateAgentSessionResult;
@@ -71,8 +75,8 @@ describe("llm pi-mono adapter", () => {
 		}).pipe(Effect.provide(layer));
 
 		const exit = await Effect.runPromise(program);
-		expect(exit._tag).toBe("Failure");
-		if (exit._tag === "Failure") {
+		expect(Exit.isFailure(exit)).toBe(true);
+		if (Exit.isFailure(exit)) {
 			const error = Cause.squash(exit.cause);
 			expect(error).toBeInstanceOf(PiMonoAgentSessionError);
 			expect((error as PiMonoAgentSessionError).phase).toBe("prompt");

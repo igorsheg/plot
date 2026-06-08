@@ -1,17 +1,27 @@
 {
 	"name": "plot",
 	"private": true,
-	"type": "module",
 	"description": "LLM that ticks()",
-	"workspaces": ["packages/*"],
+	"workspaces": [
+		"packages/*"
+	],
+	"type": "module",
 	"scripts": {
-		"typecheck": "tsc --noEmit",
-		"test": "bun test packages",
-		"check": "bun run typecheck && bun run test"
+		"bootstrap": "bun install",
+		"typecheck": "turbo run typecheck",
+		"lint": "turbo run lint && bun run lint:effect",
+		"lint:effect": "turbo run lint:effect",
+		"format": "oxfmt .",
+		"format:check": "oxfmt --check .",
+		"test": "turbo run test",
+		"check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
 	},
 	"devDependencies": {
 		"@effect/language-service": "^0.84.3",
 		"bun-types": "^1.3.10",
+		"oxfmt": "^0.54.0",
+		"oxlint": "^1.69.0",
+		"turbo": "^2.9.16",
 		"typescript": "^5.8.2"
 	},
 	"packageManager": "bun@1.3.5"

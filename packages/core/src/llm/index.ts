@@ -7,7 +7,7 @@ import {
 	type CreateAgentSessionResult,
 	type PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import { logWideEvent, withFields, withWideEvent, type Fields } from "../observability/index.js";
+import { logWideEvent, withFields, withWideEvent, type Fields } from "@plot/common/observability";
 
 const PiMonoAgentSessionErrorPhase = Schema.Literals(["create", "prompt", "dispose"]);
 export type PiMonoAgentSessionErrorPhase = typeof PiMonoAgentSessionErrorPhase.Type;
@@ -33,9 +33,10 @@ export interface AgentSessionClientShape {
 	) => Stream.Stream<AgentSessionEvent, PiMonoAgentSessionError>;
 }
 
-export class AgentSessionClient extends Context.Service<AgentSessionClient, AgentSessionClientShape>()(
-	"@plot/core/llm/AgentSessionClient",
-) {}
+export class AgentSessionClient extends Context.Service<
+	AgentSessionClient,
+	AgentSessionClientShape
+>()("@plot/core/llm/AgentSessionClient") {}
 
 export type CreateAgentSession = (
 	options?: CreateAgentSessionOptions,
@@ -52,15 +53,22 @@ const createError = (phase: PiMonoAgentSessionErrorPhase, error: unknown) =>
 	new PiMonoAgentSessionError({ phase, message: errorMessage(error) });
 
 const disposeSession = (session: AgentSession) =>
-	Effect.sync(() => session.dispose()).pipe(
-		Effect.catch((error) => Effect.logError({ operation: "llm.session.dispose", outcome: "error", error: errorMessage(error) })),
+	Effect.try({
+		try: () => session.dispose(),
+		catch: (error) => createError("dispose", error),
+	}).pipe(
+		Effect.catch((error) =>
+			Effect.logError({ operation: "llm.session.dispose", outcome: "error", error: error.message }),
+		),
 		Effect.asVoid,
 	);
 
 const sessionEventFields = (event: AgentSessionEvent): Fields => {
 	const fields: Fields = { event_type: event.type };
-	if ("toolName" in event && typeof event.toolName === "string") fields["tool_name"] = event.toolName;
-	if ("toolCallId" in event && typeof event.toolCallId === "string") fields["tool_call_id"] = event.toolCallId;
+	if ("toolName" in event && typeof event.toolName === "string")
+		fields["tool_name"] = event.toolName;
+	if ("toolCallId" in event && typeof event.toolCallId === "string")
+		fields["tool_call_id"] = event.toolCallId;
 	if (event.type === "auto_retry_start") fields["retry_attempt"] = event.attempt;
 	if (event.type === "auto_retry_end") fields["retry_success"] = event.success;
 	return fields;
@@ -89,9 +97,7 @@ export const makePiMonoAgentSessionLayer = (options: PiMonoAgentSessionLayerOpti
 					});
 
 					yield* Effect.addFinalizer(() =>
-						Effect.sync(() => unsubscribe()).pipe(
-							Effect.andThen(disposeSession(session)),
-						),
+						Effect.sync(() => unsubscribe()).pipe(Effect.andThen(disposeSession(session))),
 					);
 
 					yield* withFields(

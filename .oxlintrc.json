@@ -1,0 +1,23 @@
+{
+	"$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+	"plugins": ["typescript", "import", "promise", "unicorn"],
+	"categories": {
+		"correctness": "error",
+		"suspicious": "error",
+		"perf": "warn"
+	},
+	"rules": {
+		"eqeqeq": ["error", "smart"],
+		"no-console": "error",
+		"no-empty": "error",
+		"no-implicit-coercion": "error",
+		"import/no-self-import": "error",
+		"promise/no-multiple-resolved": "error",
+		"typescript/consistent-type-imports": "error",
+		"typescript/no-explicit-any": "warn",
+		"typescript/no-floating-promises": "error",
+		"typescript/no-misused-spread": "error",
+		"typescript/no-unnecessary-type-assertion": "warn"
+	},
+	"ignorePatterns": ["node_modules", "dist", ".turbo", ".references", ".agent-sources"]
+}

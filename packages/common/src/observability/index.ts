@@ -1,4 +1,4 @@
-import { Cause, Clock, Effect, Exit, Layer, Logger, LogLevel, References } from "effect";
+import { Cause, Clock, Effect, Exit, Layer, Logger, References, type LogLevel } from "effect";
 
 export type Fields = Record<string, unknown>;
 
@@ -54,10 +54,7 @@ export const withWideEvent = <A, E, R>(
 		yield* logWideEvent(event, Exit.isSuccess(exit) ? "info" : "error");
 		if (Exit.isSuccess(exit)) return exit.value;
 		return yield* Effect.failCause(exit.cause);
-	}).pipe(
-		Effect.annotateLogs({ operation }),
-		Effect.withLogSpan(operation),
-	);
+	}).pipe(Effect.annotateLogs({ operation }), Effect.withLogSpan(operation));
 
 export const withFields = <A, E, R>(fields: Fields, effect: Effect.Effect<A, E, R>) =>
 	effect.pipe(Effect.annotateLogs(fields));

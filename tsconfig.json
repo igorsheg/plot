@@ -1,19 +1,7 @@
 {
+	"extends": "./packages/repo/base.json",
 	"compilerOptions": {
-		"plugins": [{ "name": "@effect/language-service" }],
-		"strict": true,
-		"target": "ESNext",
-		"module": "ESNext",
-		"moduleResolution": "bundler",
-		"verbatimModuleSyntax": true,
-		"noUncheckedIndexedAccess": true,
-		"noUnusedLocals": true,
-		"noUnusedParameters": true,
-		"noFallthroughCasesInSwitch": true,
-		"noPropertyAccessFromIndexSignature": true,
-		"esModuleInterop": true,
-		"skipLibCheck": true,
-		"types": ["bun-types"]
+		"noEmit": true
 	},
 	"include": ["packages/**/*.ts"]
 }
