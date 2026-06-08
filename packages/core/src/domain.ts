@@ -145,12 +145,18 @@ export type TickResult = typeof TickResult.Type;
 
 export const OrchestratorMessage = Schema.Union([
 	Schema.Struct({
+		type: Schema.Literal("tick"),
+	}),
+	Schema.Struct({
 		type: Schema.Literal("observation"),
 		observation: Observation,
 	}),
 	Schema.Struct({
 		type: Schema.Literal("completion"),
 		completion: Completion,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("shutdown"),
 	}),
 ]);
 export type OrchestratorMessage = typeof OrchestratorMessage.Type;

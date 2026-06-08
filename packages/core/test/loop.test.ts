@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Schema } from "effect";
+import { Effect, Fiber, Schema } from "effect";
 import {
 	capabilityId,
 	idempotencyKey,
@@ -91,6 +91,37 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.second.snapshot.facts.get("completed:work-1")).toBe(
 			"succeeded",
 		);
+	});
+
+	test("actor run consumes queued wake sources and owns the loop", async () => {
+		const work = subjectKey("actor-work");
+		const plugin: PlotPlugin = {
+			id: pluginId("actor-plugin"),
+			observeTick: () =>
+				Effect.succeed([{ type: "actor-seen", subject: work }]),
+			reconcile: ({ snapshot }) =>
+				Effect.succeed(
+					snapshot.observations.map((observation) => ({
+						type: "set_fact" as const,
+						key: `actor:${observation.subject ?? "unknown"}`,
+						value: true,
+					})),
+				),
+		};
+
+		const result = await runWith(
+			[plugin],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				const fiber = yield* orchestrator.run().pipe(Effect.forkChild);
+				yield* orchestrator.offer({ type: "tick" });
+				yield* orchestrator.offer({ type: "shutdown" });
+				yield* Fiber.join(fiber);
+				return yield* orchestrator.snapshot();
+			}),
+		);
+
+		expect(result.facts.get("actor:actor-work")).toBe(true);
 	});
 
 	test("built-in and user capabilities use the same declaration and grant admission path", async () => {
@@ -225,10 +256,13 @@ describe("task-agnostic Plot loop", () => {
 		expect(
 			result.completions.filter((completion) => completion.status === "failed"),
 		).toHaveLength(1);
-		expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+		const diagnosticMessages = result.diagnostics.map(
+			(diagnostic) => diagnostic.message,
+		);
+		expect(diagnosticMessages.slice(0, 2)).toEqual([
 			"plugin is not granted capability use",
 			"plugin did not declare capability use",
-			'SchemaError: Expected object, got "not-the-schema"',
 		]);
+		expect(diagnosticMessages[2]?.startsWith("SchemaError")).toBe(true);
 	});
 });

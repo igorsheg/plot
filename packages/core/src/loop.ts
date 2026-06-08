@@ -47,6 +47,7 @@ interface RuntimeState {
 }
 
 export interface OrchestratorShape {
+	readonly run: () => Effect.Effect<void>;
 	readonly tickOnce: () => Effect.Effect<TickResult>;
 	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
 	readonly offer: (message: OrchestratorMessage) => Effect.Effect<boolean>;
@@ -114,14 +115,17 @@ const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 const drainMessages = (messages: readonly OrchestratorMessage[]) => {
 	const observations: Observation[] = [];
 	const completions: Completion[] = [];
+	let shutdownRequested = false;
 	for (const message of messages) {
 		if (message.type === "observation") {
 			observations.push(message.observation);
-		} else {
+		} else if (message.type === "completion") {
 			completions.push(message.completion);
+		} else if (message.type === "shutdown") {
+			shutdownRequested = true;
 		}
 	}
-	return { observations, completions };
+	return { observations, completions, shutdownRequested };
 };
 
 const applyProposals = (
@@ -442,24 +446,36 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			);
 			const tickLock = yield* Semaphore.make(1);
 
-			const snapshot = () => Ref.get(stateRef).pipe(Effect.map(snapshotFrom));
+			const snapshot = Effect.fn("Orchestrator.snapshot")(function* () {
+				const state = yield* Ref.get(stateRef);
+				return snapshotFrom(state);
+			});
 
-			const tickOnce = () =>
-				tickLock.withPermits(1)(
+			const collectQueuedMessages = Effect.fn(
+				"Orchestrator.collectQueuedMessages",
+			)(function* (initialMessages: readonly OrchestratorMessage[]) {
+				const messages = [...initialMessages];
+				let draining = true;
+				while (draining) {
+					const message = yield* Queue.poll(queue);
+					if (Option.isSome(message)) {
+						messages.push(message.value);
+					} else {
+						draining = false;
+					}
+				}
+				return messages;
+			});
+
+			const runTick = Effect.fn("Orchestrator.runTick")(function* (
+				initialMessages: readonly OrchestratorMessage[] = [],
+			) {
+				return yield* tickLock.withPermits(1)(
 					withWideEvent(
 						"orchestrator.tick",
 						{},
 						Effect.gen(function* () {
-							const messages: OrchestratorMessage[] = [];
-							let draining = true;
-							while (draining) {
-								const message = yield* Queue.poll(queue);
-								if (Option.isSome(message)) {
-									messages.push(message.value);
-								} else {
-									draining = false;
-								}
-							}
+							const messages = yield* collectQueuedMessages(initialMessages);
 							const drained = drainMessages(messages);
 							const starting = yield* Ref.modify(stateRef, (state) => {
 								const next = {
@@ -543,18 +559,21 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							if (policyFailed) {
 								const current = yield* Ref.get(stateRef);
 								return {
-									tickId,
-									observations,
-									proposals,
-									planned: [],
-									admitted: [],
-									completions: [],
-									diagnostics: [
-										...observeDiagnostics,
-										...reconcileDiagnostics,
-										...policyDiagnostics,
-									],
-									snapshot: snapshotFrom(current),
+									shutdownRequested: drained.shutdownRequested,
+									result: {
+										tickId,
+										observations,
+										proposals,
+										planned: [],
+										admitted: [],
+										completions: [],
+										diagnostics: [
+											...observeDiagnostics,
+											...reconcileDiagnostics,
+											...policyDiagnostics,
+										],
+										snapshot: snapshotFrom(current),
+									},
 								};
 							}
 
@@ -621,34 +640,60 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							});
 
 							return {
-								tickId,
-								observations,
-								proposals,
-								planned,
-								admitted: admittedResult.admitted,
-								completions,
-								diagnostics: [
-									...observeDiagnostics,
-									...reconcileDiagnostics,
-									...policyDiagnostics,
-									...planDiagnostics,
-									...admittedResult.diagnostics,
-									...actionDiagnostics,
-								],
-								snapshot: snapshotFrom(finalState),
+								shutdownRequested: drained.shutdownRequested,
+								result: {
+									tickId,
+									observations,
+									proposals,
+									planned,
+									admitted: admittedResult.admitted,
+									completions,
+									diagnostics: [
+										...observeDiagnostics,
+										...reconcileDiagnostics,
+										...policyDiagnostics,
+										...planDiagnostics,
+										...admittedResult.diagnostics,
+										...actionDiagnostics,
+									],
+									snapshot: snapshotFrom(finalState),
+								},
 							};
 						}),
 					),
 				);
+			});
+
+			const tickOnce = Effect.fn("Orchestrator.tickOnce")(function* () {
+				const tick = yield* runTick();
+				return tick.result;
+			});
+
+			const offer = Effect.fn("Orchestrator.offer")(function* (
+				message: OrchestratorMessage,
+			) {
+				return yield* Schema.decodeUnknownEffect(Domain.OrchestratorMessage)(
+					message,
+				).pipe(
+					Effect.flatMap((decoded) => Queue.offer(queue, decoded)),
+					Effect.catch(() => Effect.succeed(false)),
+				);
+			});
+
+			const run = Effect.fn("Orchestrator.run")(function* () {
+				let running = true;
+				while (running) {
+					const message = yield* Queue.take(queue);
+					const tick = yield* runTick([message]);
+					running = !tick.shutdownRequested;
+				}
+			});
 
 			return {
+				run,
 				tickOnce,
 				snapshot,
-				offer: (message) =>
-					Schema.decodeUnknownEffect(Domain.OrchestratorMessage)(message).pipe(
-						Effect.flatMap((decoded) => Queue.offer(queue, decoded)),
-						Effect.catch(() => Effect.succeed(false)),
-					),
+				offer,
 			} satisfies OrchestratorShape;
 		}),
 	);
