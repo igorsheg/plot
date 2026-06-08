@@ -3,7 +3,9 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./llm": "./src/llm.ts"
+		"./llm": "./src/llm.ts",
+		"./loop": "./src/loop.ts",
+		"./plugin": "./src/plugin.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
