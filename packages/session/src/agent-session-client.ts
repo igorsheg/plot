@@ -74,11 +74,14 @@ const disposeSession = (session: AgentSession) =>
 		catch: (error) => createError("dispose", error),
 	}).pipe(
 		Effect.catch((error) =>
-			Effect.logError({
-				operation: "agent_session.dispose",
-				outcome: "error",
-				error: error.message,
-			}),
+			logWideEvent(
+				{
+					operation: "agent_session.dispose",
+					outcome: "error",
+					error: error.message,
+				},
+				"error",
+			),
 		),
 		Effect.asVoid,
 	);

@@ -1,4 +1,5 @@
 import { Effect, Stream } from "effect";
+import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import type {
 	AgentSessionEvent,
 	CreateAgentSessionOptions,
@@ -38,6 +39,11 @@ const resolveOptionalRunnerValue = <A>(
 	return resolveRequiredRunnerValue(value, context);
 };
 
+const errorMessage = (error: unknown): string => {
+	if (error instanceof Error) return error.message;
+	return String(error);
+};
+
 export const makeAgentSessionWorkRunner = (
 	options: AgentSessionWorkRunnerOptions,
 ): Effect.Effect<WorkRunner, never, AgentSessionClient> =>
@@ -45,39 +51,63 @@ export const makeAgentSessionWorkRunner = (
 		const client = yield* AgentSessionClient;
 		return {
 			run: (context) =>
-				Effect.gen(function* () {
-					const prompt = yield* resolveRequiredRunnerValue(
-						options.prompt,
-						context,
-					);
-					const create = yield* resolveOptionalRunnerValue(
-						options.create,
-						context,
-					);
-					const promptOptions = yield* resolveOptionalRunnerValue(
-						options.promptOptions,
-						context,
-					);
-					yield* client
-						.prompt({
-							prompt,
-							...(create === undefined ? {} : { create }),
-							...(promptOptions === undefined ? {} : { promptOptions }),
-							log: {
-								source_id: context.sourceId,
-								run_id: context.run.runId,
-								work_key: context.work.workKey,
-								tick_id: context.tickId,
-							},
-						})
-						.pipe(
-							Stream.runForEach((event) =>
-								options.onEvent
-									? options.onEvent(event).pipe(Effect.catch(() => Effect.void))
-									: Effect.void,
-							),
+				withWideEvent(
+					"agent_session.work_runner.run",
+					{
+						source_id: context.sourceId,
+						run_id: context.run.runId,
+						work_key: context.work.workKey,
+						tick_id: context.tickId,
+					},
+					Effect.gen(function* () {
+						const prompt = yield* resolveRequiredRunnerValue(
+							options.prompt,
+							context,
 						);
-					return {};
-				}),
+						const create = yield* resolveOptionalRunnerValue(
+							options.create,
+							context,
+						);
+						const promptOptions = yield* resolveOptionalRunnerValue(
+							options.promptOptions,
+							context,
+						);
+						yield* client
+							.prompt({
+								prompt,
+								...(create === undefined ? {} : { create }),
+								...(promptOptions === undefined ? {} : { promptOptions }),
+								log: {
+									source_id: context.sourceId,
+									run_id: context.run.runId,
+									work_key: context.work.workKey,
+									tick_id: context.tickId,
+								},
+							})
+							.pipe(
+								Stream.runForEach((event) =>
+									options.onEvent
+										? options.onEvent(event).pipe(
+												Effect.catch((error) =>
+													logWideEvent(
+														{
+															operation: "agent_session.work_runner.on_event",
+															outcome: "error",
+															error: errorMessage(error),
+															event_type: event.type,
+															source_id: context.sourceId,
+															run_id: context.run.runId,
+															work_key: context.work.workKey,
+														},
+														"error",
+													),
+												),
+											)
+										: Effect.void,
+								),
+							);
+						return {};
+					}),
+				),
 		} satisfies WorkRunner;
 	});

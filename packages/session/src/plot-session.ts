@@ -9,6 +9,7 @@ import {
 	Stream,
 	type Exit,
 } from "effect";
+import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import type { AgentSessionEvent } from "./agent-session-client.js";
 import * as Domain from "@plot/agent/model";
 import type {
@@ -254,13 +255,18 @@ const makeAgentRunner = (
 					config.onEvent
 						? config.onEvent(event).pipe(
 								Effect.catch((error) =>
-									Effect.logWarning("PlotSession.agentRunner.onEvent failed", {
-										error: errorMessage(error),
-										event_type: event.type,
-										source_id: context.sourceId,
-										run_id: context.run.runId,
-										work_key: context.work.workKey,
-									}),
+									logWideEvent(
+										{
+											operation: "plot_session.agent_event_listener",
+											outcome: "error",
+											error: errorMessage(error),
+											event_type: event.type,
+											source_id: context.sourceId,
+											run_id: context.run.runId,
+											work_key: context.work.workKey,
+										},
+										"error",
+									),
 								),
 							)
 						: Effect.void;
@@ -389,20 +395,40 @@ export function makePlotSessionLayer(
 				);
 
 			const start = Effect.fn("PlotSession.start")(function* () {
-				yield* publishSessionStarted;
-				yield* plotAgent.start();
+				yield* withWideEvent(
+					"plot_session.start",
+					{ session_id: sessionId },
+					Effect.gen(function* () {
+						yield* publishSessionStarted;
+						yield* plotAgent.start();
+					}),
+				);
 			});
 			const tickOnce = Effect.fn("PlotSession.tickOnce")(function* () {
-				return yield* plotAgent.tickOnce();
+				return yield* withWideEvent(
+					"plot_session.tick_once",
+					{ session_id: sessionId },
+					plotAgent.tickOnce(),
+				);
 			});
 			const snapshot = Effect.fn("PlotSession.snapshot")(function* () {
-				return yield* plotAgent.snapshot();
+				return yield* withWideEvent(
+					"plot_session.snapshot",
+					{ session_id: sessionId },
+					plotAgent.snapshot(),
+				);
 			});
 			const eventStream = () => Stream.fromPubSub(events);
 			const shutdown = Effect.fn("PlotSession.shutdown")(function* () {
-				const accepted = yield* plotAgent.shutdown();
-				yield* publishSessionShutdown;
-				return accepted;
+				return yield* withWideEvent(
+					"plot_session.shutdown",
+					{ session_id: sessionId },
+					Effect.gen(function* () {
+						const accepted = yield* plotAgent.shutdown();
+						yield* publishSessionShutdown;
+						return accepted;
+					}),
+				);
 			});
 
 			return {

@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { readFile } from "node:fs/promises";
+import { withWideEvent } from "@plot/common/observability";
 import { parse as parseYaml } from "yaml";
 
 export class PlotWorkflowError extends Schema.TaggedErrorClass<PlotWorkflowError>()(
@@ -36,15 +37,19 @@ export class WorkflowFileSystem extends Context.Service<
 
 export const nodeWorkflowFileSystemLayer = Layer.succeed(WorkflowFileSystem, {
 	readFileString: (path) =>
-		Effect.tryPromise({
-			try: () => readFile(path, "utf8"),
-			catch: (error) =>
-				new PlotWorkflowError({
-					phase: "read",
-					path,
-					message: errorMessage(error),
-				}),
-		}),
+		withWideEvent(
+			"workflow.read",
+			{ path },
+			Effect.tryPromise({
+				try: () => readFile(path, "utf8"),
+				catch: (error) =>
+					new PlotWorkflowError({
+						phase: "read",
+						path,
+						message: errorMessage(error),
+					}),
+			}),
+		),
 });
 
 const frontMatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -71,35 +76,43 @@ export const parseWorkflowText = (
 	text: string,
 	path?: string,
 ): Effect.Effect<WorkflowDefinition, PlotWorkflowError> =>
-	Effect.gen(function* () {
-		const match = frontMatterPattern.exec(text);
-		const frontMatter = match?.[1] ?? "";
-		const prompt = match ? text.slice(match[0].length).trim() : text.trim();
-		const config = yield* parseConfig(frontMatter, path);
-		return yield* Schema.decodeUnknownEffect(WorkflowDefinition)({
-			config,
-			prompt,
-			...(path === undefined ? {} : { path }),
-		}).pipe(
-			Effect.mapError(
-				(error) =>
-					new PlotWorkflowError({
-						phase: "parse",
-						message: errorMessage(error),
-						...(path === undefined ? {} : { path }),
-					}),
-			),
-		);
-	});
+	withWideEvent(
+		"workflow.parse",
+		{ ...(path === undefined ? {} : { path }), bytes: text.length },
+		Effect.gen(function* () {
+			const match = frontMatterPattern.exec(text);
+			const frontMatter = match?.[1] ?? "";
+			const prompt = match ? text.slice(match[0].length).trim() : text.trim();
+			const config = yield* parseConfig(frontMatter, path);
+			return yield* Schema.decodeUnknownEffect(WorkflowDefinition)({
+				config,
+				prompt,
+				...(path === undefined ? {} : { path }),
+			}).pipe(
+				Effect.mapError(
+					(error) =>
+						new PlotWorkflowError({
+							phase: "parse",
+							message: errorMessage(error),
+							...(path === undefined ? {} : { path }),
+						}),
+				),
+			);
+		}),
+	);
 
 export const loadWorkflow = (
 	path = "WORKFLOW.md",
 ): Effect.Effect<WorkflowDefinition, PlotWorkflowError, WorkflowFileSystem> =>
-	Effect.gen(function* () {
-		const fileSystem = yield* WorkflowFileSystem;
-		const text = yield* fileSystem.readFileString(path);
-		return yield* parseWorkflowText(text, path);
-	});
+	withWideEvent(
+		"workflow.load",
+		{ path },
+		Effect.gen(function* () {
+			const fileSystem = yield* WorkflowFileSystem;
+			const text = yield* fileSystem.readFileString(path);
+			return yield* parseWorkflowText(text, path);
+		}),
+	);
 
 export const loadWorkflowFromNode = (
 	path = "WORKFLOW.md",

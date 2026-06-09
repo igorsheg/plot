@@ -401,7 +401,16 @@ const runSourceObserve = (source: WorkSource, snapshot: RuntimeSnapshot) => {
 		.pipe(
 			Effect.flatMap(decodeObservations),
 			Effect.catch((error) =>
-				Effect.succeed([hookDiagnostic("observe", source.id, error)]),
+				logWideEvent(
+					{
+						operation: "plot_agent.source.observe",
+						outcome: "error",
+						error: errorMessage(error),
+						source_id: source.id,
+						tick_id: snapshot.tickId,
+					},
+					"error",
+				).pipe(Effect.as([hookDiagnostic("observe", source.id, error)])),
 			),
 		);
 };
@@ -421,10 +430,21 @@ const runSourceReconcile = (source: WorkSource, snapshot: RuntimeSnapshot) => {
 				diagnostics: [] as readonly Diagnostic[],
 			})),
 			Effect.catch((error) =>
-				Effect.succeed({
-					proposals: [] as readonly ReconcileProposal[],
-					diagnostics: [hookDiagnostic("reconcile", source.id, error)],
-				}),
+				logWideEvent(
+					{
+						operation: "plot_agent.source.reconcile",
+						outcome: "error",
+						error: errorMessage(error),
+						source_id: source.id,
+						tick_id: snapshot.tickId,
+					},
+					"error",
+				).pipe(
+					Effect.as({
+						proposals: [] as readonly ReconcileProposal[],
+						diagnostics: [hookDiagnostic("reconcile", source.id, error)],
+					}),
+				),
 			),
 		);
 };
@@ -444,10 +464,21 @@ const runSourceSelectWork = (source: WorkSource, snapshot: RuntimeSnapshot) => {
 				diagnostics: [] as readonly Diagnostic[],
 			})),
 			Effect.catch((error) =>
-				Effect.succeed({
-					selected: [] as readonly WorkSelection[],
-					diagnostics: [hookDiagnostic("select", source.id, error)],
-				}),
+				logWideEvent(
+					{
+						operation: "plot_agent.source.select_work",
+						outcome: "error",
+						error: errorMessage(error),
+						source_id: source.id,
+						tick_id: snapshot.tickId,
+					},
+					"error",
+				).pipe(
+					Effect.as({
+						selected: [] as readonly WorkSelection[],
+						diagnostics: [hookDiagnostic("select", source.id, error)],
+					}),
+				),
 			),
 		);
 };
@@ -1024,31 +1055,43 @@ export const makePlotAgentLayer = (options: PlotAgentLayerOptions) => {
 			});
 
 			const run = Effect.fn("PlotAgent.run")(function* () {
-				let running = true;
-				while (running) {
-					const message = yield* Queue.take(mailbox);
-					const shouldRun = yield* messageStartsTick(message);
-					if (!shouldRun) continue;
-					const tick = yield* runTick([message]);
-					running = !tick.shutdownRequested;
-					if (running && tickIntervalMs !== undefined) {
-						yield* scheduleCadenceTick(tickIntervalMs);
-					}
-				}
-				yield* Scope.close(actionScope, Exit.void);
+				yield* withWideEvent(
+					"plot_agent.run",
+					{ source_count: sources.length },
+					Effect.gen(function* () {
+						let running = true;
+						while (running) {
+							const message = yield* Queue.take(mailbox);
+							const shouldRun = yield* messageStartsTick(message);
+							if (!shouldRun) continue;
+							const tick = yield* runTick([message]);
+							running = !tick.shutdownRequested;
+							if (running && tickIntervalMs !== undefined) {
+								yield* scheduleCadenceTick(tickIntervalMs);
+							}
+						}
+						yield* Scope.close(actionScope, Exit.void);
+					}),
+				);
 			});
 
 			const start = Effect.fn("PlotAgent.start")(function* () {
-				const alreadyStarted = yield* Ref.get(actorStarted);
-				if (alreadyStarted) return;
-				yield* Ref.set(actorStarted, true);
-				if (tickIntervalMs !== undefined) {
-					yield* Queue.offer(mailbox, { type: "wake" });
-				}
-				yield* run().pipe(
-					Effect.ensuring(Ref.set(actorStarted, false)),
-					Effect.forkIn(actorScope, { startImmediately: true }),
-					Effect.asVoid,
+				yield* withWideEvent(
+					"plot_agent.start",
+					{ source_count: sources.length },
+					Effect.gen(function* () {
+						const alreadyStarted = yield* Ref.get(actorStarted);
+						if (alreadyStarted) return;
+						yield* Ref.set(actorStarted, true);
+						if (tickIntervalMs !== undefined) {
+							yield* Queue.offer(mailbox, { type: "wake" });
+						}
+						yield* run().pipe(
+							Effect.ensuring(Ref.set(actorStarted, false)),
+							Effect.forkIn(actorScope, { startImmediately: true }),
+							Effect.asVoid,
+						);
+					}),
 				);
 			});
 
@@ -1056,15 +1099,25 @@ export const makePlotAgentLayer = (options: PlotAgentLayerOptions) => {
 				delayMs: number,
 				reason?: string,
 			) {
-				const decoded = yield* decodePositiveInt(
-					delayMs,
-					"delayMs must be a positive integer",
+				yield* withWideEvent(
+					"plot_agent.wake_after",
+					{ delay_ms: delayMs, ...(reason === undefined ? {} : { reason }) },
+					Effect.gen(function* () {
+						const decoded = yield* decodePositiveInt(
+							delayMs,
+							"delayMs must be a positive integer",
+						);
+						yield* scheduleWakeAfter(decoded, reason);
+					}),
 				);
-				yield* scheduleWakeAfter(decoded, reason);
 			});
 
 			const shutdown = Effect.fn("PlotAgent.shutdown")(function* () {
-				return yield* offer({ type: "shutdown" });
+				return yield* withWideEvent(
+					"plot_agent.shutdown",
+					{},
+					offer({ type: "shutdown" }),
+				);
 			});
 
 			return {
