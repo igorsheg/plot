@@ -1,36 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { Deferred, Effect, Schema } from "effect";
-import {
-	capabilityId,
-	idempotencyKey,
-	pluginId,
-	PlotLoopError,
-	subjectKey,
-} from "../src/domain.js";
+import { Deferred, Effect } from "effect";
+import { pluginId, PlotLoopError, subjectKey } from "../src/domain.js";
 import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
-import type { CapabilityDefinition, PlotPlugin } from "../src/plugin.js";
-
-const markReviewed = capabilityId("mark-reviewed");
-const builtinCapability = capabilityId("builtin-capability");
-const userCapability = capabilityId("user-capability");
-const schemaCapability = capabilityId("schema-capability");
+import type { PlotPlugin } from "../src/plugin.js";
 
 const runWith = <A>(
 	plugins: readonly PlotPlugin[],
 	effect: Effect.Effect<A, never, Orchestrator>,
-	capabilities: readonly CapabilityDefinition[] = [],
 ) =>
 	Effect.runPromise(
 		effect.pipe(
 			Effect.provide(
 				makeOrchestratorLayer({
 					plugins,
-					capabilities,
-					policy: {
-						grants: Object.fromEntries(
-							plugins.map((plugin) => [plugin.id, plugin.manifest?.uses ?? []]),
-						),
-					},
 				}),
 			),
 		),
@@ -55,11 +37,10 @@ describe("task-agnostic Plot loop", () => {
 		expect(error.message).toBe("queueCapacity must be a positive integer");
 	});
 
-	test("reconciles observations before planning, and action completions wait for the next reconciliation", async () => {
+	test("reconciles observations before acting, and completions apply on the next reconciliation", async () => {
 		const work = subjectKey("work-1");
 		const plugin: PlotPlugin = {
 			id: pluginId("demo"),
-			manifest: { uses: [markReviewed] },
 			observeTick: () => Effect.succeed([{ type: "seen", subject: work }]),
 			reconcile: ({ snapshot }) =>
 				Effect.succeed([
@@ -74,22 +55,15 @@ describe("task-agnostic Plot loop", () => {
 						value: completion.status,
 					})),
 				]),
-			plan: ({ snapshot }) =>
+			act: ({ snapshot }) =>
 				snapshot.facts.get("seen:work-1") === true &&
 				!snapshot.facts.has("completed:work-1")
-					? Effect.succeed([
-							{
-								capability: markReviewed,
-								input: { ok: true },
-								subject: work,
-								idempotencyKey: idempotencyKey("review:work-1"),
-							},
-						])
-					: Effect.succeed([]),
-		};
-		const capability: CapabilityDefinition = {
-			id: markReviewed,
-			execute: () => Effect.succeed({ wrote: true }),
+					? Effect.succeed({
+							type: "completed" as const,
+							subject: work,
+							output: { reviewed: true },
+						})
+					: Effect.succeed({ type: "idle" as const }),
 		};
 
 		const result = await runWith(
@@ -102,34 +76,32 @@ describe("task-agnostic Plot loop", () => {
 				const second = yield* orchestrator.tickOnce();
 				return { first, afterFirst, second };
 			}),
-			[capability],
 		);
 
-		expect(result.first.admitted).toHaveLength(1);
+		expect(result.first.started).toHaveLength(1);
+		expect(result.first.completions).toHaveLength(0);
 		expect(result.afterFirst.facts.get("seen:work-1")).toBe(true);
 		expect(result.afterFirst.facts.has("completed:work-1")).toBe(false);
+		expect(result.second.completions).toContainEqual(
+			expect.objectContaining({ status: "succeeded", subject: work }),
+		);
 		expect(result.second.snapshot.facts.get("completed:work-1")).toBe(
 			"succeeded",
 		);
 	});
 
-	test("tickOnce admits long actions without waiting for completion", async () => {
-		const capability = capabilityId("slow-capability");
+	test("tickOnce starts long plugin work without waiting for completion", async () => {
 		const release = Deferred.makeUnsafe<string>();
 		const plugin: PlotPlugin = {
 			id: pluginId("slow-plugin"),
-			manifest: { uses: [capability] },
-			plan: () =>
-				Effect.succeed([
-					{
-						capability,
-						input: "ok",
-						idempotencyKey: idempotencyKey("slow-once"),
-					},
-				]),
+			act: () =>
+				Deferred.await(release).pipe(
+					Effect.map((output) => ({ type: "completed" as const, output })),
+				),
 		};
 
-		const result = await Effect.runPromise(
+		const result = await runWith(
+			[plugin],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				const first = yield* orchestrator.tickOnce();
@@ -137,29 +109,10 @@ describe("task-agnostic Plot loop", () => {
 				yield* Effect.yieldNow;
 				const second = yield* orchestrator.tickOnce();
 				return { first, second };
-			}).pipe(
-				Effect.provide(
-					makeOrchestratorLayer({
-						plugins: [plugin],
-						policy: {
-							grants: {
-								[plugin.id]: [capability],
-							},
-						},
-						capabilities: [
-							{
-								id: capability,
-								input: Schema.String,
-								output: Schema.String,
-								execute: () => Deferred.await(release),
-							},
-						],
-					}),
-				),
-			),
+			}),
 		);
 
-		expect(result.first.admitted).toHaveLength(1);
+		expect(result.first.started).toHaveLength(1);
 		expect(result.first.completions).toHaveLength(0);
 		expect(result.second.completions).toContainEqual(
 			expect.objectContaining({ status: "succeeded", output: "finished" }),
@@ -197,154 +150,127 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.facts.get("actor:actor-work")).toBe(true);
 	});
 
-	test("built-in and user capabilities use the same declaration and grant admission path", async () => {
+	test("plugins own their inner TypeScript instead of requesting fine-grained capabilities", async () => {
 		const calls: string[] = [];
-		const builtinPlugin = pluginId("builtin-style-plugin");
-		const userPlugin = pluginId("user-style-plugin");
-		const ungrantedPlugin = pluginId("ungranted-plugin");
-		const undeclaredPlugin = pluginId("undeclared-plugin");
-		const schemaPlugin = pluginId("schema-plugin");
+		const pr = subjectKey("github:pr:42");
+		const plugin: PlotPlugin = {
+			id: pluginId("pr-reviewer"),
+			observeTick: () =>
+				Effect.succeed([
+					{
+						type: "github.pr.ready",
+						subject: pr,
+						data: { repo: "plot", number: 42, headSha: "abc123" },
+					},
+				]),
+			reconcile: ({ snapshot }) =>
+				Effect.succeed([
+					...snapshot.observations.map((observation) => ({
+						type: "set_fact" as const,
+						key: `ready:${observation.subject ?? "unknown"}`,
+						value: observation.data,
+					})),
+					...snapshot.completions.map((completion) => ({
+						type: "set_fact" as const,
+						key: `reviewed:${completion.subject ?? "unknown"}`,
+						value: true,
+					})),
+				]),
+			act: ({ snapshot }) =>
+				Effect.sync(() => {
+					const ready = snapshot.facts.get("ready:github:pr:42");
+					const reviewed = snapshot.facts.get("reviewed:github:pr:42");
+					if (!ready || reviewed) return { type: "idle" as const };
+					calls.push("gh pr diff 42");
+					calls.push("agent reviews diff with normal shell/tools");
+					calls.push("gh pr comment 42");
+					return {
+						type: "completed" as const,
+						subject: pr,
+						output: { comments: 1 },
+					};
+				}),
+		};
 
-		const plugins: PlotPlugin[] = [
-			{
-				id: builtinPlugin,
-				manifest: { uses: [builtinCapability] },
-				plan: () =>
-					Effect.succeed([
-						{
-							capability: builtinCapability,
-							input: "ok",
-							subject: subjectKey("a"),
-							idempotencyKey: idempotencyKey("builtin:a"),
-						},
-					]),
-			},
-			{
-				id: userPlugin,
-				manifest: { uses: [userCapability] },
-				plan: () =>
-					Effect.succeed([
-						{
-							capability: userCapability,
-							input: "ok",
-							subject: subjectKey("b"),
-							idempotencyKey: idempotencyKey("user:b"),
-						},
-					]),
-			},
-			{
-				id: ungrantedPlugin,
-				manifest: { uses: [userCapability] },
-				plan: () =>
-					Effect.succeed([
-						{
-							capability: userCapability,
-							input: "blocked",
-							subject: subjectKey("c"),
-						},
-					]),
-			},
-			{
-				id: undeclaredPlugin,
-				plan: () =>
-					Effect.succeed([
-						{
-							capability: userCapability,
-							input: "blocked",
-							subject: subjectKey("d"),
-						},
-					]),
-			},
-			{
-				id: schemaPlugin,
-				manifest: { uses: [schemaCapability] },
-				plan: () =>
-					Effect.succeed([
-						{
-							capability: schemaCapability,
-							input: "not-the-schema",
-							subject: subjectKey("e"),
-							idempotencyKey: idempotencyKey("schema:e"),
-						},
-					]),
-			},
-		];
-		const capabilities: CapabilityDefinition[] = [
-			{
-				id: builtinCapability,
-				execute: ({ subject }) =>
-					Effect.sync(() => {
-						calls.push(`builtin:${subject}`);
-						return subject;
-					}),
-			},
-			{
-				id: userCapability,
-				execute: ({ subject }) =>
-					Effect.sync(() => {
-						calls.push(`user:${subject}`);
-						return subject;
-					}),
-			},
-			{
-				id: schemaCapability,
-				input: Schema.Struct({ ok: Schema.Boolean }),
-				execute: ({ subject }) =>
-					Effect.sync(() => {
-						calls.push(`schema:${subject}`);
-						return subject;
-					}),
-			},
-		];
-
-		const result = await Effect.runPromise(
+		const result = await runWith(
+			[plugin],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				const first = yield* orchestrator.tickOnce();
 				yield* Effect.yieldNow;
 				const second = yield* orchestrator.tickOnce();
 				return { first, second };
+			}),
+		);
+
+		expect(result.first.started).toHaveLength(1);
+		expect(calls).toEqual([
+			"gh pr diff 42",
+			"agent reviews diff with normal shell/tools",
+			"gh pr comment 42",
+		]);
+		expect(result.second.completions).toContainEqual(
+			expect.objectContaining({ subject: pr, status: "succeeded" }),
+		);
+	});
+
+	test("runtime policy gates dispatch lifecycle, not inner agent tools", async () => {
+		const release = Deferred.makeUnsafe<void>();
+		const makePlugin = (id: string): PlotPlugin => ({
+			id: pluginId(id),
+			act: () =>
+				Deferred.await(release).pipe(
+					Effect.map(() => ({ type: "completed" as const })),
+				),
+		});
+
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				const first = yield* orchestrator.tickOnce();
+				const snapshot = yield* orchestrator.snapshot();
+				yield* Deferred.succeed(release, undefined);
+				return { first, snapshot };
 			}).pipe(
 				Effect.provide(
 					makeOrchestratorLayer({
-						plugins,
-						capabilities,
-						policy: {
-							grants: {
-								[builtinPlugin]: [builtinCapability],
-								[userPlugin]: [userCapability],
-								[schemaPlugin]: [schemaCapability],
-							},
-						},
+						plugins: [makePlugin("one"), makePlugin("two")],
+						policy: { maxConcurrentRuns: 1 },
 					}),
 				),
 			),
 		);
 
-		expect(calls).toEqual(["builtin:a", "user:b"]);
-		expect(
-			result.second.completions.filter(
-				(completion) => completion.status === "succeeded",
-			),
-		).toHaveLength(2);
-		expect(
-			result.first.completions.filter(
-				(completion) => completion.status === "rejected",
-			),
-		).toHaveLength(2);
-		expect(
-			result.second.completions.filter(
-				(completion) => completion.status === "failed",
-			),
-		).toHaveLength(1);
-		const diagnosticMessages = [
-			...result.first.diagnostics,
-			...result.second.diagnostics,
-		].map((diagnostic) => diagnostic.message);
-		expect(diagnosticMessages.slice(0, 2)).toEqual([
-			"plugin is not granted capability use",
-			"plugin did not declare capability use",
-		]);
-		expect(diagnosticMessages[2]?.startsWith("SchemaError")).toBe(true);
+		expect(result.first.started).toHaveLength(1);
+		expect(result.snapshot.running.has(pluginId("one"))).toBe(true);
+		expect(result.snapshot.running.has(pluginId("two"))).toBe(false);
+	});
+
+	test("failed plugin acts become completions and diagnostics", async () => {
+		const plugin: PlotPlugin = {
+			id: pluginId("broken-plugin"),
+			act: () => Effect.fail("boom"),
+		};
+
+		const result = await runWith(
+			[plugin],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.tickOnce();
+				yield* Effect.yieldNow;
+				return yield* orchestrator.tickOnce();
+			}),
+		);
+
+		expect(result.completions).toContainEqual(
+			expect.objectContaining({ pluginId: plugin.id, status: "failed" }),
+		);
+		expect(result.diagnostics[0]).toEqual(
+			expect.objectContaining({
+				pluginId: plugin.id,
+				phase: "act",
+				level: "error",
+			}),
+		);
 	});
 });

@@ -20,20 +20,10 @@ export type TickId = typeof TickId.Type;
 export const tickId = (value: number): TickId =>
 	Schema.decodeUnknownSync(TickId)(value);
 
-export const Priority = NonNegativeInt.pipe(Schema.brand("Priority"));
-export type Priority = typeof Priority.Type;
-export const priority = (value: number): Priority =>
-	Schema.decodeUnknownSync(Priority)(value);
-
 export const PluginId = IdentifierText.pipe(Schema.brand("PluginId"));
 export type PluginId = typeof PluginId.Type;
 export const pluginId = (value: string): PluginId =>
 	Schema.decodeUnknownSync(PluginId)(value);
-
-export const CapabilityId = IdentifierText.pipe(Schema.brand("CapabilityId"));
-export type CapabilityId = typeof CapabilityId.Type;
-export const capabilityId = (value: string): CapabilityId =>
-	Schema.decodeUnknownSync(CapabilityId)(value);
 
 export const SubjectKey = Schema.NonEmptyString.pipe(
 	Schema.brand("SubjectKey"),
@@ -42,35 +32,21 @@ export type SubjectKey = typeof SubjectKey.Type;
 export const subjectKey = (value: string): SubjectKey =>
 	Schema.decodeUnknownSync(SubjectKey)(value);
 
-export const ActionId = IdentifierText.pipe(Schema.brand("ActionId"));
-export type ActionId = typeof ActionId.Type;
-export const actionId = (value: string): ActionId =>
-	Schema.decodeUnknownSync(ActionId)(value);
-
-export const IdempotencyKey = Schema.NonEmptyString.pipe(
-	Schema.brand("IdempotencyKey"),
-);
-export type IdempotencyKey = typeof IdempotencyKey.Type;
-export const idempotencyKey = (value: string): IdempotencyKey =>
-	Schema.decodeUnknownSync(IdempotencyKey)(value);
+export const RunId = IdentifierText.pipe(Schema.brand("RunId"));
+export type RunId = typeof RunId.Type;
+export const runId = (value: string): RunId =>
+	Schema.decodeUnknownSync(RunId)(value);
 
 export const LoopPhase = Schema.Literals([
 	"setup",
 	"observe",
 	"reconcile",
-	"plan",
-	"admit",
+	"act",
 	"policy",
-	"capability",
 ]);
 export type LoopPhase = typeof LoopPhase.Type;
 
-export const HookPhase = LoopPhase.pick([
-	"observe",
-	"reconcile",
-	"plan",
-	"capability",
-]);
+export const HookPhase = LoopPhase.pick(["observe", "reconcile", "act"]);
 export type HookPhase = typeof HookPhase.Type;
 
 export class PlotLoopError extends Schema.TaggedErrorClass<PlotLoopError>()(
@@ -79,7 +55,6 @@ export class PlotLoopError extends Schema.TaggedErrorClass<PlotLoopError>()(
 		phase: LoopPhase,
 		message: Schema.String,
 		plugin_id: Schema.optionalKey(PluginId),
-		capability_id: Schema.optionalKey(CapabilityId),
 	},
 ) {}
 
@@ -109,34 +84,30 @@ export const ReconcileProposal = Schema.Union([
 ]);
 export type ReconcileProposal = typeof ReconcileProposal.Type;
 
-export const ActionRequest = Schema.Struct({
-	capability: CapabilityId,
-	input: Schema.Unknown,
-	subject: Schema.optionalKey(SubjectKey),
-	reason: Schema.optionalKey(Schema.String),
-	priority: Schema.optionalKey(Priority),
-	idempotencyKey: Schema.optionalKey(IdempotencyKey),
-});
-export type ActionRequest = typeof ActionRequest.Type;
-
-export const AdmittedAction = Schema.Struct({
-	...ActionRequest.fields,
-	actionId: ActionId,
+export const PluginRun = Schema.Struct({
+	runId: RunId,
 	pluginId: PluginId,
 });
-export type AdmittedAction = typeof AdmittedAction.Type;
+export type PluginRun = typeof PluginRun.Type;
 
-export const CompletionStatus = Schema.Literals([
-	"succeeded",
-	"failed",
-	"rejected",
+export const PluginActResult = Schema.Union([
+	Schema.Struct({
+		type: Schema.Literal("idle"),
+	}),
+	Schema.Struct({
+		type: Schema.Literal("completed"),
+		subject: Schema.optionalKey(SubjectKey),
+		output: Schema.optionalKey(Schema.Unknown),
+	}),
 ]);
+export type PluginActResult = typeof PluginActResult.Type;
+
+export const CompletionStatus = Schema.Literals(["succeeded", "failed"]);
 export type CompletionStatus = typeof CompletionStatus.Type;
 
 export const Completion = Schema.Struct({
-	actionId: ActionId,
+	runId: RunId,
 	pluginId: PluginId,
-	capabilityId: CapabilityId,
 	status: CompletionStatus,
 	subject: Schema.optionalKey(SubjectKey),
 	output: Schema.optionalKey(Schema.Unknown),
@@ -146,11 +117,10 @@ export type Completion = typeof Completion.Type;
 
 export const Diagnostic = Schema.Struct({
 	level: Schema.Literals(["info", "warning", "error"]),
-	phase: Schema.Union([HookPhase, Schema.Literals(["admit", "policy"])]),
+	phase: Schema.Union([HookPhase, Schema.Literals(["policy"])]),
 	message: Schema.String,
 	pluginId: Schema.optionalKey(PluginId),
-	capabilityId: Schema.optionalKey(CapabilityId),
-	actionId: Schema.optionalKey(ActionId),
+	runId: Schema.optionalKey(RunId),
 });
 export type Diagnostic = typeof Diagnostic.Type;
 
@@ -160,26 +130,26 @@ export const RuntimeSnapshot = Schema.Struct({
 	observations: Schema.Array(Observation),
 	completions: Schema.Array(Completion),
 	diagnostics: Schema.Array(Diagnostic),
-	actionLedger: Schema.ReadonlyMap(IdempotencyKey, ActionId),
+	running: Schema.ReadonlyMap(PluginId, RunId),
 });
 export type RuntimeSnapshot = typeof RuntimeSnapshot.Type;
-
-export const PluginManifest = Schema.Struct({
-	uses: Schema.optionalKey(Schema.Array(CapabilityId)),
-});
-export type PluginManifest = typeof PluginManifest.Type;
 
 export const TickResult = Schema.Struct({
 	tickId: TickId,
 	observations: Schema.Array(Observation),
 	proposals: Schema.Array(ReconcileProposal),
-	planned: Schema.Array(ActionRequest),
-	admitted: Schema.Array(AdmittedAction),
+	started: Schema.Array(PluginRun),
 	completions: Schema.Array(Completion),
 	diagnostics: Schema.Array(Diagnostic),
 	snapshot: RuntimeSnapshot,
 });
 export type TickResult = typeof TickResult.Type;
+
+const RunFinished = Schema.Struct({
+	type: Schema.Literal("run_finished"),
+	run: PluginRun,
+	completion: Schema.optionalKey(Completion),
+});
 
 export const OrchestratorMessage = Schema.Union([
 	Schema.Struct({
@@ -193,6 +163,7 @@ export const OrchestratorMessage = Schema.Union([
 		type: Schema.Literal("completion"),
 		completion: Completion,
 	}),
+	RunFinished,
 	Schema.Struct({
 		type: Schema.Literal("shutdown"),
 	}),

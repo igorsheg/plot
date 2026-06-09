@@ -15,37 +15,30 @@ import {
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import * as Domain from "./domain.js";
 import type {
-	ActionId,
-	ActionRequest,
-	AdmittedAction,
-	CapabilityId,
 	Completion,
 	Diagnostic,
 	HookPhase,
-	IdempotencyKey,
 	Observation,
 	OrchestratorMessage,
+	PluginActResult,
 	PluginId,
+	PluginRun,
 	ReconcileProposal,
 	RuntimeSnapshot,
+	RunId,
 	SubjectKey,
-	TickId,
 	TickResult,
 } from "./domain.js";
-import type {
-	CapabilityDefinition,
-	OrchestratorPolicy,
-	PlotPlugin,
-} from "./plugin.js";
+import type { OrchestratorPolicy, PlotPlugin } from "./plugin.js";
 
 interface RuntimeState {
-	readonly tickId: TickId;
+	readonly tickId: Domain.TickId;
 	readonly facts: ReadonlyMap<string, unknown>;
 	readonly observations: readonly Observation[];
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
-	readonly actionLedger: ReadonlyMap<IdempotencyKey, ActionId>;
-	readonly nextActionIndex: number;
+	readonly running: ReadonlyMap<PluginId, RunId>;
+	readonly nextRunIndex: number;
 }
 
 export interface OrchestratorShape {
@@ -64,7 +57,6 @@ export class Orchestrator extends Context.Service<
 
 export interface OrchestratorLayerOptions {
 	readonly plugins: readonly PlotPlugin[];
-	readonly capabilities?: readonly CapabilityDefinition[];
 	readonly policy?: OrchestratorPolicy;
 	readonly queueCapacity?: number;
 }
@@ -75,14 +67,20 @@ const initialState: RuntimeState = {
 	observations: [],
 	completions: [],
 	diagnostics: [],
-	actionLedger: new Map(),
-	nextActionIndex: 0,
+	running: new Map(),
+	nextRunIndex: 0,
 };
 
 const errorMessage = (error: unknown): string => {
 	if (error instanceof Error) return error.message;
 	return String(error);
 };
+
+const optionalSubject = (subject: SubjectKey | undefined) =>
+	subject === undefined ? {} : { subject };
+
+const optionalOutput = (output: unknown) =>
+	output === undefined ? {} : { output };
 
 const hookDiagnostic = (
 	phase: HookPhase,
@@ -95,17 +93,16 @@ const hookDiagnostic = (
 	message: errorMessage(error),
 });
 
-const capabilityDiagnostic = (
-	action: AdmittedAction,
-	error: unknown,
-): Diagnostic => ({
-	level: "error",
-	phase: "capability",
-	pluginId: action.pluginId,
-	capabilityId: action.capability,
-	actionId: action.actionId,
-	message: errorMessage(error),
-});
+const actDiagnostic = (completion: Completion): Diagnostic | undefined => {
+	if (completion.status !== "failed") return undefined;
+	return {
+		level: "error",
+		phase: "act",
+		pluginId: completion.pluginId,
+		runId: completion.runId,
+		message: completion.error ?? "plugin act failed",
+	};
+};
 
 const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	tickId: state.tickId,
@@ -113,23 +110,27 @@ const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	observations: [...state.observations],
 	completions: [...state.completions],
 	diagnostics: [...state.diagnostics],
-	actionLedger: new Map(state.actionLedger),
+	running: new Map(state.running),
 });
 
 const drainMessages = (messages: readonly OrchestratorMessage[]) => {
 	const observations: Observation[] = [];
 	const completions: Completion[] = [];
+	const finishedRuns: PluginRun[] = [];
 	let shutdownRequested = false;
 	for (const message of messages) {
 		if (message.type === "observation") {
 			observations.push(message.observation);
 		} else if (message.type === "completion") {
 			completions.push(message.completion);
+		} else if (message.type === "run_finished") {
+			finishedRuns.push(message.run);
+			if (message.completion) completions.push(message.completion);
 		} else if (message.type === "shutdown") {
 			shutdownRequested = true;
 		}
 	}
-	return { observations, completions, shutdownRequested };
+	return { observations, completions, finishedRuns, shutdownRequested };
 };
 
 const applyProposals = (
@@ -147,164 +148,14 @@ const applyProposals = (
 	return next;
 };
 
-const pluginUses = (plugin: PlotPlugin): ReadonlySet<CapabilityId> =>
-	new Set(plugin.manifest?.uses ?? []);
-
-const hasGrant = (
-	policy: OrchestratorPolicy,
-	pluginId: PluginId,
-	capabilityId: CapabilityId,
-): boolean => new Set(policy.grants?.[pluginId] ?? []).has(capabilityId);
-
-const actionSortKey = (action: ActionRequest): string =>
-	[
-		action.priority ?? Number.MAX_SAFE_INTEGER,
-		action.subject ?? "",
-		action.capability,
-	]
-		.map(String)
-		.join("|");
-
-const sortPlannedActions = (
-	planned: readonly {
-		readonly plugin: PlotPlugin;
-		readonly action: ActionRequest;
-	}[],
-) =>
-	planned.toSorted((left, right) => {
-		const priority =
-			(left.action.priority ?? Number.MAX_SAFE_INTEGER) -
-			(right.action.priority ?? Number.MAX_SAFE_INTEGER);
-		if (priority !== 0) return priority;
-		const subject = (left.action.subject ?? "").localeCompare(
-			right.action.subject ?? "",
-		);
-		if (subject !== 0) return subject;
-		return actionSortKey(left.action).localeCompare(
-			actionSortKey(right.action),
-		);
-	});
-
-const optionalSubject = (subject: SubjectKey | undefined) =>
-	subject === undefined ? {} : { subject };
-
-const optionalOutput = (output: unknown) =>
-	output === undefined ? {} : { output };
-
-const completionDiagnostic = (
-	completion: Completion,
-): Diagnostic | undefined => {
-	if (completion.status !== "failed") return undefined;
-	return {
-		level: "error",
-		phase: "capability",
-		pluginId: completion.pluginId,
-		capabilityId: completion.capabilityId,
-		actionId: completion.actionId,
-		message: completion.error ?? "capability failed",
-	};
-};
-
-const makeRejectedCompletion = (
-	action: ActionRequest,
-	pluginId: PluginId,
-	index: number,
-	error: string,
-): Completion => ({
-	actionId: Domain.actionId(`rejected-${pluginId}-${index}`),
-	pluginId,
-	capabilityId: action.capability,
-	status: "rejected",
-	...optionalSubject(action.subject),
-	error,
-});
-
-const admitActions = (
-	state: RuntimeState,
-	plugins: readonly PlotPlugin[],
-	capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>,
-	policy: OrchestratorPolicy,
-	planned: readonly {
-		readonly plugin: PlotPlugin;
-		readonly action: ActionRequest;
-	}[],
-) => {
-	const admitted: AdmittedAction[] = [];
-	const rejected: Completion[] = [];
-	const diagnostics: Diagnostic[] = [];
-	const ledger = new Map(state.actionLedger);
-	let nextActionIndex = state.nextActionIndex;
-	const usesByPlugin = new Map(
-		plugins.map((plugin) => [plugin.id, pluginUses(plugin)]),
-	);
-	const maxActions = policy.maxActionsPerTick ?? 100;
-
-	for (const { plugin, action } of sortPlannedActions(planned)) {
-		const reject = (message: string) => {
-			const completion = makeRejectedCompletion(
-				action,
-				plugin.id,
-				nextActionIndex,
-				message,
-			);
-			rejected.push(completion);
-			diagnostics.push({
-				level: "error",
-				phase: "admit",
-				pluginId: plugin.id,
-				capabilityId: action.capability,
-				message,
-			});
-		};
-
-		if (admitted.length >= maxActions) {
-			reject("max actions per tick reached");
-			continue;
-		}
-		if (!capabilities.has(action.capability)) {
-			reject("capability is not registered");
-			continue;
-		}
-		if (!usesByPlugin.get(plugin.id)?.has(action.capability)) {
-			reject("plugin did not declare capability use");
-			continue;
-		}
-		if (!hasGrant(policy, plugin.id, action.capability)) {
-			reject("plugin is not granted capability use");
-			continue;
-		}
-		if (action.idempotencyKey && ledger.has(action.idempotencyKey)) {
-			reject("idempotency key already admitted");
-			continue;
-		}
-
-		const actionId = Domain.actionId(`action-${nextActionIndex}`);
-		nextActionIndex += 1;
-		if (action.idempotencyKey) ledger.set(action.idempotencyKey, actionId);
-		admitted.push({ ...action, actionId, pluginId: plugin.id });
-	}
-
-	return { admitted, rejected, diagnostics, ledger, nextActionIndex };
-};
-
 const decodeObservations = (value: unknown) =>
 	Schema.decodeUnknownEffect(Schema.Array(Domain.Observation))(value);
 
 const decodeProposals = (value: unknown) =>
 	Schema.decodeUnknownEffect(Schema.Array(Domain.ReconcileProposal))(value);
 
-const decodeActions = (value: unknown) =>
-	Schema.decodeUnknownEffect(Schema.Array(Domain.ActionRequest))(value);
-
-const decodeWithSchema = (
-	schema: Schema.Decoder<unknown>,
-	value: unknown,
-): Effect.Effect<unknown, unknown> =>
-	Effect.suspend(() => {
-		const exit = Schema.decodeUnknownExit(schema)(value);
-		if (Exit.isSuccess(exit)) return Effect.succeed(exit.value);
-		return Effect.failCause(exit.cause);
-	});
+const decodeActResult = (value: unknown) =>
+	Schema.decodeUnknownEffect(Domain.PluginActResult)(value);
 
 const runPluginObserve = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 	if (!plugin.observeTick) return Effect.succeed([] as readonly Observation[]);
@@ -341,87 +192,63 @@ const runPluginReconcile = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 		);
 };
 
-const runPluginPlan = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
-	if (!plugin.plan)
-		return Effect.succeed({
-			planned: [] as readonly ActionRequest[],
-			diagnostics: [] as readonly Diagnostic[],
-		});
-	return plugin
-		.plan({ pluginId: plugin.id, tickId: snapshot.tickId, snapshot })
-		.pipe(
-			Effect.flatMap(decodeActions),
-			Effect.map((planned) => ({
-				planned,
-				diagnostics: [] as readonly Diagnostic[],
-			})),
-			Effect.catch((error) =>
-				Effect.succeed({
-					planned: [] as readonly ActionRequest[],
-					diagnostics: [hookDiagnostic("plan", plugin.id, error)],
-				}),
-			),
-		);
+const completionFromActResult = (
+	run: PluginRun,
+	result: PluginActResult,
+): Completion | undefined => {
+	if (result.type === "idle") return undefined;
+	return {
+		runId: run.runId,
+		pluginId: run.pluginId,
+		status: "succeeded",
+		...optionalSubject(result.subject),
+		...optionalOutput(result.output),
+	};
 };
 
-const executeAction = (
-	tickId: TickId,
-	capability: CapabilityDefinition,
-	action: AdmittedAction,
-): Effect.Effect<{
-	readonly completion: Completion;
-	readonly diagnostic?: Diagnostic;
-}> =>
+const executePluginAct = (
+	plugin: PlotPlugin,
+	snapshot: RuntimeSnapshot,
+	run: PluginRun,
+	mailbox: Queue.Enqueue<OrchestratorMessage>,
+) =>
 	Effect.gen(function* () {
+		if (!plugin.act) return;
 		const startedAt = yield* Clock.currentTimeMillis;
 		const fields = {
-			operation: "orchestrator.action.execute",
-			tick_id: tickId,
-			plugin_id: action.pluginId,
-			capability_id: action.capability,
-			action_id: action.actionId,
-			...optionalSubject(action.subject),
+			operation: "orchestrator.plugin.act",
+			plugin_id: plugin.id,
+			run_id: run.runId,
+			tick_id: snapshot.tickId,
 		};
 		const exit = yield* Effect.exit(
-			Effect.gen(function* () {
-				const input = capability.input
-					? yield* decodeWithSchema(capability.input, action.input)
-					: action.input;
-				const output = yield* capability.execute(
-					{
-						pluginId: action.pluginId,
-						tickId,
-						actionId: action.actionId,
-						capabilityId: action.capability,
-						...optionalSubject(action.subject),
-					},
-					input,
-				);
-				return capability.output
-					? yield* decodeWithSchema(capability.output, output)
-					: output;
-			}),
+			plugin
+				.act({ pluginId: plugin.id, tickId: snapshot.tickId, snapshot })
+				.pipe(Effect.flatMap(decodeActResult)),
 		);
 		const duration_ms = (yield* Clock.currentTimeMillis) - startedAt;
 		if (Exit.isSuccess(exit)) {
+			const completion = completionFromActResult(run, exit.value);
 			yield* logWideEvent({
 				...fields,
 				outcome: "success",
-				status: "succeeded",
+				status: exit.value.type,
 				duration_ms,
 			});
-			return {
-				completion: {
-					actionId: action.actionId,
-					pluginId: action.pluginId,
-					capabilityId: action.capability,
-					status: "succeeded",
-					...optionalSubject(action.subject),
-					...optionalOutput(exit.value),
-				},
-			};
+			yield* Queue.offer(mailbox, {
+				type: "run_finished",
+				run,
+				...(completion ? { completion } : {}),
+			});
+			return;
 		}
 		const error = Cause.pretty(exit.cause);
+		const completion: Completion = {
+			runId: run.runId,
+			pluginId: run.pluginId,
+			status: "failed",
+			error,
+		};
 		yield* logWideEvent(
 			{
 				...fields,
@@ -432,17 +259,11 @@ const executeAction = (
 			},
 			"error",
 		);
-		return {
-			completion: {
-				actionId: action.actionId,
-				pluginId: action.pluginId,
-				capabilityId: action.capability,
-				status: "failed",
-				...optionalSubject(action.subject),
-				error,
-			},
-			diagnostic: capabilityDiagnostic(action, error),
-		};
+		yield* Queue.offer(mailbox, {
+			type: "run_finished",
+			run,
+			completion,
+		});
 	});
 
 const ensureUniquePlugins = (plugins: readonly PlotPlugin[]) =>
@@ -460,23 +281,6 @@ const ensureUniquePlugins = (plugins: readonly PlotPlugin[]) =>
 		}
 	});
 
-const ensureUniqueCapabilities = (
-	capabilities: readonly CapabilityDefinition[],
-) =>
-	Effect.gen(function* () {
-		const seen = new Set<CapabilityId>();
-		for (const capability of capabilities) {
-			if (seen.has(capability.id)) {
-				return yield* new Domain.PlotLoopError({
-					phase: "setup",
-					capability_id: capability.id,
-					message: `duplicate capability id: ${capability.id}`,
-				});
-			}
-			seen.add(capability.id);
-		}
-	});
-
 const decodePositiveInt = (value: number, message: string) =>
 	Schema.decodeUnknownEffect(Domain.PositiveInt)(value).pipe(
 		Effect.mapError(
@@ -488,32 +292,32 @@ const decodePositiveInt = (value: number, message: string) =>
 		),
 	);
 
+const selectablePlugins = (
+	plugins: readonly PlotPlugin[],
+	running: ReadonlyMap<PluginId, RunId>,
+) => plugins.filter((plugin) => plugin.act && !running.has(plugin.id));
+
 export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 	const plugins = options.plugins;
-	const rawCapabilities = options.capabilities ?? [];
 	const policy = options.policy ?? {};
 
 	return Layer.effect(
 		Orchestrator,
 		Effect.gen(function* () {
 			yield* ensureUniquePlugins(plugins);
-			yield* ensureUniqueCapabilities(rawCapabilities);
 			const queueCapacity = yield* decodePositiveInt(
 				options.queueCapacity ?? 64,
 				"queueCapacity must be a positive integer",
 			);
-			if (policy.maxActionsPerTick !== undefined) {
+			if (policy.maxConcurrentRuns !== undefined) {
 				yield* decodePositiveInt(
-					policy.maxActionsPerTick,
-					"maxActionsPerTick must be a positive integer",
+					policy.maxConcurrentRuns,
+					"maxConcurrentRuns must be a positive integer",
 				);
 			}
-			const capabilities = new Map(
-				rawCapabilities.map((capability) => [capability.id, capability]),
-			);
 			const stateRef = yield* Ref.make(initialState);
 			const snapshotRef = yield* Ref.make(snapshotFrom(initialState));
-			const queue = yield* Queue.bounded<OrchestratorMessage>(queueCapacity);
+			const mailbox = yield* Queue.bounded<OrchestratorMessage>(queueCapacity);
 			const tickLock = yield* Semaphore.make(1);
 			const actorScope = yield* Scope.make();
 			const actionScope = yield* Scope.make();
@@ -537,7 +341,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				const messages = [...initialMessages];
 				let draining = true;
 				while (draining) {
-					const message = yield* Queue.poll(queue);
+					const message = yield* Queue.poll(mailbox);
 					if (Option.isSome(message)) {
 						messages.push(message.value);
 					} else {
@@ -559,11 +363,17 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							const drained = drainMessages(messages);
 							const completionDiagnostics = drained.completions.flatMap(
 								(completion) => {
-									const diagnostic = completionDiagnostic(completion);
+									const diagnostic = actDiagnostic(completion);
 									return diagnostic ? [diagnostic] : [];
 								},
 							);
 							const starting = yield* Ref.modify(stateRef, (state) => {
+								const running = new Map(state.running);
+								for (const run of drained.finishedRuns) {
+									if (running.get(run.pluginId) === run.runId) {
+										running.delete(run.pluginId);
+									}
+								}
 								const next = {
 									...state,
 									tickId: Domain.tickId(state.tickId + 1),
@@ -573,6 +383,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 									],
 									completions: [...state.completions, ...drained.completions],
 									diagnostics: [...state.diagnostics, ...completionDiagnostics],
+									running,
 								};
 								return [next, next] as const;
 							});
@@ -643,7 +454,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							const policyFailed = policyDiagnostics.some(
 								(diagnostic) => diagnostic.level === "error",
 							);
-							if (policyFailed) {
+							if (policyFailed || drained.shutdownRequested) {
 								const current = yield* Ref.get(stateRef);
 								yield* publishSnapshot(current);
 								return {
@@ -652,9 +463,8 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 										tickId,
 										observations,
 										proposals,
-										planned: [],
-										admitted: [],
-										completions: [],
+										started: [],
+										completions: drained.completions,
 										diagnostics: [
 											...completionDiagnostics,
 											...observeDiagnostics,
@@ -666,90 +476,68 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								};
 							}
 
-							const planSnapshot = snapshotFrom(afterReconcile);
-							const planResults = yield* Effect.forEach(plugins, (plugin) =>
-								runPluginPlan(plugin, planSnapshot).pipe(
-									Effect.map((result) => ({ plugin, result })),
-								),
-							);
-							const planDiagnostics = planResults.flatMap(
-								({ result }) => result.diagnostics,
-							);
-							const plannedWithPlugins = planResults.flatMap(
-								({ plugin, result }) =>
-									result.planned.map((action) => ({ plugin, action })),
-							);
-							const planned = plannedWithPlugins.map(({ action }) => action);
-							const preAdmissionState = yield* Ref.get(stateRef);
-							const admittedResult = admitActions(
-								preAdmissionState,
+							const beforeAct = yield* Ref.get(stateRef);
+							const maxRuns = policy.maxConcurrentRuns ?? 100;
+							const capacity = Math.max(0, maxRuns - beforeAct.running.size);
+							const selected = selectablePlugins(
 								plugins,
-								capabilities,
-								policy,
-								plannedWithPlugins,
+								beforeAct.running,
+							).slice(0, capacity);
+							const { state: afterStart, started } = yield* Ref.modify(
+								stateRef,
+								(state) => {
+									const running = new Map(state.running);
+									const runs: PluginRun[] = [];
+									let nextRunIndex = state.nextRunIndex;
+									for (const selectedPlugin of selected) {
+										const run = {
+											runId: Domain.runId(`run-${nextRunIndex}`),
+											pluginId: selectedPlugin.id,
+										};
+										nextRunIndex += 1;
+										running.set(selectedPlugin.id, run.runId);
+										runs.push(run);
+									}
+									const next = { ...state, running, nextRunIndex };
+									return [{ state: next, started: runs }, next] as const;
+								},
 							);
-
-							yield* Ref.update(stateRef, (state) => ({
-								...state,
-								actionLedger: admittedResult.ledger,
-								nextActionIndex: admittedResult.nextActionIndex,
-								diagnostics: [
-									...state.diagnostics,
-									...planDiagnostics,
-									...admittedResult.diagnostics,
-								],
-							}));
-
+							const actSnapshot = snapshotFrom(afterStart);
 							yield* Effect.forEach(
-								admittedResult.admitted,
-								(action) =>
-									executeAction(
-										tickId,
-										capabilities.get(action.capability)!,
-										action,
+								started,
+								(run) => {
+									const runPlugin = plugins.find(
+										(candidate) => candidate.id === run.pluginId,
+									)!;
+									return executePluginAct(
+										runPlugin,
+										actSnapshot,
+										run,
+										mailbox,
 									).pipe(
-										Effect.flatMap((result) =>
-											Queue.offer(queue, {
-												type: "completion",
-												completion: result.completion,
-											}),
-										),
 										Effect.ignore,
 										Effect.forkIn(actionScope, { startImmediately: true }),
-									),
+									);
+								},
 								{ discard: true },
 							);
-							const completions = [
-								...drained.completions,
-								...admittedResult.rejected,
-							];
-							const finalState = yield* Ref.modify(stateRef, (state) => {
-								const next = {
-									...state,
-									completions: [...state.completions, ...completions],
-								};
-								return [next, next] as const;
-							});
 
-							yield* publishSnapshot(finalState);
+							yield* publishSnapshot(afterStart);
 							return {
 								shutdownRequested: drained.shutdownRequested,
 								result: {
 									tickId,
 									observations,
 									proposals,
-									planned,
-									admitted: admittedResult.admitted,
-									completions,
+									started,
+									completions: drained.completions,
 									diagnostics: [
 										...completionDiagnostics,
 										...observeDiagnostics,
 										...reconcileDiagnostics,
 										...policyDiagnostics,
-										...planDiagnostics,
-										...admittedResult.diagnostics,
 									],
-									snapshot: snapshotFrom(finalState),
+									snapshot: snapshotFrom(afterStart),
 								},
 							};
 						}),
@@ -768,7 +556,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				return yield* Schema.decodeUnknownEffect(Domain.OrchestratorMessage)(
 					message,
 				).pipe(
-					Effect.flatMap((decoded) => Queue.offer(queue, decoded)),
+					Effect.flatMap((decoded) => Queue.offer(mailbox, decoded)),
 					Effect.catch(() => Effect.succeed(false)),
 				);
 			});
@@ -776,7 +564,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			const run = Effect.fn("Orchestrator.run")(function* () {
 				let running = true;
 				while (running) {
-					const message = yield* Queue.take(queue);
+					const message = yield* Queue.take(mailbox);
 					const tick = yield* runTick([message]);
 					running = !tick.shutdownRequested;
 				}

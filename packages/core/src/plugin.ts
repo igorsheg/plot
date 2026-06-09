@@ -1,58 +1,35 @@
-import type { Effect, Schema } from "effect";
+import type { Effect } from "effect";
 import type {
-	ActionId,
-	ActionRequest,
-	CapabilityId,
 	Diagnostic,
 	Observation,
+	PluginActResult,
 	PluginId,
-	PluginManifest,
 	ReconcileProposal,
 	RuntimeSnapshot,
-	SubjectKey,
+	TickId,
 } from "./domain.js";
 
 export interface PhaseContext {
 	readonly pluginId: PluginId;
-	readonly tickId: number;
+	readonly tickId: TickId;
 	readonly snapshot: RuntimeSnapshot;
-}
-
-export interface CapabilityContext {
-	readonly pluginId: PluginId;
-	readonly tickId: number;
-	readonly actionId: ActionId;
-	readonly capabilityId: CapabilityId;
-	readonly subject?: SubjectKey;
 }
 
 export interface PlotPlugin {
 	readonly id: PluginId;
-	readonly manifest?: PluginManifest;
 	readonly observeTick?: (
 		context: PhaseContext,
 	) => Effect.Effect<readonly Observation[], unknown>;
 	readonly reconcile?: (
 		context: PhaseContext,
 	) => Effect.Effect<readonly ReconcileProposal[], unknown>;
-	readonly plan?: (
+	readonly act?: (
 		context: PhaseContext,
-	) => Effect.Effect<readonly ActionRequest[], unknown>;
-}
-
-export interface CapabilityDefinition {
-	readonly id: CapabilityId;
-	readonly input?: Schema.Decoder<unknown>;
-	readonly output?: Schema.Decoder<unknown>;
-	readonly execute: (
-		context: CapabilityContext,
-		input: unknown,
-	) => Effect.Effect<unknown, unknown>;
+	) => Effect.Effect<PluginActResult, unknown>;
 }
 
 export interface OrchestratorPolicy {
-	readonly maxActionsPerTick?: number;
-	readonly grants?: Readonly<Record<PluginId, readonly CapabilityId[]>>;
+	readonly maxConcurrentRuns?: number;
 	readonly validate?: (
 		snapshot: RuntimeSnapshot,
 	) => Effect.Effect<readonly Diagnostic[], unknown>;
