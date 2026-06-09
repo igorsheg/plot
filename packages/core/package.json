@@ -7,7 +7,9 @@
 		"./llm": "./src/llm.ts",
 		"./loop": "./src/loop.ts",
 		"./runner": "./src/runner.ts",
-		"./source": "./src/source.ts"
+		"./session": "./src/session.ts",
+		"./source": "./src/source.ts",
+		"./workflow": "./src/workflow.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -18,7 +20,8 @@
 	"dependencies": {
 		"@earendil-works/pi-coding-agent": "0.79.0",
 		"@plot/common": "workspace:*",
-		"effect": "4.0.0-beta.78"
+		"effect": "4.0.0-beta.78",
+		"yaml": "2.9.0"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"
