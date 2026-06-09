@@ -1,7 +1,6 @@
 import { Effect, Schema } from "effect";
 import * as Domain from "@plot/agent/model";
 import {
-	PlotSessionEvent,
 	PlotSessionEventSequence,
 	PlotSessionId,
 	type PlotSessionEvent as PlotSessionEventType,
@@ -141,7 +140,7 @@ export class PlotEventRecord extends Schema.Class<PlotEventRecord>(
 	sessionId: PlotSessionId,
 	epoch: PlotProtocolEpoch,
 	sequence: PlotSessionEventSequence,
-	event: PlotSessionEvent,
+	event: Schema.Unknown,
 }) {}
 
 export class PlotSuccessResponseRecord extends Schema.Class<PlotSuccessResponseRecord>(

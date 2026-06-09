@@ -12,8 +12,19 @@ const makeWorkflowFile = async () => {
 	const dir = await mkdtemp(join(tmpdir(), "plot-cli-boundary-"));
 	tempDirs.push(dir);
 	const path = join(dir, "WORKFLOW.md");
-	await writeFile(path, "---\nname: cli-boundary\n---\nRun the workflow.\n");
-	return path;
+	await writeFile(
+		path,
+		[
+			"---",
+			"name: cli-boundary",
+			"plot:",
+			"  replayCapacity: 8",
+			"---",
+			"Run the workflow.",
+			"",
+		].join("\n"),
+	);
+	return { dir, path };
 };
 
 const decodeLines = (text: string) => {
@@ -33,7 +44,7 @@ describe("plot CLI stdio process boundary", () => {
 	});
 
 	test("keeps spawned CLI stdout protocol-only and telemetry on stderr", async () => {
-		const workflowPath = await makeWorkflowFile();
+		const workflow = await makeWorkflowFile();
 		const process = Bun.spawn(
 			[
 				"bun",
@@ -41,7 +52,9 @@ describe("plot CLI stdio process boundary", () => {
 				"serve",
 				"stdio",
 				"--workflow",
-				workflowPath,
+				workflow.path,
+				"--cwd",
+				workflow.dir,
 				"--log-format",
 				"json",
 			],
@@ -66,6 +79,12 @@ describe("plot CLI stdio process boundary", () => {
 		expect(exitCode).toBe(0);
 		const records = await Effect.runPromise(decodeLines(stdout));
 		expect(records.map((record) => record.kind)).toEqual(["hello", "response"]);
+		expect(records[0]).toEqual(
+			expect.objectContaining({
+				kind: "hello",
+				limits: expect.objectContaining({ maxEventBufferEvents: 8 }),
+			}),
+		);
 		expect(records.every((record) => record.protocol === "plot.v1")).toBe(true);
 		expect(stdout).not.toContain("plot_cli.serve_stdio");
 		expect(stdout).not.toContain("plot_protocol.submit");

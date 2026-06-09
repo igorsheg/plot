@@ -2,10 +2,8 @@ import { Effect, Layer } from "effect";
 import { positiveInt, sourceId, subjectKey, workKey } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
-import {
-	makeAgentSessionClientLayer,
-	type CreateAgentSession,
-} from "@plot/session/agent-session-client";
+import { makeAgentSessionClientLayer } from "@plot/session/agent-session-client";
+import type { CreateAgentSession } from "@plot/session/agent-session-types";
 import { makePlotCreateAgentSession } from "@plot/session/pi-agent-session";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
 import {

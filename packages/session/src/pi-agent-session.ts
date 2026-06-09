@@ -6,10 +6,12 @@ import {
 	ModelRegistry,
 	SessionManager,
 	SettingsManager,
-	type CreateAgentSessionOptions,
-	type CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
-import type { CreateAgentSession } from "./agent-session-client.js";
+import type {
+	CreateAgentSession,
+	CreateAgentSessionOptions,
+	CreateAgentSessionResult,
+} from "./agent-session-types.js";
 import type { PlotPaths } from "./plot-paths.js";
 import type {
 	AgentToolMode,

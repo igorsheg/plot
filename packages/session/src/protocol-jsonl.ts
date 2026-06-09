@@ -1,11 +1,12 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
 	PlotProtocolFailure,
+	PlotServerRecord,
 	defaultPlotProtocolLimits,
 	decodePlotClientRecord,
 	type PlotClientRecord,
 	type PlotProtocolLimits,
-	type PlotServerRecord,
+	type PlotServerRecord as PlotServerRecordType,
 } from "./protocol.js";
 
 export interface JsonlDecoderState {
@@ -42,11 +43,17 @@ const checkOutputRecordLimit = (line: string, limit: number) => {
 	});
 };
 
-export const serializeJsonLine = (value: PlotServerRecord): string =>
-	`${JSON.stringify(value)}\n`;
+const jsonProtocolReplacer = (_key: string, value: unknown) =>
+	value instanceof Map ? [...value] : value;
+
+export const serializeJsonLine = (value: PlotServerRecordType): string =>
+	`${JSON.stringify(
+		Schema.encodeSync(PlotServerRecord)(value),
+		jsonProtocolReplacer,
+	)}\n`;
 
 export const serializePlotServerJsonLine = (
-	value: PlotServerRecord,
+	value: PlotServerRecordType,
 	limits: PlotProtocolLimits = defaultPlotProtocolLimits,
 ): Effect.Effect<string, PlotProtocolFailure> =>
 	Effect.try({

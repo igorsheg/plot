@@ -2,10 +2,6 @@ import { Cause, Context, Effect, Layer, Queue, Schema, Stream } from "effect";
 import {
 	createAgentSession,
 	type AgentSession,
-	type AgentSessionEvent,
-	type CreateAgentSessionOptions,
-	type CreateAgentSessionResult,
-	type PromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import {
 	logWideEvent,
@@ -14,11 +10,12 @@ import {
 	type Fields,
 } from "@plot/common/observability";
 
-export type {
+import type {
 	AgentSessionEvent,
+	CreateAgentSession,
 	CreateAgentSessionOptions,
 	PromptOptions,
-} from "@earendil-works/pi-coding-agent";
+} from "./agent-session-types.js";
 
 const AgentSessionClientErrorPhase = Schema.Literals([
 	"create",
@@ -53,10 +50,6 @@ export class AgentSessionClient extends Context.Service<
 	AgentSessionClient,
 	AgentSessionClientShape
 >()("@plot/session/AgentSessionClient") {}
-
-export type CreateAgentSession = (
-	options?: CreateAgentSessionOptions,
-) => Promise<CreateAgentSessionResult>;
 
 export interface AgentSessionClientLayerOptions {
 	readonly createAgentSession?: CreateAgentSession;

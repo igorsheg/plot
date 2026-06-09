@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-
+import { Effect } from "effect";
+import { decodePlotServerRecord } from "@plot/session/protocol";
+import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,21 +14,45 @@ const makeWorkflowFile = async () => {
 	const dir = await mkdtemp(join(tmpdir(), "plot-cli-faux-"));
 	tempDirs.push(dir);
 	const path = join(dir, "WORKFLOW.md");
-	await writeFile(path, "---\nname: cli-faux\n---\nRun the workflow.\n");
+	await writeFile(
+		path,
+		[
+			"---",
+			"name: cli-faux",
+			"agent:",
+			"  provider: plot-faux",
+			"  model: faux-1",
+			"  noTools: true",
+			"---",
+			"Run the workflow.",
+			"",
+		].join("\n"),
+	);
+	await writePlotFauxAgentFiles({ cwd: dir });
 	return { dir, path };
 };
 
-const parseLines = (text: string): readonly Record<string, unknown>[] =>
-	text
-		.split("\n")
-		.filter((line) => line.length > 0)
-		.map((line) => JSON.parse(line) as Record<string, unknown>);
+const decodeLines = (text: string) =>
+	Effect.all(
+		text
+			.split("\n")
+			.filter((line) => line.length > 0)
+			.map((line) => decodePlotServerRecord(JSON.parse(line) as unknown)),
+	);
 
-const eventType = (record: Record<string, unknown>) => {
-	if (record["kind"] !== "event") return undefined;
-	const event = record["event"];
-	if (event === null || typeof event !== "object") return undefined;
-	return (event as Record<string, unknown>)["type"];
+const eventType = (record: unknown) => {
+	if (
+		record === null ||
+		typeof record !== "object" ||
+		!("kind" in record) ||
+		record.kind !== "event" ||
+		!("event" in record)
+	)
+		return undefined;
+	const event = record.event;
+	if (event === null || typeof event !== "object" || !("type" in event))
+		return undefined;
+	return event.type;
 };
 
 const waitForStdout = async (
@@ -75,7 +101,7 @@ describe("plot CLI faux provider boundary", () => {
 		);
 	});
 
-	test("exercises pi agent-session with a deterministic faux provider", async () => {
+	test("exercises the production Plot pi factory with a deterministic faux provider", async () => {
 		const workflow = await makeWorkflowFile();
 		const child = Bun.spawn(
 			[
@@ -96,6 +122,7 @@ describe("plot CLI faux provider boundary", () => {
 				stderr: "pipe",
 				env: {
 					...process.env,
+					PLOT_FAUX_API_KEY: "plot-faux-key",
 					PLOT_FAUX_RESPONSE_TEXT: "hello from spawned faux",
 				},
 			},
@@ -118,18 +145,17 @@ describe("plot CLI faux provider boundary", () => {
 			new Response(child.stderr).text(),
 			child.exited,
 		]);
-		const records = parseLines(stdout);
+		const records = await Effect.runPromise(decodeLines(stdout));
 		const eventTypes = records
 			.map(eventType)
 			.filter((type) => type !== undefined);
 
 		expect(exitCode).toBe(0);
-		expect(records.every((record) => record["protocol"] === "plot.v1")).toBe(
-			true,
-		);
+		expect(records.every((record) => record.protocol === "plot.v1")).toBe(true);
 		expect(eventTypes).toContain("agent_session_event");
 		expect(stdout).toContain("hello from spawned faux");
 		expect(stdout).not.toContain("plot_cli.serve_stdio");
+		expect(stderr).toContain("agent_session.create");
 		expect(stderr).toContain("agent_session.prompt");
 	});
 });

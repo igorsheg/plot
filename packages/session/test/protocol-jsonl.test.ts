@@ -2,11 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { positiveInt } from "@plot/agent/model";
 import {
+	PlotEventRecord,
+	decodePlotServerRecord,
 	defaultPlotProtocolLimits,
 	makePlotSuccessResponse,
+	plotProtocolEpoch,
 	plotProtocolRequestId,
 	plotProtocolSequence,
 } from "../src/protocol.js";
+import {
+	plotSessionEventSequence,
+	plotSessionId,
+} from "../src/plot-session.js";
 import {
 	flushJsonlDecoder,
 	initialJsonlDecoderState,
@@ -34,6 +41,31 @@ describe("plot protocol JSONL framing", () => {
 			command: "ping",
 			ok: true,
 		});
+	});
+
+	test("serializes map-shaped event payloads into JSON-safe arrays", async () => {
+		const line = serializeJsonLine(
+			new PlotEventRecord({
+				protocol: "plot.v1",
+				kind: "event",
+				sessionId: plotSessionId("default"),
+				epoch: plotProtocolEpoch("default"),
+				sequence: plotSessionEventSequence(1),
+				event: {
+					type: "plot_agent_event",
+					event: {
+						type: "tick_completed",
+						result: { snapshot: { facts: new Map([["a", 1]]) } },
+					},
+				},
+			}),
+		);
+		const parsed = JSON.parse(line) as {
+			event: { event: { result: { snapshot: { facts: unknown } } } };
+		};
+
+		expect(parsed.event.event.result.snapshot.facts).toEqual([["a", 1]]);
+		await Effect.runPromise(decodePlotServerRecord(parsed));
 	});
 
 	test("enforces output record limits", async () => {

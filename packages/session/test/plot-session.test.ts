@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import type { AgentSessionEvent } from "../src/agent-session-client.js";
+import type { AgentSessionEvent } from "../src/agent-session-types.js";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";

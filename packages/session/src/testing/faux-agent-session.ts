@@ -1,20 +1,12 @@
-import {
-	AuthStorage,
-	createAgentSession,
-	ModelRegistry,
-	SessionManager,
-	SettingsManager,
-	type CreateAgentSessionOptions,
-	type CreateAgentSessionResult,
-} from "@earendil-works/pi-coding-agent";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
 	registerFauxProvider,
 	type FauxModelDefinition,
 	type FauxProviderRegistration,
 	type FauxResponseStep,
-	type Model,
 } from "@earendil-works/pi-ai";
-import type { CreateAgentSession } from "../agent-session-client.js";
+import { resolvePlotPaths, type PlotPathOptions } from "../plot-paths.js";
 
 export {
 	fauxAssistantMessage,
@@ -24,108 +16,115 @@ export {
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
 
-export interface FauxAgentSessionHarnessOptions {
+export interface PlotFauxProviderOptions {
+	readonly api?: string;
+	readonly provider?: string;
 	readonly models?: readonly FauxModelDefinition[];
 	readonly responses?: readonly FauxResponseStep[];
-	readonly cwd?: string;
-	readonly apiKey?: string;
-	readonly disableBuiltinTools?: boolean;
 }
 
-export interface FauxAgentSessionHarness {
+export interface PlotFauxProviderRegistration {
 	readonly faux: FauxProviderRegistration;
-	readonly authStorage: AuthStorage;
-	readonly modelRegistry: ModelRegistry;
-	readonly sessionManager: SessionManager;
-	readonly settingsManager: SettingsManager;
-	readonly models: readonly [Model<string>, ...Model<string>[]];
+	readonly api: string;
+	readonly provider: string;
+	readonly modelId: string;
+	readonly modelName: string;
 	readonly getModel: FauxProviderRegistration["getModel"];
 	readonly setResponses: (responses: readonly FauxResponseStep[]) => void;
 	readonly appendResponses: (responses: readonly FauxResponseStep[]) => void;
 	readonly getPendingResponseCount: () => number;
-	readonly createAgentSession: CreateAgentSession;
 	readonly cleanup: () => void;
 }
 
-const DEFAULT_API_KEY = "plot-faux-key";
+export interface WritePlotFauxAgentFilesOptions extends PlotPathOptions {
+	readonly api?: string;
+	readonly provider?: string;
+	readonly modelId?: string;
+	readonly modelName?: string;
+	readonly apiKeyEnvVar?: string;
+}
 
-const registerModels = (
-	registry: ModelRegistry,
-	faux: FauxProviderRegistration,
-	apiKey: string,
-) => {
-	const model = faux.getModel();
-	registry.registerProvider(model.provider, {
-		baseUrl: model.baseUrl,
-		apiKey,
-		api: faux.api,
-		models: faux.models.map((registeredModel) => ({
-			id: registeredModel.id,
-			name: registeredModel.name,
-			api: registeredModel.api,
-			reasoning: registeredModel.reasoning,
-			input: registeredModel.input,
-			cost: registeredModel.cost,
-			contextWindow: registeredModel.contextWindow,
-			maxTokens: registeredModel.maxTokens,
-			baseUrl: registeredModel.baseUrl,
-		})),
-	});
-};
+const DEFAULT_API = "faux";
+const DEFAULT_API_KEY_ENV_VAR = "PLOT_FAUX_API_KEY";
+const DEFAULT_PROVIDER = "plot-faux";
+const DEFAULT_MODEL_ID = "faux-1";
+const DEFAULT_MODEL_NAME = "Faux Model";
 
-export const createFauxAgentSessionHarness = (
-	options: FauxAgentSessionHarnessOptions = {},
-): FauxAgentSessionHarness => {
+export const registerPlotFauxProvider = (
+	options: PlotFauxProviderOptions = {},
+): PlotFauxProviderRegistration => {
 	const faux = registerFauxProvider({
-		provider: "plot-faux",
+		api: options.api ?? DEFAULT_API,
+		provider: options.provider ?? DEFAULT_PROVIDER,
 		...(options.models === undefined ? {} : { models: [...options.models] }),
 	});
 	faux.setResponses([...(options.responses ?? [])]);
-
 	const model = faux.getModel();
-	const apiKey = options.apiKey ?? DEFAULT_API_KEY;
-	const authStorage = AuthStorage.inMemory();
-	authStorage.setRuntimeApiKey(model.provider, apiKey);
-	const modelRegistry = ModelRegistry.inMemory(authStorage);
-	registerModels(modelRegistry, faux, apiKey);
-
-	const sessionManager = SessionManager.inMemory(options.cwd);
-	const settingsManager = SettingsManager.inMemory({
-		defaultProvider: model.provider,
-		defaultModel: model.id,
-	});
-
-	const createFauxAgentSession = (
-		request?: CreateAgentSessionOptions,
-	): Promise<CreateAgentSessionResult> => {
-		const cwd = request?.cwd ?? options.cwd;
-		const noTools =
-			request?.noTools ??
-			(options.disableBuiltinTools === false ? undefined : "all");
-		return createAgentSession({
-			...request,
-			...(cwd === undefined ? {} : { cwd }),
-			model,
-			authStorage,
-			modelRegistry,
-			sessionManager,
-			settingsManager,
-			...(noTools === undefined ? {} : { noTools }),
-		});
-	};
-
 	return {
 		faux,
-		authStorage,
-		modelRegistry,
-		sessionManager,
-		settingsManager,
-		models: faux.models,
+		api: faux.api,
+		provider: model.provider,
+		modelId: model.id,
+		modelName: model.name,
 		getModel: faux.getModel,
 		setResponses: (responses) => faux.setResponses([...responses]),
 		appendResponses: (responses) => faux.appendResponses([...responses]),
 		getPendingResponseCount: faux.getPendingResponseCount,
-		createAgentSession: createFauxAgentSession,
 		cleanup: () => faux.unregister(),
 	};
+};
+
+export const writePlotFauxAgentFiles = async (
+	options: WritePlotFauxAgentFilesOptions,
+) => {
+	const paths = resolvePlotPaths(options);
+	const provider = options.provider ?? DEFAULT_PROVIDER;
+	const modelId = options.modelId ?? DEFAULT_MODEL_ID;
+	const api = options.api ?? DEFAULT_API;
+	const modelName = options.modelName ?? DEFAULT_MODEL_NAME;
+	const apiKeyEnvVar = options.apiKeyEnvVar ?? DEFAULT_API_KEY_ENV_VAR;
+	await mkdir(paths.agentDir, { recursive: true });
+	await Promise.all([
+		mkdir(paths.sessionDir, { recursive: true }),
+		mkdir(paths.skillsDir, { recursive: true }),
+		mkdir(paths.extensionsDir, { recursive: true }),
+		mkdir(paths.promptsDir, { recursive: true }),
+		mkdir(paths.themesDir, { recursive: true }),
+	]);
+	await writeFile(
+		join(paths.agentDir, "models.json"),
+		`${JSON.stringify(
+			{
+				providers: {
+					[provider]: {
+						name: "Plot Faux",
+						baseUrl: "http://localhost:0",
+						apiKey: `$${apiKeyEnvVar}`,
+						api,
+						models: [
+							{
+								id: modelId,
+								name: modelName,
+								reasoning: false,
+							},
+						],
+					},
+				},
+			},
+			null,
+			2,
+		)}\n`,
+	);
+	await writeFile(
+		join(paths.agentDir, "settings.json"),
+		`${JSON.stringify(
+			{
+				defaultProvider: provider,
+				defaultModel: modelId,
+			},
+			null,
+			2,
+		)}\n`,
+	);
+	return paths;
 };

@@ -10,7 +10,7 @@ import {
 	type Exit,
 } from "effect";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
-import type { AgentSessionEvent } from "./agent-session-client.js";
+import type { AgentSessionEvent } from "./agent-session-types.js";
 import * as Domain from "@plot/agent/model";
 import type {
 	PlotAgentEvent,

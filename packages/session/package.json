@@ -4,6 +4,7 @@
 	"type": "module",
 	"exports": {
 		"./agent-session-client": "./src/agent-session-client.ts",
+		"./agent-session-types": "./src/agent-session-types.ts",
 		"./pi-agent-session": "./src/pi-agent-session.ts",
 		"./plot-paths": "./src/plot-paths.ts",
 		"./plot-session": "./src/plot-session.ts",

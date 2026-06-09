@@ -1,12 +1,12 @@
 import { Effect, Stream } from "effect";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
+import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
+import { AgentSessionClient } from "./agent-session-client.js";
 import type {
 	AgentSessionEvent,
 	CreateAgentSessionOptions,
 	PromptOptions,
-} from "@earendil-works/pi-coding-agent";
-import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
-import { AgentSessionClient } from "./agent-session-client.js";
+} from "./agent-session-types.js";
 
 type RunnerValue<A> =
 	| A

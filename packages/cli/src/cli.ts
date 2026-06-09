@@ -1,7 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
-import type { CreateAgentSession } from "@plot/session/agent-session-client";
+import type { CreateAgentSession } from "@plot/session/agent-session-types";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 
 export const version = "0.0.0";
