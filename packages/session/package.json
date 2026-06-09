@@ -4,6 +4,8 @@
 	"type": "module",
 	"exports": {
 		"./plot-session": "./src/plot-session.ts",
+		"./protocol": "./src/protocol.ts",
+		"./protocol-jsonl": "./src/protocol-jsonl.ts",
 		"./workflow": "./src/workflow.ts"
 	},
 	"scripts": {
