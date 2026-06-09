@@ -5,7 +5,9 @@
 	"exports": {
 		"./plot-session": "./src/plot-session.ts",
 		"./protocol": "./src/protocol.ts",
+		"./protocol-handler": "./src/protocol-handler.ts",
 		"./protocol-jsonl": "./src/protocol-jsonl.ts",
+		"./protocol-replay-buffer": "./src/protocol-replay-buffer.ts",
 		"./workflow": "./src/workflow.ts"
 	},
 	"scripts": {

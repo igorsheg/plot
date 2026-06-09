@@ -49,6 +49,14 @@ export const plotSessionEventSequence = (
 ): PlotSessionEventSequence =>
 	Schema.decodeUnknownSync(PlotSessionEventSequence)(value);
 
+export const PlotSessionEventCursor = Schema.Number.pipe(
+	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+	Schema.brand("PlotSessionEventCursor"),
+);
+export type PlotSessionEventCursor = typeof PlotSessionEventCursor.Type;
+export const plotSessionEventCursor = (value: number): PlotSessionEventCursor =>
+	Schema.decodeUnknownSync(PlotSessionEventCursor)(value);
+
 export class SessionStartedEvent extends Schema.Class<SessionStartedEvent>(
 	"SessionStartedEvent",
 )({
@@ -118,6 +126,7 @@ export interface PlotSessionShape {
 	readonly tickOnce: () => Effect.Effect<TickResult>;
 	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
 	readonly events: () => Stream.Stream<PlotSessionEvent>;
+	readonly lastEventSequence: () => Effect.Effect<PlotSessionEventCursor>;
 	readonly shutdown: () => Effect.Effect<boolean>;
 }
 
@@ -419,6 +428,11 @@ export function makePlotSessionLayer(
 				);
 			});
 			const eventStream = () => Stream.fromPubSub(events);
+			const lastEventSequence = Effect.fn("PlotSession.lastEventSequence")(
+				function* () {
+					return plotSessionEventCursor(yield* Ref.get(sequence));
+				},
+			);
 			const shutdown = Effect.fn("PlotSession.shutdown")(function* () {
 				return yield* withWideEvent(
 					"plot_session.shutdown",
@@ -438,6 +452,7 @@ export function makePlotSessionLayer(
 				tickOnce,
 				snapshot,
 				events: eventStream,
+				lastEventSequence,
 				shutdown,
 			} satisfies PlotSessionShape;
 		}),
