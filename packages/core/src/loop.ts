@@ -7,6 +7,7 @@ import {
 	Fiber,
 	Layer,
 	Option,
+	PubSub,
 	Queue,
 	Ref,
 	Schema,
@@ -21,6 +22,7 @@ import type {
 	HookPhase,
 	InterruptWorkProposal,
 	Observation,
+	OrchestratorEvent,
 	OrchestratorMessage,
 	SourceId,
 	ReconcileProposal,
@@ -31,6 +33,7 @@ import type {
 	WorkKey,
 	WorkResult,
 	WorkRun,
+	ScheduleWakeProposal,
 } from "./domain.js";
 import type { WorkRunner } from "./runner.js";
 import type { OrchestratorPolicy, WorkSource } from "./source.js";
@@ -51,6 +54,17 @@ type InternalMessage =
 			readonly type: "run_completed";
 			readonly run: WorkRun;
 			readonly completion: Completion;
+	  }
+	| {
+			readonly type: "scheduled_tick";
+			readonly token: number;
+	  }
+	| {
+			readonly type: "wake";
+	  }
+	| {
+			readonly type: "run_timeout";
+			readonly run: WorkRun;
 	  };
 
 interface DrainedMessages {
@@ -59,6 +73,7 @@ interface DrainedMessages {
 		readonly run: WorkRun;
 		readonly completion: Completion;
 	}[];
+	readonly timedOutRuns: readonly WorkRun[];
 	readonly shutdownRequested: boolean;
 }
 
@@ -77,7 +92,16 @@ export interface OrchestratorShape {
 	readonly run: () => Effect.Effect<void>;
 	readonly tickOnce: () => Effect.Effect<TickResult>;
 	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
+	readonly subscribe: () => Effect.Effect<
+		PubSub.Subscription<OrchestratorEvent>,
+		never,
+		Scope.Scope
+	>;
 	readonly offer: (message: OrchestratorMessage) => Effect.Effect<boolean>;
+	readonly wakeAfter: (
+		delayMs: number,
+		reason?: string,
+	) => Effect.Effect<void, Domain.PlotLoopError>;
 	readonly shutdown: () => Effect.Effect<boolean>;
 }
 
@@ -91,6 +115,10 @@ export interface OrchestratorLayerOptions {
 	readonly runner: WorkRunner;
 	readonly policy?: OrchestratorPolicy;
 	readonly queueCapacity?: number;
+	readonly eventCapacity?: number;
+	readonly historyLimit?: number;
+	readonly tickIntervalMs?: number;
+	readonly maxRunDurationMs?: number;
 }
 
 const initialState: RuntimeState = {
@@ -114,6 +142,19 @@ const optionalSubject = (subject: SubjectKey | undefined) =>
 const optionalOutput = (output: unknown) =>
 	output === undefined ? {} : { output };
 
+const takeRight = <A>(items: readonly A[], limit: Domain.PositiveInt) =>
+	items.length <= limit ? [...items] : items.slice(items.length - limit);
+
+const boundStateHistory = (
+	state: RuntimeState,
+	limit: Domain.PositiveInt,
+): RuntimeState => ({
+	...state,
+	observations: takeRight(state.observations, limit),
+	completions: takeRight(state.completions, limit),
+	diagnostics: takeRight(state.diagnostics, limit),
+});
+
 const hookDiagnostic = (
 	phase: HookPhase,
 	sourceId: SourceId,
@@ -130,7 +171,7 @@ const completionDiagnostic = (
 ): Diagnostic | undefined => {
 	if (completion.status === "succeeded") return undefined;
 	return {
-		level: completion.status === "interrupted" ? "warning" : "error",
+		level: completion.status === "failed" ? "error" : "warning",
 		phase: "act",
 		sourceId: completion.sourceId,
 		runId: completion.runId,
@@ -153,17 +194,20 @@ const drainMessages = (
 ): DrainedMessages => {
 	const observations: Observation[] = [];
 	const completions: { run: WorkRun; completion: Completion }[] = [];
+	const timedOutRuns: WorkRun[] = [];
 	let shutdownRequested = false;
 	for (const message of messages) {
 		if (message.type === "observation") {
 			observations.push(message.observation);
 		} else if (message.type === "run_completed") {
 			completions.push({ run: message.run, completion: message.completion });
+		} else if (message.type === "run_timeout") {
+			timedOutRuns.push(message.run);
 		} else if (message.type === "shutdown") {
 			shutdownRequested = true;
 		}
 	}
-	return { observations, completions, shutdownRequested };
+	return { observations, completions, timedOutRuns, shutdownRequested };
 };
 
 const applyFactProposals = (
@@ -181,7 +225,11 @@ const applyFactProposals = (
 	return next;
 };
 
-const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
+const beginTick = (
+	state: RuntimeState,
+	drained: DrainedMessages,
+	historyLimit: Domain.PositiveInt,
+) => {
 	const running = new Map(state.running);
 	const completions: Completion[] = [];
 	const diagnostics: Diagnostic[] = [];
@@ -195,6 +243,24 @@ const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
 		if (diagnostic) diagnostics.push(diagnostic);
 	}
 	const completedRuns = drained.completions.map((item) => item.run);
+
+	for (const timedOutRun of drained.timedOutRuns) {
+		const active = running.get(timedOutRun.workKey);
+		if (!active || active.runId !== timedOutRun.runId) continue;
+		running.delete(timedOutRun.workKey);
+		completedRuns.push(timedOutRun);
+		const completion: Completion = {
+			runId: timedOutRun.runId,
+			sourceId: timedOutRun.sourceId,
+			workKey: timedOutRun.workKey,
+			status: "timed_out",
+			...optionalSubject(timedOutRun.subject),
+			error: "work run timed out",
+		};
+		completions.push(completion);
+		const diagnostic = completionDiagnostic(completion);
+		if (diagnostic) diagnostics.push(diagnostic);
+	}
 
 	if (drained.shutdownRequested) {
 		for (const run of running.values()) {
@@ -214,14 +280,17 @@ const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
 		}
 	}
 
-	const next = {
-		...state,
-		tickId: Domain.tickId(state.tickId + 1),
-		observations: [...state.observations, ...drained.observations],
-		completions: [...state.completions, ...completions],
-		diagnostics: [...state.diagnostics, ...diagnostics],
-		running,
-	};
+	const next = boundStateHistory(
+		{
+			...state,
+			tickId: Domain.tickId(state.tickId + 1),
+			observations: [...state.observations, ...drained.observations],
+			completions: [...state.completions, ...completions],
+			diagnostics: [...state.diagnostics, ...diagnostics],
+			running,
+		},
+		historyLimit,
+	);
 	return { state: next, completions, diagnostics, completedRuns };
 };
 
@@ -229,35 +298,51 @@ const applyObserved = (
 	state: RuntimeState,
 	observations: readonly Observation[],
 	diagnostics: readonly Diagnostic[],
-): RuntimeState => ({
-	...state,
-	observations: [...state.observations, ...observations],
-	diagnostics: [...state.diagnostics, ...diagnostics],
-});
+	historyLimit: Domain.PositiveInt,
+): RuntimeState =>
+	boundStateHistory(
+		{
+			...state,
+			observations: [...state.observations, ...observations],
+			diagnostics: [...state.diagnostics, ...diagnostics],
+		},
+		historyLimit,
+	);
 
 const applyReconciled = (
 	state: RuntimeState,
 	proposals: readonly ReconcileProposal[],
 	diagnostics: readonly Diagnostic[],
-): RuntimeState => ({
-	...state,
-	facts: applyFactProposals(state.facts, proposals),
-	observations: [],
-	completions: [],
-	diagnostics: [...state.diagnostics, ...diagnostics],
-});
+	historyLimit: Domain.PositiveInt,
+): RuntimeState =>
+	boundStateHistory(
+		{
+			...state,
+			facts: applyFactProposals(state.facts, proposals),
+			observations: [],
+			completions: [],
+			diagnostics: [...state.diagnostics, ...diagnostics],
+		},
+		historyLimit,
+	);
 
 const applyDiagnostics = (
 	state: RuntimeState,
 	diagnostics: readonly Diagnostic[],
-): RuntimeState => ({
-	...state,
-	diagnostics: [...state.diagnostics, ...diagnostics],
-});
+	historyLimit: Domain.PositiveInt,
+): RuntimeState =>
+	boundStateHistory(
+		{
+			...state,
+			diagnostics: [...state.diagnostics, ...diagnostics],
+		},
+		historyLimit,
+	);
 
 const interruptRunningWork = (
 	state: RuntimeState,
 	proposals: readonly InterruptWorkProposal[],
+	historyLimit: Domain.PositiveInt,
 ) => {
 	const running = new Map(state.running);
 	const completions: Completion[] = [];
@@ -285,12 +370,15 @@ const interruptRunningWork = (
 	}
 
 	return {
-		state: {
-			...state,
-			completions: [...state.completions, ...completions],
-			diagnostics: [...state.diagnostics, ...diagnostics],
-			running,
-		},
+		state: boundStateHistory(
+			{
+				...state,
+				completions: [...state.completions, ...completions],
+				diagnostics: [...state.diagnostics, ...diagnostics],
+				running,
+			},
+			historyLimit,
+		),
 		completions,
 		diagnostics,
 		interruptedRuns,
@@ -545,6 +633,28 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				options.queueCapacity ?? 64,
 				"queueCapacity must be a positive integer",
 			);
+			const eventCapacity = yield* decodePositiveInt(
+				options.eventCapacity ?? 256,
+				"eventCapacity must be a positive integer",
+			);
+			const historyLimit = yield* decodePositiveInt(
+				options.historyLimit ?? 256,
+				"historyLimit must be a positive integer",
+			);
+			const tickIntervalMs =
+				options.tickIntervalMs === undefined
+					? undefined
+					: yield* decodePositiveInt(
+							options.tickIntervalMs,
+							"tickIntervalMs must be a positive integer",
+						);
+			const maxRunDurationMs =
+				options.maxRunDurationMs === undefined
+					? undefined
+					: yield* decodePositiveInt(
+							options.maxRunDurationMs,
+							"maxRunDurationMs must be a positive integer",
+						);
 			if (policy.maxConcurrentRuns !== undefined) {
 				yield* decodePositiveInt(
 					policy.maxConcurrentRuns,
@@ -554,11 +664,14 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			const stateRef = yield* Ref.make(initialState);
 			const snapshotRef = yield* Ref.make(snapshotFrom(initialState));
 			const mailbox = yield* Queue.bounded<InternalMessage>(queueCapacity);
+			const events = yield* PubSub.sliding<OrchestratorEvent>(eventCapacity);
 			const tickLock = yield* Semaphore.make(1);
 			const actorScope = yield* Scope.make();
 			const actionScope = yield* Scope.make();
 			const runHandles = yield* Ref.make(new Map<WorkKey, RunHandle>());
 			const actorStarted = yield* Ref.make(false);
+			const nextTickToken = yield* Ref.make(0);
+			const activeTickToken = yield* Ref.make<number | undefined>(undefined);
 			yield* Effect.addFinalizer((exit) =>
 				Scope.close(actionScope, exit).pipe(
 					Effect.andThen(Scope.close(actorScope, exit)),
@@ -568,9 +681,61 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			const publishSnapshot = (state: RuntimeState) =>
 				Ref.set(snapshotRef, snapshotFrom(state));
 
+			const publishEvent = (event: OrchestratorEvent) =>
+				PubSub.publish(events, event).pipe(Effect.ignore);
+
 			const snapshot = Effect.fn("Orchestrator.snapshot")(function* () {
 				return yield* Ref.get(snapshotRef);
 			});
+
+			const subscribe = Effect.fn("Orchestrator.subscribe")(function* () {
+				return yield* PubSub.subscribe(events);
+			});
+
+			const scheduleWakeAfter = Effect.fn("Orchestrator.scheduleWakeAfter")(
+				function* (delayMs: Domain.PositiveInt, reason?: string) {
+					yield* publishEvent({
+						type: "wake_scheduled",
+						delayMs,
+						...(reason === undefined ? {} : { reason }),
+					});
+					yield* Effect.sleep(delayMs).pipe(
+						Effect.andThen(Queue.offer(mailbox, { type: "wake" as const })),
+						Effect.forkIn(actorScope, { startImmediately: true }),
+						Effect.asVoid,
+					);
+				},
+			);
+
+			const scheduleCadenceTick = Effect.fn("Orchestrator.scheduleCadenceTick")(
+				function* (delayMs: Domain.PositiveInt) {
+					const token = yield* Ref.modify(nextTickToken, (current) => {
+						const next = current + 1;
+						return [next, next] as const;
+					});
+					yield* Ref.set(activeTickToken, token);
+					yield* Effect.sleep(delayMs).pipe(
+						Effect.andThen(
+							Queue.offer(mailbox, { type: "scheduled_tick" as const, token }),
+						),
+						Effect.forkIn(actorScope, { startImmediately: true }),
+						Effect.asVoid,
+					);
+				},
+			);
+
+			const scheduleRunTimeout = Effect.fn("Orchestrator.scheduleRunTimeout")(
+				function* (run: WorkRun) {
+					if (maxRunDurationMs === undefined) return;
+					yield* Effect.sleep(maxRunDurationMs).pipe(
+						Effect.andThen(
+							Queue.offer(mailbox, { type: "run_timeout" as const, run }),
+						),
+						Effect.forkIn(actionScope, { startImmediately: true }),
+						Effect.asVoid,
+					);
+				},
+			);
 
 			const interruptRunHandles = Effect.fn("Orchestrator.interruptRunHandles")(
 				function* (runs: readonly WorkRun[]) {
@@ -590,6 +755,16 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 						(handle) => Fiber.interrupt(handle.fiber),
 						{ discard: true },
 					);
+				},
+			);
+
+			const messageStartsTick = Effect.fn("Orchestrator.messageStartsTick")(
+				function* (message: InternalMessage) {
+					if (message.type !== "scheduled_tick") return true;
+					const active = yield* Ref.get(activeTickToken);
+					if (active !== message.token) return false;
+					yield* Ref.set(activeTickToken, undefined);
+					return true;
 				},
 			);
 
@@ -620,10 +795,17 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							const messages = yield* collectQueuedMessages(initialMessages);
 							const drained = drainMessages(messages);
 							const began = yield* Ref.modify(stateRef, (state) => {
-								const result = beginTick(state, drained);
+								const result = beginTick(state, drained, historyLimit);
 								return [result, result.state] as const;
 							});
 							const tickId = began.state.tickId;
+							yield* publishEvent({ type: "tick_started", tickId });
+							yield* Effect.forEach(
+								began.completions,
+								(completion) =>
+									publishEvent({ type: "work_completed", completion }),
+								{ discard: true },
+							);
 							yield* interruptRunHandles(began.completedRuns);
 
 							const observeResults = yield* Effect.forEach(sources, (source) =>
@@ -641,6 +823,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 									state,
 									observations,
 									observeDiagnostics,
+									historyLimit,
 								);
 								return [next, next] as const;
 							});
@@ -661,6 +844,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 									state,
 									proposals,
 									reconcileDiagnostics,
+									historyLimit,
 								);
 								return [next, next] as const;
 							});
@@ -668,10 +852,30 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								(proposal): proposal is InterruptWorkProposal =>
 									proposal.type === "interrupt_work",
 							);
+							const wakeProposals = proposals.filter(
+								(proposal): proposal is ScheduleWakeProposal =>
+									proposal.type === "schedule_wake",
+							);
+							yield* Effect.forEach(
+								wakeProposals,
+								(proposal) =>
+									scheduleWakeAfter(proposal.delayMs, proposal.reason),
+								{ discard: true },
+							);
 							const interrupted = yield* Ref.modify(stateRef, (state) => {
-								const result = interruptRunningWork(state, interruptProposals);
+								const result = interruptRunningWork(
+									state,
+									interruptProposals,
+									historyLimit,
+								);
 								return [result, result.state] as const;
 							});
+							yield* Effect.forEach(
+								interrupted.completions,
+								(completion) =>
+									publishEvent({ type: "work_completed", completion }),
+								{ discard: true },
+							);
 							yield* interruptRunHandles(interrupted.interruptedRuns);
 
 							const policyDiagnostics = policy.validate
@@ -689,7 +893,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								: [];
 							if (policyDiagnostics.length > 0) {
 								yield* Ref.update(stateRef, (state) =>
-									applyDiagnostics(state, policyDiagnostics),
+									applyDiagnostics(state, policyDiagnostics, historyLimit),
 								);
 							}
 
@@ -699,27 +903,29 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							if (policyFailed || drained.shutdownRequested) {
 								const current = yield* Ref.get(stateRef);
 								yield* publishSnapshot(current);
+								const result = {
+									tickId,
+									observations,
+									proposals,
+									selected: [],
+									started: [],
+									completions: [
+										...began.completions,
+										...interrupted.completions,
+									],
+									diagnostics: [
+										...began.diagnostics,
+										...observeDiagnostics,
+										...reconcileDiagnostics,
+										...interrupted.diagnostics,
+										...policyDiagnostics,
+									],
+									snapshot: snapshotFrom(current),
+								};
+								yield* publishEvent({ type: "tick_completed", result });
 								return {
 									shutdownRequested: drained.shutdownRequested,
-									result: {
-										tickId,
-										observations,
-										proposals,
-										selected: [],
-										started: [],
-										completions: [
-											...began.completions,
-											...interrupted.completions,
-										],
-										diagnostics: [
-											...began.diagnostics,
-											...observeDiagnostics,
-											...reconcileDiagnostics,
-											...interrupted.diagnostics,
-											...policyDiagnostics,
-										],
-										snapshot: snapshotFrom(current),
-									},
+									result,
 								};
 							}
 
@@ -736,7 +942,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							const selected = selectedWithSources.map(({ work }) => work);
 							if (selectDiagnostics.length > 0) {
 								yield* Ref.update(stateRef, (state) =>
-									applyDiagnostics(state, selectDiagnostics),
+									applyDiagnostics(state, selectDiagnostics, historyLimit),
 								);
 							}
 
@@ -758,6 +964,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								started,
 								({ run, selection }) =>
 									Effect.gen(function* () {
+										yield* publishEvent({ type: "work_started", run });
 										const fiber = yield* executeWorkRun(
 											runner,
 											runSnapshot,
@@ -773,33 +980,33 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 											next.set(run.workKey, { run, fiber });
 											return next;
 										});
+										yield* scheduleRunTimeout(run);
 									}),
 								{ discard: true },
 							);
 
 							yield* publishSnapshot(afterStart);
+							const result = {
+								tickId,
+								observations,
+								proposals,
+								selected,
+								started: started.map(({ run }) => run),
+								completions: [...began.completions, ...interrupted.completions],
+								diagnostics: [
+									...began.diagnostics,
+									...observeDiagnostics,
+									...reconcileDiagnostics,
+									...interrupted.diagnostics,
+									...policyDiagnostics,
+									...selectDiagnostics,
+								],
+								snapshot: snapshotFrom(afterStart),
+							};
+							yield* publishEvent({ type: "tick_completed", result });
 							return {
 								shutdownRequested: drained.shutdownRequested,
-								result: {
-									tickId,
-									observations,
-									proposals,
-									selected,
-									started: started.map(({ run }) => run),
-									completions: [
-										...began.completions,
-										...interrupted.completions,
-									],
-									diagnostics: [
-										...began.diagnostics,
-										...observeDiagnostics,
-										...reconcileDiagnostics,
-										...interrupted.diagnostics,
-										...policyDiagnostics,
-										...selectDiagnostics,
-									],
-									snapshot: snapshotFrom(afterStart),
-								},
+								result,
 							};
 						}),
 					),
@@ -826,8 +1033,13 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				let running = true;
 				while (running) {
 					const message = yield* Queue.take(mailbox);
+					const shouldRun = yield* messageStartsTick(message);
+					if (!shouldRun) continue;
 					const tick = yield* runTick([message]);
 					running = !tick.shutdownRequested;
+					if (running && tickIntervalMs !== undefined) {
+						yield* scheduleCadenceTick(tickIntervalMs);
+					}
 				}
 				yield* Scope.close(actionScope, Exit.void);
 			});
@@ -836,11 +1048,25 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				const alreadyStarted = yield* Ref.get(actorStarted);
 				if (alreadyStarted) return;
 				yield* Ref.set(actorStarted, true);
+				if (tickIntervalMs !== undefined) {
+					yield* Queue.offer(mailbox, { type: "wake" });
+				}
 				yield* run().pipe(
 					Effect.ensuring(Ref.set(actorStarted, false)),
 					Effect.forkIn(actorScope, { startImmediately: true }),
 					Effect.asVoid,
 				);
+			});
+
+			const wakeAfter = Effect.fn("Orchestrator.wakeAfter")(function* (
+				delayMs: number,
+				reason?: string,
+			) {
+				const decoded = yield* decodePositiveInt(
+					delayMs,
+					"delayMs must be a positive integer",
+				);
+				yield* scheduleWakeAfter(decoded, reason);
 			});
 
 			const shutdown = Effect.fn("Orchestrator.shutdown")(function* () {
@@ -852,7 +1078,9 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				run,
 				tickOnce,
 				snapshot,
+				subscribe,
 				offer,
+				wakeAfter,
 				shutdown,
 			} satisfies OrchestratorShape;
 		}),

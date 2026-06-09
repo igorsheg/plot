@@ -108,10 +108,26 @@ export const interruptWork = (
 	...(reason === undefined ? {} : { reason }),
 });
 
+export const ScheduleWakeProposal = Schema.Struct({
+	type: Schema.Literal("schedule_wake"),
+	delayMs: PositiveInt,
+	reason: Schema.optionalKey(Schema.String),
+});
+export type ScheduleWakeProposal = typeof ScheduleWakeProposal.Type;
+export const scheduleWake = (
+	delayMs: number,
+	reason?: string,
+): ScheduleWakeProposal => ({
+	type: "schedule_wake",
+	delayMs: positiveInt(delayMs),
+	...(reason === undefined ? {} : { reason }),
+});
+
 export const ReconcileProposal = Schema.Union([
 	SetFactProposal,
 	RemoveFactProposal,
 	InterruptWorkProposal,
+	ScheduleWakeProposal,
 ]);
 export type ReconcileProposal = typeof ReconcileProposal.Type;
 
@@ -139,6 +155,7 @@ export const CompletionStatus = Schema.Literals([
 	"succeeded",
 	"failed",
 	"interrupted",
+	"timed_out",
 ]);
 export type CompletionStatus = typeof CompletionStatus.Type;
 
@@ -184,6 +201,31 @@ export const TickResult = Schema.Struct({
 	snapshot: RuntimeSnapshot,
 });
 export type TickResult = typeof TickResult.Type;
+
+export const OrchestratorEvent = Schema.Union([
+	Schema.Struct({
+		type: Schema.Literal("tick_started"),
+		tickId: TickId,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("tick_completed"),
+		result: TickResult,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("wake_scheduled"),
+		delayMs: PositiveInt,
+		reason: Schema.optionalKey(Schema.String),
+	}),
+	Schema.Struct({
+		type: Schema.Literal("work_started"),
+		run: WorkRun,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("work_completed"),
+		completion: Completion,
+	}),
+]);
+export type OrchestratorEvent = typeof OrchestratorEvent.Type;
 
 export const OrchestratorMessage = Schema.Union([
 	Schema.Struct({

@@ -1,14 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { Deferred, Effect } from "effect";
+import { Deferred, Effect, PubSub } from "effect";
 import {
 	interruptWork,
+	scheduleWake,
 	sourceId,
 	PlotLoopError,
 	setFact,
 	subjectKey,
 	workKey,
 } from "../src/domain.js";
-import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
+import {
+	makeOrchestratorLayer,
+	Orchestrator,
+	type OrchestratorLayerOptions,
+} from "../src/loop.js";
 import type { WorkRunner } from "../src/runner.js";
 import type { WorkSource } from "../src/source.js";
 
@@ -24,11 +29,13 @@ const runWith = <A>(
 	sources: readonly WorkSource[],
 	effect: Effect.Effect<A, never, Orchestrator>,
 	runner: WorkRunner = succeedRunner(),
+	options: Omit<OrchestratorLayerOptions, "sources" | "runner"> = {},
 ) =>
 	Effect.runPromise(
 		effect.pipe(
 			Effect.provide(
 				makeOrchestratorLayer({
+					...options,
 					sources,
 					runner,
 				}),
@@ -194,6 +201,71 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.snapshot.facts.get("runner:agent:turn:1")).toEqual({
 			tokens: 12,
 		});
+	});
+
+	test("actor run schedules periodic ticks when cadence is configured", async () => {
+		let observations = 0;
+		const secondTick = Deferred.makeUnsafe<number>();
+		const source: WorkSource = {
+			id: sourceId("cadence-source"),
+			observeTick: () =>
+				Effect.gen(function* () {
+					observations += 1;
+					if (observations === 2) {
+						yield* Deferred.succeed(secondTick, observations);
+					}
+					return [{ type: "cadence" }];
+				}),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.start();
+				const count = yield* Deferred.await(secondTick);
+				yield* orchestrator.shutdown();
+				return count;
+			}),
+			succeedRunner(),
+			{ tickIntervalMs: 1 },
+		);
+
+		expect(result).toBe(2);
+	});
+
+	test("sources can schedule delayed generic wakeups", async () => {
+		let ticks = 0;
+		const secondTick = Deferred.makeUnsafe<number>();
+		const source: WorkSource = {
+			id: sourceId("wake-source"),
+			observeTick: () =>
+				Effect.gen(function* () {
+					ticks += 1;
+					if (ticks === 2) {
+						yield* Deferred.succeed(secondTick, ticks);
+					}
+					return [{ type: "wake" }];
+				}),
+			reconcile: () =>
+				ticks === 1
+					? Effect.succeed([scheduleWake(1, "retry later")])
+					: Effect.succeed([]),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.start();
+				yield* orchestrator.offer({ type: "tick" });
+				const count = yield* Deferred.await(secondTick);
+				yield* orchestrator.shutdown();
+				return count;
+			}),
+		);
+
+		expect(result).toBe(2);
 	});
 
 	test("actor run consumes queued wake sources and owns the loop", async () => {
@@ -404,6 +476,102 @@ describe("task-agnostic Plot loop", () => {
 		);
 		expect(result.second.started).toHaveLength(0);
 		expect(result.after.running.has(key)).toBe(false);
+	});
+
+	test("runtime snapshot keeps bounded diagnostics history", async () => {
+		const source: WorkSource = {
+			id: sourceId("noisy-source"),
+			selectWork: () => Effect.fail("too loud"),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.tickOnce();
+				yield* orchestrator.tickOnce();
+				yield* orchestrator.tickOnce();
+				return yield* orchestrator.snapshot();
+			}),
+			succeedRunner(),
+			{ historyLimit: 2 },
+		);
+
+		expect(result.diagnostics).toHaveLength(2);
+		expect(result.diagnostics.every((item) => item.phase === "select")).toBe(
+			true,
+		);
+	});
+
+	test("run watchdog times out active runner work", async () => {
+		const started = Deferred.makeUnsafe<void>();
+		const interrupted = Deferred.makeUnsafe<void>();
+		const key = workKey("timeout:1");
+		const source: WorkSource = {
+			id: sourceId("timeout-source"),
+			reconcile: ({ snapshot }) =>
+				Effect.succeed(
+					snapshot.completions.map((completion) =>
+						setFact(`completion:${completion.workKey}`, completion.status),
+					),
+				),
+			selectWork: ({ snapshot }) =>
+				snapshot.facts.has("completion:timeout:1")
+					? Effect.succeed([])
+					: Effect.succeed([{ workKey: key }]),
+		};
+		const runner: WorkRunner = {
+			run: () =>
+				Effect.gen(function* () {
+					yield* Deferred.succeed(started, undefined);
+					return yield* Effect.never;
+				}).pipe(Effect.ensuring(Deferred.succeed(interrupted, undefined))),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.start();
+				yield* orchestrator.offer({ type: "tick" });
+				yield* Deferred.await(started);
+				yield* Deferred.await(interrupted);
+				yield* Effect.yieldNow;
+				const snapshot = yield* orchestrator.snapshot();
+				yield* orchestrator.shutdown();
+				return snapshot;
+			}),
+			runner,
+			{ maxRunDurationMs: 1 },
+		);
+
+		expect(result.running.has(key)).toBe(false);
+		expect(result.facts.get("completion:timeout:1")).toBe("timed_out");
+	});
+
+	test("status subscribers receive operator-visible loop events", async () => {
+		const key = workKey("event:1");
+		const source: WorkSource = {
+			id: sourceId("event-source"),
+			selectWork: () => Effect.succeed([{ workKey: key }]),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.scoped(
+				Effect.gen(function* () {
+					const orchestrator = yield* Orchestrator;
+					const events = yield* orchestrator.subscribe();
+					yield* orchestrator.tickOnce();
+					const first = yield* PubSub.take(events);
+					const second = yield* PubSub.take(events);
+					const third = yield* PubSub.take(events);
+					return [first.type, second.type, third.type];
+				}),
+			),
+		);
+
+		expect(result).toEqual(["tick_started", "work_started", "tick_completed"]);
 	});
 
 	test("shutdown interrupts active runner work and clears running claims", async () => {
