@@ -1,78 +1,68 @@
-import type { RuntimeSnapshot } from "@plot/agent/model";
 import type { PlotPaths } from "./plot-paths.js";
 import type { WorkflowDefinition } from "./workflow.js";
 
 export type MaybePromise<A> = A | Promise<A>;
 
-export interface PlotExtensionContext<Config = unknown> {
+export interface PlotExtensionWork {
+	/** Stable domain identity, e.g. github:acme/web:pr:42 or jira:EPIC-123. */
+	readonly id: string;
+	/** Domain revision that should rerun work when it changes, e.g. PR head SHA. */
+	readonly version?: string;
+	/** Human-readable title for logs, UIs, and handoff surfaces. */
+	readonly title?: string;
+	/** Optional external URL for the source item. */
+	readonly url?: string;
+	/** Optional grouping key. Defaults to id when adapted into Plot internals. */
+	readonly subject?: string;
+	/** Domain context supplied to the inner agent alongside WORKFLOW.md prompt. */
+	readonly context?: unknown;
+}
+
+export interface PlotExtensionSetupContext<Config = unknown> {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
 	readonly config: Config;
+	readonly work: (input: PlotExtensionWork) => PlotExtensionWork;
 }
 
-export interface PlotExtensionPhaseContext {
-	readonly sourceId: string;
-	readonly tickId: number;
-	readonly snapshot: RuntimeSnapshot;
+export interface PlotExtensionWorkEvent {
+	readonly work: PlotExtensionWork;
+	readonly runId?: string;
 }
 
-export interface PlotExtensionObservation {
-	readonly type: string;
-	readonly subject?: string;
-	readonly data?: unknown;
+export interface PlotExtensionCompletedEvent extends PlotExtensionWorkEvent {
+	readonly output?: unknown;
 }
 
-export type PlotExtensionReconcileProposal =
-	| {
-			readonly type: "set_fact";
-			readonly key: string;
-			readonly value: unknown;
-	  }
-	| {
-			readonly type: "remove_fact";
-			readonly key: string;
-	  }
-	| {
-			readonly type: "interrupt_work";
-			readonly workKey: string;
-			readonly reason?: string;
-	  }
-	| {
-			readonly type: "schedule_wake";
-			readonly delayMs: number;
-			readonly reason?: string;
-	  };
-
-export interface PlotExtensionWorkItem {
-	readonly workKey: string;
-	readonly subject?: string;
-	readonly templateContext?: unknown;
+export interface PlotExtensionFailedEvent extends PlotExtensionWorkEvent {
+	readonly error: unknown;
 }
 
-export interface PlotExtensionSource {
-	readonly id: string;
-	readonly observeTick?: (
-		context: PlotExtensionPhaseContext,
-	) => MaybePromise<readonly PlotExtensionObservation[]>;
-	readonly reconcile?: (
-		context: PlotExtensionPhaseContext,
-	) => MaybePromise<readonly PlotExtensionReconcileProposal[]>;
-	readonly selectWork?: (
-		context: PlotExtensionPhaseContext,
-	) => MaybePromise<readonly PlotExtensionWorkItem[]>;
-}
-
-export interface PlotExtensionInstance {
-	readonly source: PlotExtensionSource;
+export interface PlotExtensionRuntime {
+	/** Discover eligible domain work. No returned work means this tick is a no-op. */
+	readonly discover: () => MaybePromise<readonly PlotExtensionWork[]>;
+	/** Optional side effect after Plot claims work and before the inner agent runs. */
+	readonly started?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
+	/** Optional side effect after the inner agent finishes successfully. */
+	readonly completed?: (
+		event: PlotExtensionCompletedEvent,
+	) => MaybePromise<void>;
+	/** Optional side effect after the inner agent fails. */
+	readonly failed?: (event: PlotExtensionFailedEvent) => MaybePromise<void>;
+	/** Optional side effect after Plot interrupts a run. */
+	readonly interrupted?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
+	/** Optional side effect after Plot times out a run. */
+	readonly timedOut?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
+	/** Optional process/session cleanup. */
 	readonly shutdown?: () => MaybePromise<void>;
 }
 
 export interface PlotExtension<Config = unknown> {
 	readonly id: string;
 	readonly parseConfig?: (input: unknown) => MaybePromise<Config>;
-	readonly setup: (
-		context: PlotExtensionContext<Config>,
-	) => MaybePromise<PlotExtensionInstance>;
+	readonly create: (
+		context: PlotExtensionSetupContext<Config>,
+	) => MaybePromise<PlotExtensionRuntime>;
 }
 
 export const definePlotExtension = <Config>(
