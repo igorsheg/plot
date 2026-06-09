@@ -52,6 +52,28 @@ const cwdFlag = Flag.string("cwd").pipe(
 	Flag.withDescription("Working directory used by the agent session"),
 );
 
+const plotDirFlag = Flag.optional(
+	Flag.string("plot-dir").pipe(
+		Flag.withDescription("Plot state directory, defaulting to <cwd>/.plot"),
+	),
+);
+
+const agentDirFlag = Flag.optional(
+	Flag.string("agent-dir").pipe(
+		Flag.withDescription(
+			"pi-compatible agent directory, default <plot-dir>/agent",
+		),
+	),
+);
+
+const sessionDirFlag = Flag.optional(
+	Flag.string("session-dir").pipe(
+		Flag.withDescription(
+			"pi-compatible session directory, default <plot-dir>/sessions",
+		),
+	),
+);
+
 const logLevelFlag = Flag.choice("log-level", [
 	"trace",
 	"debug",
@@ -74,19 +96,24 @@ const logFormatFlag = Flag.choice("log-format", [
 	Flag.withDescription("Telemetry format written to stderr"),
 );
 
-const requestQueueCapacityFlag = Flag.integer("request-queue-capacity").pipe(
-	Flag.withDefault(64),
-	Flag.withDescription("Maximum queued protocol requests"),
+const requestQueueCapacityFlag = Flag.optional(
+	Flag.integer("request-queue-capacity").pipe(
+		Flag.withDescription("Maximum queued protocol requests"),
+	),
 );
 
-const eventCapacityFlag = Flag.integer("event-capacity").pipe(
-	Flag.withDefault(256),
-	Flag.withDescription("Maximum in-memory session and agent event capacity"),
+const eventCapacityFlag = Flag.optional(
+	Flag.integer("event-capacity").pipe(
+		Flag.withDescription("Maximum in-memory session and agent event capacity"),
+	),
 );
 
-const replayCapacityFlag = Flag.integer("replay-capacity").pipe(
-	Flag.withDefault(1024),
-	Flag.withDescription("Maximum retained protocol events for subscribe replay"),
+const replayCapacityFlag = Flag.optional(
+	Flag.integer("replay-capacity").pipe(
+		Flag.withDescription(
+			"Maximum retained protocol events for subscribe replay",
+		),
+	),
 );
 
 const tickIntervalMsFlag = Flag.optional(
@@ -108,6 +135,9 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 			workflowPath: workflowFlag,
 			sessionId: sessionIdFlag,
 			cwd: cwdFlag,
+			plotDir: plotDirFlag,
+			agentDir: agentDirFlag,
+			sessionDir: sessionDirFlag,
 			logLevel: logLevelFlag,
 			logFormat: logFormatFlag,
 			requestQueueCapacity: requestQueueCapacityFlag,
@@ -117,17 +147,28 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 			maxRunDurationMs: maxRunDurationMsFlag,
 		},
 		(options) => {
+			const plotDir = Option.getOrUndefined(options.plotDir);
+			const agentDir = Option.getOrUndefined(options.agentDir);
+			const sessionDir = Option.getOrUndefined(options.sessionDir);
+			const requestQueueCapacity = Option.getOrUndefined(
+				options.requestQueueCapacity,
+			);
+			const eventCapacity = Option.getOrUndefined(options.eventCapacity);
+			const replayCapacity = Option.getOrUndefined(options.replayCapacity);
 			const tickIntervalMs = Option.getOrUndefined(options.tickIntervalMs);
 			const maxRunDurationMs = Option.getOrUndefined(options.maxRunDurationMs);
 			return serveStdio({
 				workflowPath: options.workflowPath,
 				sessionId: options.sessionId,
 				cwd: options.cwd,
+				...(plotDir === undefined ? {} : { plotDir }),
+				...(agentDir === undefined ? {} : { agentDir }),
+				...(sessionDir === undefined ? {} : { sessionDir }),
 				logLevel: options.logLevel as LogLevelFlag,
 				logFormat: options.logFormat as LogFormat,
-				requestQueueCapacity: options.requestQueueCapacity,
-				eventCapacity: options.eventCapacity,
-				replayCapacity: options.replayCapacity,
+				...(requestQueueCapacity === undefined ? {} : { requestQueueCapacity }),
+				...(eventCapacity === undefined ? {} : { eventCapacity }),
+				...(replayCapacity === undefined ? {} : { replayCapacity }),
 				...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
 				...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
 				...(io.createAgentSession === undefined

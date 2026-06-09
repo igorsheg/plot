@@ -18,6 +18,7 @@ import type { WorkflowDefinition } from "../src/workflow.js";
 
 const workflow: WorkflowDefinition = {
 	config: {},
+	runtime: {},
 	prompt: "Do useful work.",
 };
 

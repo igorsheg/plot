@@ -17,7 +17,10 @@ const makeWorkflowFile = async () => {
 	const dir = await mkdtemp(join(tmpdir(), "plot-cli-"));
 	tempDirs.push(dir);
 	const path = join(dir, "WORKFLOW.md");
-	await writeFile(path, "---\nname: cli-test\n---\nRun the workflow.\n");
+	await writeFile(
+		path,
+		"---\nname: cli-test\nplot:\n  replayCapacity: 7\n---\nRun the workflow.\n",
+	);
 	return path;
 };
 
@@ -80,6 +83,12 @@ describe("plot CLI", () => {
 
 		const records = await Effect.runPromise(decodeLines(captured.stdout));
 		expect(records.map((record) => record.kind)).toEqual(["hello", "response"]);
+		expect(records[0]).toEqual(
+			expect.objectContaining({
+				kind: "hello",
+				limits: expect.objectContaining({ maxEventBufferEvents: 7 }),
+			}),
+		);
 		expect(records[1]).toEqual(
 			expect.objectContaining({
 				kind: "response",

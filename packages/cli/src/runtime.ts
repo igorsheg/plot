@@ -6,6 +6,8 @@ import {
 	makeAgentSessionClientLayer,
 	type CreateAgentSession,
 } from "@plot/session/agent-session-client";
+import { makePlotCreateAgentSession } from "@plot/session/pi-agent-session";
+import { resolvePlotPaths } from "@plot/session/plot-paths";
 import {
 	makePlotSessionLayer,
 	plotSessionId,
@@ -40,11 +42,14 @@ export interface ServeStdioOptions {
 	readonly workflowPath: string;
 	readonly sessionId: string;
 	readonly cwd: string;
+	readonly plotDir?: string;
+	readonly agentDir?: string;
+	readonly sessionDir?: string;
 	readonly logLevel: LogLevelFlag;
 	readonly logFormat: LogFormat;
-	readonly requestQueueCapacity: number;
-	readonly eventCapacity: number;
-	readonly replayCapacity: number;
+	readonly requestQueueCapacity?: number;
+	readonly eventCapacity?: number;
+	readonly replayCapacity?: number;
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
 	readonly createAgentSession?: CreateAgentSession;
@@ -93,11 +98,14 @@ const makeWorkflowSource = (workflow: WorkflowDefinition): WorkSource => ({
 	},
 });
 
-const makeLimits = (options: ServeStdioOptions) =>
+const makeLimits = (values: {
+	readonly requestQueueCapacity: number;
+	readonly replayCapacity: number;
+}) =>
 	new PlotProtocolLimits({
 		...defaultPlotProtocolLimits,
-		maxPendingRequests: positiveInt(options.requestQueueCapacity),
-		maxEventBufferEvents: positiveInt(options.replayCapacity),
+		maxPendingRequests: positiveInt(values.requestQueueCapacity),
+		maxEventBufferEvents: positiveInt(values.replayCapacity),
 	});
 
 export const serveStdio = (
@@ -117,43 +125,59 @@ export const serveStdio = (
 		},
 		Effect.gen(function* () {
 			const workflow = yield* loadWorkflowFromNode(options.workflowPath);
+			const paths = resolvePlotPaths({
+				cwd: options.cwd,
+				...(options.plotDir === undefined ? {} : { plotDir: options.plotDir }),
+				...(options.agentDir === undefined
+					? {}
+					: { agentDir: options.agentDir }),
+				...(options.sessionDir === undefined
+					? {}
+					: { sessionDir: options.sessionDir }),
+			});
+			const plot = workflow.runtime.plot;
+			const requestQueueCapacity =
+				options.requestQueueCapacity ?? plot?.queueCapacity ?? 64;
+			const eventCapacity = options.eventCapacity ?? plot?.eventCapacity ?? 256;
+			const replayCapacity =
+				options.replayCapacity ?? plot?.replayCapacity ?? 1024;
+			const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
+			const maxRunDurationMs =
+				options.maxRunDurationMs ?? plot?.maxRunDurationMs;
 			const agentOptions = {
-				queueCapacity: options.requestQueueCapacity,
-				eventCapacity: options.eventCapacity,
-				...(options.tickIntervalMs === undefined
-					? {}
-					: { tickIntervalMs: options.tickIntervalMs }),
-				...(options.maxRunDurationMs === undefined
-					? {}
-					: { maxRunDurationMs: options.maxRunDurationMs }),
+				queueCapacity: requestQueueCapacity,
+				eventCapacity,
+				...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
+				...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
 			};
-			const agentSessionClientLayer =
-				options.createAgentSession === undefined
-					? makeAgentSessionClientLayer()
-					: makeAgentSessionClientLayer({
-							createAgentSession: options.createAgentSession,
-						});
+			const createAgentSession =
+				options.createAgentSession ??
+				makePlotCreateAgentSession({ workflow, paths });
+			const agentSessionClientLayer = makeAgentSessionClientLayer({
+				createAgentSession,
+			});
 			const sessionLayer = makePlotSessionLayer({
 				id: plotSessionId(options.sessionId),
 				workflow,
 				sources: [makeWorkflowSource(workflow)],
-				eventCapacity: options.eventCapacity,
+				eventCapacity,
 				agent: agentOptions,
 				agentRunner: {
 					prompt: workflow.prompt,
-					create: { cwd: options.cwd },
+					create: { cwd: paths.cwd },
 				},
 			}).pipe(Layer.provide(agentSessionClientLayer));
+			const limits = makeLimits({ requestQueueCapacity, replayCapacity });
 			const protocolLayer = makePlotProtocolLayer({
 				epoch: plotProtocolEpoch(options.sessionId),
-				limits: makeLimits(options),
-				outputCapacity: options.requestQueueCapacity,
+				limits,
+				outputCapacity: requestQueueCapacity,
 			}).pipe(Layer.provide(sessionLayer));
 
 			yield* runPlotProtocolStdio({
 				stdin: options.stdin,
 				writeStdout: options.writeStdout,
-				limits: makeLimits(options),
+				limits,
 			}).pipe(Effect.provide(protocolLayer));
 		}),
 	).pipe(Effect.provide(loggerLayer));

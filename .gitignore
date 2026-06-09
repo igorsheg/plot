@@ -44,3 +44,4 @@ coverage/
 .*.bun-build
 
 .references/
+.plot/

@@ -12,8 +12,54 @@ export class PlotWorkflowError extends Schema.TaggedErrorClass<PlotWorkflowError
 	},
 ) {}
 
+export const AgentToolMode = Schema.Union([
+	Schema.Boolean,
+	Schema.Literals(["all", "builtin"]),
+]);
+export type AgentToolMode = typeof AgentToolMode.Type;
+
+export const WorkflowAgentConfig = Schema.Struct({
+	provider: Schema.optionalKey(Schema.String),
+	model: Schema.optionalKey(Schema.String),
+	thinking: Schema.optionalKey(
+		Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh"]),
+	),
+	tools: Schema.optionalKey(Schema.Array(Schema.String)),
+	excludeTools: Schema.optionalKey(Schema.Array(Schema.String)),
+	noTools: Schema.optionalKey(AgentToolMode),
+	allowProjectConfig: Schema.optionalKey(Schema.Boolean),
+});
+export type WorkflowAgentConfig = typeof WorkflowAgentConfig.Type;
+
+export const WorkflowPlotConfig = Schema.Struct({
+	tickIntervalMs: Schema.optionalKey(Schema.Number),
+	maxRunDurationMs: Schema.optionalKey(Schema.Number),
+	queueCapacity: Schema.optionalKey(Schema.Number),
+	eventCapacity: Schema.optionalKey(Schema.Number),
+	replayCapacity: Schema.optionalKey(Schema.Number),
+});
+export type WorkflowPlotConfig = typeof WorkflowPlotConfig.Type;
+
+export const WorkflowResourcesConfig = Schema.Struct({
+	skills: Schema.optionalKey(Schema.Array(Schema.String)),
+	extensions: Schema.optionalKey(Schema.Array(Schema.String)),
+	prompts: Schema.optionalKey(Schema.Array(Schema.String)),
+	themes: Schema.optionalKey(Schema.Array(Schema.String)),
+	contextFiles: Schema.optionalKey(Schema.Boolean),
+});
+export type WorkflowResourcesConfig = typeof WorkflowResourcesConfig.Type;
+
+export const WorkflowRuntimeConfig = Schema.Struct({
+	name: Schema.optionalKey(Schema.String),
+	plot: Schema.optionalKey(WorkflowPlotConfig),
+	agent: Schema.optionalKey(WorkflowAgentConfig),
+	resources: Schema.optionalKey(WorkflowResourcesConfig),
+});
+export type WorkflowRuntimeConfig = typeof WorkflowRuntimeConfig.Type;
+
 export const WorkflowDefinition = Schema.Struct({
 	config: Schema.Record(Schema.String, Schema.Unknown),
+	runtime: WorkflowRuntimeConfig,
 	prompt: Schema.String,
 	path: Schema.optionalKey(Schema.String),
 });
@@ -72,6 +118,21 @@ const parseConfig = (frontMatter: string, path: string | undefined) =>
 			}),
 	});
 
+const decodeRuntimeConfig = (
+	config: Record<string, unknown>,
+	path: string | undefined,
+) =>
+	Schema.decodeUnknownEffect(WorkflowRuntimeConfig)(config).pipe(
+		Effect.mapError(
+			(error) =>
+				new PlotWorkflowError({
+					phase: "parse",
+					message: error.message,
+					...(path === undefined ? {} : { path }),
+				}),
+		),
+	);
+
 export const parseWorkflowText = (
 	text: string,
 	path?: string,
@@ -84,8 +145,10 @@ export const parseWorkflowText = (
 			const frontMatter = match?.[1] ?? "";
 			const prompt = match ? text.slice(match[0].length).trim() : text.trim();
 			const config = yield* parseConfig(frontMatter, path);
+			const runtime = yield* decodeRuntimeConfig(config, path);
 			return yield* Schema.decodeUnknownEffect(WorkflowDefinition)({
 				config,
+				runtime,
 				prompt,
 				...(path === undefined ? {} : { path }),
 			}).pipe(

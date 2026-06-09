@@ -11,8 +11,11 @@ describe("workflow contract", () => {
 		const workflow = await Effect.runPromise(
 			parseWorkflowText(
 				`---
+plot:
+  maxRunDurationMs: 1000
 agent:
-  max_concurrent: 2
+  provider: plot-faux
+  model: faux-1
 tracker:
   states:
     - Todo
@@ -28,8 +31,13 @@ Use the current task context.
 
 		expect(workflow.path).toBe("WORKFLOW.md");
 		expect(workflow.config).toEqual({
-			agent: { max_concurrent: 2 },
+			plot: { maxRunDurationMs: 1000 },
+			agent: { provider: "plot-faux", model: "faux-1" },
 			tracker: { states: ["Todo"] },
+		});
+		expect(workflow.runtime).toEqual({
+			plot: { maxRunDurationMs: 1000 },
+			agent: { provider: "plot-faux", model: "faux-1" },
 		});
 		expect(workflow.prompt).toBe(
 			"# Review work\n\nUse the current task context.",
@@ -50,6 +58,7 @@ Use the current task context.
 
 		expect(workflow).toEqual({
 			config: { path: "custom/WORKFLOW.md" },
+			runtime: {},
 			path: "custom/WORKFLOW.md",
 			prompt: "Do it.",
 		});
