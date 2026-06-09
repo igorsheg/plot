@@ -32,7 +32,7 @@ export interface WorkflowFileSystemShape {
 export class WorkflowFileSystem extends Context.Service<
 	WorkflowFileSystem,
 	WorkflowFileSystemShape
->()("@plot/core/workflow/WorkflowFileSystem") {}
+>()("@plot/session/WorkflowFileSystem") {}
 
 export const nodeWorkflowFileSystemLayer = Layer.succeed(WorkflowFileSystem, {
 	readFileString: (path) =>

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Layer, Stream } from "effect";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { sourceId, workKey } from "../src/domain.js";
-import { AgentSessionClient } from "../src/llm.js";
+import { sourceId, workKey } from "@plot/core/domain";
+import type { WorkRunner } from "@plot/core/runner";
+import type { WorkSource } from "@plot/core/source";
+import { AgentSessionClient } from "@plot/pi-mono/llm";
 import { PlotSession, makePlotSessionLayer } from "../src/session.js";
-import type { WorkRunner } from "../src/runner.js";
-import type { WorkSource } from "../src/source.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
 
 const workflow: WorkflowDefinition = {

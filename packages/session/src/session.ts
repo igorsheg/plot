@@ -10,7 +10,7 @@ import {
 	type Exit,
 } from "effect";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import * as Domain from "./domain.js";
+import * as Domain from "@plot/core/domain";
 import type {
 	OrchestratorEvent,
 	PlotLoopError,
@@ -18,20 +18,17 @@ import type {
 	SubjectKey,
 	TickResult,
 	WorkResult,
-} from "./domain.js";
+} from "@plot/core/domain";
+import { makeOrchestratorLayer, Orchestrator } from "@plot/core/loop";
+import type { OrchestratorLayerOptions } from "@plot/core/loop";
+import type { WorkRunner, WorkRunnerContext } from "@plot/core/runner";
+import type { WorkSource } from "@plot/core/source";
 import {
 	AgentSessionClient,
 	type AgentSessionClientShape,
 	type PromptAgentSessionOptions,
-} from "./llm.js";
-import { makeOrchestratorLayer, Orchestrator } from "./loop.js";
-import type { OrchestratorLayerOptions } from "./loop.js";
-import type {
-	AgentSessionWorkRunnerOptions,
-	WorkRunner,
-	WorkRunnerContext,
-} from "./runner.js";
-import type { WorkSource } from "./source.js";
+} from "@plot/pi-mono/llm";
+import type { AgentSessionWorkRunnerOptions } from "@plot/pi-mono/runner";
 import type { WorkflowDefinition } from "./workflow.js";
 
 export const PlotSessionId = Schema.NonEmptyString.pipe(
@@ -126,7 +123,7 @@ export interface PlotSessionShape {
 export class PlotSession extends Context.Service<
 	PlotSession,
 	PlotSessionShape
->()("@plot/core/session/PlotSession") {}
+>()("@plot/session/PlotSession") {}
 
 interface BasePlotSessionLayerOptions {
 	readonly id?: PlotSessionId;

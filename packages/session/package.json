@@ -1,12 +1,10 @@
 {
-	"name": "@plot/core",
+	"name": "@plot/session",
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./domain": "./src/domain.ts",
-		"./loop": "./src/loop.ts",
-		"./runner": "./src/runner.ts",
-		"./source": "./src/source.ts"
+		"./session": "./src/session.ts",
+		"./workflow": "./src/workflow.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -15,8 +13,11 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@plot/common": "workspace:*",
-		"effect": "4.0.0-beta.78"
+		"@earendil-works/pi-coding-agent": "0.79.0",
+		"@plot/core": "workspace:*",
+		"@plot/pi-mono": "workspace:*",
+		"effect": "4.0.0-beta.78",
+		"yaml": "2.9.0"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

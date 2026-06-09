@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { sourceId, tickId, workKey, runId } from "../src/domain.js";
+import { sourceId, tickId, workKey, runId } from "@plot/core/domain";
 import { AgentSessionClient } from "../src/llm.js";
 import { makeAgentSessionWorkRunner } from "../src/runner.js";
 

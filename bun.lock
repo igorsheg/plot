@@ -28,8 +28,31 @@
     "packages/core": {
       "name": "@plot/core",
       "dependencies": {
+        "@plot/common": "workspace:*",
+        "effect": "4.0.0-beta.78",
+      },
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
+    "packages/pi-mono": {
+      "name": "@plot/pi-mono",
+      "dependencies": {
         "@earendil-works/pi-coding-agent": "0.79.0",
         "@plot/common": "workspace:*",
+        "@plot/core": "workspace:*",
+        "effect": "4.0.0-beta.78",
+      },
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
+    "packages/session": {
+      "name": "@plot/session",
+      "dependencies": {
+        "@earendil-works/pi-coding-agent": "0.79.0",
+        "@plot/core": "workspace:*",
+        "@plot/pi-mono": "workspace:*",
         "effect": "4.0.0-beta.78",
         "yaml": "2.9.0",
       },
@@ -222,6 +245,10 @@
     "@plot/common": ["@plot/common@workspace:packages/common"],
 
     "@plot/core": ["@plot/core@workspace:packages/core"],
+
+    "@plot/pi-mono": ["@plot/pi-mono@workspace:packages/pi-mono"],
+
+    "@plot/session": ["@plot/session@workspace:packages/session"],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 

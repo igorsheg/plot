@@ -46,7 +46,7 @@ export interface AgentSessionClientShape {
 export class AgentSessionClient extends Context.Service<
 	AgentSessionClient,
 	AgentSessionClientShape
->()("@plot/core/llm/AgentSessionClient") {}
+>()("@plot/pi-mono/AgentSessionClient") {}
 
 export type CreateAgentSession = (
 	options?: CreateAgentSessionOptions,
