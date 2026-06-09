@@ -15,11 +15,14 @@ import {
 const fakeResult = (session: AgentSession) =>
 	({ session, extensionsResult: {} }) as unknown as CreateAgentSessionResult;
 
-function makeFakeSession(options?: { readonly promptError?: Error }) {
+function makeFakeSession(options?: {
+	readonly promptError?: Error;
+	readonly events?: readonly AgentSessionEvent[];
+}) {
 	let listener: AgentSessionEventListener | undefined;
 	let disposed = false;
 	let unsubscribed = false;
-	const events: AgentSessionEvent[] = [
+	const events: readonly AgentSessionEvent[] = options?.events ?? [
 		{ type: "agent_start" },
 		{ type: "agent_end", messages: [], willRetry: false },
 	];
@@ -63,6 +66,22 @@ describe("llm pi-mono adapter", () => {
 			"agent_start",
 			"agent_end",
 		]);
+		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
+	});
+
+	test("ends the stream when prompting resolves without an agent_end event", async () => {
+		const fake = makeFakeSession({ events: [{ type: "agent_start" }] });
+		const layer = makePiMonoAgentSessionLayer({
+			createAgentSession: async () => fakeResult(fake.session),
+		});
+
+		const program = Effect.gen(function* () {
+			const client = yield* AgentSessionClient;
+			return yield* client.prompt({ prompt: "hello" }).pipe(Stream.runCollect);
+		}).pipe(Effect.provide(layer));
+
+		const events = await Effect.runPromise(program);
+		expect(events.map((event) => event.type)).toEqual(["agent_start"]);
 		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
 	});
 

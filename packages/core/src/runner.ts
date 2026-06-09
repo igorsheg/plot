@@ -40,7 +40,7 @@ export interface AgentSessionWorkRunnerOptions {
 	readonly prompt: RunnerValue<string>;
 	readonly create?: RunnerValue<CreateAgentSessionOptions | undefined>;
 	readonly promptOptions?: RunnerValue<PromptOptions | undefined>;
-	readonly onEvent?: (event: AgentSessionEvent) => Effect.Effect<void>;
+	readonly onEvent?: (event: AgentSessionEvent) => Effect.Effect<void, unknown>;
 }
 
 const resolveRequiredRunnerValue = <A>(
@@ -59,7 +59,7 @@ const resolveOptionalRunnerValue = <A>(
 	value: RunnerValue<A | undefined> | undefined,
 	context: WorkRunnerContext,
 ) => {
-	if (value === undefined) return Effect.succeed(undefined);
+	if (value === undefined) return Effect.void;
 	return resolveRequiredRunnerValue(value, context);
 };
 
@@ -97,7 +97,9 @@ export const makeAgentSessionWorkRunner = (
 						})
 						.pipe(
 							Stream.runForEach((event) =>
-								options.onEvent ? options.onEvent(event) : Effect.void,
+								options.onEvent
+									? options.onEvent(event).pipe(Effect.catch(() => Effect.void))
+									: Effect.void,
 							),
 						);
 					return {};

@@ -13,6 +13,7 @@ import {
 	Schema,
 	Scope,
 	Semaphore,
+	Stream,
 } from "effect";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import * as Domain from "./domain.js";
@@ -92,11 +93,7 @@ export interface OrchestratorShape {
 	readonly run: () => Effect.Effect<void>;
 	readonly tickOnce: () => Effect.Effect<TickResult>;
 	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
-	readonly subscribe: () => Effect.Effect<
-		PubSub.Subscription<OrchestratorEvent>,
-		never,
-		Scope.Scope
-	>;
+	readonly events: () => Stream.Stream<OrchestratorEvent>;
 	readonly offer: (message: OrchestratorMessage) => Effect.Effect<boolean>;
 	readonly wakeAfter: (
 		delayMs: number,
@@ -688,9 +685,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				return yield* Ref.get(snapshotRef);
 			});
 
-			const subscribe = Effect.fn("Orchestrator.subscribe")(function* () {
-				return yield* PubSub.subscribe(events);
-			});
+			const eventStream = () => Stream.fromPubSub(events);
 
 			const scheduleWakeAfter = Effect.fn("Orchestrator.scheduleWakeAfter")(
 				function* (delayMs: Domain.PositiveInt, reason?: string) {
@@ -1078,7 +1073,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				run,
 				tickOnce,
 				snapshot,
-				subscribe,
+				events: eventStream,
 				offer,
 				wakeAfter,
 				shutdown,

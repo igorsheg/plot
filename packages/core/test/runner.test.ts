@@ -26,6 +26,24 @@ const context = {
 };
 
 describe("agent session work runner", () => {
+	test("keeps agent execution non-fatal when onEvent fails", async () => {
+		const layer = Layer.succeed(AgentSessionClient, {
+			prompt: () => Stream.make({ type: "agent_start" } as AgentSessionEvent),
+		});
+
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const runner = yield* makeAgentSessionWorkRunner({
+					prompt: "do work",
+					onEvent: () => Effect.fail("listener failed"),
+				});
+				return yield* runner.run(context);
+			}).pipe(Effect.provide(layer)),
+		);
+
+		expect(result).toEqual({});
+	});
+
 	test("forwards raw pi-mono AgentSessionEvent values without wrapping", async () => {
 		const events: AgentSessionEvent[] = [
 			{ type: "agent_start" },

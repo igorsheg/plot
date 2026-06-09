@@ -100,6 +100,12 @@ export const makePiMonoAgentSessionLayer = (
 			return Stream.callback<AgentSessionEvent, PiMonoAgentSessionError>(
 				(queue) =>
 					Effect.gen(function* () {
+						let ended = false;
+						const endQueue = () => {
+							if (ended) return;
+							ended = true;
+							Queue.endUnsafe(queue);
+						};
 						const result = yield* withWideEvent(
 							"llm.session.create",
 							log,
@@ -111,7 +117,7 @@ export const makePiMonoAgentSessionLayer = (
 						const session = result.session;
 						const unsubscribe = session.subscribe((event) => {
 							Queue.offerUnsafe(queue, event);
-							if (event.type === "agent_end") Queue.endUnsafe(queue);
+							if (event.type === "agent_end") endQueue();
 						});
 
 						yield* Effect.addFinalizer(() =>
@@ -131,6 +137,7 @@ export const makePiMonoAgentSessionLayer = (
 									catch: (error) => createError("prompt", error),
 								}),
 							).pipe(
+								Effect.tap(() => Effect.sync(endQueue)),
 								Effect.catch((error: PiMonoAgentSessionError) =>
 									Effect.sync(() =>
 										Queue.failCauseUnsafe(queue, Cause.fail(error)),

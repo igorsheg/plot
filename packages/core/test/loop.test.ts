@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Deferred, Effect, PubSub } from "effect";
+import { Deferred, Effect, Fiber, Stream } from "effect";
 import {
 	interruptWork,
 	scheduleWake,
@@ -561,12 +561,13 @@ describe("task-agnostic Plot loop", () => {
 			Effect.scoped(
 				Effect.gen(function* () {
 					const orchestrator = yield* Orchestrator;
-					const events = yield* orchestrator.subscribe();
+					const fiber = yield* orchestrator
+						.events()
+						.pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped);
+					yield* Effect.yieldNow;
 					yield* orchestrator.tickOnce();
-					const first = yield* PubSub.take(events);
-					const second = yield* PubSub.take(events);
-					const third = yield* PubSub.take(events);
-					return [first.type, second.type, third.type];
+					const events = yield* Fiber.join(fiber);
+					return events.map((event) => event.type);
 				}),
 			),
 		);
