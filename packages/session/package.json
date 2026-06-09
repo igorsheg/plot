@@ -8,6 +8,7 @@
 		"./protocol-handler": "./src/protocol-handler.ts",
 		"./protocol-jsonl": "./src/protocol-jsonl.ts",
 		"./protocol-replay-buffer": "./src/protocol-replay-buffer.ts",
+		"./protocol-stdio": "./src/protocol-stdio.ts",
 		"./workflow": "./src/workflow.ts"
 	},
 	"scripts": {

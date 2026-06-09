@@ -1,5 +1,6 @@
 import {
 	Context,
+	Deferred,
 	Effect,
 	Layer,
 	PubSub,
@@ -42,6 +43,11 @@ export interface PlotProtocolShape {
 	readonly hello: () => Effect.Effect<PlotHelloRecord>;
 	readonly submit: (request: PlotClientRecord) => Effect.Effect<boolean, never>;
 	readonly output: () => Stream.Stream<PlotServerRecord>;
+}
+
+interface QueuedProtocolRequest {
+	readonly request: PlotClientRecord;
+	readonly completed: Deferred.Deferred<boolean>;
 }
 
 export class PlotProtocol extends Context.Service<
@@ -115,7 +121,7 @@ export const makePlotProtocolLayer = (
 		Effect.gen(function* () {
 			const session = yield* PlotSession;
 			const output = yield* PubSub.sliding<PlotServerRecord>(outputCapacity);
-			const requests = yield* Queue.dropping<PlotClientRecord>(
+			const requests = yield* Queue.dropping<QueuedProtocolRequest>(
 				limits.maxPendingRequests,
 			);
 			const replay = yield* makePlotProtocolReplayBuffer(limits);
@@ -253,8 +259,9 @@ export const makePlotProtocolLayer = (
 
 			yield* Effect.gen(function* () {
 				while (true) {
-					const request = yield* Queue.take(requests);
-					yield* processRequest(request);
+					const queued = yield* Queue.take(requests);
+					yield* processRequest(queued.request);
+					yield* Deferred.succeed(queued.completed, true);
 				}
 			}).pipe(
 				Effect.forkIn(protocolScope, { startImmediately: true }),
@@ -288,7 +295,11 @@ export const makePlotProtocolLayer = (
 					"plot_protocol.submit",
 					{ request_id: request.id, command: request.command },
 					Effect.gen(function* () {
-						const accepted = yield* Queue.offer(requests, request);
+						const completed = yield* Deferred.make<boolean>();
+						const accepted = yield* Queue.offer(requests, {
+							request,
+							completed,
+						});
 						if (!accepted) {
 							const lastEventSeq = yield* replay.lastSequence();
 							yield* publishOutput(
@@ -300,8 +311,9 @@ export const makePlotProtocolLayer = (
 									message: "protocol request queue is full",
 								}),
 							);
+							return false;
 						}
-						return accepted;
+						return yield* Deferred.await(completed);
 					}),
 				);
 			});
