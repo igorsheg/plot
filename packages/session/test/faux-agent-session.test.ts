@@ -44,8 +44,8 @@ describe("faux agent-session harness", () => {
 		);
 	});
 
-	test("runs Plot's pi factory against deterministic faux provider files", async () => {
-		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
+	test("runs Plot's pi factory with CLI-style overrides", async () => {
+		delete process.env["PLOT_FAUX_API_KEY"];
 		const dir = await mkdtemp(join(tmpdir(), "plot-session-faux-"));
 		tempDirs.push(dir);
 		const workflowPath = await makeWorkflowFile(dir);
@@ -71,7 +71,16 @@ describe("faux agent-session harness", () => {
 		const workflow = await Effect.runPromise(
 			loadWorkflowFromNode(workflowPath),
 		);
-		const createAgentSession = makePlotCreateAgentSession({ workflow, paths });
+		const createAgentSession = makePlotCreateAgentSession({
+			workflow,
+			paths,
+			overrides: {
+				provider: faux.provider,
+				model: faux.modelId,
+				apiKey: "plot-faux-key",
+				noTools: true,
+			},
+		});
 
 		const events = await Effect.runPromise(
 			Effect.gen(function* () {

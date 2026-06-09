@@ -16,6 +16,13 @@ plot:
 agent:
   provider: plot-faux
   model: faux-1
+extension:
+  source: npm:@acme/plot-github-pr-reviewer
+  config:
+    repo: web
+resources:
+  skills:
+    - .plot/skills/review
 tracker:
   states:
     - Todo
@@ -33,11 +40,21 @@ Use the current task context.
 		expect(workflow.config).toEqual({
 			plot: { maxRunDurationMs: 1000 },
 			agent: { provider: "plot-faux", model: "faux-1" },
+			extension: {
+				source: "npm:@acme/plot-github-pr-reviewer",
+				config: { repo: "web" },
+			},
+			resources: { skills: [".plot/skills/review"] },
 			tracker: { states: ["Todo"] },
 		});
 		expect(workflow.runtime).toEqual({
 			plot: { maxRunDurationMs: 1000 },
 			agent: { provider: "plot-faux", model: "faux-1" },
+			extension: {
+				source: "npm:@acme/plot-github-pr-reviewer",
+				config: { repo: "web" },
+			},
+			resources: { skills: [".plot/skills/review"] },
 		});
 		expect(workflow.prompt).toBe(
 			"# Review work\n\nUse the current task context.",

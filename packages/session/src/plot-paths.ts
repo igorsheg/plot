@@ -15,7 +15,6 @@ export interface PlotPaths {
 	readonly skillsDir: string;
 	readonly extensionsDir: string;
 	readonly promptsDir: string;
-	readonly themesDir: string;
 }
 
 export const resolvePlotPaths = (options: PlotPathOptions): PlotPaths => {
@@ -29,6 +28,5 @@ export const resolvePlotPaths = (options: PlotPathOptions): PlotPaths => {
 		skillsDir: resolve(cwd, `${plotDir}/skills`),
 		extensionsDir: resolve(cwd, `${plotDir}/extensions`),
 		promptsDir: resolve(cwd, `${plotDir}/prompts`),
-		themesDir: resolve(cwd, `${plotDir}/themes`),
 	};
 };

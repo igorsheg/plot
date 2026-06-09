@@ -42,18 +42,25 @@ export type WorkflowPlotConfig = typeof WorkflowPlotConfig.Type;
 
 export const WorkflowResourcesConfig = Schema.Struct({
 	skills: Schema.optionalKey(Schema.Array(Schema.String)),
-	extensions: Schema.optionalKey(Schema.Array(Schema.String)),
 	prompts: Schema.optionalKey(Schema.Array(Schema.String)),
-	themes: Schema.optionalKey(Schema.Array(Schema.String)),
 	contextFiles: Schema.optionalKey(Schema.Boolean),
+	systemPrompt: Schema.optionalKey(Schema.String),
+	appendSystemPrompt: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type WorkflowResourcesConfig = typeof WorkflowResourcesConfig.Type;
+
+export const WorkflowExtensionConfig = Schema.Struct({
+	source: Schema.String,
+	config: Schema.optionalKey(Schema.Unknown),
+});
+export type WorkflowExtensionConfig = typeof WorkflowExtensionConfig.Type;
 
 export const WorkflowRuntimeConfig = Schema.Struct({
 	name: Schema.optionalKey(Schema.String),
 	plot: Schema.optionalKey(WorkflowPlotConfig),
 	agent: Schema.optionalKey(WorkflowAgentConfig),
 	resources: Schema.optionalKey(WorkflowResourcesConfig),
+	extension: Schema.optionalKey(WorkflowExtensionConfig),
 });
 export type WorkflowRuntimeConfig = typeof WorkflowRuntimeConfig.Type;
 

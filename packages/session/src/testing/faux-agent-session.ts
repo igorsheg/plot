@@ -89,7 +89,6 @@ export const writePlotFauxAgentFiles = async (
 		mkdir(paths.skillsDir, { recursive: true }),
 		mkdir(paths.extensionsDir, { recursive: true }),
 		mkdir(paths.promptsDir, { recursive: true }),
-		mkdir(paths.themesDir, { recursive: true }),
 	]);
 	await writeFile(
 		join(paths.agentDir, "models.json"),

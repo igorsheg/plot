@@ -2,6 +2,7 @@ import { Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
+import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 
 export const version = "0.0.0";
@@ -128,6 +129,176 @@ const maxRunDurationMsFlag = Flag.optional(
 	),
 );
 
+const splitCommaList = (value: string): readonly string[] =>
+	value
+		.split(",")
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0);
+
+const providerFlag = Flag.optional(
+	Flag.string("provider").pipe(
+		Flag.withDescription("Override WORKFLOW.md agent.provider"),
+	),
+);
+
+const modelFlag = Flag.optional(
+	Flag.string("model").pipe(
+		Flag.withDescription(
+			"Override WORKFLOW.md agent.model, or use provider/model",
+		),
+	),
+);
+
+const apiKeyFlag = Flag.optional(
+	Flag.string("api-key").pipe(
+		Flag.withDescription("Runtime API key override for the selected provider"),
+	),
+);
+
+const thinkingFlag = Flag.optional(
+	Flag.choice("thinking", [
+		"off",
+		"minimal",
+		"low",
+		"medium",
+		"high",
+		"xhigh",
+	] as const).pipe(Flag.withDescription("Override WORKFLOW.md agent.thinking")),
+);
+
+const toolsFlag = Flag.optional(
+	Flag.string("tools").pipe(
+		Flag.map(splitCommaList),
+		Flag.withDescription("Comma-separated tool allowlist"),
+	),
+);
+
+const excludeToolsFlag = Flag.optional(
+	Flag.string("exclude-tools").pipe(
+		Flag.map(splitCommaList),
+		Flag.withDescription("Comma-separated tool denylist"),
+	),
+);
+
+const noToolsFlag = Flag.optional(
+	Flag.boolean("no-tools").pipe(
+		Flag.withDescription("Disable all inner pi tools"),
+	),
+);
+
+const noBuiltinToolsFlag = Flag.optional(
+	Flag.boolean("no-builtin-tools").pipe(
+		Flag.withDescription("Disable built-in pi tools"),
+	),
+);
+
+const projectConfigFlag = Flag.optional(
+	Flag.boolean("approve").pipe(
+		Flag.withDescription("Trust project-local pi config with --approve"),
+	),
+);
+
+const skillFlag = Flag.string("skill").pipe(
+	Flag.atMost(256),
+	Flag.withDescription("Override workflow resource skill paths"),
+);
+
+const promptTemplateFlag = Flag.string("prompt-template").pipe(
+	Flag.atMost(256),
+	Flag.withDescription("Override workflow prompt template paths"),
+);
+
+const noSkillsFlag = Flag.optional(
+	Flag.boolean("no-skills").pipe(
+		Flag.withDescription("Disable pi skill loading"),
+	),
+);
+
+const noPromptTemplatesFlag = Flag.optional(
+	Flag.boolean("no-prompt-templates").pipe(
+		Flag.withDescription("Disable pi prompt template loading"),
+	),
+);
+
+const noContextFilesFlag = Flag.optional(
+	Flag.boolean("no-context-files").pipe(
+		Flag.withDescription("Disable AGENTS.md/CLAUDE.md discovery"),
+	),
+);
+
+const systemPromptFlag = Flag.optional(
+	Flag.string("system-prompt").pipe(
+		Flag.withDescription("Override pi's inner system prompt"),
+	),
+);
+
+const appendSystemPromptFlag = Flag.string("append-system-prompt").pipe(
+	Flag.atMost(256),
+	Flag.withDescription("Append text or file contents to pi's system prompt"),
+);
+
+const isNonEmpty = <A>(values: readonly A[]) => values.length > 0;
+
+const makeAgentSessionOverrides = (options: {
+	readonly provider: Option.Option<string>;
+	readonly model: Option.Option<string>;
+	readonly apiKey: Option.Option<string>;
+	readonly thinking: Option.Option<
+		"off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+	>;
+	readonly tools: Option.Option<readonly string[]>;
+	readonly excludeTools: Option.Option<readonly string[]>;
+	readonly noTools: Option.Option<boolean>;
+	readonly noBuiltinTools: Option.Option<boolean>;
+	readonly projectConfig: Option.Option<boolean>;
+	readonly skills: readonly string[];
+	readonly promptTemplates: readonly string[];
+	readonly noSkills: Option.Option<boolean>;
+	readonly noPromptTemplates: Option.Option<boolean>;
+	readonly noContextFiles: Option.Option<boolean>;
+	readonly systemPrompt: Option.Option<string>;
+	readonly appendSystemPrompt: readonly string[];
+}): PlotAgentSessionCliOverrides | undefined => {
+	const provider = Option.getOrUndefined(options.provider);
+	const model = Option.getOrUndefined(options.model);
+	const apiKey = Option.getOrUndefined(options.apiKey);
+	const thinking = Option.getOrUndefined(options.thinking);
+	const tools = Option.getOrUndefined(options.tools);
+	const excludeTools = Option.getOrUndefined(options.excludeTools);
+	const noToolsFlagValue = Option.getOrUndefined(options.noTools);
+	const noBuiltinTools = Option.getOrUndefined(options.noBuiltinTools);
+	const projectConfig = Option.getOrUndefined(options.projectConfig);
+	const noSkills = Option.getOrUndefined(options.noSkills);
+	const noPromptTemplates = Option.getOrUndefined(options.noPromptTemplates);
+	const noContextFiles = Option.getOrUndefined(options.noContextFiles);
+	const systemPrompt = Option.getOrUndefined(options.systemPrompt);
+	const override = {
+		...(provider === undefined ? {} : { provider }),
+		...(model === undefined ? {} : { model }),
+		...(apiKey === undefined ? {} : { apiKey }),
+		...(thinking === undefined ? {} : { thinking }),
+		...(tools === undefined ? {} : { tools }),
+		...(excludeTools === undefined ? {} : { excludeTools }),
+		...(noToolsFlagValue === true ? { noTools: true } : {}),
+		...(noBuiltinTools === true ? { noTools: "builtin" as const } : {}),
+		...(projectConfig === undefined
+			? {}
+			: { allowProjectConfig: projectConfig }),
+		...(isNonEmpty(options.skills) ? { skills: options.skills } : {}),
+		...(isNonEmpty(options.promptTemplates)
+			? { prompts: options.promptTemplates }
+			: {}),
+		...(noSkills === true ? { noSkills: true } : {}),
+		...(noPromptTemplates === true ? { noPromptTemplates: true } : {}),
+		...(noContextFiles === true ? { contextFiles: false } : {}),
+		...(systemPrompt === undefined ? {} : { systemPrompt }),
+		...(isNonEmpty(options.appendSystemPrompt)
+			? { appendSystemPrompt: options.appendSystemPrompt }
+			: {}),
+	} satisfies PlotAgentSessionCliOverrides;
+	return Object.keys(override).length === 0 ? undefined : override;
+};
+
 const makeServeStdioCommand = (io: PlotCliIo) =>
 	Command.make(
 		"stdio",
@@ -145,6 +316,22 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 			replayCapacity: replayCapacityFlag,
 			tickIntervalMs: tickIntervalMsFlag,
 			maxRunDurationMs: maxRunDurationMsFlag,
+			provider: providerFlag,
+			model: modelFlag,
+			apiKey: apiKeyFlag,
+			thinking: thinkingFlag,
+			tools: toolsFlag,
+			excludeTools: excludeToolsFlag,
+			noTools: noToolsFlag,
+			noBuiltinTools: noBuiltinToolsFlag,
+			projectConfig: projectConfigFlag,
+			skills: skillFlag,
+			promptTemplates: promptTemplateFlag,
+			noSkills: noSkillsFlag,
+			noPromptTemplates: noPromptTemplatesFlag,
+			noContextFiles: noContextFilesFlag,
+			systemPrompt: systemPromptFlag,
+			appendSystemPrompt: appendSystemPromptFlag,
 		},
 		(options) => {
 			const plotDir = Option.getOrUndefined(options.plotDir);
@@ -157,6 +344,7 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 			const replayCapacity = Option.getOrUndefined(options.replayCapacity);
 			const tickIntervalMs = Option.getOrUndefined(options.tickIntervalMs);
 			const maxRunDurationMs = Option.getOrUndefined(options.maxRunDurationMs);
+			const agentSessionOverrides = makeAgentSessionOverrides(options);
 			return serveStdio({
 				workflowPath: options.workflowPath,
 				sessionId: options.sessionId,
@@ -171,6 +359,9 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 				...(replayCapacity === undefined ? {} : { replayCapacity }),
 				...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
 				...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
+				...(agentSessionOverrides === undefined
+					? {}
+					: { agentSessionOverrides }),
 				...(io.createAgentSession === undefined
 					? {}
 					: { createAgentSession: io.createAgentSession }),

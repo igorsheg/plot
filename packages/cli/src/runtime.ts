@@ -4,7 +4,10 @@ import type { WorkSource } from "@plot/agent/work-source";
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
 import { makeAgentSessionClientLayer } from "@plot/session/agent-session-client";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
-import { makePlotCreateAgentSession } from "@plot/session/pi-agent-session";
+import {
+	makePlotCreateAgentSession,
+	type PlotAgentSessionCliOverrides,
+} from "@plot/session/pi-agent-session";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
 import {
 	makePlotSessionLayer,
@@ -50,6 +53,7 @@ export interface ServeStdioOptions {
 	readonly replayCapacity?: number;
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
+	readonly agentSessionOverrides?: PlotAgentSessionCliOverrides;
 	readonly createAgentSession?: CreateAgentSession;
 	readonly stdin: AsyncIterable<StdioChunk>;
 	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
@@ -150,7 +154,13 @@ export const serveStdio = (
 			};
 			const createAgentSession =
 				options.createAgentSession ??
-				makePlotCreateAgentSession({ workflow, paths });
+				makePlotCreateAgentSession({
+					workflow,
+					paths,
+					...(options.agentSessionOverrides === undefined
+						? {}
+						: { overrides: options.agentSessionOverrides }),
+				});
 			const agentSessionClientLayer = makeAgentSessionClientLayer({
 				createAgentSession,
 			});
