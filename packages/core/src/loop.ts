@@ -30,7 +30,8 @@ import type {
 	WorkResult,
 	WorkRun,
 } from "./domain.js";
-import type { OrchestratorPolicy, WorkSource, WorkRunner } from "./source.js";
+import type { WorkRunner } from "./runner.js";
+import type { OrchestratorPolicy, WorkSource } from "./source.js";
 
 interface RuntimeState {
 	readonly tickId: Domain.TickId;
@@ -45,7 +46,7 @@ interface RuntimeState {
 type InternalMessage =
 	| OrchestratorMessage
 	| {
-			readonly type: "run_finished";
+			readonly type: "run_completed";
 			readonly run: WorkRun;
 			readonly completion: Completion;
 	  };
@@ -120,14 +121,14 @@ const hookDiagnostic = (
 const completionDiagnostic = (
 	completion: Completion,
 ): Diagnostic | undefined => {
-	if (completion.status !== "failed") return undefined;
+	if (completion.status === "succeeded") return undefined;
 	return {
-		level: "error",
+		level: completion.status === "interrupted" ? "warning" : "error",
 		phase: "act",
 		sourceId: completion.sourceId,
 		runId: completion.runId,
 		workKey: completion.workKey,
-		message: completion.error ?? "work run failed",
+		message: completion.error ?? `work run ${completion.status}`,
 	};
 };
 
@@ -149,7 +150,7 @@ const drainMessages = (
 	for (const message of messages) {
 		if (message.type === "observation") {
 			observations.push(message.observation);
-		} else if (message.type === "run_finished") {
+		} else if (message.type === "run_completed") {
 			completions.push({ run: message.run, completion: message.completion });
 		} else if (message.type === "shutdown") {
 			shutdownRequested = true;
@@ -185,6 +186,23 @@ const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
 		completions.push(item.completion);
 		const diagnostic = completionDiagnostic(item.completion);
 		if (diagnostic) diagnostics.push(diagnostic);
+	}
+
+	if (drained.shutdownRequested) {
+		for (const run of running.values()) {
+			const completion: Completion = {
+				runId: run.runId,
+				sourceId: run.sourceId,
+				workKey: run.workKey,
+				status: "interrupted",
+				...optionalSubject(run.subject),
+				error: "work run interrupted by orchestrator shutdown",
+			};
+			running.delete(run.workKey);
+			completions.push(completion);
+			const diagnostic = completionDiagnostic(completion);
+			if (diagnostic) diagnostics.push(diagnostic);
+		}
 	}
 
 	const next = {
@@ -327,6 +345,18 @@ const executeWorkRun = (
 			tick_id: snapshot.tickId,
 			...optionalSubject(run.subject),
 		};
+		const emitObservation = (observation: Observation) => {
+			const withSubject =
+				observation.subject === undefined && run.subject !== undefined
+					? { ...observation, subject: run.subject }
+					: observation;
+			return Schema.decodeUnknownEffect(Domain.Observation)(withSubject).pipe(
+				Effect.flatMap((decoded) =>
+					Queue.offer(mailbox, { type: "observation", observation: decoded }),
+				),
+				Effect.catch(() => Effect.succeed(false)),
+			);
+		};
 		const exit = yield* Effect.exit(
 			runner
 				.run({
@@ -335,6 +365,7 @@ const executeWorkRun = (
 					run,
 					work: selection.work,
 					snapshot,
+					emitObservation,
 				})
 				.pipe(Effect.flatMap(decodeWorkResult)),
 		);
@@ -348,18 +379,20 @@ const executeWorkRun = (
 				duration_ms,
 			});
 			yield* Queue.offer(mailbox, {
-				type: "run_finished",
+				type: "run_completed",
 				run,
 				completion,
 			});
 			return;
 		}
-		const error = Cause.pretty(exit.cause);
+		const cause = exit.cause;
+		const interrupted = Cause.hasInterrupts(cause);
+		const error = interrupted ? "work run interrupted" : Cause.pretty(cause);
 		const completion: Completion = {
 			runId: run.runId,
 			sourceId: run.sourceId,
 			workKey: run.workKey,
-			status: "failed",
+			status: interrupted ? "interrupted" : "failed",
 			...optionalSubject(run.subject),
 			error,
 		};
@@ -367,14 +400,14 @@ const executeWorkRun = (
 			{
 				...fields,
 				outcome: "error",
-				status: "failed",
+				status: completion.status,
 				error,
 				duration_ms,
 			},
 			"error",
 		);
 		yield* Queue.offer(mailbox, {
-			type: "run_finished",
+			type: "run_completed",
 			run,
 			completion,
 		});

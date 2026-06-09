@@ -6,6 +6,7 @@
 		"./domain": "./src/domain.ts",
 		"./llm": "./src/llm.ts",
 		"./loop": "./src/loop.ts",
+		"./runner": "./src/runner.ts",
 		"./source": "./src/source.ts"
 	},
 	"scripts": {

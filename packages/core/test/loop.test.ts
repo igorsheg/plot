@@ -8,7 +8,8 @@ import {
 	workKey,
 } from "../src/domain.js";
 import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
-import type { WorkSource, WorkRunner } from "../src/source.js";
+import type { WorkRunner } from "../src/runner.js";
+import type { WorkSource } from "../src/source.js";
 
 const succeedRunner = (calls: string[] = []): WorkRunner => ({
 	run: ({ work }) =>
@@ -132,7 +133,7 @@ describe("task-agnostic Plot loop", () => {
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				const first = yield* orchestrator.tickOnce();
-				yield* Deferred.succeed(release, "finished");
+				yield* Deferred.succeed(release, "done");
 				yield* Effect.yieldNow;
 				const second = yield* orchestrator.tickOnce();
 				return { first, second };
@@ -146,9 +147,52 @@ describe("task-agnostic Plot loop", () => {
 			expect.objectContaining({
 				status: "succeeded",
 				workKey: key,
-				output: "finished",
+				output: "done",
 			}),
 		);
+	});
+
+	test("runner observations reenter the mailbox for source reconciliation", async () => {
+		const subject = subjectKey("agent:turn:1");
+		const key = workKey("agent:turn:1");
+		const source: WorkSource = {
+			id: sourceId("agent-source"),
+			reconcile: ({ snapshot }) =>
+				Effect.succeed(
+					snapshot.observations.map((observation) =>
+						setFact(
+							`runner:${observation.subject ?? "unknown"}`,
+							observation.data,
+						),
+					),
+				),
+			selectWork: ({ snapshot }) =>
+				snapshot.facts.has("runner:agent:turn:1")
+					? Effect.succeed([])
+					: Effect.succeed([{ workKey: key, subject }]),
+		};
+		const runner: WorkRunner = {
+			run: ({ emitObservation }) =>
+				emitObservation({
+					type: "runner.progress",
+					data: { tokens: 12 },
+				}).pipe(Effect.as({})),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.tickOnce();
+				yield* Effect.yieldNow;
+				return yield* orchestrator.tickOnce();
+			}),
+			runner,
+		);
+
+		expect(result.snapshot.facts.get("runner:agent:turn:1")).toEqual({
+			tokens: 12,
+		});
 	});
 
 	test("actor run consumes queued wake sources and owns the loop", async () => {
@@ -309,6 +353,50 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.second.started).toHaveLength(1);
 		expect(result.third.completions).toHaveLength(1);
 		expect(result.third.started).toHaveLength(1);
+	});
+
+	test("shutdown interrupts active runner work and clears running claims", async () => {
+		const started = Deferred.makeUnsafe<void>();
+		const interrupted = Deferred.makeUnsafe<void>();
+		const key = workKey("shutdown:1");
+		const source: WorkSource = {
+			id: sourceId("shutdown-source"),
+			reconcile: ({ snapshot }) =>
+				Effect.succeed(
+					snapshot.completions.map((completion) =>
+						setFact(`completion:${completion.workKey}`, completion.status),
+					),
+				),
+			selectWork: () => Effect.succeed([{ workKey: key }]),
+		};
+		const runner: WorkRunner = {
+			run: () =>
+				Effect.gen(function* () {
+					yield* Deferred.succeed(started, undefined);
+					return yield* Effect.never;
+				}).pipe(Effect.ensuring(Deferred.succeed(interrupted, undefined))),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.start();
+				yield* orchestrator.offer({ type: "tick" });
+				yield* Deferred.await(started);
+				yield* Effect.yieldNow;
+				const before = yield* orchestrator.snapshot();
+				yield* orchestrator.shutdown();
+				yield* Deferred.await(interrupted);
+				const after = yield* orchestrator.snapshot();
+				return { before, after };
+			}),
+			runner,
+		);
+
+		expect(result.before.running.has(key)).toBe(true);
+		expect(result.after.running.has(key)).toBe(false);
+		expect(result.after.facts.get("completion:shutdown:1")).toBe("interrupted");
 	});
 
 	test("failed runner work becomes a completion and diagnostic", async () => {

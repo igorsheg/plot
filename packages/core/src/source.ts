@@ -7,8 +7,6 @@ import type {
 	RuntimeSnapshot,
 	TickId,
 	WorkItem,
-	WorkResult,
-	WorkRun,
 } from "./domain.js";
 
 export interface PhaseContext {
@@ -28,20 +26,6 @@ export interface WorkSource {
 	readonly selectWork?: (
 		context: PhaseContext,
 	) => Effect.Effect<readonly WorkItem[], unknown>;
-}
-
-export interface WorkRunnerContext {
-	readonly sourceId: SourceId;
-	readonly tickId: TickId;
-	readonly run: WorkRun;
-	readonly work: WorkItem;
-	readonly snapshot: RuntimeSnapshot;
-}
-
-export interface WorkRunner {
-	readonly run: (
-		context: WorkRunnerContext,
-	) => Effect.Effect<WorkResult, unknown>;
 }
 
 export interface OrchestratorPolicy {

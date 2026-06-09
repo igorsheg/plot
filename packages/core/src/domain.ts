@@ -119,7 +119,11 @@ export const WorkResult = Schema.Struct({
 });
 export type WorkResult = typeof WorkResult.Type;
 
-export const CompletionStatus = Schema.Literals(["succeeded", "failed"]);
+export const CompletionStatus = Schema.Literals([
+	"succeeded",
+	"failed",
+	"interrupted",
+]);
 export type CompletionStatus = typeof CompletionStatus.Type;
 
 export const Completion = Schema.Struct({
