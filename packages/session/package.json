@@ -3,6 +3,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./agent-session-client": "./src/agent-session-client.ts",
 		"./plot-session": "./src/plot-session.ts",
 		"./protocol": "./src/protocol.ts",
 		"./protocol-handler": "./src/protocol-handler.ts",
