@@ -56,6 +56,30 @@ describe("plot CLI", () => {
 		);
 	});
 
+	test("prints auth providers as a JSON command envelope", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-cli-auth-"));
+		tempDirs.push(dir);
+		const stdout: string[] = [];
+
+		await Effect.runPromise(
+			runPlotCli(["auth", "providers", "--cwd", dir], {
+				stdin: chunks([]),
+				writeStdout: (line) => Effect.sync(() => stdout.push(line)),
+			}).pipe(Effect.provide(BunServices.layer)),
+		);
+
+		const record = JSON.parse(stdout.join("")) as {
+			readonly ok: boolean;
+			readonly command: string;
+			readonly result: readonly { readonly id: string }[];
+		};
+		expect(record.ok).toBe(true);
+		expect(record.command).toBe("auth providers");
+		expect(record.result.some((provider) => provider.id === "anthropic")).toBe(
+			true,
+		);
+	});
+
 	test("serves plot.v1 over stdio with telemetry on stderr", async () => {
 		const workflowPath = await makeWorkflowFile();
 		const captured = await captureConsole(async () => {

@@ -5,17 +5,26 @@ import {
 	Layer,
 	PubSub,
 	Queue,
+	Ref,
 	Schema,
 	Scope,
 	Stream,
 	type Exit,
 } from "effect";
 import { withWideEvent } from "@plot/common/observability";
-import { PlotSession, type PlotSessionShape } from "./plot-session.js";
 import {
+	PlotSession,
+	plotSessionEventSequence,
+	type PlotSessionShape,
+} from "./plot-session.js";
+import type { PlotAuthShape } from "./pi-auth.js";
+import {
+	AuthLoginParams,
+	AuthProviderParams,
+	AuthStatusParams,
 	type PlotClientRecord,
 	type PlotCommand,
-	type PlotEventRecord,
+	PlotEventRecord,
 	PlotHelloRecord,
 	type PlotProtocolEpoch,
 	PlotProtocolFailure,
@@ -25,7 +34,6 @@ import {
 	SubscribeParams,
 	defaultPlotProtocolLimits,
 	makePlotErrorResponse,
-	makePlotEventRecord,
 	makePlotSuccessResponse,
 	plotProtocolEpoch,
 	plotProtocolSequence,
@@ -37,6 +45,7 @@ export interface PlotProtocolLayerOptions {
 	readonly limits?: PlotProtocolLimits;
 	readonly capabilities?: readonly string[];
 	readonly outputCapacity?: number;
+	readonly auth?: PlotAuthShape;
 }
 
 export interface PlotProtocolShape {
@@ -64,6 +73,45 @@ const decodeSubscribeParams = (
 	value: unknown,
 ): Effect.Effect<SubscribeParams, PlotProtocolFailure> =>
 	Schema.decodeUnknownEffect(SubscribeParams)(value ?? {}).pipe(
+		Effect.mapError(
+			(error) =>
+				new PlotProtocolFailure({
+					code: "invalid_request",
+					message: error.message,
+				}),
+		),
+	);
+
+const decodeAuthProviderParams = (
+	value: unknown,
+): Effect.Effect<AuthProviderParams, PlotProtocolFailure> =>
+	Schema.decodeUnknownEffect(AuthProviderParams)(value ?? {}).pipe(
+		Effect.mapError(
+			(error) =>
+				new PlotProtocolFailure({
+					code: "invalid_request",
+					message: error.message,
+				}),
+		),
+	);
+
+const decodeAuthStatusParams = (
+	value: unknown,
+): Effect.Effect<AuthStatusParams, PlotProtocolFailure> =>
+	Schema.decodeUnknownEffect(AuthStatusParams)(value ?? {}).pipe(
+		Effect.mapError(
+			(error) =>
+				new PlotProtocolFailure({
+					code: "invalid_request",
+					message: error.message,
+				}),
+		),
+	);
+
+const decodeAuthLoginParams = (
+	value: unknown,
+): Effect.Effect<AuthLoginParams, PlotProtocolFailure> =>
+	Schema.decodeUnknownEffect(AuthLoginParams)(value ?? {}).pipe(
 		Effect.mapError(
 			(error) =>
 				new PlotProtocolFailure({
@@ -135,10 +183,41 @@ export const makePlotProtocolLayer = (
 			);
 
 			const publishOutput = publish(output);
+			const sequenceRef = yield* Ref.make(0);
+			const lastSessionSequenceRef = yield* Ref.make(0);
+			const nextProtocolSequence = Ref.updateAndGet(
+				sequenceRef,
+				(sequence) => sequence + 1,
+			).pipe(Effect.map(plotSessionEventSequence));
+			const appendAndPublishEvent = (event: unknown) =>
+				Effect.gen(function* () {
+					const sequence = yield* nextProtocolSequence;
+					const record = new PlotEventRecord({
+						protocol: "plot.v1",
+						kind: "event",
+						sessionId: session.id,
+						epoch,
+						sequence,
+						event,
+					});
+					yield* replay.append(record);
+					yield* publishOutput(record);
+				});
+			const publishAuthEvent = (type: string, payload: unknown) =>
+				appendAndPublishEvent({
+					type,
+					source: "plot_auth",
+					payload,
+				});
 			const waitForSessionFrontier = Effect.gen(function* () {
 				const frontier = yield* currentSessionSequence(session);
-				yield* replay.waitUntil(frontier);
-				return frontier;
+				const target = Number(frontier);
+				while (true) {
+					const seen = yield* Ref.get(lastSessionSequenceRef);
+					if (seen >= target) break;
+					yield* Effect.yieldNow;
+				}
+				return yield* replay.lastSequence();
 			});
 			const mapUnknownError = (error: unknown) => {
 				if (error instanceof PlotProtocolFailure) return error;
@@ -154,7 +233,7 @@ export const makePlotProtocolLayer = (
 				const command: PlotCommand = request.command;
 				switch (command) {
 					case "ping": {
-						const lastEventSeq = yield* currentSessionSequence(session);
+						const lastEventSeq = yield* replay.lastSequence();
 						return [
 							makeSuccessForRequest({
 								request,
@@ -185,7 +264,7 @@ export const makePlotProtocolLayer = (
 						const snapshot = yield* session
 							.snapshot()
 							.pipe(Effect.mapError(mapUnknownError));
-						const lastEventSeq = yield* currentSessionSequence(session);
+						const lastEventSeq = yield* replay.lastSequence();
 						return [
 							makeSuccessForRequest({
 								request,
@@ -222,6 +301,134 @@ export const makePlotProtocolLayer = (
 							}),
 						];
 					}
+					case "auth_providers": {
+						if (options.auth === undefined) {
+							return yield* new PlotProtocolFailure({
+								code: "auth_unavailable",
+								message: "auth service is not configured",
+							});
+						}
+						const providers = yield* Effect.tryPromise({
+							try: () => options.auth?.providers() ?? Promise.resolve([]),
+							catch: mapUnknownError,
+						});
+						const lastEventSeq = yield* replay.lastSequence();
+						return [
+							makeSuccessForRequest({
+								request,
+								lastEventSeq,
+								data: { providers },
+							}),
+						];
+					}
+					case "auth_status": {
+						if (options.auth === undefined) {
+							return yield* new PlotProtocolFailure({
+								code: "auth_unavailable",
+								message: "auth service is not configured",
+							});
+						}
+						const params = yield* decodeAuthStatusParams(request.params);
+						const status = yield* Effect.tryPromise({
+							try: () =>
+								options.auth?.status(params.provider) ?? Promise.resolve([]),
+							catch: mapUnknownError,
+						});
+						const lastEventSeq = yield* replay.lastSequence();
+						return [
+							makeSuccessForRequest({
+								request,
+								lastEventSeq,
+								data: { status },
+							}),
+						];
+					}
+					case "auth_login": {
+						if (options.auth === undefined) {
+							return yield* new PlotProtocolFailure({
+								code: "auth_unavailable",
+								message: "auth service is not configured",
+							});
+						}
+						const params = yield* decodeAuthLoginParams(request.params);
+						yield* publishAuthEvent("auth_login_started", {
+							provider: params.provider,
+						});
+						yield* Effect.tryPromise({
+							try: () =>
+								options.auth?.login({
+									provider: params.provider,
+									...(params.promptResponses === undefined
+										? {}
+										: { promptResponses: params.promptResponses }),
+									...(params.selectResponse === undefined
+										? {}
+										: { selectResponse: params.selectResponse }),
+									...(params.manualCode === undefined
+										? {}
+										: { manualCode: params.manualCode }),
+									events: {
+										auth: (info) =>
+											Effect.runSync(publishAuthEvent("auth_open_url", info)),
+										deviceCode: (info) =>
+											Effect.runSync(
+												publishAuthEvent("auth_device_code", info),
+											),
+										prompt: (prompt) =>
+											Effect.runSync(publishAuthEvent("auth_prompt", prompt)),
+										select: (prompt) =>
+											Effect.runSync(publishAuthEvent("auth_select", prompt)),
+										progress: (message) =>
+											Effect.runSync(
+												publishAuthEvent("auth_progress", { message }),
+											),
+									},
+								}) ?? Promise.resolve(),
+							catch: (error) => {
+								const message = errorMessage(error);
+								if (message.includes("requires prompt input")) {
+									return new PlotProtocolFailure({
+										code: "auth_input_required",
+										message,
+									});
+								}
+								return mapUnknownError(error);
+							},
+						});
+						yield* publishAuthEvent("auth_login_succeeded", {
+							provider: params.provider,
+						});
+						const lastEventSeq = yield* replay.lastSequence();
+						return [
+							makeSuccessForRequest({
+								request,
+								lastEventSeq,
+								data: { provider: params.provider, loggedIn: true },
+							}),
+						];
+					}
+					case "auth_logout": {
+						if (options.auth === undefined) {
+							return yield* new PlotProtocolFailure({
+								code: "auth_unavailable",
+								message: "auth service is not configured",
+							});
+						}
+						const params = yield* decodeAuthProviderParams(request.params);
+						yield* Effect.tryPromise({
+							try: () =>
+								options.auth?.logout(params.provider) ?? Promise.resolve(),
+							catch: mapUnknownError,
+						});
+						const lastEventSeq = yield* replay.lastSequence();
+						return [
+							makeSuccessForRequest({
+								request,
+								lastEventSeq,
+								data: { provider: params.provider, loggedOut: true },
+							}),
+						];
+					}
 					case "submit_observation":
 						return yield* new PlotProtocolFailure({
 							code: "invalid_request",
@@ -247,12 +454,13 @@ export const makePlotProtocolLayer = (
 			);
 
 			yield* session.events().pipe(
-				Stream.runForEach((event) => {
-					const record: PlotEventRecord = makePlotEventRecord(epoch, event);
-					return replay
-						.append(record)
-						.pipe(Effect.andThen(publishOutput(record)));
-				}),
+				Stream.runForEach((event) =>
+					appendAndPublishEvent(event).pipe(
+						Effect.andThen(
+							Ref.set(lastSessionSequenceRef, Number(event.sequence)),
+						),
+					),
+				),
 				Effect.forkIn(protocolScope, { startImmediately: true }),
 				Effect.asVoid,
 			);

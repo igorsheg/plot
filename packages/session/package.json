@@ -7,6 +7,7 @@
 		"./agent-session-types": "./src/agent-session-types.ts",
 		"./extension": "./src/extension.ts",
 		"./pi-agent-session": "./src/pi-agent-session.ts",
+		"./pi-auth": "./src/pi-auth.ts",
 		"./plot-paths": "./src/plot-paths.ts",
 		"./plot-session": "./src/plot-session.ts",
 		"./protocol": "./src/protocol.ts",

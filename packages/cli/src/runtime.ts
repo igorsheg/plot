@@ -8,6 +8,7 @@ import {
 	makePlotCreateAgentSession,
 	type PlotAgentSessionCliOverrides,
 } from "@plot/session/pi-agent-session";
+import { makePlotAuth } from "@plot/session/pi-auth";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
 import {
 	makePlotSessionLayer,
@@ -180,6 +181,7 @@ export const serveStdio = (
 				epoch: plotProtocolEpoch(options.sessionId),
 				limits,
 				outputCapacity: requestQueueCapacity,
+				auth: makePlotAuth(paths),
 			}).pipe(Layer.provide(sessionLayer));
 
 			yield* runPlotProtocolStdio({

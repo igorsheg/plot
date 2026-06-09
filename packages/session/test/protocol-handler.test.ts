@@ -4,6 +4,7 @@ import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makePlotSessionLayer } from "../src/plot-session.js";
+import type { PlotAuthShape } from "../src/pi-auth.js";
 import {
 	PlotClientRequestRecord,
 	plotProtocolEpoch,
@@ -35,7 +36,7 @@ const request = (
 		...(params === undefined ? {} : { params }),
 	});
 
-const testLayer = () => {
+const testLayer = (options: { readonly auth?: PlotAuthShape } = {}) => {
 	const source: WorkSource = {
 		id: sourceId("protocol-source"),
 		selectWork: () => Effect.succeed([{ workKey: workKey("protocol:1") }]),
@@ -43,12 +44,40 @@ const testLayer = () => {
 	const runner: WorkRunner = {
 		run: () => Effect.succeed({}),
 	};
-	return makePlotProtocolLayer({ epoch: plotProtocolEpoch("epoch-1") }).pipe(
+	return makePlotProtocolLayer({
+		epoch: plotProtocolEpoch("epoch-1"),
+		...(options.auth === undefined ? {} : { auth: options.auth }),
+	}).pipe(
 		Layer.provide(
 			makePlotSessionLayer({ workflow, sources: [source], runner }),
 		),
 	);
 };
+
+const fakeAuth = (): PlotAuthShape => ({
+	providers: async () => [
+		{
+			id: "fake-oauth",
+			name: "Fake OAuth",
+			usesCallbackServer: false,
+			configured: false,
+		},
+	],
+	status: async (provider) => [
+		{
+			provider: provider ?? "fake-oauth",
+			configured: provider === "fake-oauth",
+			source: "stored",
+		},
+	],
+	login: async (options) => {
+		options.events?.deviceCode?.({
+			userCode: "ABCD-1234",
+			verificationUri: "https://example.test/device",
+		});
+	},
+	logout: async () => {},
+});
 
 describe("PlotProtocol handler", () => {
 	test("returns hello with current replay frontier", async () => {
@@ -99,6 +128,93 @@ describe("PlotProtocol handler", () => {
 				command: "tick_once",
 				ok: true,
 				lastEventSeq: plotProtocolSequence(3),
+			}),
+		);
+	});
+
+	test("serves auth provider/status commands through protocol responses", async () => {
+		const records = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const protocol = yield* PlotProtocol;
+					const fiber = yield* protocol
+						.output()
+						.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
+					yield* Effect.yieldNow;
+					yield* protocol.submit(request("req-1", "auth_providers"));
+					yield* protocol.submit(
+						request("req-2", "auth_status", { provider: "fake-oauth" }),
+					);
+					return yield* Fiber.join(fiber);
+				}),
+			).pipe(Effect.provide(testLayer({ auth: fakeAuth() }))),
+		);
+
+		expect(records[0]).toEqual(
+			expect.objectContaining({
+				kind: "response",
+				command: "auth_providers",
+				ok: true,
+				data: {
+					providers: [expect.objectContaining({ id: "fake-oauth" })],
+				},
+			}),
+		);
+		expect(records[1]).toEqual(
+			expect.objectContaining({
+				kind: "response",
+				command: "auth_status",
+				ok: true,
+				data: {
+					status: [
+						expect.objectContaining({
+							provider: "fake-oauth",
+							configured: true,
+						}),
+					],
+				},
+			}),
+		);
+	});
+
+	test("emits auth login protocol events before auth response", async () => {
+		const records = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const protocol = yield* PlotProtocol;
+					const fiber = yield* protocol
+						.output()
+						.pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped);
+					yield* Effect.yieldNow;
+					yield* protocol.submit(
+						request("req-1", "auth_login", { provider: "fake-oauth" }),
+					);
+					return yield* Fiber.join(fiber);
+				}),
+			).pipe(Effect.provide(testLayer({ auth: fakeAuth() }))),
+		);
+
+		expect(records.map((record) => record.kind)).toEqual([
+			"event",
+			"event",
+			"event",
+		]);
+		expect(records[0]).toEqual(
+			expect.objectContaining({
+				kind: "event",
+				event: expect.objectContaining({ type: "auth_login_started" }),
+			}),
+		);
+		expect(records[1]).toEqual(
+			expect.objectContaining({
+				kind: "event",
+				event: expect.objectContaining({ type: "auth_device_code" }),
+			}),
+		);
+		expect(records[2]).toEqual(
+			expect.objectContaining({
+				kind: "event",
+				event: expect.objectContaining({ type: "auth_login_succeeded" }),
 			}),
 		);
 	});

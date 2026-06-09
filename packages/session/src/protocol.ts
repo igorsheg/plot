@@ -41,6 +41,10 @@ export const PlotCommand = Schema.Literals([
 	"subscribe",
 	"shutdown",
 	"ping",
+	"auth_providers",
+	"auth_status",
+	"auth_login",
+	"auth_logout",
 ]);
 export type PlotCommand = typeof PlotCommand.Type;
 
@@ -57,6 +61,8 @@ export const PlotProtocolErrorCode = Schema.Literals([
 	"tick_in_progress",
 	"cursor_expired",
 	"snapshot_unavailable",
+	"auth_unavailable",
+	"auth_input_required",
 	"internal_error",
 ]);
 export type PlotProtocolErrorCode = typeof PlotProtocolErrorCode.Type;
@@ -104,6 +110,27 @@ export class SubmitObservationParams extends Schema.Class<SubmitObservationParam
 	"SubmitObservationParams",
 )({
 	observation: Domain.Observation,
+}) {}
+
+export class AuthProviderParams extends Schema.Class<AuthProviderParams>(
+	"AuthProviderParams",
+)({
+	provider: Schema.NonEmptyString,
+}) {}
+
+export class AuthStatusParams extends Schema.Class<AuthStatusParams>(
+	"AuthStatusParams",
+)({
+	provider: Schema.optionalKey(Schema.NonEmptyString),
+}) {}
+
+export class AuthLoginParams extends Schema.Class<AuthLoginParams>(
+	"AuthLoginParams",
+)({
+	provider: Schema.NonEmptyString,
+	promptResponses: Schema.optionalKey(Schema.Array(Schema.String)),
+	selectResponse: Schema.optionalKey(Schema.String),
+	manualCode: Schema.optionalKey(Schema.String),
 }) {}
 
 export class PlotClientRequestRecord extends Schema.Class<PlotClientRequestRecord>(

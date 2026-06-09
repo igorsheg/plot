@@ -1,6 +1,9 @@
+import { createInterface } from "node:readline/promises";
 import { Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
+import { makePlotAuth } from "@plot/session/pi-auth";
+import { resolvePlotPaths } from "@plot/session/plot-paths";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
 import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
@@ -37,6 +40,79 @@ export const processCliIo = (): PlotCliIo => ({
 	stdin: process.stdin as AsyncIterable<StdioChunk>,
 	writeStdout: writeProcessStdout,
 });
+
+const writeProcessStderr = (text: string) =>
+	Effect.tryPromise({
+		try: () =>
+			new Promise<void>((resolve, reject) => {
+				process.stderr.write(text, (error?: Error | null) => {
+					if (error) reject(error);
+					else resolve();
+				});
+			}),
+		catch: (error) => new PlotCliIoError({ message: errorMessage(error) }),
+	});
+
+const nowIso = () => new Date().toISOString();
+
+const jsonLine = (value: unknown) => `${JSON.stringify(value)}\n`;
+
+const commandEnvelope = (options: {
+	readonly command: string;
+	readonly result: unknown;
+	readonly nextActions?: readonly unknown[];
+}) => ({
+	ok: true,
+	command: options.command,
+	timestamp: nowIso(),
+	result: options.result,
+	next_actions: options.nextActions ?? [],
+});
+
+const errorEnvelope = (options: {
+	readonly command: string;
+	readonly error: unknown;
+	readonly fix: string;
+	readonly retryable?: boolean;
+}) => ({
+	ok: false,
+	command: options.command,
+	timestamp: nowIso(),
+	error: {
+		message: errorMessage(options.error),
+		retryable: options.retryable ?? false,
+	},
+	fix: options.fix,
+	next_actions: [],
+});
+
+const outputJsonCommand = (
+	io: PlotCliIo,
+	command: string,
+	effect: Effect.Effect<unknown, unknown>,
+	fix: string,
+) =>
+	effect.pipe(
+		Effect.map((result) => commandEnvelope({ command, result })),
+		Effect.catch((error) =>
+			Effect.succeed(errorEnvelope({ command, error, fix })),
+		),
+		Effect.flatMap((record) => io.writeStdout(jsonLine(record))),
+	);
+
+const authPromise = <A>(run: () => Promise<A>) =>
+	Effect.tryPromise({
+		try: run,
+		catch: (error) => new PlotCliIoError({ message: errorMessage(error) }),
+	});
+
+const readPrompt = (message: string): Promise<string> => {
+	const readline = createInterface({
+		input: process.stdin,
+		output: process.stderr,
+	});
+	return readline.question(`${message} `).finally(() => readline.close());
+};
 
 const workflowFlag = Flag.string("workflow").pipe(
 	Flag.withDefault("WORKFLOW.md"),
@@ -299,6 +375,151 @@ const makeAgentSessionOverrides = (options: {
 	return Object.keys(override).length === 0 ? undefined : override;
 };
 
+const makeAuth = (options: {
+	readonly cwd: string;
+	readonly plotDir: Option.Option<string>;
+	readonly agentDir: Option.Option<string>;
+}) =>
+	makePlotAuth(
+		resolvePlotPaths({
+			cwd: options.cwd,
+			...(Option.isNone(options.plotDir)
+				? {}
+				: { plotDir: options.plotDir.value }),
+			...(Option.isNone(options.agentDir)
+				? {}
+				: { agentDir: options.agentDir.value }),
+		}),
+	);
+
+const makeAuthProvidersCommand = (io: PlotCliIo) =>
+	Command.make(
+		"providers",
+		{ cwd: cwdFlag, plotDir: plotDirFlag, agentDir: agentDirFlag },
+		(options) =>
+			outputJsonCommand(
+				io,
+				"auth providers",
+				authPromise(() => makeAuth(options).providers()),
+				"Check --plot-dir/--agent-dir and models.json/auth.json permissions.",
+			),
+	).pipe(Command.withDescription("List OAuth/auth providers known to Plot"));
+
+const makeAuthStatusCommand = (io: PlotCliIo) =>
+	Command.make(
+		"status",
+		{
+			cwd: cwdFlag,
+			plotDir: plotDirFlag,
+			agentDir: agentDirFlag,
+			provider: Flag.optional(Flag.string("provider")),
+		},
+		(options) => {
+			const provider = Option.getOrUndefined(options.provider);
+			return outputJsonCommand(
+				io,
+				"auth status",
+				authPromise(() => makeAuth(options).status(provider)),
+				"Pass --provider <provider> or run `plot auth providers`.",
+			);
+		},
+	).pipe(Command.withDescription("Show configured auth without secrets"));
+
+const makeAuthLogoutCommand = (io: PlotCliIo) =>
+	Command.make(
+		"logout",
+		{
+			cwd: cwdFlag,
+			plotDir: plotDirFlag,
+			agentDir: agentDirFlag,
+			provider: Flag.string("provider"),
+		},
+		(options) =>
+			outputJsonCommand(
+				io,
+				"auth logout",
+				authPromise(() => makeAuth(options).logout(options.provider)).pipe(
+					Effect.as({ provider: options.provider, logged_out: true }),
+				),
+				"Pass a valid --provider from `plot auth providers`.",
+			),
+	).pipe(Command.withDescription("Remove stored auth for a provider"));
+
+const makeAuthLoginCommand = (io: PlotCliIo) =>
+	Command.make(
+		"login",
+		{
+			cwd: cwdFlag,
+			plotDir: plotDirFlag,
+			agentDir: agentDirFlag,
+			provider: Flag.string("provider"),
+		},
+		(options) => {
+			const auth = makeAuth(options);
+			return outputJsonCommand(
+				io,
+				"auth login",
+				authPromise(() =>
+					auth.login({
+						provider: options.provider,
+						events: {
+							auth: (info) => {
+								void Effect.runPromise(
+									writeProcessStderr(
+										`Open URL: ${info.url}\n${info.instructions ?? ""}\n`,
+									),
+								);
+							},
+							deviceCode: (info) => {
+								void Effect.runPromise(
+									writeProcessStderr(
+										`Open ${info.verificationUri} and enter ${info.userCode}\n`,
+									),
+								);
+							},
+							prompt: (prompt) => {
+								void Effect.runPromise(
+									writeProcessStderr(`${prompt.message}\n`),
+								);
+							},
+							select: (prompt) => {
+								void Effect.runPromise(
+									writeProcessStderr(
+										`${prompt.message}: ${prompt.options
+											.map((option) => option.label)
+											.join(", ")}\n`,
+									),
+								);
+							},
+							progress: (message) => {
+								void Effect.runPromise(writeProcessStderr(`${message}\n`));
+							},
+						},
+						promptInput: (prompt) => readPrompt(prompt.message),
+						manualCodeInput: () =>
+							readPrompt("Paste the authorization code or redirect URL:"),
+						selectInput: async (prompt) => {
+							const answer = await readPrompt(prompt.message);
+							return answer.trim() || prompt.options[0]?.id;
+						},
+					}),
+				).pipe(Effect.as({ provider: options.provider, logged_in: true })),
+				"Run in an interactive terminal or use the protocol auth_login command with promptResponses.",
+			);
+		},
+	).pipe(Command.withDescription("Run pi-native OAuth login for a provider"));
+
+const makeAuthCommand = (io: PlotCliIo) =>
+	Command.make("auth").pipe(
+		Command.withDescription("Manage pi-native Plot auth state"),
+		Command.withSubcommands([
+			makeAuthProvidersCommand(io),
+			makeAuthStatusCommand(io),
+			makeAuthLoginCommand(io),
+			makeAuthLogoutCommand(io),
+		]),
+	);
+
 const makeServeStdioCommand = (io: PlotCliIo) =>
 	Command.make(
 		"stdio",
@@ -383,7 +604,7 @@ export const makePlotCommand = (io: PlotCliIo = processCliIo()) => {
 
 	return Command.make("plot").pipe(
 		Command.withDescription("Autonomous Plot runtime"),
-		Command.withSubcommands([serve]),
+		Command.withSubcommands([serve, makeAuthCommand(io)]),
 	);
 };
 
