@@ -4,6 +4,7 @@ import {
 	Context,
 	Effect,
 	Exit,
+	Fiber,
 	Layer,
 	Option,
 	Queue,
@@ -18,6 +19,7 @@ import type {
 	Completion,
 	Diagnostic,
 	HookPhase,
+	InterruptWorkProposal,
 	Observation,
 	OrchestratorMessage,
 	SourceId,
@@ -63,6 +65,11 @@ interface DrainedMessages {
 interface WorkSelection {
 	readonly source: WorkSource;
 	readonly work: WorkItem;
+}
+
+interface RunHandle {
+	readonly run: WorkRun;
+	readonly fiber: Fiber.Fiber<void>;
 }
 
 export interface OrchestratorShape {
@@ -159,7 +166,7 @@ const drainMessages = (
 	return { observations, completions, shutdownRequested };
 };
 
-const applyProposals = (
+const applyFactProposals = (
 	facts: ReadonlyMap<string, unknown>,
 	proposals: readonly ReconcileProposal[],
 ): ReadonlyMap<string, unknown> => {
@@ -167,7 +174,7 @@ const applyProposals = (
 	for (const proposal of proposals) {
 		if (proposal.type === "set_fact") {
 			next.set(proposal.key, proposal.value);
-		} else {
+		} else if (proposal.type === "remove_fact") {
 			next.delete(proposal.key);
 		}
 	}
@@ -187,6 +194,7 @@ const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
 		const diagnostic = completionDiagnostic(item.completion);
 		if (diagnostic) diagnostics.push(diagnostic);
 	}
+	const completedRuns = drained.completions.map((item) => item.run);
 
 	if (drained.shutdownRequested) {
 		for (const run of running.values()) {
@@ -199,6 +207,7 @@ const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
 				error: "work run interrupted by orchestrator shutdown",
 			};
 			running.delete(run.workKey);
+			completedRuns.push(run);
 			completions.push(completion);
 			const diagnostic = completionDiagnostic(completion);
 			if (diagnostic) diagnostics.push(diagnostic);
@@ -213,7 +222,7 @@ const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
 		diagnostics: [...state.diagnostics, ...diagnostics],
 		running,
 	};
-	return { state: next, completions, diagnostics };
+	return { state: next, completions, diagnostics, completedRuns };
 };
 
 const applyObserved = (
@@ -232,7 +241,7 @@ const applyReconciled = (
 	diagnostics: readonly Diagnostic[],
 ): RuntimeState => ({
 	...state,
-	facts: applyProposals(state.facts, proposals),
+	facts: applyFactProposals(state.facts, proposals),
 	observations: [],
 	completions: [],
 	diagnostics: [...state.diagnostics, ...diagnostics],
@@ -245,6 +254,49 @@ const applyDiagnostics = (
 	...state,
 	diagnostics: [...state.diagnostics, ...diagnostics],
 });
+
+const interruptRunningWork = (
+	state: RuntimeState,
+	proposals: readonly InterruptWorkProposal[],
+) => {
+	const running = new Map(state.running);
+	const completions: Completion[] = [];
+	const diagnostics: Diagnostic[] = [];
+	const interruptedRuns: WorkRun[] = [];
+	const interruptedKeys = new Set<WorkKey>();
+
+	for (const proposal of proposals) {
+		const run = running.get(proposal.workKey);
+		if (!run) continue;
+		running.delete(proposal.workKey);
+		interruptedRuns.push(run);
+		interruptedKeys.add(proposal.workKey);
+		const completion: Completion = {
+			runId: run.runId,
+			sourceId: run.sourceId,
+			workKey: run.workKey,
+			status: "interrupted",
+			...optionalSubject(run.subject),
+			error: proposal.reason ?? "work run interrupted by source proposal",
+		};
+		completions.push(completion);
+		const diagnostic = completionDiagnostic(completion);
+		if (diagnostic) diagnostics.push(diagnostic);
+	}
+
+	return {
+		state: {
+			...state,
+			completions: [...state.completions, ...completions],
+			diagnostics: [...state.diagnostics, ...diagnostics],
+			running,
+		},
+		completions,
+		diagnostics,
+		interruptedRuns,
+		interruptedKeys,
+	};
+};
 
 const decodeObservations = (value: unknown) =>
 	Schema.decodeUnknownEffect(Schema.Array(Domain.Observation))(value);
@@ -448,6 +500,7 @@ const startEligibleRuns = (
 	state: RuntimeState,
 	selected: readonly WorkSelection[],
 	maxConcurrentRuns: number,
+	blockedThisTick: ReadonlySet<WorkKey> = new Set(),
 ) => {
 	const running = new Map(state.running);
 	const started: { run: WorkRun; selection: WorkSelection }[] = [];
@@ -460,6 +513,7 @@ const startEligibleRuns = (
 		const { work } = selection;
 		if (seen.has(work.workKey)) continue;
 		seen.add(work.workKey);
+		if (blockedThisTick.has(work.workKey)) continue;
 		if (running.has(work.workKey)) continue;
 		const run: WorkRun = {
 			runId: Domain.runId(`run-${nextRunIndex}`),
@@ -503,6 +557,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			const tickLock = yield* Semaphore.make(1);
 			const actorScope = yield* Scope.make();
 			const actionScope = yield* Scope.make();
+			const runHandles = yield* Ref.make(new Map<WorkKey, RunHandle>());
 			const actorStarted = yield* Ref.make(false);
 			yield* Effect.addFinalizer((exit) =>
 				Scope.close(actionScope, exit).pipe(
@@ -516,6 +571,27 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			const snapshot = Effect.fn("Orchestrator.snapshot")(function* () {
 				return yield* Ref.get(snapshotRef);
 			});
+
+			const interruptRunHandles = Effect.fn("Orchestrator.interruptRunHandles")(
+				function* (runs: readonly WorkRun[]) {
+					const handles = yield* Ref.modify(runHandles, (current) => {
+						const next = new Map(current);
+						const matched: RunHandle[] = [];
+						for (const run of runs) {
+							const handle = next.get(run.workKey);
+							if (!handle || handle.run.runId !== run.runId) continue;
+							next.delete(run.workKey);
+							matched.push(handle);
+						}
+						return [matched, next] as const;
+					});
+					yield* Effect.forEach(
+						handles,
+						(handle) => Fiber.interrupt(handle.fiber),
+						{ discard: true },
+					);
+				},
+			);
 
 			const collectQueuedMessages = Effect.fn(
 				"Orchestrator.collectQueuedMessages",
@@ -548,6 +624,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								return [result, result.state] as const;
 							});
 							const tickId = began.state.tickId;
+							yield* interruptRunHandles(began.completedRuns);
 
 							const observeResults = yield* Effect.forEach(sources, (source) =>
 								runSourceObserve(source, snapshotFrom(began.state)),
@@ -579,7 +656,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							const reconcileDiagnostics = reconcileResults.flatMap(
 								(result) => result.diagnostics,
 							);
-							const afterReconcile = yield* Ref.modify(stateRef, (state) => {
+							yield* Ref.modify(stateRef, (state) => {
 								const next = applyReconciled(
 									state,
 									proposals,
@@ -587,9 +664,18 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								);
 								return [next, next] as const;
 							});
+							const interruptProposals = proposals.filter(
+								(proposal): proposal is InterruptWorkProposal =>
+									proposal.type === "interrupt_work",
+							);
+							const interrupted = yield* Ref.modify(stateRef, (state) => {
+								const result = interruptRunningWork(state, interruptProposals);
+								return [result, result.state] as const;
+							});
+							yield* interruptRunHandles(interrupted.interruptedRuns);
 
 							const policyDiagnostics = policy.validate
-								? yield* policy.validate(snapshotFrom(afterReconcile)).pipe(
+								? yield* policy.validate(snapshotFrom(interrupted.state)).pipe(
 										Effect.catch((error) =>
 											Effect.succeed([
 												{
@@ -621,11 +707,15 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 										proposals,
 										selected: [],
 										started: [],
-										completions: began.completions,
+										completions: [
+											...began.completions,
+											...interrupted.completions,
+										],
 										diagnostics: [
 											...began.diagnostics,
 											...observeDiagnostics,
 											...reconcileDiagnostics,
+											...interrupted.diagnostics,
 											...policyDiagnostics,
 										],
 										snapshot: snapshotFrom(current),
@@ -658,6 +748,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 										state,
 										selectedWithSources,
 										maxRuns,
+										interrupted.interruptedKeys,
 									);
 									return [result, result.state] as const;
 								},
@@ -666,16 +757,23 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 							yield* Effect.forEach(
 								started,
 								({ run, selection }) =>
-									executeWorkRun(
-										runner,
-										runSnapshot,
-										selection,
-										run,
-										mailbox,
-									).pipe(
-										Effect.ignore,
-										Effect.forkIn(actionScope, { startImmediately: true }),
-									),
+									Effect.gen(function* () {
+										const fiber = yield* executeWorkRun(
+											runner,
+											runSnapshot,
+											selection,
+											run,
+											mailbox,
+										).pipe(
+											Effect.ignore,
+											Effect.forkIn(actionScope, { startImmediately: true }),
+										);
+										yield* Ref.update(runHandles, (current) => {
+											const next = new Map(current);
+											next.set(run.workKey, { run, fiber });
+											return next;
+										});
+									}),
 								{ discard: true },
 							);
 
@@ -688,11 +786,15 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 									proposals,
 									selected,
 									started: started.map(({ run }) => run),
-									completions: began.completions,
+									completions: [
+										...began.completions,
+										...interrupted.completions,
+									],
 									diagnostics: [
 										...began.diagnostics,
 										...observeDiagnostics,
 										...reconcileDiagnostics,
+										...interrupted.diagnostics,
 										...policyDiagnostics,
 										...selectDiagnostics,
 									],

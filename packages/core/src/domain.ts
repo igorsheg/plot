@@ -93,9 +93,25 @@ export const removeFact = (key: string): RemoveFactProposal => ({
 	key,
 });
 
+export const InterruptWorkProposal = Schema.Struct({
+	type: Schema.Literal("interrupt_work"),
+	workKey: WorkKey,
+	reason: Schema.optionalKey(Schema.String),
+});
+export type InterruptWorkProposal = typeof InterruptWorkProposal.Type;
+export const interruptWork = (
+	key: WorkKey,
+	reason?: string,
+): InterruptWorkProposal => ({
+	type: "interrupt_work",
+	workKey: key,
+	...(reason === undefined ? {} : { reason }),
+});
+
 export const ReconcileProposal = Schema.Union([
 	SetFactProposal,
 	RemoveFactProposal,
+	InterruptWorkProposal,
 ]);
 export type ReconcileProposal = typeof ReconcileProposal.Type;
 

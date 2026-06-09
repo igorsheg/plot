@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect } from "effect";
 import {
+	interruptWork,
 	sourceId,
 	PlotLoopError,
 	setFact,
@@ -355,6 +356,56 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.third.started).toHaveLength(1);
 	});
 
+	test("sources can interrupt running work without owning runner fibers", async () => {
+		const started = Deferred.makeUnsafe<void>();
+		const interrupted = Deferred.makeUnsafe<void>();
+		const key = workKey("cancel:1");
+		let shouldInterrupt = false;
+		const source: WorkSource = {
+			id: sourceId("cancel-source"),
+			reconcile: ({ snapshot }) =>
+				shouldInterrupt
+					? Effect.succeed(
+							[...snapshot.running.keys()].map((runningKey) =>
+								interruptWork(runningKey, "source marked work ineligible"),
+							),
+						)
+					: Effect.succeed([]),
+			selectWork: () => Effect.succeed([{ workKey: key }]),
+		};
+		const runner: WorkRunner = {
+			run: () =>
+				Effect.gen(function* () {
+					yield* Deferred.succeed(started, undefined);
+					return yield* Effect.never;
+				}).pipe(Effect.ensuring(Deferred.succeed(interrupted, undefined))),
+		};
+
+		const result = await runWith(
+			[source],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.tickOnce();
+				yield* Deferred.await(started);
+				shouldInterrupt = true;
+				const second = yield* orchestrator.tickOnce();
+				yield* Deferred.await(interrupted);
+				const after = yield* orchestrator.snapshot();
+				return { second, after };
+			}),
+			runner,
+		);
+
+		expect(result.second.completions).toContainEqual(
+			expect.objectContaining({
+				workKey: key,
+				status: "interrupted",
+			}),
+		);
+		expect(result.second.started).toHaveLength(0);
+		expect(result.after.running.has(key)).toBe(false);
+	});
+
 	test("shutdown interrupts active runner work and clears running claims", async () => {
 		const started = Deferred.makeUnsafe<void>();
 		const interrupted = Deferred.makeUnsafe<void>();
@@ -388,6 +439,7 @@ describe("task-agnostic Plot loop", () => {
 				const before = yield* orchestrator.snapshot();
 				yield* orchestrator.shutdown();
 				yield* Deferred.await(interrupted);
+				yield* Effect.yieldNow;
 				const after = yield* orchestrator.snapshot();
 				return { before, after };
 			}),
