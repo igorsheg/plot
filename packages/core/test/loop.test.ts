@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect } from "effect";
 import {
-	pluginId,
+	sourceId,
 	PlotLoopError,
 	setFact,
 	subjectKey,
 	workKey,
 } from "../src/domain.js";
 import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
-import type { PlotPlugin, WorkRunner } from "../src/plugin.js";
+import type { WorkSource, WorkRunner } from "../src/source.js";
 
 const succeedRunner = (calls: string[] = []): WorkRunner => ({
 	run: ({ work }) =>
@@ -19,7 +19,7 @@ const succeedRunner = (calls: string[] = []): WorkRunner => ({
 });
 
 const runWith = <A>(
-	plugins: readonly PlotPlugin[],
+	sources: readonly WorkSource[],
 	effect: Effect.Effect<A, never, Orchestrator>,
 	runner: WorkRunner = succeedRunner(),
 ) =>
@@ -27,15 +27,15 @@ const runWith = <A>(
 		effect.pipe(
 			Effect.provide(
 				makeOrchestratorLayer({
-					plugins,
+					sources,
 					runner,
 				}),
 			),
 		),
 	);
 
-const makeWorkPlugin = (id: string, key: string): PlotPlugin => ({
-	id: pluginId(id),
+const makeWorkSource = (id: string, key: string): WorkSource => ({
+	id: sourceId(id),
 	selectWork: () => Effect.succeed([{ workKey: workKey(key) }]),
 });
 
@@ -45,7 +45,7 @@ describe("task-agnostic Plot loop", () => {
 			Effect.service(Orchestrator).pipe(
 				Effect.provide(
 					makeOrchestratorLayer({
-						plugins: [],
+						sources: [],
 						runner: succeedRunner(),
 						queueCapacity: 0,
 					}),
@@ -62,8 +62,8 @@ describe("task-agnostic Plot loop", () => {
 	test("reconciles observations before selecting work, and completions apply on the next reconciliation", async () => {
 		const subject = subjectKey("work-1");
 		const key = workKey("review:work-1:v1");
-		const plugin: PlotPlugin = {
-			id: pluginId("demo"),
+		const source: WorkSource = {
+			id: sourceId("demo"),
 			observeTick: () => Effect.succeed([{ type: "seen", subject }]),
 			reconcile: ({ snapshot }) =>
 				Effect.succeed([
@@ -91,7 +91,7 @@ describe("task-agnostic Plot loop", () => {
 		};
 
 		const result = await runWith(
-			[plugin],
+			[source],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				const first = yield* orchestrator.tickOnce();
@@ -118,8 +118,8 @@ describe("task-agnostic Plot loop", () => {
 	test("tickOnce starts long runner work without waiting for completion", async () => {
 		const release = Deferred.makeUnsafe<string>();
 		const key = workKey("slow:1");
-		const plugin: PlotPlugin = {
-			id: pluginId("slow-plugin"),
+		const source: WorkSource = {
+			id: sourceId("slow-source"),
 			selectWork: () => Effect.succeed([{ workKey: key }]),
 		};
 		const runner: WorkRunner = {
@@ -128,7 +128,7 @@ describe("task-agnostic Plot loop", () => {
 		};
 
 		const result = await runWith(
-			[plugin],
+			[source],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				const first = yield* orchestrator.tickOnce();
@@ -153,8 +153,8 @@ describe("task-agnostic Plot loop", () => {
 
 	test("actor run consumes queued wake sources and owns the loop", async () => {
 		const subject = subjectKey("actor-work");
-		const plugin: PlotPlugin = {
-			id: pluginId("actor-plugin"),
+		const source: WorkSource = {
+			id: sourceId("actor-source"),
 			observeTick: () => Effect.succeed([{ type: "actor-seen", subject }]),
 			reconcile: ({ snapshot }) =>
 				Effect.succeed(
@@ -165,7 +165,7 @@ describe("task-agnostic Plot loop", () => {
 		};
 
 		const result = await runWith(
-			[plugin],
+			[source],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				yield* orchestrator.start();
@@ -179,12 +179,12 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.facts.get("actor:actor-work")).toBe(true);
 	});
 
-	test("plugins select work while the runner owns inner agent execution", async () => {
+	test("sources select work while the runner owns inner agent execution", async () => {
 		const calls: string[] = [];
 		const pr = subjectKey("github:pr:42");
 		const key = workKey("github:pr:plot:42:abc123");
-		const plugin: PlotPlugin = {
-			id: pluginId("pr-reviewer"),
+		const source: WorkSource = {
+			id: sourceId("pr-reviewer"),
 			observeTick: () =>
 				Effect.succeed([
 					{
@@ -224,7 +224,7 @@ describe("task-agnostic Plot loop", () => {
 		};
 
 		const result = await runWith(
-			[plugin],
+			[source],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				const first = yield* orchestrator.tickOnce();
@@ -265,9 +265,9 @@ describe("task-agnostic Plot loop", () => {
 			}).pipe(
 				Effect.provide(
 					makeOrchestratorLayer({
-						plugins: [
-							makeWorkPlugin("one", "work:one"),
-							makeWorkPlugin("two", "work:two"),
+						sources: [
+							makeWorkSource("one", "work:one"),
+							makeWorkSource("two", "work:two"),
 						],
 						runner,
 						policy: { maxConcurrentRuns: 1 },
@@ -282,36 +282,39 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.snapshot.running.has(workKey("work:two"))).toBe(false);
 	});
 
-	test("finished work keys are not dispatched again", async () => {
+	test("completion does not make work terminal; sources own rerun semantics", async () => {
 		const calls: string[] = [];
-		const key = workKey("once:1");
-		const plugin: PlotPlugin = {
-			id: pluginId("once-plugin"),
+		const key = workKey("repeatable:1");
+		const source: WorkSource = {
+			id: sourceId("repeatable-source"),
 			selectWork: () => Effect.succeed([{ workKey: key }]),
 		};
 
 		const result = await runWith(
-			[plugin],
+			[source],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				yield* orchestrator.tickOnce();
 				yield* Effect.yieldNow;
 				const second = yield* orchestrator.tickOnce();
+				yield* Effect.yieldNow;
 				const third = yield* orchestrator.tickOnce();
 				return { second, third };
 			}),
 			succeedRunner(calls),
 		);
 
-		expect(calls).toEqual([String(key)]);
+		expect(calls).toEqual([String(key), String(key), String(key)]);
 		expect(result.second.completions).toHaveLength(1);
-		expect(result.third.started).toHaveLength(0);
+		expect(result.second.started).toHaveLength(1);
+		expect(result.third.completions).toHaveLength(1);
+		expect(result.third.started).toHaveLength(1);
 	});
 
 	test("failed runner work becomes a completion and diagnostic", async () => {
 		const key = workKey("broken:1");
-		const plugin: PlotPlugin = {
-			id: pluginId("broken-plugin"),
+		const source: WorkSource = {
+			id: sourceId("broken-source"),
 			selectWork: () => Effect.succeed([{ workKey: key }]),
 		};
 		const runner: WorkRunner = {
@@ -319,7 +322,7 @@ describe("task-agnostic Plot loop", () => {
 		};
 
 		const result = await runWith(
-			[plugin],
+			[source],
 			Effect.gen(function* () {
 				const orchestrator = yield* Orchestrator;
 				yield* orchestrator.tickOnce();
@@ -331,14 +334,14 @@ describe("task-agnostic Plot loop", () => {
 
 		expect(result.completions).toContainEqual(
 			expect.objectContaining({
-				pluginId: plugin.id,
+				sourceId: source.id,
 				workKey: key,
 				status: "failed",
 			}),
 		);
 		expect(result.diagnostics[0]).toEqual(
 			expect.objectContaining({
-				pluginId: plugin.id,
+				sourceId: source.id,
 				workKey: key,
 				phase: "act",
 				level: "error",

@@ -6,7 +6,7 @@
 		"./domain": "./src/domain.ts",
 		"./llm": "./src/llm.ts",
 		"./loop": "./src/loop.ts",
-		"./plugin": "./src/plugin.ts"
+		"./source": "./src/source.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",

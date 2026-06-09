@@ -20,10 +20,10 @@ export type TickId = typeof TickId.Type;
 export const tickId = (value: number): TickId =>
 	Schema.decodeUnknownSync(TickId)(value);
 
-export const PluginId = IdentifierText.pipe(Schema.brand("PluginId"));
-export type PluginId = typeof PluginId.Type;
-export const pluginId = (value: string): PluginId =>
-	Schema.decodeUnknownSync(PluginId)(value);
+export const SourceId = IdentifierText.pipe(Schema.brand("SourceId"));
+export type SourceId = typeof SourceId.Type;
+export const sourceId = (value: string): SourceId =>
+	Schema.decodeUnknownSync(SourceId)(value);
 
 export const SubjectKey = Schema.NonEmptyString.pipe(
 	Schema.brand("SubjectKey"),
@@ -60,7 +60,7 @@ export class PlotLoopError extends Schema.TaggedErrorClass<PlotLoopError>()(
 	{
 		phase: LoopPhase,
 		message: Schema.String,
-		plugin_id: Schema.optionalKey(PluginId),
+		source_id: Schema.optionalKey(SourceId),
 	},
 ) {}
 
@@ -108,7 +108,7 @@ export type WorkItem = typeof WorkItem.Type;
 
 export const WorkRun = Schema.Struct({
 	runId: RunId,
-	pluginId: PluginId,
+	sourceId: SourceId,
 	workKey: WorkKey,
 	subject: Schema.optionalKey(SubjectKey),
 });
@@ -124,7 +124,7 @@ export type CompletionStatus = typeof CompletionStatus.Type;
 
 export const Completion = Schema.Struct({
 	runId: RunId,
-	pluginId: PluginId,
+	sourceId: SourceId,
 	workKey: WorkKey,
 	status: CompletionStatus,
 	subject: Schema.optionalKey(SubjectKey),
@@ -137,7 +137,7 @@ export const Diagnostic = Schema.Struct({
 	level: Schema.Literals(["info", "warning", "error"]),
 	phase: Schema.Union([HookPhase, Schema.Literals(["act", "policy"])]),
 	message: Schema.String,
-	pluginId: Schema.optionalKey(PluginId),
+	sourceId: Schema.optionalKey(SourceId),
 	runId: Schema.optionalKey(RunId),
 	workKey: Schema.optionalKey(WorkKey),
 });
@@ -150,7 +150,6 @@ export const RuntimeSnapshot = Schema.Struct({
 	completions: Schema.Array(Completion),
 	diagnostics: Schema.Array(Diagnostic),
 	running: Schema.ReadonlyMap(WorkKey, WorkRun),
-	finished: Schema.ReadonlyMap(WorkKey, Completion),
 });
 export type RuntimeSnapshot = typeof RuntimeSnapshot.Type;
 

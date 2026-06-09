@@ -2,7 +2,7 @@ import type { Effect } from "effect";
 import type {
 	Diagnostic,
 	Observation,
-	PluginId,
+	SourceId,
 	ReconcileProposal,
 	RuntimeSnapshot,
 	TickId,
@@ -12,13 +12,13 @@ import type {
 } from "./domain.js";
 
 export interface PhaseContext {
-	readonly pluginId: PluginId;
+	readonly sourceId: SourceId;
 	readonly tickId: TickId;
 	readonly snapshot: RuntimeSnapshot;
 }
 
-export interface PlotPlugin {
-	readonly id: PluginId;
+export interface WorkSource {
+	readonly id: SourceId;
 	readonly observeTick?: (
 		context: PhaseContext,
 	) => Effect.Effect<readonly Observation[], unknown>;
@@ -31,7 +31,7 @@ export interface PlotPlugin {
 }
 
 export interface WorkRunnerContext {
-	readonly pluginId: PluginId;
+	readonly sourceId: SourceId;
 	readonly tickId: TickId;
 	readonly run: WorkRun;
 	readonly work: WorkItem;
