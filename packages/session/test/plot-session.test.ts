@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import type { AgentSessionEvent } from "@plot/agent-session/client";
-import { sourceId, workKey } from "@plot/core/domain";
-import type { WorkRunner } from "@plot/core/runner";
-import type { WorkSource } from "@plot/core/source";
-import { AgentSessionClient } from "@plot/agent-session/client";
-import { PlotSession, makePlotSessionLayer } from "../src/session.js";
+import type { AgentSessionEvent } from "../src/agent-session-client.js";
+import { sourceId, workKey } from "@plot/agent/model";
+import type { WorkRunner } from "@plot/agent/work-runner";
+import type { WorkSource } from "@plot/agent/work-source";
+import { AgentSessionClient } from "../src/agent-session-client.js";
+import { PlotSession, makePlotSessionLayer } from "../src/plot-session.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
 
 const workflow: WorkflowDefinition = {
@@ -48,7 +48,7 @@ describe("PlotSession", () => {
 		expect(result.map((event) => Number(event.sequence))).toEqual([1, 2]);
 	});
 
-	test("wraps orchestrator events for outer status surfaces", async () => {
+	test("wraps plot agent events for outer status surfaces", async () => {
 		const source: WorkSource = {
 			id: sourceId("status-source"),
 			selectWork: () => Effect.succeed([{ workKey: workKey("status:1") }]),
@@ -77,9 +77,9 @@ describe("PlotSession", () => {
 		);
 
 		expect(result.map((event) => event.type)).toEqual([
-			"orchestrator_event",
-			"orchestrator_event",
-			"orchestrator_event",
+			"plot_agent_event",
+			"plot_agent_event",
+			"plot_agent_event",
 		]);
 		expect(
 			result.map((event) =>
@@ -105,7 +105,7 @@ describe("PlotSession", () => {
 				Effect.gen(function* () {
 					const session = yield* PlotSession;
 					const fiber = yield* session.events().pipe(
-						Stream.filter((event) => event.type === "agent_event"),
+						Stream.filter((event) => event.type === "agent_session_event"),
 						Stream.take(1),
 						Stream.runCollect,
 						Effect.forkScoped,
@@ -122,7 +122,7 @@ describe("PlotSession", () => {
 
 		expect(result).toEqual(
 			expect.objectContaining({
-				type: "agent_event",
+				type: "agent_session_event",
 				eventType: "agent_start",
 				sourceId: sourceId("agent-source"),
 				workKey: workKey("agent:1"),

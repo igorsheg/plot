@@ -52,7 +52,7 @@ export interface AgentSessionClientShape {
 export class AgentSessionClient extends Context.Service<
 	AgentSessionClient,
 	AgentSessionClientShape
->()("@plot/agent-session/AgentSessionClient") {}
+>()("@plot/session/AgentSessionClient") {}
 
 export type CreateAgentSession = (
 	options?: CreateAgentSessionOptions,

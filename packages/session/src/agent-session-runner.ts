@@ -4,8 +4,8 @@ import type {
 	CreateAgentSessionOptions,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { WorkRunner, WorkRunnerContext } from "@plot/core/runner";
-import { AgentSessionClient } from "./client.js";
+import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
+import { AgentSessionClient } from "./agent-session-client.js";
 
 type RunnerValue<A> =
 	| A

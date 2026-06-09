@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { sourceId, tickId, workKey, runId } from "@plot/core/domain";
-import { AgentSessionClient } from "../src/client.js";
-import { makeAgentSessionWorkRunner } from "../src/runner.js";
+import { sourceId, tickId, workKey, runId } from "@plot/agent/model";
+import { AgentSessionClient } from "../src/agent-session-client.js";
+import { makeAgentSessionWorkRunner } from "../src/agent-session-runner.js";
 
 const context = {
 	sourceId: sourceId("agent-source"),

@@ -10,7 +10,7 @@ import {
 	AgentSessionClient,
 	AgentSessionClientError,
 	makeAgentSessionClientLayer,
-} from "../src/client.js";
+} from "../src/agent-session-client.js";
 
 const fakeResult = (session: AgentSession) =>
 	({ session, extensionsResult: {} }) as unknown as CreateAgentSessionResult;

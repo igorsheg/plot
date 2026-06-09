@@ -16,15 +16,15 @@ import {
 	Stream,
 } from "effect";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
-import * as Domain from "./domain.js";
+import * as Domain from "./model.js";
 import type {
 	Completion,
 	Diagnostic,
 	HookPhase,
 	InterruptWorkProposal,
 	Observation,
-	OrchestratorEvent,
-	OrchestratorMessage,
+	PlotAgentEvent,
+	PlotAgentMessage,
 	SourceId,
 	ReconcileProposal,
 	RuntimeSnapshot,
@@ -35,9 +35,9 @@ import type {
 	WorkResult,
 	WorkRun,
 	ScheduleWakeProposal,
-} from "./domain.js";
-import type { WorkRunner } from "./runner.js";
-import type { OrchestratorPolicy, WorkSource } from "./source.js";
+} from "./model.js";
+import type { WorkRunner } from "./work-runner.js";
+import type { AgentPolicy, WorkSource } from "./work-source.js";
 
 interface RuntimeState {
 	readonly tickId: Domain.TickId;
@@ -50,7 +50,7 @@ interface RuntimeState {
 }
 
 type InternalMessage =
-	| OrchestratorMessage
+	| PlotAgentMessage
 	| {
 			readonly type: "run_completed";
 			readonly run: WorkRun;
@@ -88,29 +88,28 @@ interface RunHandle {
 	readonly fiber: Fiber.Fiber<void>;
 }
 
-export interface OrchestratorShape {
+export interface PlotAgentShape {
 	readonly start: () => Effect.Effect<void>;
 	readonly run: () => Effect.Effect<void>;
 	readonly tickOnce: () => Effect.Effect<TickResult>;
 	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
-	readonly events: () => Stream.Stream<OrchestratorEvent>;
-	readonly offer: (message: OrchestratorMessage) => Effect.Effect<boolean>;
+	readonly events: () => Stream.Stream<PlotAgentEvent>;
+	readonly offer: (message: PlotAgentMessage) => Effect.Effect<boolean>;
 	readonly wakeAfter: (
 		delayMs: number,
 		reason?: string,
-	) => Effect.Effect<void, Domain.PlotLoopError>;
+	) => Effect.Effect<void, Domain.PlotAgentError>;
 	readonly shutdown: () => Effect.Effect<boolean>;
 }
 
-export class Orchestrator extends Context.Service<
-	Orchestrator,
-	OrchestratorShape
->()("@plot/core/loop/Orchestrator") {}
+export class PlotAgent extends Context.Service<PlotAgent, PlotAgentShape>()(
+	"@plot/agent/agent/PlotAgent",
+) {}
 
-export interface OrchestratorLayerOptions {
+export interface PlotAgentLayerOptions {
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
-	readonly policy?: OrchestratorPolicy;
+	readonly policy?: AgentPolicy;
 	readonly queueCapacity?: number;
 	readonly eventCapacity?: number;
 	readonly historyLimit?: number;
@@ -267,7 +266,7 @@ const beginTick = (
 				workKey: run.workKey,
 				status: "interrupted",
 				...optionalSubject(run.subject),
-				error: "work run interrupted by orchestrator shutdown",
+				error: "work run interrupted by plot agent shutdown",
 			};
 			running.delete(run.workKey);
 			completedRuns.push(run);
@@ -475,7 +474,7 @@ const executeWorkRun = (
 	Effect.gen(function* () {
 		const startedAt = yield* Clock.currentTimeMillis;
 		const fields = {
-			operation: "orchestrator.work.run",
+			operation: "plot_agent.work.run",
 			source_id: selection.source.id,
 			run_id: run.runId,
 			work_key: run.workKey,
@@ -555,7 +554,7 @@ const ensureUniqueSources = (sources: readonly WorkSource[]) =>
 		const seen = new Set<SourceId>();
 		for (const source of sources) {
 			if (seen.has(source.id)) {
-				return yield* new Domain.PlotLoopError({
+				return yield* new Domain.PlotAgentError({
 					phase: "setup",
 					source_id: source.id,
 					message: `duplicate source id: ${source.id}`,
@@ -569,7 +568,7 @@ const decodePositiveInt = (value: number, message: string) =>
 	Schema.decodeUnknownEffect(Domain.PositiveInt)(value).pipe(
 		Effect.mapError(
 			() =>
-				new Domain.PlotLoopError({
+				new Domain.PlotAgentError({
 					phase: "setup",
 					message,
 				}),
@@ -617,13 +616,13 @@ const startEligibleRuns = (
 	};
 };
 
-export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
+export const makePlotAgentLayer = (options: PlotAgentLayerOptions) => {
 	const sources = options.sources;
 	const runner = options.runner;
 	const policy = options.policy ?? {};
 
 	return Layer.effect(
-		Orchestrator,
+		PlotAgent,
 		Effect.gen(function* () {
 			yield* ensureUniqueSources(sources);
 			const queueCapacity = yield* decodePositiveInt(
@@ -661,7 +660,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			const stateRef = yield* Ref.make(initialState);
 			const snapshotRef = yield* Ref.make(snapshotFrom(initialState));
 			const mailbox = yield* Queue.bounded<InternalMessage>(queueCapacity);
-			const events = yield* PubSub.sliding<OrchestratorEvent>(eventCapacity);
+			const events = yield* PubSub.sliding<PlotAgentEvent>(eventCapacity);
 			const tickLock = yield* Semaphore.make(1);
 			const actorScope = yield* Scope.make();
 			const actionScope = yield* Scope.make();
@@ -678,16 +677,16 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			const publishSnapshot = (state: RuntimeState) =>
 				Ref.set(snapshotRef, snapshotFrom(state));
 
-			const publishEvent = (event: OrchestratorEvent) =>
+			const publishEvent = (event: PlotAgentEvent) =>
 				PubSub.publish(events, event).pipe(Effect.ignore);
 
-			const snapshot = Effect.fn("Orchestrator.snapshot")(function* () {
+			const snapshot = Effect.fn("PlotAgent.snapshot")(function* () {
 				return yield* Ref.get(snapshotRef);
 			});
 
 			const eventStream = () => Stream.fromPubSub(events);
 
-			const scheduleWakeAfter = Effect.fn("Orchestrator.scheduleWakeAfter")(
+			const scheduleWakeAfter = Effect.fn("PlotAgent.scheduleWakeAfter")(
 				function* (delayMs: Domain.PositiveInt, reason?: string) {
 					yield* publishEvent({
 						type: "wake_scheduled",
@@ -702,7 +701,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				},
 			);
 
-			const scheduleCadenceTick = Effect.fn("Orchestrator.scheduleCadenceTick")(
+			const scheduleCadenceTick = Effect.fn("PlotAgent.scheduleCadenceTick")(
 				function* (delayMs: Domain.PositiveInt) {
 					const token = yield* Ref.modify(nextTickToken, (current) => {
 						const next = current + 1;
@@ -719,7 +718,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				},
 			);
 
-			const scheduleRunTimeout = Effect.fn("Orchestrator.scheduleRunTimeout")(
+			const scheduleRunTimeout = Effect.fn("PlotAgent.scheduleRunTimeout")(
 				function* (run: WorkRun) {
 					if (maxRunDurationMs === undefined) return;
 					yield* Effect.sleep(maxRunDurationMs).pipe(
@@ -732,7 +731,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				},
 			);
 
-			const interruptRunHandles = Effect.fn("Orchestrator.interruptRunHandles")(
+			const interruptRunHandles = Effect.fn("PlotAgent.interruptRunHandles")(
 				function* (runs: readonly WorkRun[]) {
 					const handles = yield* Ref.modify(runHandles, (current) => {
 						const next = new Map(current);
@@ -753,7 +752,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				},
 			);
 
-			const messageStartsTick = Effect.fn("Orchestrator.messageStartsTick")(
+			const messageStartsTick = Effect.fn("PlotAgent.messageStartsTick")(
 				function* (message: InternalMessage) {
 					if (message.type !== "scheduled_tick") return true;
 					const active = yield* Ref.get(activeTickToken);
@@ -764,7 +763,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			);
 
 			const collectQueuedMessages = Effect.fn(
-				"Orchestrator.collectQueuedMessages",
+				"PlotAgent.collectQueuedMessages",
 			)(function* (initialMessages: readonly InternalMessage[]) {
 				const messages = [...initialMessages];
 				let draining = true;
@@ -779,12 +778,12 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				return messages;
 			});
 
-			const runTick = Effect.fn("Orchestrator.runTick")(function* (
+			const runTick = Effect.fn("PlotAgent.runTick")(function* (
 				initialMessages: readonly InternalMessage[] = [],
 			) {
 				return yield* tickLock.withPermits(1)(
 					withWideEvent(
-						"orchestrator.tick",
+						"plot_agent.tick",
 						{},
 						Effect.gen(function* () {
 							const messages = yield* collectQueuedMessages(initialMessages);
@@ -1008,15 +1007,15 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				);
 			});
 
-			const tickOnce = Effect.fn("Orchestrator.tickOnce")(function* () {
+			const tickOnce = Effect.fn("PlotAgent.tickOnce")(function* () {
 				const tick = yield* runTick();
 				return tick.result;
 			});
 
-			const offer = Effect.fn("Orchestrator.offer")(function* (
-				message: OrchestratorMessage,
+			const offer = Effect.fn("PlotAgent.offer")(function* (
+				message: PlotAgentMessage,
 			) {
-				return yield* Schema.decodeUnknownEffect(Domain.OrchestratorMessage)(
+				return yield* Schema.decodeUnknownEffect(Domain.PlotAgentMessage)(
 					message,
 				).pipe(
 					Effect.flatMap((decoded) => Queue.offer(mailbox, decoded)),
@@ -1024,7 +1023,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				);
 			});
 
-			const run = Effect.fn("Orchestrator.run")(function* () {
+			const run = Effect.fn("PlotAgent.run")(function* () {
 				let running = true;
 				while (running) {
 					const message = yield* Queue.take(mailbox);
@@ -1039,7 +1038,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				yield* Scope.close(actionScope, Exit.void);
 			});
 
-			const start = Effect.fn("Orchestrator.start")(function* () {
+			const start = Effect.fn("PlotAgent.start")(function* () {
 				const alreadyStarted = yield* Ref.get(actorStarted);
 				if (alreadyStarted) return;
 				yield* Ref.set(actorStarted, true);
@@ -1053,7 +1052,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				);
 			});
 
-			const wakeAfter = Effect.fn("Orchestrator.wakeAfter")(function* (
+			const wakeAfter = Effect.fn("PlotAgent.wakeAfter")(function* (
 				delayMs: number,
 				reason?: string,
 			) {
@@ -1064,7 +1063,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				yield* scheduleWakeAfter(decoded, reason);
 			});
 
-			const shutdown = Effect.fn("Orchestrator.shutdown")(function* () {
+			const shutdown = Effect.fn("PlotAgent.shutdown")(function* () {
 				return yield* offer({ type: "shutdown" });
 			});
 
@@ -1077,7 +1076,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 				offer,
 				wakeAfter,
 				shutdown,
-			} satisfies OrchestratorShape;
+			} satisfies PlotAgentShape;
 		}),
 	);
 };

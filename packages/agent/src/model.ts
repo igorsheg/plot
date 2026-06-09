@@ -42,7 +42,7 @@ export type RunId = typeof RunId.Type;
 export const runId = (value: string): RunId =>
 	Schema.decodeUnknownSync(RunId)(value);
 
-export const LoopPhase = Schema.Literals([
+export const AgentPhase = Schema.Literals([
 	"setup",
 	"observe",
 	"reconcile",
@@ -50,15 +50,15 @@ export const LoopPhase = Schema.Literals([
 	"act",
 	"policy",
 ]);
-export type LoopPhase = typeof LoopPhase.Type;
+export type AgentPhase = typeof AgentPhase.Type;
 
-export const HookPhase = LoopPhase.pick(["observe", "reconcile", "select"]);
+export const HookPhase = AgentPhase.pick(["observe", "reconcile", "select"]);
 export type HookPhase = typeof HookPhase.Type;
 
-export class PlotLoopError extends Schema.TaggedErrorClass<PlotLoopError>()(
-	"PlotLoopError",
+export class PlotAgentError extends Schema.TaggedErrorClass<PlotAgentError>()(
+	"PlotAgentError",
 	{
-		phase: LoopPhase,
+		phase: AgentPhase,
 		message: Schema.String,
 		source_id: Schema.optionalKey(SourceId),
 	},
@@ -202,7 +202,7 @@ export const TickResult = Schema.Struct({
 });
 export type TickResult = typeof TickResult.Type;
 
-export const OrchestratorEvent = Schema.Union([
+export const PlotAgentEvent = Schema.Union([
 	Schema.Struct({
 		type: Schema.Literal("tick_started"),
 		tickId: TickId,
@@ -225,9 +225,9 @@ export const OrchestratorEvent = Schema.Union([
 		completion: Completion,
 	}),
 ]);
-export type OrchestratorEvent = typeof OrchestratorEvent.Type;
+export type PlotAgentEvent = typeof PlotAgentEvent.Type;
 
-export const OrchestratorMessage = Schema.Union([
+export const PlotAgentMessage = Schema.Union([
 	Schema.Struct({
 		type: Schema.Literal("tick"),
 	}),
@@ -239,4 +239,4 @@ export const OrchestratorMessage = Schema.Union([
 		type: Schema.Literal("shutdown"),
 	}),
 ]);
-export type OrchestratorMessage = typeof OrchestratorMessage.Type;
+export type PlotAgentMessage = typeof PlotAgentMessage.Type;

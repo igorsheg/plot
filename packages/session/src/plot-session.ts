@@ -9,26 +9,26 @@ import {
 	Stream,
 	type Exit,
 } from "effect";
-import type { AgentSessionEvent } from "@plot/agent-session/client";
-import * as Domain from "@plot/core/domain";
+import type { AgentSessionEvent } from "./agent-session-client.js";
+import * as Domain from "@plot/agent/model";
 import type {
-	OrchestratorEvent,
-	PlotLoopError,
+	PlotAgentEvent,
+	PlotAgentError,
 	RuntimeSnapshot,
 	SubjectKey,
 	TickResult,
 	WorkResult,
-} from "@plot/core/domain";
-import { makeOrchestratorLayer, Orchestrator } from "@plot/core/loop";
-import type { OrchestratorLayerOptions } from "@plot/core/loop";
-import type { WorkRunner, WorkRunnerContext } from "@plot/core/runner";
-import type { WorkSource } from "@plot/core/source";
+} from "@plot/agent/model";
+import { makePlotAgentLayer, PlotAgent } from "@plot/agent/agent";
+import type { PlotAgentLayerOptions } from "@plot/agent/agent";
+import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
+import type { WorkSource } from "@plot/agent/work-source";
 import {
 	AgentSessionClient,
 	type AgentSessionClientShape,
 	type PromptAgentSessionOptions,
-} from "@plot/agent-session/client";
-import type { AgentSessionWorkRunnerOptions } from "@plot/agent-session/runner";
+} from "./agent-session-client.js";
+import type { AgentSessionWorkRunnerOptions } from "./agent-session-runner.js";
 import type { WorkflowDefinition } from "./workflow.js";
 
 export const PlotSessionId = Schema.NonEmptyString.pipe(
@@ -64,19 +64,19 @@ export class SessionShutdownEvent extends Schema.Class<SessionShutdownEvent>(
 	sequence: PlotSessionEventSequence,
 }) {}
 
-export class OrchestratorSessionEvent extends Schema.Class<OrchestratorSessionEvent>(
-	"OrchestratorSessionEvent",
+export class PlotAgentEventEnvelope extends Schema.Class<PlotAgentEventEnvelope>(
+	"PlotAgentEventEnvelope",
 )({
-	type: Schema.Literal("orchestrator_event"),
+	type: Schema.Literal("plot_agent_event"),
 	sessionId: PlotSessionId,
 	sequence: PlotSessionEventSequence,
-	event: Domain.OrchestratorEvent,
+	event: Domain.PlotAgentEvent,
 }) {}
 
-export class AgentSessionStreamEvent extends Schema.Class<AgentSessionStreamEvent>(
-	"AgentSessionStreamEvent",
+export class AgentSessionEventEnvelope extends Schema.Class<AgentSessionEventEnvelope>(
+	"AgentSessionEventEnvelope",
 )({
-	type: Schema.Literal("agent_event"),
+	type: Schema.Literal("agent_session_event"),
 	sessionId: PlotSessionId,
 	sequence: PlotSessionEventSequence,
 	sourceId: Domain.SourceId,
@@ -90,8 +90,8 @@ export class AgentSessionStreamEvent extends Schema.Class<AgentSessionStreamEven
 export const PlotSessionEvent = Schema.Union([
 	SessionStartedEvent,
 	SessionShutdownEvent,
-	OrchestratorSessionEvent,
-	AgentSessionStreamEvent,
+	PlotAgentEventEnvelope,
+	AgentSessionEventEnvelope,
 ]);
 export type PlotSessionEvent = typeof PlotSessionEvent.Type;
 
@@ -129,7 +129,7 @@ interface BasePlotSessionLayerOptions {
 	readonly id?: PlotSessionId;
 	readonly workflow: WorkflowDefinition;
 	readonly sources: readonly WorkSource[];
-	readonly orchestrator?: Omit<OrchestratorLayerOptions, "sources" | "runner">;
+	readonly agent?: Omit<PlotAgentLayerOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
 }
 
@@ -280,19 +280,19 @@ const makeAgentRunner = (
 
 export function makePlotSessionLayer(
 	options: ExplicitRunnerPlotSessionLayerOptions,
-): Layer.Layer<PlotSession, PlotSessionError | PlotLoopError>;
+): Layer.Layer<PlotSession, PlotSessionError | PlotAgentError>;
 export function makePlotSessionLayer(
 	options: AgentRunnerPlotSessionLayerOptions,
 ): Layer.Layer<
 	PlotSession,
-	PlotSessionError | PlotLoopError,
+	PlotSessionError | PlotAgentError,
 	AgentSessionClient
 >;
 export function makePlotSessionLayer(
 	options: PlotSessionLayerOptions,
 ): Layer.Layer<
 	PlotSession,
-	PlotSessionError | PlotLoopError,
+	PlotSessionError | PlotAgentError,
 	AgentSessionClient
 > {
 	const sessionId = options.id ?? plotSessionId("default");
@@ -330,12 +330,12 @@ export function makePlotSessionLayer(
 					}),
 				);
 			});
-			const publishOrchestratorEvent = (event: OrchestratorEvent) =>
+			const publishPlotAgentEvent = (event: PlotAgentEvent) =>
 				Effect.gen(function* () {
 					const sequenceNumber = yield* nextSequence(sequence);
 					yield* publish(
-						new OrchestratorSessionEvent({
-							type: "orchestrator_event",
+						new PlotAgentEventEnvelope({
+							type: "plot_agent_event",
 							sessionId,
 							sequence: sequenceNumber,
 							event,
@@ -349,8 +349,8 @@ export function makePlotSessionLayer(
 				Effect.gen(function* () {
 					const sequenceNumber = yield* nextSequence(sequence);
 					yield* publish(
-						new AgentSessionStreamEvent({
-							type: "agent_event",
+						new AgentSessionEventEnvelope({
+							type: "agent_session_event",
 							sessionId,
 							sequence: sequenceNumber,
 							sourceId: context.sourceId,
@@ -370,37 +370,37 @@ export function makePlotSessionLayer(
 						options.agentRunner,
 						publishAgentEvent,
 					);
-			const orchestratorLayer = makeOrchestratorLayer({
-				...options.orchestrator,
+			const plotAgentLayer = makePlotAgentLayer({
+				...options.agent,
 				sources: options.sources,
 				runner,
 			});
-			const orchestratorContext = yield* Layer.buildWithScope(
-				orchestratorLayer,
+			const plotAgentContext = yield* Layer.buildWithScope(
+				plotAgentLayer,
 				sessionScope,
 			);
-			const orchestrator = Context.get(orchestratorContext, Orchestrator);
-			yield* orchestrator
+			const plotAgent = Context.get(plotAgentContext, PlotAgent);
+			yield* plotAgent
 				.events()
 				.pipe(
-					Stream.runForEach(publishOrchestratorEvent),
+					Stream.runForEach(publishPlotAgentEvent),
 					Effect.forkIn(sessionScope, { startImmediately: true }),
 					Effect.asVoid,
 				);
 
 			const start = Effect.fn("PlotSession.start")(function* () {
 				yield* publishSessionStarted;
-				yield* orchestrator.start();
+				yield* plotAgent.start();
 			});
 			const tickOnce = Effect.fn("PlotSession.tickOnce")(function* () {
-				return yield* orchestrator.tickOnce();
+				return yield* plotAgent.tickOnce();
 			});
 			const snapshot = Effect.fn("PlotSession.snapshot")(function* () {
-				return yield* orchestrator.snapshot();
+				return yield* plotAgent.snapshot();
 			});
 			const eventStream = () => Stream.fromPubSub(events);
 			const shutdown = Effect.fn("PlotSession.shutdown")(function* () {
-				const accepted = yield* orchestrator.shutdown();
+				const accepted = yield* plotAgent.shutdown();
 				yield* publishSessionShutdown;
 				return accepted;
 			});

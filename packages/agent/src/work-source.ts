@@ -7,7 +7,7 @@ import type {
 	RuntimeSnapshot,
 	TickId,
 	WorkItem,
-} from "./domain.js";
+} from "./model.js";
 
 export interface PhaseContext {
 	readonly sourceId: SourceId;
@@ -28,7 +28,7 @@ export interface WorkSource {
 	) => Effect.Effect<readonly WorkItem[], unknown>;
 }
 
-export interface OrchestratorPolicy {
+export interface AgentPolicy {
 	readonly maxConcurrentRuns?: number;
 	readonly validate?: (
 		snapshot: RuntimeSnapshot,

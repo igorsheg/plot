@@ -7,7 +7,7 @@ import type {
 	WorkItem,
 	WorkResult,
 	WorkRun,
-} from "./domain.js";
+} from "./model.js";
 
 export interface WorkRunnerContext {
 	readonly sourceId: SourceId;

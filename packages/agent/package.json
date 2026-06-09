@@ -1,12 +1,12 @@
 {
-	"name": "@plot/core",
+	"name": "@plot/agent",
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./domain": "./src/domain.ts",
-		"./loop": "./src/loop.ts",
-		"./runner": "./src/runner.ts",
-		"./source": "./src/source.ts"
+		"./agent": "./src/agent.ts",
+		"./model": "./src/model.ts",
+		"./work-runner": "./src/work-runner.ts",
+		"./work-source": "./src/work-source.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",

@@ -4,18 +4,18 @@ import {
 	interruptWork,
 	scheduleWake,
 	sourceId,
-	PlotLoopError,
+	PlotAgentError,
 	setFact,
 	subjectKey,
 	workKey,
-} from "../src/domain.js";
+} from "../src/model.js";
 import {
-	makeOrchestratorLayer,
-	Orchestrator,
-	type OrchestratorLayerOptions,
-} from "../src/loop.js";
-import type { WorkRunner } from "../src/runner.js";
-import type { WorkSource } from "../src/source.js";
+	makePlotAgentLayer,
+	PlotAgent,
+	type PlotAgentLayerOptions,
+} from "../src/agent.js";
+import type { WorkRunner } from "../src/work-runner.js";
+import type { WorkSource } from "../src/work-source.js";
 
 const succeedRunner = (calls: string[] = []): WorkRunner => ({
 	run: ({ work }) =>
@@ -27,14 +27,14 @@ const succeedRunner = (calls: string[] = []): WorkRunner => ({
 
 const runWith = <A>(
 	sources: readonly WorkSource[],
-	effect: Effect.Effect<A, never, Orchestrator>,
+	effect: Effect.Effect<A, never, PlotAgent>,
 	runner: WorkRunner = succeedRunner(),
-	options: Omit<OrchestratorLayerOptions, "sources" | "runner"> = {},
+	options: Omit<PlotAgentLayerOptions, "sources" | "runner"> = {},
 ) =>
 	Effect.runPromise(
 		effect.pipe(
 			Effect.provide(
-				makeOrchestratorLayer({
+				makePlotAgentLayer({
 					...options,
 					sources,
 					runner,
@@ -48,12 +48,12 @@ const makeWorkSource = (id: string, key: string): WorkSource => ({
 	selectWork: () => Effect.succeed([{ workKey: workKey(key) }]),
 });
 
-describe("task-agnostic Plot loop", () => {
-	test("setup rejects invalid runtime config with typed loop errors", async () => {
+describe("task-agnostic Plot agent", () => {
+	test("setup rejects invalid runtime config with typed agent errors", async () => {
 		const error = await Effect.runPromise(
-			Effect.service(Orchestrator).pipe(
+			Effect.service(PlotAgent).pipe(
 				Effect.provide(
-					makeOrchestratorLayer({
+					makePlotAgentLayer({
 						sources: [],
 						runner: succeedRunner(),
 						queueCapacity: 0,
@@ -63,7 +63,7 @@ describe("task-agnostic Plot loop", () => {
 			),
 		);
 
-		expect(error).toBeInstanceOf(PlotLoopError);
+		expect(error).toBeInstanceOf(PlotAgentError);
 		expect(error.phase).toBe("setup");
 		expect(error.message).toBe("queueCapacity must be a positive integer");
 	});
@@ -102,11 +102,11 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				const first = yield* orchestrator.tickOnce();
-				const afterFirst = yield* orchestrator.snapshot();
+				const plotAgent = yield* PlotAgent;
+				const first = yield* plotAgent.tickOnce();
+				const afterFirst = yield* plotAgent.snapshot();
 				yield* Effect.yieldNow;
-				const second = yield* orchestrator.tickOnce();
+				const second = yield* plotAgent.tickOnce();
 				return { first, afterFirst, second };
 			}),
 		);
@@ -139,11 +139,11 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				const first = yield* orchestrator.tickOnce();
+				const plotAgent = yield* PlotAgent;
+				const first = yield* plotAgent.tickOnce();
 				yield* Deferred.succeed(release, "done");
 				yield* Effect.yieldNow;
-				const second = yield* orchestrator.tickOnce();
+				const second = yield* plotAgent.tickOnce();
 				return { first, second };
 			}),
 			runner,
@@ -190,10 +190,10 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.tickOnce();
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.tickOnce();
 				yield* Effect.yieldNow;
-				return yield* orchestrator.tickOnce();
+				return yield* plotAgent.tickOnce();
 			}),
 			runner,
 		);
@@ -221,10 +221,10 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.start();
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.start();
 				const count = yield* Deferred.await(secondTick);
-				yield* orchestrator.shutdown();
+				yield* plotAgent.shutdown();
 				return count;
 			}),
 			succeedRunner(),
@@ -256,11 +256,11 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.start();
-				yield* orchestrator.offer({ type: "tick" });
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.start();
+				yield* plotAgent.offer({ type: "tick" });
 				const count = yield* Deferred.await(secondTick);
-				yield* orchestrator.shutdown();
+				yield* plotAgent.shutdown();
 				return count;
 			}),
 		);
@@ -268,7 +268,7 @@ describe("task-agnostic Plot loop", () => {
 		expect(result).toBe(2);
 	});
 
-	test("actor run consumes queued wake sources and owns the loop", async () => {
+	test("actor run consumes queued wake sources and owns the agent", async () => {
 		const subject = subjectKey("actor-work");
 		const source: WorkSource = {
 			id: sourceId("actor-source"),
@@ -284,12 +284,12 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.start();
-				yield* orchestrator.offer({ type: "tick" });
-				yield* orchestrator.shutdown();
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.start();
+				yield* plotAgent.offer({ type: "tick" });
+				yield* plotAgent.shutdown();
 				yield* Effect.yieldNow;
-				return yield* orchestrator.snapshot();
+				return yield* plotAgent.snapshot();
 			}),
 		);
 
@@ -343,10 +343,10 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				const first = yield* orchestrator.tickOnce();
+				const plotAgent = yield* PlotAgent;
+				const first = yield* plotAgent.tickOnce();
 				yield* Effect.yieldNow;
-				const second = yield* orchestrator.tickOnce();
+				const second = yield* plotAgent.tickOnce();
 				return { first, second };
 			}),
 			runner,
@@ -374,14 +374,14 @@ describe("task-agnostic Plot loop", () => {
 
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				const first = yield* orchestrator.tickOnce();
-				const snapshot = yield* orchestrator.snapshot();
+				const plotAgent = yield* PlotAgent;
+				const first = yield* plotAgent.tickOnce();
+				const snapshot = yield* plotAgent.snapshot();
 				yield* Deferred.succeed(release, undefined);
 				return { first, snapshot };
 			}).pipe(
 				Effect.provide(
-					makeOrchestratorLayer({
+					makePlotAgentLayer({
 						sources: [
 							makeWorkSource("one", "work:one"),
 							makeWorkSource("two", "work:two"),
@@ -410,12 +410,12 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.tickOnce();
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.tickOnce();
 				yield* Effect.yieldNow;
-				const second = yield* orchestrator.tickOnce();
+				const second = yield* plotAgent.tickOnce();
 				yield* Effect.yieldNow;
-				const third = yield* orchestrator.tickOnce();
+				const third = yield* plotAgent.tickOnce();
 				return { second, third };
 			}),
 			succeedRunner(calls),
@@ -456,13 +456,13 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.tickOnce();
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.tickOnce();
 				yield* Deferred.await(started);
 				shouldInterrupt = true;
-				const second = yield* orchestrator.tickOnce();
+				const second = yield* plotAgent.tickOnce();
 				yield* Deferred.await(interrupted);
-				const after = yield* orchestrator.snapshot();
+				const after = yield* plotAgent.snapshot();
 				return { second, after };
 			}),
 			runner,
@@ -487,11 +487,11 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.tickOnce();
-				yield* orchestrator.tickOnce();
-				yield* orchestrator.tickOnce();
-				return yield* orchestrator.snapshot();
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.tickOnce();
+				yield* plotAgent.tickOnce();
+				yield* plotAgent.tickOnce();
+				return yield* plotAgent.snapshot();
 			}),
 			succeedRunner(),
 			{ historyLimit: 2 },
@@ -531,14 +531,14 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.start();
-				yield* orchestrator.offer({ type: "tick" });
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.start();
+				yield* plotAgent.offer({ type: "tick" });
 				yield* Deferred.await(started);
 				yield* Deferred.await(interrupted);
 				yield* Effect.yieldNow;
-				const snapshot = yield* orchestrator.snapshot();
-				yield* orchestrator.shutdown();
+				const snapshot = yield* plotAgent.snapshot();
+				yield* plotAgent.shutdown();
 				return snapshot;
 			}),
 			runner,
@@ -549,7 +549,7 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.facts.get("completion:timeout:1")).toBe("timed_out");
 	});
 
-	test("status subscribers receive operator-visible loop events", async () => {
+	test("status subscribers receive operator-visible agent events", async () => {
 		const key = workKey("event:1");
 		const source: WorkSource = {
 			id: sourceId("event-source"),
@@ -560,12 +560,12 @@ describe("task-agnostic Plot loop", () => {
 			[source],
 			Effect.scoped(
 				Effect.gen(function* () {
-					const orchestrator = yield* Orchestrator;
-					const fiber = yield* orchestrator
+					const plotAgent = yield* PlotAgent;
+					const fiber = yield* plotAgent
 						.events()
 						.pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped);
 					yield* Effect.yieldNow;
-					yield* orchestrator.tickOnce();
+					yield* plotAgent.tickOnce();
 					const events = yield* Fiber.join(fiber);
 					return events.map((event) => event.type);
 				}),
@@ -600,16 +600,16 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.start();
-				yield* orchestrator.offer({ type: "tick" });
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.start();
+				yield* plotAgent.offer({ type: "tick" });
 				yield* Deferred.await(started);
 				yield* Effect.yieldNow;
-				const before = yield* orchestrator.snapshot();
-				yield* orchestrator.shutdown();
+				const before = yield* plotAgent.snapshot();
+				yield* plotAgent.shutdown();
 				yield* Deferred.await(interrupted);
 				yield* Effect.yieldNow;
-				const after = yield* orchestrator.snapshot();
+				const after = yield* plotAgent.snapshot();
 				return { before, after };
 			}),
 			runner,
@@ -633,10 +633,10 @@ describe("task-agnostic Plot loop", () => {
 		const result = await runWith(
 			[source],
 			Effect.gen(function* () {
-				const orchestrator = yield* Orchestrator;
-				yield* orchestrator.tickOnce();
+				const plotAgent = yield* PlotAgent;
+				yield* plotAgent.tickOnce();
 				yield* Effect.yieldNow;
-				return yield* orchestrator.tickOnce();
+				return yield* plotAgent.tickOnce();
 			}),
 			runner,
 		);
