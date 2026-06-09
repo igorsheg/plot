@@ -41,32 +41,60 @@ export type PlotSessionId = typeof PlotSessionId.Type;
 export const plotSessionId = (value: string): PlotSessionId =>
 	Schema.decodeUnknownSync(PlotSessionId)(value);
 
+export const PlotSessionEventSequence = Schema.Number.pipe(
+	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+	Schema.brand("PlotSessionEventSequence"),
+);
+export type PlotSessionEventSequence = typeof PlotSessionEventSequence.Type;
+export const plotSessionEventSequence = (
+	value: number,
+): PlotSessionEventSequence =>
+	Schema.decodeUnknownSync(PlotSessionEventSequence)(value);
+
+export class SessionStartedEvent extends Schema.Class<SessionStartedEvent>(
+	"SessionStartedEvent",
+)({
+	type: Schema.Literal("session_started"),
+	sessionId: PlotSessionId,
+	sequence: PlotSessionEventSequence,
+}) {}
+
+export class SessionShutdownEvent extends Schema.Class<SessionShutdownEvent>(
+	"SessionShutdownEvent",
+)({
+	type: Schema.Literal("session_shutdown"),
+	sessionId: PlotSessionId,
+	sequence: PlotSessionEventSequence,
+}) {}
+
+export class OrchestratorSessionEvent extends Schema.Class<OrchestratorSessionEvent>(
+	"OrchestratorSessionEvent",
+)({
+	type: Schema.Literal("orchestrator_event"),
+	sessionId: PlotSessionId,
+	sequence: PlotSessionEventSequence,
+	event: Domain.OrchestratorEvent,
+}) {}
+
+export class AgentSessionStreamEvent extends Schema.Class<AgentSessionStreamEvent>(
+	"AgentSessionStreamEvent",
+)({
+	type: Schema.Literal("agent_event"),
+	sessionId: PlotSessionId,
+	sequence: PlotSessionEventSequence,
+	sourceId: Domain.SourceId,
+	runId: Domain.RunId,
+	workKey: Domain.WorkKey,
+	subject: Schema.optionalKey(Domain.SubjectKey),
+	eventType: Schema.String,
+	event: Schema.Unknown,
+}) {}
+
 export const PlotSessionEvent = Schema.Union([
-	Schema.Struct({
-		type: Schema.Literal("session_started"),
-		sessionId: PlotSessionId,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("session_shutdown"),
-		sessionId: PlotSessionId,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("orchestrator_event"),
-		sessionId: PlotSessionId,
-		sequence: Schema.Number,
-		event: Domain.OrchestratorEvent,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("agent_event"),
-		sessionId: PlotSessionId,
-		sequence: Schema.Number,
-		sourceId: Domain.SourceId,
-		runId: Domain.RunId,
-		workKey: Domain.WorkKey,
-		subject: Schema.optionalKey(Domain.SubjectKey),
-		eventType: Schema.String,
-		event: Schema.Unknown,
-	}),
+	SessionStartedEvent,
+	SessionShutdownEvent,
+	OrchestratorSessionEvent,
+	AgentSessionStreamEvent,
 ]);
 export type PlotSessionEvent = typeof PlotSessionEvent.Type;
 
@@ -125,7 +153,9 @@ export type PlotSessionLayerOptions =
 const makeSetupError = (message: string) =>
 	new PlotSessionError({ phase: "setup", message });
 
-const ensureOneRunner = (options: PlotSessionLayerOptions) => {
+const ensureOneRunner = (
+	options: PlotSessionLayerOptions,
+): Effect.Effect<void, PlotSessionError> => {
 	const runnerCount =
 		(options.runner === undefined ? 0 : 1) +
 		(options.agentRunner === undefined ? 0 : 1);
@@ -155,8 +185,13 @@ const publishScoped = <A>(pubsub: PubSub.PubSub<A>, event: A) =>
 const nextSequence = (sequenceRef: Ref.Ref<number>) =>
 	Ref.modify(sequenceRef, (current) => {
 		const next = current + 1;
-		return [next, next] as const;
+		return [plotSessionEventSequence(next), next] as const;
 	});
+
+const errorMessage = (error: unknown): string => {
+	if (error instanceof Error) return error.message;
+	return String(error);
+};
 
 const optionalSubject = (subject: SubjectKey | undefined) =>
 	subject === undefined ? {} : { subject };
@@ -218,18 +253,26 @@ const makeAgentRunner = (
 						tick_id: context.tickId,
 					},
 				};
+				const notifyExternalListener = (event: AgentSessionEvent) =>
+					config.onEvent
+						? config.onEvent(event).pipe(
+								Effect.catch((error) =>
+									Effect.logWarning("PlotSession.agentRunner.onEvent failed", {
+										error: errorMessage(error),
+										event_type: event.type,
+										source_id: context.sourceId,
+										run_id: context.run.runId,
+										work_key: context.work.workKey,
+									}),
+								),
+							)
+						: Effect.void;
 				yield* client
 					.prompt(request)
 					.pipe(
 						Stream.runForEach((event) =>
 							publishAgentEvent(context, event).pipe(
-								Effect.andThen(
-									config.onEvent
-										? config
-												.onEvent(event)
-												.pipe(Effect.catch(() => Effect.void))
-										: Effect.void,
-								),
+								Effect.andThen(notifyExternalListener(event)),
 							),
 						),
 					);
@@ -270,15 +313,37 @@ export function makePlotSessionLayer(
 			);
 
 			const publish = (event: PlotSessionEvent) => publishScoped(events, event);
+			const publishSessionStarted = Effect.gen(function* () {
+				const sequenceNumber = yield* nextSequence(sequence);
+				yield* publish(
+					new SessionStartedEvent({
+						type: "session_started",
+						sessionId,
+						sequence: sequenceNumber,
+					}),
+				);
+			});
+			const publishSessionShutdown = Effect.gen(function* () {
+				const sequenceNumber = yield* nextSequence(sequence);
+				yield* publish(
+					new SessionShutdownEvent({
+						type: "session_shutdown",
+						sessionId,
+						sequence: sequenceNumber,
+					}),
+				);
+			});
 			const publishOrchestratorEvent = (event: OrchestratorEvent) =>
 				Effect.gen(function* () {
 					const sequenceNumber = yield* nextSequence(sequence);
-					yield* publish({
-						type: "orchestrator_event",
-						sessionId,
-						sequence: sequenceNumber,
-						event,
-					});
+					yield* publish(
+						new OrchestratorSessionEvent({
+							type: "orchestrator_event",
+							sessionId,
+							sequence: sequenceNumber,
+							event,
+						}),
+					);
 				});
 			const publishAgentEvent = (
 				context: WorkRunnerContext,
@@ -286,17 +351,19 @@ export function makePlotSessionLayer(
 			) =>
 				Effect.gen(function* () {
 					const sequenceNumber = yield* nextSequence(sequence);
-					yield* publish({
-						type: "agent_event",
-						sessionId,
-						sequence: sequenceNumber,
-						sourceId: context.sourceId,
-						runId: context.run.runId,
-						workKey: context.work.workKey,
-						...optionalSubject(context.work.subject),
-						eventType: event.type,
-						event,
-					});
+					yield* publish(
+						new AgentSessionStreamEvent({
+							type: "agent_event",
+							sessionId,
+							sequence: sequenceNumber,
+							sourceId: context.sourceId,
+							runId: context.run.runId,
+							workKey: context.work.workKey,
+							...optionalSubject(context.work.subject),
+							eventType: event.type,
+							event,
+						}),
+					);
 				});
 
 			const runner = options.runner
@@ -306,15 +373,16 @@ export function makePlotSessionLayer(
 						options.agentRunner,
 						publishAgentEvent,
 					);
-			const orchestrator = yield* Orchestrator.pipe(
-				Effect.provide(
-					makeOrchestratorLayer({
-						...options.orchestrator,
-						sources: options.sources,
-						runner,
-					}),
-				),
+			const orchestratorLayer = makeOrchestratorLayer({
+				...options.orchestrator,
+				sources: options.sources,
+				runner,
+			});
+			const orchestratorContext = yield* Layer.buildWithScope(
+				orchestratorLayer,
+				sessionScope,
 			);
+			const orchestrator = Context.get(orchestratorContext, Orchestrator);
 			yield* orchestrator
 				.events()
 				.pipe(
@@ -324,7 +392,7 @@ export function makePlotSessionLayer(
 				);
 
 			const start = Effect.fn("PlotSession.start")(function* () {
-				yield* publish({ type: "session_started", sessionId });
+				yield* publishSessionStarted;
 				yield* orchestrator.start();
 			});
 			const tickOnce = Effect.fn("PlotSession.tickOnce")(function* () {
@@ -336,7 +404,7 @@ export function makePlotSessionLayer(
 			const eventStream = () => Stream.fromPubSub(events);
 			const shutdown = Effect.fn("PlotSession.shutdown")(function* () {
 				const accepted = yield* orchestrator.shutdown();
-				yield* publish({ type: "session_shutdown", sessionId });
+				yield* publishSessionShutdown;
 				return accepted;
 			});
 

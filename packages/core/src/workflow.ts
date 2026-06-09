@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
 
@@ -18,12 +18,36 @@ export const WorkflowDefinition = Schema.Struct({
 });
 export type WorkflowDefinition = typeof WorkflowDefinition.Type;
 
-const frontMatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-
 const errorMessage = (error: unknown): string => {
 	if (error instanceof Error) return error.message;
 	return String(error);
 };
+
+export interface WorkflowFileSystemShape {
+	readonly readFileString: (
+		path: string,
+	) => Effect.Effect<string, PlotWorkflowError>;
+}
+
+export class WorkflowFileSystem extends Context.Service<
+	WorkflowFileSystem,
+	WorkflowFileSystemShape
+>()("@plot/core/workflow/WorkflowFileSystem") {}
+
+export const nodeWorkflowFileSystemLayer = Layer.succeed(WorkflowFileSystem, {
+	readFileString: (path) =>
+		Effect.tryPromise({
+			try: () => readFile(path, "utf8"),
+			catch: (error) =>
+				new PlotWorkflowError({
+					phase: "read",
+					path,
+					message: errorMessage(error),
+				}),
+		}),
+});
+
+const frontMatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
 const parseConfig = (frontMatter: string, path: string | undefined) =>
 	Effect.try({
@@ -70,13 +94,14 @@ export const parseWorkflowText = (
 
 export const loadWorkflow = (
 	path = "WORKFLOW.md",
+): Effect.Effect<WorkflowDefinition, PlotWorkflowError, WorkflowFileSystem> =>
+	Effect.gen(function* () {
+		const fileSystem = yield* WorkflowFileSystem;
+		const text = yield* fileSystem.readFileString(path);
+		return yield* parseWorkflowText(text, path);
+	});
+
+export const loadWorkflowFromNode = (
+	path = "WORKFLOW.md",
 ): Effect.Effect<WorkflowDefinition, PlotWorkflowError> =>
-	Effect.tryPromise({
-		try: () => readFile(path, "utf8"),
-		catch: (error) =>
-			new PlotWorkflowError({
-				phase: "read",
-				path,
-				message: errorMessage(error),
-			}),
-	}).pipe(Effect.flatMap((text) => parseWorkflowText(text, path)));
+	loadWorkflow(path).pipe(Effect.provide(nodeWorkflowFileSystemLayer));

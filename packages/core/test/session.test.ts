@@ -19,6 +19,35 @@ const fakeAgentLayer = (events: readonly AgentSessionEvent[] = []) =>
 	});
 
 describe("PlotSession", () => {
+	test("sequences lifecycle events for outer status surfaces", async () => {
+		const runner: WorkRunner = {
+			run: () => Effect.succeed({}),
+		};
+
+		const result = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const session = yield* PlotSession;
+					const fiber = yield* session
+						.events()
+						.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
+					yield* Effect.yieldNow;
+					yield* session.start();
+					yield* session.shutdown();
+					return yield* Fiber.join(fiber);
+				}),
+			).pipe(
+				Effect.provide(makePlotSessionLayer({ workflow, sources: [], runner })),
+			),
+		);
+
+		expect(result.map((event) => event.type)).toEqual([
+			"session_started",
+			"session_shutdown",
+		]);
+		expect(result.map((event) => Number(event.sequence))).toEqual([1, 2]);
+	});
+
 	test("wraps orchestrator events for outer status surfaces", async () => {
 		const source: WorkSource = {
 			id: sourceId("status-source"),
@@ -53,7 +82,9 @@ describe("PlotSession", () => {
 			"orchestrator_event",
 		]);
 		expect(
-			result.map((event) => ("sequence" in event ? event.sequence : undefined)),
+			result.map((event) =>
+				"sequence" in event ? Number(event.sequence) : undefined,
+			),
 		).toEqual([1, 2, 3]);
 	});
 
@@ -83,8 +114,8 @@ describe("PlotSession", () => {
 					yield* session.tickOnce();
 					const events = yield* Fiber.join(fiber);
 					const event = events[0];
-					if (!event) throw new Error("missing agent event");
-					return event;
+					expect(event).toBeDefined();
+					return event!;
 				}),
 			).pipe(Effect.provide(layer)),
 		);
