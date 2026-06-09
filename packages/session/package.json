@@ -10,6 +10,7 @@
 		"./protocol-jsonl": "./src/protocol-jsonl.ts",
 		"./protocol-replay-buffer": "./src/protocol-replay-buffer.ts",
 		"./protocol-stdio": "./src/protocol-stdio.ts",
+		"./testing/faux-agent-session": "./src/testing/faux-agent-session.ts",
 		"./workflow": "./src/workflow.ts"
 	},
 	"scripts": {
@@ -19,6 +20,7 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
+		"@earendil-works/pi-ai": "0.79.0",
 		"@earendil-works/pi-coding-agent": "0.79.0",
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",

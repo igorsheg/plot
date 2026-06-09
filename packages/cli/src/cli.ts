@@ -1,6 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
+import type { CreateAgentSession } from "@plot/session/agent-session-client";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 
 export const version = "0.0.0";
@@ -8,6 +9,7 @@ export const version = "0.0.0";
 export interface PlotCliIo {
 	readonly stdin: AsyncIterable<StdioChunk>;
 	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
+	readonly createAgentSession?: CreateAgentSession;
 }
 
 class PlotCliIoError extends Schema.TaggedErrorClass<PlotCliIoError>()(
@@ -128,6 +130,9 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 				replayCapacity: options.replayCapacity,
 				...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
 				...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
+				...(io.createAgentSession === undefined
+					? {}
+					: { createAgentSession: io.createAgentSession }),
 				stdin: io.stdin,
 				writeStdout: io.writeStdout,
 			});

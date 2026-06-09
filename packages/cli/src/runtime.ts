@@ -2,7 +2,10 @@ import { Effect, Layer } from "effect";
 import { positiveInt, sourceId, subjectKey, workKey } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
-import { AgentSessionClientLive } from "@plot/session/agent-session-client";
+import {
+	makeAgentSessionClientLayer,
+	type CreateAgentSession,
+} from "@plot/session/agent-session-client";
 import {
 	makePlotSessionLayer,
 	plotSessionId,
@@ -44,6 +47,7 @@ export interface ServeStdioOptions {
 	readonly replayCapacity: number;
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
+	readonly createAgentSession?: CreateAgentSession;
 	readonly stdin: AsyncIterable<StdioChunk>;
 	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
 }
@@ -123,6 +127,12 @@ export const serveStdio = (
 					? {}
 					: { maxRunDurationMs: options.maxRunDurationMs }),
 			};
+			const agentSessionClientLayer =
+				options.createAgentSession === undefined
+					? makeAgentSessionClientLayer()
+					: makeAgentSessionClientLayer({
+							createAgentSession: options.createAgentSession,
+						});
 			const sessionLayer = makePlotSessionLayer({
 				id: plotSessionId(options.sessionId),
 				workflow,
@@ -133,7 +143,7 @@ export const serveStdio = (
 					prompt: workflow.prompt,
 					create: { cwd: options.cwd },
 				},
-			}).pipe(Layer.provide(AgentSessionClientLive));
+			}).pipe(Layer.provide(agentSessionClientLayer));
 			const protocolLayer = makePlotProtocolLayer({
 				epoch: plotProtocolEpoch(options.sessionId),
 				limits: makeLimits(options),
