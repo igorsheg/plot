@@ -18,17 +18,21 @@ export interface LoggerOptions {
 }
 
 export const LoggerLive = (options: LoggerOptions = {}) => {
+	const stderr = options.stderr ?? true;
 	const logger =
 		options.format === "pretty"
-			? Logger.consolePretty()
+			? Logger.consolePretty({ stderr })
 			: options.format === "logfmt"
-				? Logger.consoleLogFmt
-				: Logger.consoleJson;
+				? stderr
+					? Logger.withConsoleError(Logger.formatLogFmt)
+					: Logger.withConsoleLog(Logger.formatLogFmt)
+				: stderr
+					? Logger.withConsoleError(Logger.formatJson)
+					: Logger.withConsoleLog(Logger.formatJson);
 
 	return Layer.mergeAll(
 		Logger.layer([logger]),
 		Layer.succeed(References.MinimumLogLevel, options.level ?? "Info"),
-		Layer.succeed(Logger.LogToStderr, options.stderr ?? true),
 	);
 };
 
