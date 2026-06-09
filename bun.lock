@@ -16,6 +16,18 @@
     "packages/@repo": {
       "name": "@repo/tsconfig",
     },
+    "packages/agent-session": {
+      "name": "@plot/agent-session",
+      "dependencies": {
+        "@earendil-works/pi-coding-agent": "0.79.0",
+        "@plot/common": "workspace:*",
+        "@plot/core": "workspace:*",
+        "effect": "4.0.0-beta.78",
+      },
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
     "packages/common": {
       "name": "@plot/common",
       "dependencies": {
@@ -35,24 +47,11 @@
         "@repo/tsconfig": "workspace:*",
       },
     },
-    "packages/pi-mono": {
-      "name": "@plot/pi-mono",
-      "dependencies": {
-        "@earendil-works/pi-coding-agent": "0.79.0",
-        "@plot/common": "workspace:*",
-        "@plot/core": "workspace:*",
-        "effect": "4.0.0-beta.78",
-      },
-      "devDependencies": {
-        "@repo/tsconfig": "workspace:*",
-      },
-    },
     "packages/session": {
       "name": "@plot/session",
       "dependencies": {
-        "@earendil-works/pi-coding-agent": "0.79.0",
+        "@plot/agent-session": "workspace:*",
         "@plot/core": "workspace:*",
-        "@plot/pi-mono": "workspace:*",
         "effect": "4.0.0-beta.78",
         "yaml": "2.9.0",
       },
@@ -242,11 +241,11 @@
 
     "@oxlint/binding-win32-x64-msvc": ["@oxlint/binding-win32-x64-msvc@1.69.0", "", { "os": "win32", "cpu": "x64" }, "sha512-w8SOXv3mT9Fi6jY8OXdXCfnvX/3KNLXGNr4HEz2TA7S4Mv/PYAOmpB8y/ge40mxvBMgGNaSaaDwZpAsQn7HtWA=="],
 
+    "@plot/agent-session": ["@plot/agent-session@workspace:packages/agent-session"],
+
     "@plot/common": ["@plot/common@workspace:packages/common"],
 
     "@plot/core": ["@plot/core@workspace:packages/core"],
-
-    "@plot/pi-mono": ["@plot/pi-mono@workspace:packages/pi-mono"],
 
     "@plot/session": ["@plot/session@workspace:packages/session"],
 

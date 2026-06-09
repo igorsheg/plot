@@ -8,9 +8,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	AgentSessionClient,
-	makePiMonoAgentSessionLayer,
-	PiMonoAgentSessionError,
-} from "../src/llm.js";
+	AgentSessionClientError,
+	makeAgentSessionClientLayer,
+} from "../src/client.js";
 
 const fakeResult = (session: AgentSession) =>
 	({ session, extensionsResult: {} }) as unknown as CreateAgentSessionResult;
@@ -49,10 +49,10 @@ function makeFakeSession(options?: {
 	};
 }
 
-describe("llm pi-mono adapter", () => {
-	test("streams pi-mono AgentSessionEvent values without translating their taxonomy", async () => {
+describe("agent session client", () => {
+	test("streams raw AgentSessionEvent values without translating their taxonomy", async () => {
 		const fake = makeFakeSession();
-		const layer = makePiMonoAgentSessionLayer({
+		const layer = makeAgentSessionClientLayer({
 			createAgentSession: async () => fakeResult(fake.session),
 		});
 
@@ -71,7 +71,7 @@ describe("llm pi-mono adapter", () => {
 
 	test("ends the stream when prompting resolves without an agent_end event", async () => {
 		const fake = makeFakeSession({ events: [{ type: "agent_start" }] });
-		const layer = makePiMonoAgentSessionLayer({
+		const layer = makeAgentSessionClientLayer({
 			createAgentSession: async () => fakeResult(fake.session),
 		});
 
@@ -87,7 +87,7 @@ describe("llm pi-mono adapter", () => {
 
 	test("fails the stream with a typed adapter error when prompting fails", async () => {
 		const fake = makeFakeSession({ promptError: new Error("no model") });
-		const layer = makePiMonoAgentSessionLayer({
+		const layer = makeAgentSessionClientLayer({
 			createAgentSession: async () => fakeResult(fake.session),
 		});
 
@@ -102,8 +102,8 @@ describe("llm pi-mono adapter", () => {
 		expect(Exit.isFailure(exit)).toBe(true);
 		if (Exit.isFailure(exit)) {
 			const error = Cause.squash(exit.cause);
-			expect(error).toBeInstanceOf(PiMonoAgentSessionError);
-			expect((error as PiMonoAgentSessionError).phase).toBe("prompt");
+			expect(error).toBeInstanceOf(AgentSessionClientError);
+			expect((error as AgentSessionClientError).phase).toBe("prompt");
 		}
 		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
 	});

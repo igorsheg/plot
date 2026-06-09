@@ -1,9 +1,9 @@
 {
-	"name": "@plot/pi-mono",
+	"name": "@plot/agent-session",
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./llm": "./src/llm.ts",
+		"./client": "./src/client.ts",
 		"./runner": "./src/runner.ts"
 	},
 	"scripts": {

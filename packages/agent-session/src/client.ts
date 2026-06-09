@@ -14,18 +14,24 @@ import {
 	type Fields,
 } from "@plot/common/observability";
 
-const PiMonoAgentSessionErrorPhase = Schema.Literals([
+export type {
+	AgentSessionEvent,
+	CreateAgentSessionOptions,
+	PromptOptions,
+} from "@earendil-works/pi-coding-agent";
+
+const AgentSessionClientErrorPhase = Schema.Literals([
 	"create",
 	"prompt",
 	"dispose",
 ]);
-export type PiMonoAgentSessionErrorPhase =
-	typeof PiMonoAgentSessionErrorPhase.Type;
+export type AgentSessionClientErrorPhase =
+	typeof AgentSessionClientErrorPhase.Type;
 
-export class PiMonoAgentSessionError extends Schema.TaggedErrorClass<PiMonoAgentSessionError>()(
-	"PiMonoAgentSessionError",
+export class AgentSessionClientError extends Schema.TaggedErrorClass<AgentSessionClientError>()(
+	"AgentSessionClientError",
 	{
-		phase: PiMonoAgentSessionErrorPhase,
+		phase: AgentSessionClientErrorPhase,
 		message: Schema.String,
 	},
 ) {}
@@ -40,27 +46,27 @@ export interface PromptAgentSessionOptions {
 export interface AgentSessionClientShape {
 	readonly prompt: (
 		options: PromptAgentSessionOptions,
-	) => Stream.Stream<AgentSessionEvent, PiMonoAgentSessionError>;
+	) => Stream.Stream<AgentSessionEvent, AgentSessionClientError>;
 }
 
 export class AgentSessionClient extends Context.Service<
 	AgentSessionClient,
 	AgentSessionClientShape
->()("@plot/pi-mono/AgentSessionClient") {}
+>()("@plot/agent-session/AgentSessionClient") {}
 
 export type CreateAgentSession = (
 	options?: CreateAgentSessionOptions,
 ) => Promise<CreateAgentSessionResult>;
 
-export interface PiMonoAgentSessionLayerOptions {
+export interface AgentSessionClientLayerOptions {
 	readonly createAgentSession?: CreateAgentSession;
 }
 
 const errorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
 
-const createError = (phase: PiMonoAgentSessionErrorPhase, error: unknown) =>
-	new PiMonoAgentSessionError({ phase, message: errorMessage(error) });
+const createError = (phase: AgentSessionClientErrorPhase, error: unknown) =>
+	new AgentSessionClientError({ phase, message: errorMessage(error) });
 
 const disposeSession = (session: AgentSession) =>
 	Effect.try({
@@ -69,7 +75,7 @@ const disposeSession = (session: AgentSession) =>
 	}).pipe(
 		Effect.catch((error) =>
 			Effect.logError({
-				operation: "llm.session.dispose",
+				operation: "agent_session.dispose",
 				outcome: "error",
 				error: error.message,
 			}),
@@ -89,15 +95,15 @@ const sessionEventFields = (event: AgentSessionEvent): Fields => {
 	return fields;
 };
 
-export const makePiMonoAgentSessionLayer = (
-	options: PiMonoAgentSessionLayerOptions = {},
+export const makeAgentSessionClientLayer = (
+	options: AgentSessionClientLayerOptions = {},
 ) => {
 	const create = options.createAgentSession ?? createAgentSession;
 
 	return Layer.succeed(AgentSessionClient, {
 		prompt: (request) => {
 			const log = request.log ?? {};
-			return Stream.callback<AgentSessionEvent, PiMonoAgentSessionError>(
+			return Stream.callback<AgentSessionEvent, AgentSessionClientError>(
 				(queue) =>
 					Effect.gen(function* () {
 						let ended = false;
@@ -107,7 +113,7 @@ export const makePiMonoAgentSessionLayer = (
 							Queue.endUnsafe(queue);
 						};
 						const result = yield* withWideEvent(
-							"llm.session.create",
+							"agent_session.create",
 							log,
 							Effect.tryPromise({
 								try: () => create(request.create),
@@ -129,7 +135,7 @@ export const makePiMonoAgentSessionLayer = (
 						yield* withFields(
 							log,
 							withWideEvent(
-								"llm.session.prompt",
+								"agent_session.prompt",
 								log,
 								Effect.tryPromise({
 									try: () =>
@@ -138,7 +144,7 @@ export const makePiMonoAgentSessionLayer = (
 								}),
 							).pipe(
 								Effect.tap(() => Effect.sync(endQueue)),
-								Effect.catch((error: PiMonoAgentSessionError) =>
+								Effect.catch((error: AgentSessionClientError) =>
 									Effect.sync(() =>
 										Queue.failCauseUnsafe(queue, Cause.fail(error)),
 									),
@@ -150,7 +156,7 @@ export const makePiMonoAgentSessionLayer = (
 			).pipe(
 				Stream.tap((event) =>
 					logWideEvent({
-						operation: "llm.session.event",
+						operation: "agent_session.event",
 						...log,
 						...sessionEventFields(event),
 					}),
@@ -160,4 +166,4 @@ export const makePiMonoAgentSessionLayer = (
 	} satisfies AgentSessionClientShape);
 };
 
-export const PiMonoAgentSessionLive = makePiMonoAgentSessionLayer();
+export const AgentSessionClientLive = makeAgentSessionClientLayer();

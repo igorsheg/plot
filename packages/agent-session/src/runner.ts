@@ -5,7 +5,7 @@ import type {
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { WorkRunner, WorkRunnerContext } from "@plot/core/runner";
-import { AgentSessionClient } from "./llm.js";
+import { AgentSessionClient } from "./client.js";
 
 type RunnerValue<A> =
 	| A

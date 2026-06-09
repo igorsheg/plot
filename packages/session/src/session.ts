@@ -9,7 +9,7 @@ import {
 	Stream,
 	type Exit,
 } from "effect";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent } from "@plot/agent-session/client";
 import * as Domain from "@plot/core/domain";
 import type {
 	OrchestratorEvent,
@@ -27,8 +27,8 @@ import {
 	AgentSessionClient,
 	type AgentSessionClientShape,
 	type PromptAgentSessionOptions,
-} from "@plot/pi-mono/llm";
-import type { AgentSessionWorkRunnerOptions } from "@plot/pi-mono/runner";
+} from "@plot/agent-session/client";
+import type { AgentSessionWorkRunnerOptions } from "@plot/agent-session/runner";
 import type { WorkflowDefinition } from "./workflow.js";
 
 export const PlotSessionId = Schema.NonEmptyString.pipe(

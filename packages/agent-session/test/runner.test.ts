@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { sourceId, tickId, workKey, runId } from "@plot/core/domain";
-import { AgentSessionClient } from "../src/llm.js";
+import { AgentSessionClient } from "../src/client.js";
 import { makeAgentSessionWorkRunner } from "../src/runner.js";
 
 const context = {
@@ -44,7 +44,7 @@ describe("agent session work runner", () => {
 		expect(result).toEqual({});
 	});
 
-	test("forwards raw pi-mono AgentSessionEvent values without wrapping", async () => {
+	test("forwards raw AgentSessionEvent values without wrapping", async () => {
 		const events: AgentSessionEvent[] = [
 			{ type: "agent_start" },
 			{ type: "agent_end", messages: [], willRetry: false },
