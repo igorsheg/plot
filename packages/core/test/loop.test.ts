@@ -1,22 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect } from "effect";
-import { pluginId, PlotLoopError, subjectKey } from "../src/domain.js";
+import {
+	pluginId,
+	PlotLoopError,
+	setFact,
+	subjectKey,
+	workKey,
+} from "../src/domain.js";
 import { makeOrchestratorLayer, Orchestrator } from "../src/loop.js";
-import type { PlotPlugin } from "../src/plugin.js";
+import type { PlotPlugin, WorkRunner } from "../src/plugin.js";
+
+const succeedRunner = (calls: string[] = []): WorkRunner => ({
+	run: ({ work }) =>
+		Effect.sync(() => {
+			calls.push(String(work.workKey));
+			return { output: work.templateContext };
+		}),
+});
 
 const runWith = <A>(
 	plugins: readonly PlotPlugin[],
 	effect: Effect.Effect<A, never, Orchestrator>,
+	runner: WorkRunner = succeedRunner(),
 ) =>
 	Effect.runPromise(
 		effect.pipe(
 			Effect.provide(
 				makeOrchestratorLayer({
 					plugins,
+					runner,
 				}),
 			),
 		),
 	);
+
+const makeWorkPlugin = (id: string, key: string): PlotPlugin => ({
+	id: pluginId(id),
+	selectWork: () => Effect.succeed([{ workKey: workKey(key) }]),
+});
 
 describe("task-agnostic Plot loop", () => {
 	test("setup rejects invalid runtime config with typed loop errors", async () => {
@@ -25,6 +46,7 @@ describe("task-agnostic Plot loop", () => {
 				Effect.provide(
 					makeOrchestratorLayer({
 						plugins: [],
+						runner: succeedRunner(),
 						queueCapacity: 0,
 					}),
 				),
@@ -37,33 +59,35 @@ describe("task-agnostic Plot loop", () => {
 		expect(error.message).toBe("queueCapacity must be a positive integer");
 	});
 
-	test("reconciles observations before acting, and completions apply on the next reconciliation", async () => {
-		const work = subjectKey("work-1");
+	test("reconciles observations before selecting work, and completions apply on the next reconciliation", async () => {
+		const subject = subjectKey("work-1");
+		const key = workKey("review:work-1:v1");
 		const plugin: PlotPlugin = {
 			id: pluginId("demo"),
-			observeTick: () => Effect.succeed([{ type: "seen", subject: work }]),
+			observeTick: () => Effect.succeed([{ type: "seen", subject }]),
 			reconcile: ({ snapshot }) =>
 				Effect.succeed([
-					...snapshot.observations.map((observation) => ({
-						type: "set_fact" as const,
-						key: `seen:${observation.subject ?? "unknown"}`,
-						value: true,
-					})),
-					...snapshot.completions.map((completion) => ({
-						type: "set_fact" as const,
-						key: `completed:${completion.subject ?? "unknown"}`,
-						value: completion.status,
-					})),
+					...snapshot.observations.map((observation) =>
+						setFact(`seen:${observation.subject ?? "unknown"}`, true),
+					),
+					...snapshot.completions.map((completion) =>
+						setFact(
+							`completed:${completion.subject ?? "unknown"}`,
+							completion.status,
+						),
+					),
 				]),
-			act: ({ snapshot }) =>
+			selectWork: ({ snapshot }) =>
 				snapshot.facts.get("seen:work-1") === true &&
 				!snapshot.facts.has("completed:work-1")
-					? Effect.succeed({
-							type: "completed" as const,
-							subject: work,
-							output: { reviewed: true },
-						})
-					: Effect.succeed({ type: "idle" as const }),
+					? Effect.succeed([
+							{
+								workKey: key,
+								subject,
+								templateContext: { reviewed: true },
+							},
+						])
+					: Effect.succeed([]),
 		};
 
 		const result = await runWith(
@@ -78,26 +102,29 @@ describe("task-agnostic Plot loop", () => {
 			}),
 		);
 
+		expect(result.first.selected).toHaveLength(1);
 		expect(result.first.started).toHaveLength(1);
 		expect(result.first.completions).toHaveLength(0);
 		expect(result.afterFirst.facts.get("seen:work-1")).toBe(true);
 		expect(result.afterFirst.facts.has("completed:work-1")).toBe(false);
 		expect(result.second.completions).toContainEqual(
-			expect.objectContaining({ status: "succeeded", subject: work }),
+			expect.objectContaining({ status: "succeeded", subject, workKey: key }),
 		);
 		expect(result.second.snapshot.facts.get("completed:work-1")).toBe(
 			"succeeded",
 		);
 	});
 
-	test("tickOnce starts long plugin work without waiting for completion", async () => {
+	test("tickOnce starts long runner work without waiting for completion", async () => {
 		const release = Deferred.makeUnsafe<string>();
+		const key = workKey("slow:1");
 		const plugin: PlotPlugin = {
 			id: pluginId("slow-plugin"),
-			act: () =>
-				Deferred.await(release).pipe(
-					Effect.map((output) => ({ type: "completed" as const, output })),
-				),
+			selectWork: () => Effect.succeed([{ workKey: key }]),
+		};
+		const runner: WorkRunner = {
+			run: () =>
+				Deferred.await(release).pipe(Effect.map((output) => ({ output }))),
 		};
 
 		const result = await runWith(
@@ -110,28 +137,30 @@ describe("task-agnostic Plot loop", () => {
 				const second = yield* orchestrator.tickOnce();
 				return { first, second };
 			}),
+			runner,
 		);
 
 		expect(result.first.started).toHaveLength(1);
 		expect(result.first.completions).toHaveLength(0);
 		expect(result.second.completions).toContainEqual(
-			expect.objectContaining({ status: "succeeded", output: "finished" }),
+			expect.objectContaining({
+				status: "succeeded",
+				workKey: key,
+				output: "finished",
+			}),
 		);
 	});
 
 	test("actor run consumes queued wake sources and owns the loop", async () => {
-		const work = subjectKey("actor-work");
+		const subject = subjectKey("actor-work");
 		const plugin: PlotPlugin = {
 			id: pluginId("actor-plugin"),
-			observeTick: () =>
-				Effect.succeed([{ type: "actor-seen", subject: work }]),
+			observeTick: () => Effect.succeed([{ type: "actor-seen", subject }]),
 			reconcile: ({ snapshot }) =>
 				Effect.succeed(
-					snapshot.observations.map((observation) => ({
-						type: "set_fact" as const,
-						key: `actor:${observation.subject ?? "unknown"}`,
-						value: true,
-					})),
+					snapshot.observations.map((observation) =>
+						setFact(`actor:${observation.subject ?? "unknown"}`, true),
+					),
 				),
 		};
 
@@ -150,9 +179,10 @@ describe("task-agnostic Plot loop", () => {
 		expect(result.facts.get("actor:actor-work")).toBe(true);
 	});
 
-	test("plugins own their inner TypeScript instead of requesting fine-grained capabilities", async () => {
+	test("plugins select work while the runner owns inner agent execution", async () => {
 		const calls: string[] = [];
 		const pr = subjectKey("github:pr:42");
+		const key = workKey("github:pr:plot:42:abc123");
 		const plugin: PlotPlugin = {
 			id: pluginId("pr-reviewer"),
 			observeTick: () =>
@@ -165,30 +195,31 @@ describe("task-agnostic Plot loop", () => {
 				]),
 			reconcile: ({ snapshot }) =>
 				Effect.succeed([
-					...snapshot.observations.map((observation) => ({
-						type: "set_fact" as const,
-						key: `ready:${observation.subject ?? "unknown"}`,
-						value: observation.data,
-					})),
-					...snapshot.completions.map((completion) => ({
-						type: "set_fact" as const,
-						key: `reviewed:${completion.subject ?? "unknown"}`,
-						value: true,
-					})),
+					...snapshot.observations.map((observation) =>
+						setFact(
+							`ready:${observation.subject ?? "unknown"}`,
+							observation.data,
+						),
+					),
+					...snapshot.completions.map((completion) =>
+						setFact(`reviewed:${completion.subject ?? "unknown"}`, true),
+					),
 				]),
-			act: ({ snapshot }) =>
+			selectWork: ({ snapshot }) =>
 				Effect.sync(() => {
 					const ready = snapshot.facts.get("ready:github:pr:42");
 					const reviewed = snapshot.facts.get("reviewed:github:pr:42");
-					if (!ready || reviewed) return { type: "idle" as const };
-					calls.push("gh pr diff 42");
-					calls.push("agent reviews diff with normal shell/tools");
-					calls.push("gh pr comment 42");
-					return {
-						type: "completed" as const,
-						subject: pr,
-						output: { comments: 1 },
-					};
+					if (!ready || reviewed) return [];
+					return [{ workKey: key, subject: pr, templateContext: ready }];
+				}),
+		};
+		const runner: WorkRunner = {
+			run: ({ work }) =>
+				Effect.sync(() => {
+					calls.push("render WORKFLOW.md prompt for PR 42");
+					calls.push("start agent with gh/shell/workspace tools");
+					calls.push(`agent finishes ${work.workKey}`);
+					return { output: { comments: 1 } };
 				}),
 		};
 
@@ -201,13 +232,16 @@ describe("task-agnostic Plot loop", () => {
 				const second = yield* orchestrator.tickOnce();
 				return { first, second };
 			}),
+			runner,
 		);
 
-		expect(result.first.started).toHaveLength(1);
+		expect(result.first.selected).toEqual([
+			expect.objectContaining({ workKey: key, subject: pr }),
+		]);
 		expect(calls).toEqual([
-			"gh pr diff 42",
-			"agent reviews diff with normal shell/tools",
-			"gh pr comment 42",
+			"render WORKFLOW.md prompt for PR 42",
+			"start agent with gh/shell/workspace tools",
+			`agent finishes ${key}`,
 		]);
 		expect(result.second.completions).toContainEqual(
 			expect.objectContaining({ subject: pr, status: "succeeded" }),
@@ -216,13 +250,10 @@ describe("task-agnostic Plot loop", () => {
 
 	test("runtime policy gates dispatch lifecycle, not inner agent tools", async () => {
 		const release = Deferred.makeUnsafe<void>();
-		const makePlugin = (id: string): PlotPlugin => ({
-			id: pluginId(id),
-			act: () =>
-				Deferred.await(release).pipe(
-					Effect.map(() => ({ type: "completed" as const })),
-				),
-		});
+		const runner: WorkRunner = {
+			run: () =>
+				Deferred.await(release).pipe(Effect.map(() => ({ output: "done" }))),
+		};
 
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -234,22 +265,57 @@ describe("task-agnostic Plot loop", () => {
 			}).pipe(
 				Effect.provide(
 					makeOrchestratorLayer({
-						plugins: [makePlugin("one"), makePlugin("two")],
+						plugins: [
+							makeWorkPlugin("one", "work:one"),
+							makeWorkPlugin("two", "work:two"),
+						],
+						runner,
 						policy: { maxConcurrentRuns: 1 },
 					}),
 				),
 			),
 		);
 
+		expect(result.first.selected).toHaveLength(2);
 		expect(result.first.started).toHaveLength(1);
-		expect(result.snapshot.running.has(pluginId("one"))).toBe(true);
-		expect(result.snapshot.running.has(pluginId("two"))).toBe(false);
+		expect(result.snapshot.running.has(workKey("work:one"))).toBe(true);
+		expect(result.snapshot.running.has(workKey("work:two"))).toBe(false);
 	});
 
-	test("failed plugin acts become completions and diagnostics", async () => {
+	test("finished work keys are not dispatched again", async () => {
+		const calls: string[] = [];
+		const key = workKey("once:1");
+		const plugin: PlotPlugin = {
+			id: pluginId("once-plugin"),
+			selectWork: () => Effect.succeed([{ workKey: key }]),
+		};
+
+		const result = await runWith(
+			[plugin],
+			Effect.gen(function* () {
+				const orchestrator = yield* Orchestrator;
+				yield* orchestrator.tickOnce();
+				yield* Effect.yieldNow;
+				const second = yield* orchestrator.tickOnce();
+				const third = yield* orchestrator.tickOnce();
+				return { second, third };
+			}),
+			succeedRunner(calls),
+		);
+
+		expect(calls).toEqual([String(key)]);
+		expect(result.second.completions).toHaveLength(1);
+		expect(result.third.started).toHaveLength(0);
+	});
+
+	test("failed runner work becomes a completion and diagnostic", async () => {
+		const key = workKey("broken:1");
 		const plugin: PlotPlugin = {
 			id: pluginId("broken-plugin"),
-			act: () => Effect.fail("boom"),
+			selectWork: () => Effect.succeed([{ workKey: key }]),
+		};
+		const runner: WorkRunner = {
+			run: () => Effect.fail("boom"),
 		};
 
 		const result = await runWith(
@@ -260,14 +326,20 @@ describe("task-agnostic Plot loop", () => {
 				yield* Effect.yieldNow;
 				return yield* orchestrator.tickOnce();
 			}),
+			runner,
 		);
 
 		expect(result.completions).toContainEqual(
-			expect.objectContaining({ pluginId: plugin.id, status: "failed" }),
+			expect.objectContaining({
+				pluginId: plugin.id,
+				workKey: key,
+				status: "failed",
+			}),
 		);
 		expect(result.diagnostics[0]).toEqual(
 			expect.objectContaining({
 				pluginId: plugin.id,
+				workKey: key,
 				phase: "act",
 				level: "error",
 			}),

@@ -2,11 +2,13 @@ import type { Effect } from "effect";
 import type {
 	Diagnostic,
 	Observation,
-	PluginActResult,
 	PluginId,
 	ReconcileProposal,
 	RuntimeSnapshot,
 	TickId,
+	WorkItem,
+	WorkResult,
+	WorkRun,
 } from "./domain.js";
 
 export interface PhaseContext {
@@ -23,9 +25,23 @@ export interface PlotPlugin {
 	readonly reconcile?: (
 		context: PhaseContext,
 	) => Effect.Effect<readonly ReconcileProposal[], unknown>;
-	readonly act?: (
+	readonly selectWork?: (
 		context: PhaseContext,
-	) => Effect.Effect<PluginActResult, unknown>;
+	) => Effect.Effect<readonly WorkItem[], unknown>;
+}
+
+export interface WorkRunnerContext {
+	readonly pluginId: PluginId;
+	readonly tickId: TickId;
+	readonly run: WorkRun;
+	readonly work: WorkItem;
+	readonly snapshot: RuntimeSnapshot;
+}
+
+export interface WorkRunner {
+	readonly run: (
+		context: WorkRunnerContext,
+	) => Effect.Effect<WorkResult, unknown>;
 }
 
 export interface OrchestratorPolicy {

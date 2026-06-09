@@ -20,16 +20,17 @@ import type {
 	HookPhase,
 	Observation,
 	OrchestratorMessage,
-	PluginActResult,
 	PluginId,
-	PluginRun,
 	ReconcileProposal,
 	RuntimeSnapshot,
-	RunId,
 	SubjectKey,
 	TickResult,
+	WorkItem,
+	WorkKey,
+	WorkResult,
+	WorkRun,
 } from "./domain.js";
-import type { OrchestratorPolicy, PlotPlugin } from "./plugin.js";
+import type { OrchestratorPolicy, PlotPlugin, WorkRunner } from "./plugin.js";
 
 interface RuntimeState {
 	readonly tickId: Domain.TickId;
@@ -37,8 +38,31 @@ interface RuntimeState {
 	readonly observations: readonly Observation[];
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
-	readonly running: ReadonlyMap<PluginId, RunId>;
+	readonly running: ReadonlyMap<WorkKey, WorkRun>;
+	readonly finished: ReadonlyMap<WorkKey, Completion>;
 	readonly nextRunIndex: number;
+}
+
+type InternalMessage =
+	| OrchestratorMessage
+	| {
+			readonly type: "run_finished";
+			readonly run: WorkRun;
+			readonly completion: Completion;
+	  };
+
+interface DrainedMessages {
+	readonly observations: readonly Observation[];
+	readonly finished: readonly {
+		readonly run: WorkRun;
+		readonly completion: Completion;
+	}[];
+	readonly shutdownRequested: boolean;
+}
+
+interface WorkSelection {
+	readonly plugin: PlotPlugin;
+	readonly work: WorkItem;
 }
 
 export interface OrchestratorShape {
@@ -57,6 +81,7 @@ export class Orchestrator extends Context.Service<
 
 export interface OrchestratorLayerOptions {
 	readonly plugins: readonly PlotPlugin[];
+	readonly runner: WorkRunner;
 	readonly policy?: OrchestratorPolicy;
 	readonly queueCapacity?: number;
 }
@@ -68,6 +93,7 @@ const initialState: RuntimeState = {
 	completions: [],
 	diagnostics: [],
 	running: new Map(),
+	finished: new Map(),
 	nextRunIndex: 0,
 };
 
@@ -93,14 +119,17 @@ const hookDiagnostic = (
 	message: errorMessage(error),
 });
 
-const actDiagnostic = (completion: Completion): Diagnostic | undefined => {
+const completionDiagnostic = (
+	completion: Completion,
+): Diagnostic | undefined => {
 	if (completion.status !== "failed") return undefined;
 	return {
 		level: "error",
 		phase: "act",
 		pluginId: completion.pluginId,
 		runId: completion.runId,
-		message: completion.error ?? "plugin act failed",
+		workKey: completion.workKey,
+		message: completion.error ?? "work run failed",
 	};
 };
 
@@ -111,26 +140,25 @@ const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	completions: [...state.completions],
 	diagnostics: [...state.diagnostics],
 	running: new Map(state.running),
+	finished: new Map(state.finished),
 });
 
-const drainMessages = (messages: readonly OrchestratorMessage[]) => {
+const drainMessages = (
+	messages: readonly InternalMessage[],
+): DrainedMessages => {
 	const observations: Observation[] = [];
-	const completions: Completion[] = [];
-	const finishedRuns: PluginRun[] = [];
+	const finished: { run: WorkRun; completion: Completion }[] = [];
 	let shutdownRequested = false;
 	for (const message of messages) {
 		if (message.type === "observation") {
 			observations.push(message.observation);
-		} else if (message.type === "completion") {
-			completions.push(message.completion);
 		} else if (message.type === "run_finished") {
-			finishedRuns.push(message.run);
-			if (message.completion) completions.push(message.completion);
+			finished.push({ run: message.run, completion: message.completion });
 		} else if (message.type === "shutdown") {
 			shutdownRequested = true;
 		}
 	}
-	return { observations, completions, finishedRuns, shutdownRequested };
+	return { observations, finished, shutdownRequested };
 };
 
 const applyProposals = (
@@ -148,14 +176,75 @@ const applyProposals = (
 	return next;
 };
 
+const beginTick = (state: RuntimeState, drained: DrainedMessages) => {
+	const running = new Map(state.running);
+	const finished = new Map(state.finished);
+	const completions: Completion[] = [];
+	const diagnostics: Diagnostic[] = [];
+
+	for (const item of drained.finished) {
+		const active = running.get(item.run.workKey);
+		if (!active || active.runId !== item.run.runId) continue;
+		running.delete(item.run.workKey);
+		finished.set(item.run.workKey, item.completion);
+		completions.push(item.completion);
+		const diagnostic = completionDiagnostic(item.completion);
+		if (diagnostic) diagnostics.push(diagnostic);
+	}
+
+	const next = {
+		...state,
+		tickId: Domain.tickId(state.tickId + 1),
+		observations: [...state.observations, ...drained.observations],
+		completions: [...state.completions, ...completions],
+		diagnostics: [...state.diagnostics, ...diagnostics],
+		running,
+		finished,
+	};
+	return { state: next, completions, diagnostics };
+};
+
+const applyObserved = (
+	state: RuntimeState,
+	observations: readonly Observation[],
+	diagnostics: readonly Diagnostic[],
+): RuntimeState => ({
+	...state,
+	observations: [...state.observations, ...observations],
+	diagnostics: [...state.diagnostics, ...diagnostics],
+});
+
+const applyReconciled = (
+	state: RuntimeState,
+	proposals: readonly ReconcileProposal[],
+	diagnostics: readonly Diagnostic[],
+): RuntimeState => ({
+	...state,
+	facts: applyProposals(state.facts, proposals),
+	observations: [],
+	completions: [],
+	diagnostics: [...state.diagnostics, ...diagnostics],
+});
+
+const applyDiagnostics = (
+	state: RuntimeState,
+	diagnostics: readonly Diagnostic[],
+): RuntimeState => ({
+	...state,
+	diagnostics: [...state.diagnostics, ...diagnostics],
+});
+
 const decodeObservations = (value: unknown) =>
 	Schema.decodeUnknownEffect(Schema.Array(Domain.Observation))(value);
 
 const decodeProposals = (value: unknown) =>
 	Schema.decodeUnknownEffect(Schema.Array(Domain.ReconcileProposal))(value);
 
-const decodeActResult = (value: unknown) =>
-	Schema.decodeUnknownEffect(Domain.PluginActResult)(value);
+const decodeWorkItems = (value: unknown) =>
+	Schema.decodeUnknownEffect(Schema.Array(Domain.WorkItem))(value);
+
+const decodeWorkResult = (value: unknown) =>
+	Schema.decodeUnknownEffect(Domain.WorkResult)(value);
 
 const runPluginObserve = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 	if (!plugin.observeTick) return Effect.succeed([] as readonly Observation[]);
@@ -192,53 +281,82 @@ const runPluginReconcile = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
 		);
 };
 
-const completionFromActResult = (
-	run: PluginRun,
-	result: PluginActResult,
-): Completion | undefined => {
-	if (result.type === "idle") return undefined;
-	return {
-		runId: run.runId,
-		pluginId: run.pluginId,
-		status: "succeeded",
-		...optionalSubject(result.subject),
-		...optionalOutput(result.output),
-	};
+const runPluginSelectWork = (plugin: PlotPlugin, snapshot: RuntimeSnapshot) => {
+	if (!plugin.selectWork)
+		return Effect.succeed({
+			selected: [] as readonly WorkSelection[],
+			diagnostics: [] as readonly Diagnostic[],
+		});
+	return plugin
+		.selectWork({ pluginId: plugin.id, tickId: snapshot.tickId, snapshot })
+		.pipe(
+			Effect.flatMap(decodeWorkItems),
+			Effect.map((items) => ({
+				selected: items.map((work) => ({ plugin, work })),
+				diagnostics: [] as readonly Diagnostic[],
+			})),
+			Effect.catch((error) =>
+				Effect.succeed({
+					selected: [] as readonly WorkSelection[],
+					diagnostics: [hookDiagnostic("select", plugin.id, error)],
+				}),
+			),
+		);
 };
 
-const executePluginAct = (
-	plugin: PlotPlugin,
+const completionFromWorkResult = (
+	run: WorkRun,
+	result: WorkResult,
+): Completion => ({
+	runId: run.runId,
+	pluginId: run.pluginId,
+	workKey: run.workKey,
+	status: "succeeded",
+	...optionalSubject(run.subject),
+	...optionalOutput(result.output),
+});
+
+const executeWorkRun = (
+	runner: WorkRunner,
 	snapshot: RuntimeSnapshot,
-	run: PluginRun,
-	mailbox: Queue.Enqueue<OrchestratorMessage>,
+	selection: WorkSelection,
+	run: WorkRun,
+	mailbox: Queue.Enqueue<InternalMessage>,
 ) =>
 	Effect.gen(function* () {
-		if (!plugin.act) return;
 		const startedAt = yield* Clock.currentTimeMillis;
 		const fields = {
-			operation: "orchestrator.plugin.act",
-			plugin_id: plugin.id,
+			operation: "orchestrator.work.run",
+			plugin_id: selection.plugin.id,
 			run_id: run.runId,
+			work_key: run.workKey,
 			tick_id: snapshot.tickId,
+			...optionalSubject(run.subject),
 		};
 		const exit = yield* Effect.exit(
-			plugin
-				.act({ pluginId: plugin.id, tickId: snapshot.tickId, snapshot })
-				.pipe(Effect.flatMap(decodeActResult)),
+			runner
+				.run({
+					pluginId: selection.plugin.id,
+					tickId: snapshot.tickId,
+					run,
+					work: selection.work,
+					snapshot,
+				})
+				.pipe(Effect.flatMap(decodeWorkResult)),
 		);
 		const duration_ms = (yield* Clock.currentTimeMillis) - startedAt;
 		if (Exit.isSuccess(exit)) {
-			const completion = completionFromActResult(run, exit.value);
+			const completion = completionFromWorkResult(run, exit.value);
 			yield* logWideEvent({
 				...fields,
 				outcome: "success",
-				status: exit.value.type,
+				status: "succeeded",
 				duration_ms,
 			});
 			yield* Queue.offer(mailbox, {
 				type: "run_finished",
 				run,
-				...(completion ? { completion } : {}),
+				completion,
 			});
 			return;
 		}
@@ -246,7 +364,9 @@ const executePluginAct = (
 		const completion: Completion = {
 			runId: run.runId,
 			pluginId: run.pluginId,
+			workKey: run.workKey,
 			status: "failed",
+			...optionalSubject(run.subject),
 			error,
 		};
 		yield* logWideEvent(
@@ -292,13 +412,49 @@ const decodePositiveInt = (value: number, message: string) =>
 		),
 	);
 
-const selectablePlugins = (
-	plugins: readonly PlotPlugin[],
-	running: ReadonlyMap<PluginId, RunId>,
-) => plugins.filter((plugin) => plugin.act && !running.has(plugin.id));
+const sortSelectedWork = (selected: readonly WorkSelection[]) =>
+	selected.toSorted((left, right) =>
+		String(left.work.workKey).localeCompare(String(right.work.workKey)),
+	);
+
+const startEligibleRuns = (
+	state: RuntimeState,
+	selected: readonly WorkSelection[],
+	maxConcurrentRuns: number,
+) => {
+	const running = new Map(state.running);
+	const started: { run: WorkRun; selection: WorkSelection }[] = [];
+	const seen = new Set<WorkKey>();
+	let nextRunIndex = state.nextRunIndex;
+	const capacity = Math.max(0, maxConcurrentRuns - running.size);
+
+	for (const selection of sortSelectedWork(selected)) {
+		if (started.length >= capacity) break;
+		const { work } = selection;
+		if (seen.has(work.workKey)) continue;
+		seen.add(work.workKey);
+		if (running.has(work.workKey)) continue;
+		if (state.finished.has(work.workKey)) continue;
+		const run: WorkRun = {
+			runId: Domain.runId(`run-${nextRunIndex}`),
+			pluginId: selection.plugin.id,
+			workKey: work.workKey,
+			...optionalSubject(work.subject),
+		};
+		nextRunIndex += 1;
+		running.set(work.workKey, run);
+		started.push({ run, selection });
+	}
+
+	return {
+		state: { ...state, running, nextRunIndex },
+		started,
+	};
+};
 
 export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 	const plugins = options.plugins;
+	const runner = options.runner;
 	const policy = options.policy ?? {};
 
 	return Layer.effect(
@@ -317,7 +473,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			}
 			const stateRef = yield* Ref.make(initialState);
 			const snapshotRef = yield* Ref.make(snapshotFrom(initialState));
-			const mailbox = yield* Queue.bounded<OrchestratorMessage>(queueCapacity);
+			const mailbox = yield* Queue.bounded<InternalMessage>(queueCapacity);
 			const tickLock = yield* Semaphore.make(1);
 			const actorScope = yield* Scope.make();
 			const actionScope = yield* Scope.make();
@@ -337,7 +493,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 
 			const collectQueuedMessages = Effect.fn(
 				"Orchestrator.collectQueuedMessages",
-			)(function* (initialMessages: readonly OrchestratorMessage[]) {
+			)(function* (initialMessages: readonly InternalMessage[]) {
 				const messages = [...initialMessages];
 				let draining = true;
 				while (draining) {
@@ -352,7 +508,7 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 			});
 
 			const runTick = Effect.fn("Orchestrator.runTick")(function* (
-				initialMessages: readonly OrchestratorMessage[] = [],
+				initialMessages: readonly InternalMessage[] = [],
 			) {
 				return yield* tickLock.withPermits(1)(
 					withWideEvent(
@@ -361,36 +517,14 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 						Effect.gen(function* () {
 							const messages = yield* collectQueuedMessages(initialMessages);
 							const drained = drainMessages(messages);
-							const completionDiagnostics = drained.completions.flatMap(
-								(completion) => {
-									const diagnostic = actDiagnostic(completion);
-									return diagnostic ? [diagnostic] : [];
-								},
-							);
-							const starting = yield* Ref.modify(stateRef, (state) => {
-								const running = new Map(state.running);
-								for (const run of drained.finishedRuns) {
-									if (running.get(run.pluginId) === run.runId) {
-										running.delete(run.pluginId);
-									}
-								}
-								const next = {
-									...state,
-									tickId: Domain.tickId(state.tickId + 1),
-									observations: [
-										...state.observations,
-										...drained.observations,
-									],
-									completions: [...state.completions, ...drained.completions],
-									diagnostics: [...state.diagnostics, ...completionDiagnostics],
-									running,
-								};
-								return [next, next] as const;
+							const began = yield* Ref.modify(stateRef, (state) => {
+								const result = beginTick(state, drained);
+								return [result, result.state] as const;
 							});
-							const tickId = starting.tickId;
+							const tickId = began.state.tickId;
 
 							const observeResults = yield* Effect.forEach(plugins, (plugin) =>
-								runPluginObserve(plugin, snapshotFrom(starting)),
+								runPluginObserve(plugin, snapshotFrom(began.state)),
 							);
 							const observeDiagnostics = observeResults
 								.flat()
@@ -400,11 +534,11 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								.filter((item): item is Observation => !("level" in item));
 
 							const afterObserve = yield* Ref.modify(stateRef, (state) => {
-								const next = {
-									...state,
-									observations: [...state.observations, ...observations],
-									diagnostics: [...state.diagnostics, ...observeDiagnostics],
-								};
+								const next = applyObserved(
+									state,
+									observations,
+									observeDiagnostics,
+								);
 								return [next, next] as const;
 							});
 
@@ -420,13 +554,11 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								(result) => result.diagnostics,
 							);
 							const afterReconcile = yield* Ref.modify(stateRef, (state) => {
-								const next = {
-									...state,
-									facts: applyProposals(state.facts, proposals),
-									observations: [],
-									completions: [],
-									diagnostics: [...state.diagnostics, ...reconcileDiagnostics],
-								};
+								const next = applyReconciled(
+									state,
+									proposals,
+									reconcileDiagnostics,
+								);
 								return [next, next] as const;
 							});
 
@@ -443,12 +575,10 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 										),
 									)
 								: [];
-
 							if (policyDiagnostics.length > 0) {
-								yield* Ref.update(stateRef, (state) => ({
-									...state,
-									diagnostics: [...state.diagnostics, ...policyDiagnostics],
-								}));
+								yield* Ref.update(stateRef, (state) =>
+									applyDiagnostics(state, policyDiagnostics),
+								);
 							}
 
 							const policyFailed = policyDiagnostics.some(
@@ -463,10 +593,11 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 										tickId,
 										observations,
 										proposals,
+										selected: [],
 										started: [],
-										completions: drained.completions,
+										completions: began.completions,
 										diagnostics: [
-											...completionDiagnostics,
+											...began.diagnostics,
 											...observeDiagnostics,
 											...reconcileDiagnostics,
 											...policyDiagnostics,
@@ -476,49 +607,49 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 								};
 							}
 
-							const beforeAct = yield* Ref.get(stateRef);
+							const beforeSelect = yield* Ref.get(stateRef);
+							const selectResults = yield* Effect.forEach(plugins, (plugin) =>
+								runPluginSelectWork(plugin, snapshotFrom(beforeSelect)),
+							);
+							const selectDiagnostics = selectResults.flatMap(
+								(result) => result.diagnostics,
+							);
+							const selectedWithPlugins = selectResults.flatMap(
+								(result) => result.selected,
+							);
+							const selected = selectedWithPlugins.map(({ work }) => work);
+							if (selectDiagnostics.length > 0) {
+								yield* Ref.update(stateRef, (state) =>
+									applyDiagnostics(state, selectDiagnostics),
+								);
+							}
+
 							const maxRuns = policy.maxConcurrentRuns ?? 100;
-							const capacity = Math.max(0, maxRuns - beforeAct.running.size);
-							const selected = selectablePlugins(
-								plugins,
-								beforeAct.running,
-							).slice(0, capacity);
 							const { state: afterStart, started } = yield* Ref.modify(
 								stateRef,
 								(state) => {
-									const running = new Map(state.running);
-									const runs: PluginRun[] = [];
-									let nextRunIndex = state.nextRunIndex;
-									for (const selectedPlugin of selected) {
-										const run = {
-											runId: Domain.runId(`run-${nextRunIndex}`),
-											pluginId: selectedPlugin.id,
-										};
-										nextRunIndex += 1;
-										running.set(selectedPlugin.id, run.runId);
-										runs.push(run);
-									}
-									const next = { ...state, running, nextRunIndex };
-									return [{ state: next, started: runs }, next] as const;
+									const result = startEligibleRuns(
+										state,
+										selectedWithPlugins,
+										maxRuns,
+									);
+									return [result, result.state] as const;
 								},
 							);
-							const actSnapshot = snapshotFrom(afterStart);
+							const runSnapshot = snapshotFrom(afterStart);
 							yield* Effect.forEach(
 								started,
-								(run) => {
-									const runPlugin = plugins.find(
-										(candidate) => candidate.id === run.pluginId,
-									)!;
-									return executePluginAct(
-										runPlugin,
-										actSnapshot,
+								({ run, selection }) =>
+									executeWorkRun(
+										runner,
+										runSnapshot,
+										selection,
 										run,
 										mailbox,
 									).pipe(
 										Effect.ignore,
 										Effect.forkIn(actionScope, { startImmediately: true }),
-									);
-								},
+									),
 								{ discard: true },
 							);
 
@@ -529,13 +660,15 @@ export const makeOrchestratorLayer = (options: OrchestratorLayerOptions) => {
 									tickId,
 									observations,
 									proposals,
-									started,
-									completions: drained.completions,
+									selected,
+									started: started.map(({ run }) => run),
+									completions: began.completions,
 									diagnostics: [
-										...completionDiagnostics,
+										...began.diagnostics,
 										...observeDiagnostics,
 										...reconcileDiagnostics,
 										...policyDiagnostics,
+										...selectDiagnostics,
 									],
 									snapshot: snapshotFrom(afterStart),
 								},
