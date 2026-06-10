@@ -15,8 +15,13 @@ export interface PhaseContext {
 	readonly snapshot: RuntimeSnapshot;
 }
 
+export interface WorkSourcePolicy {
+	readonly maxConcurrentRuns?: number;
+}
+
 export interface WorkSource {
 	readonly id: SourceId;
+	readonly policy?: WorkSourcePolicy;
 	readonly observeTick?: (
 		context: PhaseContext,
 	) => Effect.Effect<readonly Observation[], unknown>;

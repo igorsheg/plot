@@ -2,9 +2,10 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { PlotAgent, makePlotAgentLayer } from "@plot/agent/agent";
+import { workKey } from "@plot/agent/model";
 import {
 	loadPlotExtensionRuntimeFromWorkflow,
 	makePlotExtensionSourceBundle,
@@ -117,6 +118,101 @@ describe("Plot extension source adapter", () => {
 			"completed:github:acme/web:pr:42:ok",
 			"shutdown",
 		]);
+	});
+
+	test("interrupts stale running extension work when discovery changes version", async () => {
+		let version = "sha-1";
+		const interrupted: string[] = [];
+		const firstStarted = Deferred.makeUnsafe<void>();
+		const secondStarted = Deferred.makeUnsafe<void>();
+		const firstInterrupted = Deferred.makeUnsafe<void>();
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			extension: {
+				id: "github-pr-reviewer",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => [
+					{
+						id: "github:acme/web:pr:42",
+						version,
+						title: `Review PR #42 at ${version}`,
+					},
+				],
+				interrupted: ({ work }) => {
+					interrupted.push(`${work.id}:${work.version ?? "unversioned"}`);
+				},
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: ({ work }) =>
+				Effect.gen(function* () {
+					if (String(work.workKey).endsWith(":sha-1")) {
+						yield* Deferred.succeed(firstStarted, undefined);
+						return yield* Effect.never.pipe(
+							Effect.ensuring(Deferred.succeed(firstInterrupted, undefined)),
+						);
+					}
+					yield* Deferred.succeed(secondStarted, undefined);
+					return yield* Effect.never;
+				}),
+		});
+
+		const result = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const agent = yield* PlotAgent;
+					const first = yield* agent.tickOnce();
+					yield* Deferred.await(firstStarted);
+					version = "sha-2";
+					const second = yield* agent.tickOnce();
+					yield* Deferred.await(firstInterrupted);
+					yield* Deferred.await(secondStarted);
+					const third = yield* agent.tickOnce();
+					const snapshot = yield* agent.snapshot();
+					return { first, second, third, snapshot };
+				}),
+			).pipe(
+				Effect.provide(
+					makePlotAgentLayer({ sources: [bundle.source], runner }),
+				),
+			),
+		);
+
+		expect(result.first.started).toEqual([
+			expect.objectContaining({
+				workKey: workKey(
+					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
+				),
+			}),
+		]);
+		expect(result.second.completions).toContainEqual(
+			expect.objectContaining({
+				status: "interrupted",
+				workKey: workKey(
+					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
+				),
+			}),
+		);
+		expect(result.second.started).toEqual([
+			expect.objectContaining({
+				workKey: workKey(
+					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-2",
+				),
+			}),
+		]);
+		expect(
+			result.snapshot.running.has(
+				workKey("extension:github-pr-reviewer:github:acme/web:pr:42:sha-1"),
+			),
+		).toBe(false);
+		expect(
+			result.snapshot.running.has(
+				workKey("extension:github-pr-reviewer:github:acme/web:pr:42:sha-2"),
+			),
+		).toBe(true);
+		expect(interrupted).toEqual(["github:acme/web:pr:42:sha-1"]);
 	});
 
 	test("loads a local extension module from WORKFLOW.md config", async () => {

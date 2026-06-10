@@ -399,6 +399,79 @@ describe("task-agnostic Plot agent", () => {
 		expect(result.snapshot.running.has(workKey("work:two"))).toBe(false);
 	});
 
+	test("per-source concurrency caps dispatch independently of global capacity", async () => {
+		const release = Deferred.makeUnsafe<void>();
+		const sourceOne: WorkSource = {
+			id: sourceId("source-one"),
+			policy: { maxConcurrentRuns: 1 },
+			selectWork: () =>
+				Effect.succeed([
+					{ workKey: workKey("one:1") },
+					{ workKey: workKey("one:2") },
+				]),
+		};
+		const sourceTwo: WorkSource = {
+			id: sourceId("source-two"),
+			policy: { maxConcurrentRuns: 2 },
+			selectWork: () =>
+				Effect.succeed([
+					{ workKey: workKey("two:1") },
+					{ workKey: workKey("two:2") },
+				]),
+		};
+		const runner: WorkRunner = {
+			run: () => Deferred.await(release).pipe(Effect.as({})),
+		};
+
+		const result = await runWith(
+			[sourceOne, sourceTwo],
+			Effect.gen(function* () {
+				const plotAgent = yield* PlotAgent;
+				const first = yield* plotAgent.tickOnce();
+				const snapshot = yield* plotAgent.snapshot();
+				yield* Deferred.succeed(release, undefined);
+				return { first, snapshot };
+			}),
+			runner,
+			{ policy: { maxConcurrentRuns: 10 } },
+		);
+
+		expect(result.first.selected).toHaveLength(4);
+		expect(result.first.started).toHaveLength(3);
+		expect(
+			result.first.started.filter((run) => run.sourceId === sourceOne.id),
+		).toHaveLength(1);
+		expect(
+			result.first.started.filter((run) => run.sourceId === sourceTwo.id),
+		).toHaveLength(2);
+		expect(result.snapshot.running.size).toBe(3);
+	});
+
+	test("setup rejects invalid per-source concurrency caps", async () => {
+		const error = await Effect.runPromise(
+			Effect.service(PlotAgent).pipe(
+				Effect.provide(
+					makePlotAgentLayer({
+						sources: [
+							{
+								id: sourceId("bad-source"),
+								policy: { maxConcurrentRuns: 0 },
+							},
+						],
+						runner: succeedRunner(),
+					}),
+				),
+				Effect.flip,
+			),
+		);
+
+		expect(error).toBeInstanceOf(PlotAgentError);
+		expect(error.phase).toBe("setup");
+		expect(error.message).toBe(
+			"source bad-source maxConcurrentRuns must be a positive integer",
+		);
+	});
+
 	test("completion does not make work terminal; sources own rerun semantics", async () => {
 		const calls: string[] = [];
 		const key = workKey("repeatable:1");

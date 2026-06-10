@@ -52,6 +52,7 @@ export type WorkflowResourcesConfig = typeof WorkflowResourcesConfig.Type;
 
 export const WorkflowExtensionConfig = Schema.Struct({
 	source: Schema.String,
+	maxConcurrentRuns: Schema.optionalKey(Schema.Number),
 	config: Schema.optionalKey(Schema.Unknown),
 });
 export type WorkflowExtensionConfig = typeof WorkflowExtensionConfig.Type;

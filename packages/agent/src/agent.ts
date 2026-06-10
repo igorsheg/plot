@@ -611,6 +611,23 @@ const sortSelectedWork = (selected: readonly WorkSelection[]) =>
 		String(left.work.workKey).localeCompare(String(right.work.workKey)),
 	);
 
+const runningCountBySource = (running: ReadonlyMap<WorkKey, WorkRun>) => {
+	const counts = new Map<SourceId, number>();
+	for (const run of running.values()) {
+		counts.set(run.sourceId, (counts.get(run.sourceId) ?? 0) + 1);
+	}
+	return counts;
+};
+
+const sourceHasCapacity = (
+	selection: WorkSelection,
+	runningBySource: ReadonlyMap<SourceId, number>,
+) => {
+	const maxRuns = selection.source.policy?.maxConcurrentRuns;
+	if (maxRuns === undefined) return true;
+	return (runningBySource.get(selection.source.id) ?? 0) < maxRuns;
+};
+
 const startEligibleRuns = (
 	state: RuntimeState,
 	selected: readonly WorkSelection[],
@@ -618,6 +635,7 @@ const startEligibleRuns = (
 	blockedThisTick: ReadonlySet<WorkKey> = new Set(),
 ) => {
 	const running = new Map(state.running);
+	const runningBySource = runningCountBySource(running);
 	const started: { run: WorkRun; selection: WorkSelection }[] = [];
 	const seen = new Set<WorkKey>();
 	let nextRunIndex = state.nextRunIndex;
@@ -630,6 +648,7 @@ const startEligibleRuns = (
 		seen.add(work.workKey);
 		if (blockedThisTick.has(work.workKey)) continue;
 		if (running.has(work.workKey)) continue;
+		if (!sourceHasCapacity(selection, runningBySource)) continue;
 		const run: WorkRun = {
 			runId: Domain.runId(`run-${nextRunIndex}`),
 			sourceId: selection.source.id,
@@ -638,6 +657,10 @@ const startEligibleRuns = (
 		};
 		nextRunIndex += 1;
 		running.set(work.workKey, run);
+		runningBySource.set(
+			selection.source.id,
+			(runningBySource.get(selection.source.id) ?? 0) + 1,
+		);
 		started.push({ run, selection });
 	}
 
@@ -686,6 +709,13 @@ export const makePlotAgentLayer = (options: PlotAgentLayerOptions) => {
 				yield* decodePositiveInt(
 					policy.maxConcurrentRuns,
 					"maxConcurrentRuns must be a positive integer",
+				);
+			}
+			for (const source of sources) {
+				if (source.policy?.maxConcurrentRuns === undefined) continue;
+				yield* decodePositiveInt(
+					source.policy.maxConcurrentRuns,
+					`source ${source.id} maxConcurrentRuns must be a positive integer`,
 				);
 			}
 			const stateRef = yield* Ref.make(initialState);

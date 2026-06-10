@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import {
+	interruptWork,
 	setFact,
 	sourceId,
 	subjectKey,
@@ -95,6 +96,15 @@ const completedFactKey = (key: WorkKey) => `extension.completed:${key}`;
 const discoveredFactKey = (source: SourceId) =>
 	`extension.discovered:${source}`;
 
+const staleReason = (source: SourceId) =>
+	`work is no longer current for source ${source}`;
+
+const currentWorkKeys = (
+	extension: PlotExtension,
+	works: readonly PlotExtensionWork[],
+): ReadonlySet<WorkKey> =>
+	new Set(works.map((work) => workKeyForExtensionWork(extension, work)));
+
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -174,12 +184,16 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
 	readonly workflow: WorkflowDefinition;
+	readonly maxConcurrentRuns?: number;
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
 	const selectedWork = new Map<WorkKey, PlotExtensionWork>();
 
 	const workSource: WorkSource = {
 		id: source,
+		...(options.maxConcurrentRuns === undefined
+			? {}
+			: { policy: { maxConcurrentRuns: options.maxConcurrentRuns } }),
 		observeTick: () =>
 			runMaybePromise("discover", String(source), () =>
 				options.runtime.discover(),
@@ -195,18 +209,23 @@ export const makePlotExtensionSourceBundle = (options: {
 		reconcile: ({ snapshot }) =>
 			Effect.gen(function* () {
 				const proposals = [];
+				let discoveredWorks = decodeDiscoveredWorks(
+					snapshot.facts.get(discoveredFactKey(source)),
+				);
 				const latestDiscovery = snapshot.observations.findLast(
 					(observation) =>
 						observation.type === "plot.extension.discovered" &&
 						observation.subject === String(source),
 				);
 				if (latestDiscovery !== undefined) {
-					proposals.push(
-						setFact(
-							discoveredFactKey(source),
-							decodeDiscoveredWorks(latestDiscovery.data),
-						),
-					);
+					discoveredWorks = decodeDiscoveredWorks(latestDiscovery.data);
+					proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
+				}
+				const currentKeys = currentWorkKeys(options.extension, discoveredWorks);
+				for (const run of snapshot.running.values()) {
+					if (run.sourceId !== source) continue;
+					if (currentKeys.has(run.workKey)) continue;
+					proposals.push(interruptWork(run.workKey, staleReason(source)));
 				}
 				for (const completion of snapshot.completions) {
 					if (completion.sourceId !== source) continue;
@@ -370,6 +389,12 @@ export const makePlotExtensionSourceBundleFromWorkflow = (options: {
 				extension,
 				runtime,
 				workflow: options.workflow,
+				...(options.workflow.runtime.extension?.maxConcurrentRuns === undefined
+					? {}
+					: {
+							maxConcurrentRuns:
+								options.workflow.runtime.extension.maxConcurrentRuns,
+						}),
 			}),
 		),
 	);
