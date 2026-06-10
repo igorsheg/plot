@@ -1,34 +1,10 @@
-import { Effect, Layer } from "effect";
-import { positiveInt, sourceId, subjectKey, workKey } from "@plot/agent/model";
-import type { WorkSource } from "@plot/agent/work-source";
+import { Effect } from "effect";
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
-import { makeAgentSessionClientLayer } from "@plot/session/agent-session-client";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
-import {
-	makePlotCreateAgentSession,
-	type PlotAgentSessionCliOverrides,
-} from "@plot/session/pi-agent-session";
-import { makePlotAuth } from "@plot/session/pi-auth";
-import { resolvePlotPaths } from "@plot/session/plot-paths";
-import {
-	makePlotSessionLayer,
-	plotSessionId,
-} from "@plot/session/plot-session";
-import { makePlotProtocolLayer } from "@plot/session/protocol-handler";
-import {
-	PlotProtocolLimits,
-	defaultPlotProtocolLimits,
-	plotProtocolEpoch,
-} from "@plot/session/protocol";
-import {
-	runPlotProtocolStdio,
-	type StdioChunk,
-} from "@plot/session/protocol-stdio";
-import {
-	loadDiscoveredWorkflowFromNode,
-	resolveWorkflowPath,
-	type WorkflowDefinition,
-} from "@plot/session/workflow";
+import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
+import type { StdioChunk } from "@plot/session/protocol-stdio";
+import { runPlotSessionHostStdio } from "@plot/session/session-host";
+import { resolveWorkflowPath } from "@plot/session/workflow";
 import type { LogLevel as EffectLogLevel } from "effect/LogLevel";
 
 export type LogFormat = "json" | "logfmt" | "pretty";
@@ -61,10 +37,6 @@ export interface ServeStdioOptions {
 	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
 }
 
-const workflowSourceId = sourceId("workflow");
-const workflowSubject = subjectKey("workflow");
-const workflowWorkKey = workKey("workflow:default");
-
 const toLogLevel = (level: LogLevelFlag): EffectLogLevel => {
 	switch (level) {
 		case "trace":
@@ -83,34 +55,6 @@ const toLogLevel = (level: LogLevelFlag): EffectLogLevel => {
 			return "None";
 	}
 };
-
-const makeWorkflowSource = (workflow: WorkflowDefinition): WorkSource => ({
-	id: workflowSourceId,
-	selectWork: ({ snapshot }) => {
-		if (snapshot.running.has(workflowWorkKey)) return Effect.succeed([]);
-		const completed = snapshot.completions.some(
-			(completion) => completion.workKey === workflowWorkKey,
-		);
-		if (completed) return Effect.succeed([]);
-		return Effect.succeed([
-			{
-				workKey: workflowWorkKey,
-				subject: workflowSubject,
-				templateContext: { workflow: workflow.config },
-			},
-		]);
-	},
-});
-
-const makeLimits = (values: {
-	readonly requestQueueCapacity: number;
-	readonly replayCapacity: number;
-}) =>
-	new PlotProtocolLimits({
-		...defaultPlotProtocolLimits,
-		maxPendingRequests: positiveInt(values.requestQueueCapacity),
-		maxEventBufferEvents: positiveInt(values.replayCapacity),
-	});
 
 export const serveStdio = (
 	options: ServeStdioOptions,
@@ -132,74 +76,6 @@ export const serveStdio = (
 			}),
 			session_id: options.sessionId,
 		},
-		Effect.gen(function* () {
-			const workflow = yield* loadDiscoveredWorkflowFromNode({
-				cwd: options.cwd,
-				...(options.workflowPath === undefined
-					? {}
-					: { workflowPath: options.workflowPath }),
-			});
-			const paths = resolvePlotPaths({
-				cwd: options.cwd,
-				...(options.plotDir === undefined ? {} : { plotDir: options.plotDir }),
-				...(options.agentDir === undefined
-					? {}
-					: { agentDir: options.agentDir }),
-				...(options.sessionDir === undefined
-					? {}
-					: { sessionDir: options.sessionDir }),
-			});
-			const plot = workflow.runtime.plot;
-			const requestQueueCapacity =
-				options.requestQueueCapacity ?? plot?.queueCapacity ?? 64;
-			const eventCapacity = options.eventCapacity ?? plot?.eventCapacity ?? 256;
-			const replayCapacity =
-				options.replayCapacity ?? plot?.replayCapacity ?? 1024;
-			const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
-			const maxRunDurationMs =
-				options.maxRunDurationMs ?? plot?.maxRunDurationMs;
-			const agentOptions = {
-				queueCapacity: requestQueueCapacity,
-				eventCapacity,
-				...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
-				...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
-			};
-			const createAgentSession =
-				options.createAgentSession ??
-				makePlotCreateAgentSession({
-					workflow,
-					paths,
-					...(options.agentSessionOverrides === undefined
-						? {}
-						: { overrides: options.agentSessionOverrides }),
-				});
-			const agentSessionClientLayer = makeAgentSessionClientLayer({
-				createAgentSession,
-			});
-			const sessionLayer = makePlotSessionLayer({
-				id: plotSessionId(options.sessionId),
-				workflow,
-				sources: [makeWorkflowSource(workflow)],
-				eventCapacity,
-				agent: agentOptions,
-				agentRunner: {
-					prompt: workflow.prompt,
-					create: { cwd: paths.cwd },
-				},
-			}).pipe(Layer.provide(agentSessionClientLayer));
-			const limits = makeLimits({ requestQueueCapacity, replayCapacity });
-			const protocolLayer = makePlotProtocolLayer({
-				epoch: plotProtocolEpoch(options.sessionId),
-				limits,
-				outputCapacity: requestQueueCapacity,
-				auth: makePlotAuth(paths),
-			}).pipe(Layer.provide(sessionLayer));
-
-			yield* runPlotProtocolStdio({
-				stdin: options.stdin,
-				writeStdout: options.writeStdout,
-				limits,
-			}).pipe(Effect.provide(protocolLayer));
-		}),
+		runPlotSessionHostStdio(options),
 	).pipe(Effect.provide(loggerLayer));
 };

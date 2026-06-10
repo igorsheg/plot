@@ -15,6 +15,7 @@
 		"./protocol-jsonl": "./src/protocol-jsonl.ts",
 		"./protocol-replay-buffer": "./src/protocol-replay-buffer.ts",
 		"./protocol-stdio": "./src/protocol-stdio.ts",
+		"./session-host": "./src/session-host.ts",
 		"./testing/faux-agent-session": "./src/testing/faux-agent-session.ts",
 		"./workflow": "./src/workflow.ts",
 		"./workflow-template": "./src/workflow-template.ts"
