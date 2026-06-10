@@ -57,7 +57,7 @@ describe("plot CLI", () => {
 		);
 	});
 
-	test("prints pi-style --list-models as a text table", async () => {
+	test("prints model list as a text table", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-cli-models-"));
 		tempDirs.push(dir);
 		await writePlotFauxAgentFiles({ cwd: dir });
@@ -67,7 +67,7 @@ describe("plot CLI", () => {
 
 		try {
 			await Effect.runPromise(
-				runPlotCli(["--list-models", "faux", "--cwd", dir], {
+				runPlotCli(["list-models", "faux", "--cwd", dir], {
 					stdin: chunks([]),
 					writeStdout: (line) => Effect.sync(() => stdout.push(line)),
 				}).pipe(Effect.provide(BunServices.layer)),

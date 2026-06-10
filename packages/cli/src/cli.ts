@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { Effect, Option, Schema } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
 import {
 	makePlotAuth,
@@ -174,6 +174,15 @@ const readPrompt = (message: string): Promise<string> => {
 	});
 	return readline.question(`${message} `).finally(() => readline.close());
 };
+
+const providerArg = Argument.string("provider").pipe(
+	Argument.withDescription("pi provider id, for example openai-codex"),
+);
+
+const searchArg = Argument.string("search").pipe(
+	Argument.optional,
+	Argument.withDescription("Optional model search text"),
+);
 
 const workflowFlag = Flag.string("workflow").pipe(
 	Flag.withDefault("WORKFLOW.md"),
@@ -453,6 +462,26 @@ const makeAuth = (options: {
 		}),
 	);
 
+const makeListModelsCommand = (io: PlotCliIo) =>
+	Command.make(
+		"list-models",
+		{
+			cwd: cwdFlag,
+			plotDir: plotDirFlag,
+			agentDir: agentDirFlag,
+			search: searchArg,
+		},
+		(options) =>
+			listModels(io, {
+				cwd: options.cwd,
+				plotDir: options.plotDir,
+				agentDir: options.agentDir,
+				...(Option.isNone(options.search)
+					? {}
+					: { search: options.search.value }),
+			}),
+	).pipe(Command.withDescription("List available pi models"));
+
 const makeAuthStatusCommand = (io: PlotCliIo) =>
 	Command.make(
 		"status",
@@ -460,7 +489,7 @@ const makeAuthStatusCommand = (io: PlotCliIo) =>
 			cwd: cwdFlag,
 			plotDir: plotDirFlag,
 			agentDir: agentDirFlag,
-			provider: Flag.optional(Flag.string("provider")),
+			provider: providerArg.pipe(Argument.optional),
 		},
 		(options) => {
 			const provider = Option.getOrUndefined(options.provider);
@@ -468,7 +497,7 @@ const makeAuthStatusCommand = (io: PlotCliIo) =>
 				io,
 				authPromise(() => makeAuth(options).status(provider)),
 				renderAuthStatus,
-				"Pass --provider <provider> from `plot --list-models`.",
+				"Pass a provider id from `plot list-models`.",
 			);
 		},
 	).pipe(Command.withDescription("Show configured auth without secrets"));
@@ -480,7 +509,7 @@ const makeAuthLogoutCommand = (io: PlotCliIo) =>
 			cwd: cwdFlag,
 			plotDir: plotDirFlag,
 			agentDir: agentDirFlag,
-			provider: Flag.string("provider"),
+			provider: providerArg,
 		},
 		(options) =>
 			runHumanCommand(
@@ -489,7 +518,7 @@ const makeAuthLogoutCommand = (io: PlotCliIo) =>
 					Effect.as(options.provider),
 				),
 				(provider) => `Logged out from ${provider}.\n`,
-				"Pass a valid --provider from `plot --list-models`.",
+				"Pass a valid provider id from `plot list-models`.",
 			),
 	).pipe(Command.withDescription("Remove stored auth for a provider"));
 
@@ -500,7 +529,7 @@ const makeAuthLoginCommand = (io: PlotCliIo) =>
 			cwd: cwdFlag,
 			plotDir: plotDirFlag,
 			agentDir: agentDirFlag,
-			provider: Flag.string("provider"),
+			provider: providerArg,
 		},
 		(options) => {
 			const auth = makeAuth(options);
@@ -643,32 +672,6 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 		),
 	);
 
-const flagValue = (args: readonly string[], name: string) => {
-	const index = args.indexOf(name);
-	const value = index >= 0 ? args[index + 1] : undefined;
-	return value === undefined || value.startsWith("-") ? undefined : value;
-};
-
-const listModelsSearch = (args: readonly string[]) => {
-	const index = args.indexOf("--list-models");
-	if (index < 0) return undefined;
-	const value = args[index + 1];
-	return value === undefined || value.startsWith("-") ? "" : value;
-};
-
-const runListModelsFlag = (args: readonly string[], io: PlotCliIo) => {
-	const search = listModelsSearch(args);
-	if (search === undefined) return undefined;
-	const plotDir = flagValue(args, "--plot-dir");
-	const agentDir = flagValue(args, "--agent-dir");
-	return listModels(io, {
-		cwd: flagValue(args, "--cwd") ?? process.cwd(),
-		plotDir: plotDir === undefined ? Option.none() : Option.some(plotDir),
-		agentDir: agentDir === undefined ? Option.none() : Option.some(agentDir),
-		...(search.length === 0 ? {} : { search }),
-	});
-};
-
 export const makePlotCommand = (io: PlotCliIo = processCliIo()) => {
 	const serve = Command.make("serve").pipe(
 		Command.withDescription("Serve Plot machine integration protocols"),
@@ -677,13 +680,15 @@ export const makePlotCommand = (io: PlotCliIo = processCliIo()) => {
 
 	return Command.make("plot").pipe(
 		Command.withDescription("Autonomous Plot runtime"),
-		Command.withSubcommands([serve, makeAuthCommand(io)]),
+		Command.withSubcommands([
+			makeListModelsCommand(io),
+			serve,
+			makeAuthCommand(io),
+		]),
 	);
 };
 
 export const runPlotCli = (
 	args: readonly string[],
 	io: PlotCliIo = processCliIo(),
-) =>
-	runListModelsFlag(args, io) ??
-	Command.runWith(makePlotCommand(io), { version })(args);
+) => Command.runWith(makePlotCommand(io), { version })(args);
