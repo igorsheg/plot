@@ -33,6 +33,7 @@
         "@plot/agent": "workspace:*",
         "@plot/common": "workspace:*",
         "@plot/session": "workspace:*",
+        "@plot/tui": "workspace:*",
       },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
@@ -54,6 +55,16 @@
         "better-result": "^2.9.2",
         "eta": "4.6.0",
         "yaml": "2.9.0",
+      },
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
+    "packages/tui": {
+      "name": "@plot/tui",
+      "dependencies": {
+        "@earendil-works/pi-tui": "0.79.0",
+        "@plot/session": "workspace:*",
       },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
@@ -234,6 +245,8 @@
     "@plot/common": ["@plot/common@workspace:packages/common"],
 
     "@plot/session": ["@plot/session@workspace:packages/session"],
+
+    "@plot/tui": ["@plot/tui@workspace:packages/tui"],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 

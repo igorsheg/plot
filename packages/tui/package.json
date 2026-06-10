@@ -1,13 +1,9 @@
 {
-	"name": "@plot/cli",
+	"name": "@plot/tui",
 	"private": true,
-	"bin": {
-		"plot": "./src/main.ts"
-	},
 	"type": "module",
 	"exports": {
-		"./cli": "./src/cli.ts",
-		"./runtime": "./src/runtime.ts"
+		"./plot-tui": "./src/plot-tui.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -15,10 +11,8 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@plot/agent": "workspace:*",
-		"@plot/common": "workspace:*",
-		"@plot/session": "workspace:*",
-		"@plot/tui": "workspace:*"
+		"@earendil-works/pi-tui": "0.79.0",
+		"@plot/session": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

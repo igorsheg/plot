@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline/promises";
+import { runPlotTui } from "@plot/tui/plot-tui";
 import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
 import {
 	makePlotAuth,
@@ -334,7 +335,7 @@ export const runPlotCli = async (
 	const [cmd, sub] = p.command;
 	if (cmd === undefined || cmd === "--help" || cmd === "help") {
 		await io.writeStdout(
-			`plot ${version}\nCommands: list-models, auth status|login|logout, run, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
+			`plot ${version}\nCommands: list-models, auth status|login|logout, run, tui, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
 		);
 		return;
 	}
@@ -440,6 +441,13 @@ export const runPlotCli = async (
 		}
 		return;
 	}
+	if (cmd === "tui")
+		return runPlotTui({
+			...baseOptions(p),
+			...(io.createAgentSession === undefined
+				? {}
+				: { createAgentSession: io.createAgentSession }),
+		});
 	if (cmd === "serve" && sub === "stdio")
 		return serveStdio({
 			...baseOptions(p),

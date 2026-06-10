@@ -65,13 +65,17 @@ export interface PlotSessionHostRunResult {
 	readonly paths: PlotPaths;
 	readonly completion: Completion;
 }
-interface HostComposition {
+export interface PlotSessionHost {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
 	readonly requestQueueCapacity: number;
 	readonly replayCapacity: number;
 	readonly session: PlotSessionShape;
 	readonly shutdown: () => Promise<void>;
+}
+export interface PlotProtocolSessionHost extends PlotSessionHost {
+	readonly protocol: ReturnType<typeof makePlotProtocolLayer>;
+	readonly limits: PlotProtocolLimits;
 }
 export class PlotSessionHostRunError extends Error {
 	readonly phase = "run";
@@ -114,9 +118,9 @@ export const makePlotProtocolLimits = (values: {
 	maxPendingRequests: positiveInt(values.requestQueueCapacity),
 	maxEventBufferEvents: positiveInt(values.replayCapacity),
 });
-const makeHostComposition = async (
+export const createPlotSessionHost = async (
 	options: PlotSessionHostOptions,
-): Promise<HostComposition> => {
+): Promise<PlotSessionHost> => {
 	const workflow = await loadDiscoveredWorkflowFromNode({
 		cwd: options.cwd,
 		...(options.workflowPath === undefined
@@ -205,10 +209,30 @@ const quiescentTickFromEvent = (
 		return undefined;
 	return result;
 };
+export const createPlotProtocolSessionHost = async (
+	options: PlotSessionHostOptions,
+): Promise<PlotProtocolSessionHost> => {
+	const host = await createPlotSessionHost(options);
+	const limits = makePlotProtocolLimits({
+		requestQueueCapacity: host.requestQueueCapacity,
+		replayCapacity: host.replayCapacity,
+	});
+	return {
+		...host,
+		limits,
+		protocol: makePlotProtocolLayer({
+			epoch: plotProtocolEpoch(options.sessionId),
+			limits,
+			outputCapacity: host.requestQueueCapacity,
+			auth: makePlotAuth(host.paths),
+			session: host.session,
+		}),
+	};
+};
 export const runPlotSessionHostOnce = async (
 	options: PlotSessionHostRunOptions,
 ): Promise<PlotSessionHostRunResult> => {
-	const host = await makeHostComposition(options);
+	const host = await createPlotSessionHost(options);
 	const completed: Completion[] = [];
 	let resolveQuiescent!: () => void;
 	const quiescent = new Promise<void>((resolve) => {
@@ -242,7 +266,7 @@ export const runPlotSessionHostOnce = async (
 export const runPlotSessionHostDaemon = async (
 	options: PlotSessionHostDaemonOptions,
 ): Promise<void> => {
-	const host = await makeHostComposition(options);
+	const host = await createPlotSessionHost(options);
 	try {
 		void (async () => {
 			for await (const event of host.session.events())
@@ -258,24 +282,13 @@ export const runPlotSessionHostDaemon = async (
 export const runPlotSessionHostStdio = async (
 	options: PlotSessionHostStdioOptions,
 ): Promise<void> => {
-	const host = await makeHostComposition(options);
+	const host = await createPlotProtocolSessionHost(options);
 	try {
-		const limits = makePlotProtocolLimits({
-			requestQueueCapacity: host.requestQueueCapacity,
-			replayCapacity: host.replayCapacity,
-		});
-		const protocol = makePlotProtocolLayer({
-			epoch: plotProtocolEpoch(options.sessionId),
-			limits,
-			outputCapacity: host.requestQueueCapacity,
-			auth: makePlotAuth(host.paths),
-			session: host.session,
-		});
 		await runPlotProtocolStdio({
 			stdin: options.stdin,
 			writeStdout: options.writeStdout,
-			limits,
-			protocol,
+			limits: host.limits,
+			protocol: host.protocol,
 		});
 	} finally {
 		await host.shutdown();
