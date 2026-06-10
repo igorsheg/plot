@@ -107,6 +107,8 @@ describe("plot CLI", () => {
 						workflowPath,
 						"--log-format",
 						"json",
+						"--log-level",
+						"info",
 					],
 					{
 						stdin: chunks([

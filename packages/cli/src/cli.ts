@@ -240,7 +240,7 @@ const logLevelFlag = Flag.choice("log-level", [
 	"fatal",
 	"none",
 ] as const).pipe(
-	Flag.withDefault("info" as const),
+	Flag.withDefault("warn" as const),
 	Flag.withDescription("Minimum telemetry level written to stderr"),
 );
 

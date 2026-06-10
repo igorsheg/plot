@@ -57,6 +57,8 @@ describe("plot CLI stdio process boundary", () => {
 				workflow.dir,
 				"--log-format",
 				"json",
+				"--log-level",
+				"info",
 			],
 			{
 				stdin: "pipe",

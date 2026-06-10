@@ -141,7 +141,7 @@ describe("plot CLI faux provider boundary", () => {
 		expect(stdout).toContain("Started work workflow:default");
 		expect(stdout).toContain("Completed work workflow:default: succeeded");
 		expect(stdout).toContain("Workflow cli-faux finished with succeeded");
-		expect(stderr).toContain("plot_cli.run");
+		expect(stderr).not.toContain("plot_cli.run");
 	});
 
 	test("exercises the production Plot pi factory with a deterministic faux provider", async () => {
@@ -160,6 +160,8 @@ describe("plot CLI faux provider boundary", () => {
 				join(workflow.dir, ".plot/agent"),
 				"--log-format",
 				"json",
+				"--log-level",
+				"info",
 				"--provider",
 				"plot-faux",
 				"--model",
