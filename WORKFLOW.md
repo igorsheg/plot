@@ -57,12 +57,12 @@ If the extension says the PR is draft and draft policy says to stop, do not
 perform a full review; say it is draft and stop unless explicitly asked to
 review drafts.
 
-If the extension says a previous review by the current GitHub user exists for
-this same PR head SHA, report that the current head has already been reviewed
-and stop without posting another review.
+If the extension says a previous Plot review comment already exists for this
+same PR head SHA, report that the current head has already been reviewed and
+stop without posting another comment.
 
-If a previous review by the current GitHub user exists for an older head SHA,
-perform an incremental re-review:
+If a previous GitHub review or Plot review comment by the current GitHub user
+exists for an older head SHA, perform an incremental re-review:
 
 - Fetch the previous review body and inline comments.
 - Fetch commits since that review timestamp.
@@ -161,22 +161,34 @@ them blocking.
 ## 6. Posting
 
 This workflow is autonomous. Do not ask whether to post. Before finishing,
-write the review body to a temporary file and post exactly one GitHub PR review
+write the review body to a temporary file and post exactly one GitHub PR comment
 for the current head SHA.
 
 Use:
 
-- `gh pr review <number> --comment --body-file <file>` when no issues are
-  found, for non-blocking LOW issues, or for informational findings.
-- `gh pr review <number> --request-changes --body-file <file>` for verified
-  HIGH issues or any issue that should block merging.
+```bash
+gh pr comment <number> --body-file <file>
+```
 
-Never use `gh pr review --approve`. This demo workflow is an autonomous PR
-reviewer, not an autonomous approver.
+Never use `gh pr review`, `gh pr review --approve`, or
+`gh pr review --request-changes`. This demo workflow is an autonomous PR
+reviewer/commenter, not an autonomous approving or blocking GitHub reviewer.
+GitHub also disallows requesting changes on your own PR.
 
-The posted review body should include the concise report from section 5 and the
-verification status, including whether `bun run check` was run.
+The posted comment body should include the concise report from section 5, the
+verification status, and the durable marker supplied by the extension:
 
-After posting, end your final assistant message with the posted disposition:
-`COMMENT` or `REQUEST_CHANGES`. If posting fails, report the exact failure and
-do not claim success.
+```md
+<!-- plot-pr-review:<head-sha> -->
+```
+
+Use a clear textual disposition in the comment body:
+
+- `Disposition: COMMENT` when no issues are found, for non-blocking LOW issues,
+  or for informational findings.
+- `Disposition: BLOCKING_COMMENT` for verified HIGH issues or any issue that
+  should block merging, while still posting with `gh pr comment`.
+
+After posting, end your final assistant message with the posted textual
+disposition: `COMMENT` or `BLOCKING_COMMENT`. If posting fails, report the exact
+failure and do not claim success.
