@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
 import { positiveInt, setFact, sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makePlotSessionLayer } from "../src/plot-session.js";
 import type { PlotAuthShape } from "../src/pi-auth.js";
 import {
-	PlotClientRequestRecord,
-	PlotProtocolLimits,
 	defaultPlotProtocolLimits,
 	plotProtocolEpoch,
 	plotProtocolRequestId,
 	plotProtocolSequence,
+	type PlotClientRecord,
+	type PlotCommand,
+	type PlotProtocolLimits,
 	type PlotServerRecord,
 } from "../src/protocol.js";
 import {
-	PlotProtocol,
 	makePlotProtocolLayer,
+	type PlotProtocolShape,
 } from "../src/protocol-handler.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
 
@@ -25,70 +25,79 @@ const workflow: WorkflowDefinition = {
 	runtime: {},
 	prompt: "Do useful work.",
 };
-
 const request = (
 	id: string,
-	command: PlotClientRequestRecord["command"],
+	command: PlotCommand,
 	params?: unknown,
-) =>
-	new PlotClientRequestRecord({
-		protocol: "plot.v1",
-		kind: "request",
-		id: plotProtocolRequestId(id),
-		command,
-		...(params === undefined ? {} : { params }),
-	});
+): PlotClientRecord => ({
+	protocol: "plot.v1",
+	kind: "request",
+	id: plotProtocolRequestId(id),
+	command,
+	...(params === undefined ? {} : { params }),
+});
+const collectN = async <A>(
+	iterable: AsyncIterable<A>,
+	n: number,
+): Promise<A[]> => {
+	const out: A[] = [];
+	for await (const item of iterable) {
+		out.push(item);
+		if (out.length >= n) break;
+	}
+	return out;
+};
+const collectUntil = async <A>(
+	iterable: AsyncIterable<A>,
+	predicate: (item: A) => boolean,
+): Promise<A[]> => {
+	const out: A[] = [];
+	for await (const item of iterable) {
+		out.push(item);
+		if (predicate(item)) break;
+	}
+	return out;
+};
 
-const testLayer = (options: { readonly auth?: PlotAuthShape } = {}) => {
+const makeProtocol = (
+	options: {
+		readonly auth?: PlotAuthShape;
+		readonly limits?: PlotProtocolLimits;
+	} = {},
+): PlotProtocolShape => {
 	const key = workKey("protocol:1");
 	const completedFact = "protocol:completed";
 	const source: WorkSource = {
 		id: sourceId("protocol-source"),
-		reconcile: ({ snapshot }) => {
-			const completed = snapshot.completions.some(
-				(completion) => completion.workKey === key,
-			);
-			if (!completed) return Effect.succeed([]);
-			return Effect.succeed([setFact(completedFact, true)]);
-		},
-		selectWork: ({ snapshot }) => {
-			if (snapshot.facts.get(completedFact) === true) {
-				return Effect.succeed([]);
-			}
-			return Effect.succeed([{ workKey: key }]);
-		},
+		reconcile: ({ snapshot }) =>
+			snapshot.completions.some((completion) => completion.workKey === key)
+				? [setFact(completedFact, true)]
+				: [],
+		selectWork: ({ snapshot }) =>
+			snapshot.facts.get(completedFact) === true ? [] : [{ workKey: key }],
 	};
-	const runner: WorkRunner = {
-		run: () => Effect.succeed({}),
-	};
+	const runner: WorkRunner = { run: () => ({}) };
+	const session = makePlotSessionLayer({ workflow, sources: [source], runner });
 	return makePlotProtocolLayer({
 		epoch: plotProtocolEpoch("epoch-1"),
+		session,
 		...(options.auth === undefined ? {} : { auth: options.auth }),
-	}).pipe(
-		Layer.provide(
-			makePlotSessionLayer({ workflow, sources: [source], runner }),
-		),
-	);
+		...(options.limits === undefined ? {} : { limits: options.limits }),
+	});
 };
 
-const observationTestLayer = (
-	options: {
-		readonly maxObservationPayloadBytes?: number;
-	} = {},
+const observationProtocol = (
+	options: { readonly maxObservationPayloadBytes?: number } = {},
 ) => {
 	const source: WorkSource = {
 		id: sourceId("observation-source"),
 		reconcile: ({ snapshot }) =>
-			Effect.succeed(
-				snapshot.observations.map((observation) =>
-					setFact(`observation:${observation.type}`, observation.data),
-				),
+			snapshot.observations.map((observation) =>
+				setFact(`observation:${observation.type}`, observation.data),
 			),
 	};
-	const runner: WorkRunner = {
-		run: () => Effect.succeed({}),
-	};
-	const limits = new PlotProtocolLimits({
+	const runner: WorkRunner = { run: () => ({}) };
+	const limits: PlotProtocolLimits = {
 		...defaultPlotProtocolLimits,
 		...(options.maxObservationPayloadBytes === undefined
 			? {}
@@ -97,15 +106,13 @@ const observationTestLayer = (
 						options.maxObservationPayloadBytes,
 					),
 				}),
-	});
+	};
+	const session = makePlotSessionLayer({ workflow, sources: [source], runner });
 	return makePlotProtocolLayer({
 		epoch: plotProtocolEpoch("epoch-1"),
 		limits,
-	}).pipe(
-		Layer.provide(
-			makePlotSessionLayer({ workflow, sources: [source], runner }),
-		),
-	);
+		session,
+	});
 };
 
 const fakeAuth = (): PlotAuthShape => ({
@@ -136,15 +143,7 @@ const fakeAuth = (): PlotAuthShape => ({
 
 describe("PlotProtocol handler", () => {
 	test("returns hello with current replay frontier", async () => {
-		const hello = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const protocol = yield* PlotProtocol;
-					return yield* protocol.hello();
-				}),
-			).pipe(Effect.provide(testLayer())),
-		);
-
+		const hello = await makeProtocol().hello();
 		expect(hello).toEqual(
 			expect.objectContaining({
 				protocol: "plot.v1",
@@ -157,20 +156,11 @@ describe("PlotProtocol handler", () => {
 	});
 
 	test("serializes tick_once events before the command response", async () => {
-		const records = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const protocol = yield* PlotProtocol;
-					const fiber = yield* protocol
-						.output()
-						.pipe(Stream.take(4), Stream.runCollect, Effect.forkScoped);
-					yield* Effect.yieldNow;
-					yield* protocol.submit(request("req-1", "tick_once"));
-					return yield* Fiber.join(fiber);
-				}),
-			).pipe(Effect.provide(testLayer())),
-		);
-
+		const protocol = makeProtocol();
+		const pending = collectN(protocol.output(), 4);
+		await Promise.resolve();
+		await protocol.submit(request("req-1", "tick_once"));
+		const records = await pending;
 		expect(records.slice(0, 3).map((record) => record.kind)).toEqual([
 			"event",
 			"event",
@@ -188,45 +178,26 @@ describe("PlotProtocol handler", () => {
 	});
 
 	test("accepts submitted observations into the Plot loop mailbox", async () => {
-		const records = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const protocol = yield* PlotProtocol;
-					const done = yield* Deferred.make<readonly PlotServerRecord[]>();
-					const outputRecords: PlotServerRecord[] = [];
-					yield* protocol.output().pipe(
-						Stream.runForEach((record) => {
-							outputRecords.push(record);
-							if (
-								record.kind === "response" &&
-								record.id === plotProtocolRequestId("req-3")
-							) {
-								return Deferred.succeed(done, [...outputRecords]).pipe(
-									Effect.asVoid,
-								);
-							}
-							return Effect.void;
-						}),
-						Effect.forkScoped({ startImmediately: true }),
-						Effect.asVoid,
-					);
-					yield* Effect.yieldNow;
-					yield* protocol.submit(
-						request("req-1", "submit_observation", {
-							observation: {
-								type: "github.pr.updated",
-								subject: "github:acme/web:pr:42",
-								data: { headSha: "sha-2" },
-							},
-						}),
-					);
-					yield* protocol.submit(request("req-2", "tick_once"));
-					yield* protocol.submit(request("req-3", "get_snapshot"));
-					return yield* Deferred.await(done);
-				}),
-			).pipe(Effect.provide(observationTestLayer())),
+		const protocol = observationProtocol();
+		const pending = collectUntil(
+			protocol.output(),
+			(record) =>
+				record.kind === "response" &&
+				record.id === plotProtocolRequestId("req-3"),
 		);
-
+		await Promise.resolve();
+		await protocol.submit(
+			request("req-1", "submit_observation", {
+				observation: {
+					type: "github.pr.updated",
+					subject: "github:acme/web:pr:42",
+					data: { headSha: "sha-2" },
+				},
+			}),
+		);
+		await protocol.submit(request("req-2", "tick_once"));
+		await protocol.submit(request("req-3", "get_snapshot"));
+		const records = await pending;
 		const submitResponse = records.find(
 			(record) =>
 				record.kind === "response" &&
@@ -258,31 +229,15 @@ describe("PlotProtocol handler", () => {
 	});
 
 	test("rejects submitted observations over the payload limit", async () => {
-		const records = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const protocol = yield* PlotProtocol;
-					const fiber = yield* protocol
-						.output()
-						.pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped);
-					yield* Effect.yieldNow;
-					yield* protocol.submit(
-						request("req-1", "submit_observation", {
-							observation: {
-								type: "large.payload",
-								data: { text: "x".repeat(128) },
-							},
-						}),
-					);
-					return yield* Fiber.join(fiber);
-				}),
-			).pipe(
-				Effect.provide(
-					observationTestLayer({ maxObservationPayloadBytes: 32 }),
-				),
-			),
+		const protocol = observationProtocol({ maxObservationPayloadBytes: 32 });
+		const pending = collectN(protocol.output(), 1);
+		await Promise.resolve();
+		await protocol.submit(
+			request("req-1", "submit_observation", {
+				observation: { type: "large.payload", data: { text: "x".repeat(128) } },
+			}),
 		);
-
+		const records = await pending;
 		expect(records[0]).toEqual(
 			expect.objectContaining({
 				kind: "response",
@@ -294,31 +249,20 @@ describe("PlotProtocol handler", () => {
 	});
 
 	test("serves auth provider/status commands through protocol responses", async () => {
-		const records = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const protocol = yield* PlotProtocol;
-					const fiber = yield* protocol
-						.output()
-						.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
-					yield* Effect.yieldNow;
-					yield* protocol.submit(request("req-1", "auth_providers"));
-					yield* protocol.submit(
-						request("req-2", "auth_status", { provider: "fake-oauth" }),
-					);
-					return yield* Fiber.join(fiber);
-				}),
-			).pipe(Effect.provide(testLayer({ auth: fakeAuth() }))),
+		const protocol = makeProtocol({ auth: fakeAuth() });
+		const pending = collectN(protocol.output(), 2);
+		await Promise.resolve();
+		await protocol.submit(request("req-1", "auth_providers"));
+		await protocol.submit(
+			request("req-2", "auth_status", { provider: "fake-oauth" }),
 		);
-
+		const records = await pending;
 		expect(records[0]).toEqual(
 			expect.objectContaining({
 				kind: "response",
 				command: "auth_providers",
 				ok: true,
-				data: {
-					providers: [expect.objectContaining({ id: "fake-oauth" })],
-				},
+				data: { providers: [expect.objectContaining({ id: "fake-oauth" })] },
 			}),
 		);
 		expect(records[1]).toEqual(
@@ -339,22 +283,13 @@ describe("PlotProtocol handler", () => {
 	});
 
 	test("emits auth login protocol events before auth response", async () => {
-		const records = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const protocol = yield* PlotProtocol;
-					const fiber = yield* protocol
-						.output()
-						.pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped);
-					yield* Effect.yieldNow;
-					yield* protocol.submit(
-						request("req-1", "auth_login", { provider: "fake-oauth" }),
-					);
-					return yield* Fiber.join(fiber);
-				}),
-			).pipe(Effect.provide(testLayer({ auth: fakeAuth() }))),
+		const protocol = makeProtocol({ auth: fakeAuth() });
+		const pending = collectN(protocol.output(), 3);
+		await Promise.resolve();
+		await protocol.submit(
+			request("req-1", "auth_login", { provider: "fake-oauth" }),
 		);
-
+		const records = await pending;
 		expect(records.map((record) => record.kind)).toEqual([
 			"event",
 			"event",
@@ -381,37 +316,17 @@ describe("PlotProtocol handler", () => {
 	});
 
 	test("replays retained events for subscribe cursors", async () => {
-		const records = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const protocol = yield* PlotProtocol;
-					const done = yield* Deferred.make<void>();
-					const outputRecords: PlotServerRecord[] = [];
-					const fiber = yield* protocol.output().pipe(
-						Stream.runForEach((record) => {
-							outputRecords.push(record);
-							if (
-								record.kind === "response" &&
-								record.id === plotProtocolRequestId("req-2")
-							) {
-								return Deferred.succeed(done, undefined).pipe(Effect.asVoid);
-							}
-							return Effect.void;
-						}),
-						Effect.forkScoped,
-					);
-					yield* Effect.yieldNow;
-					yield* protocol.submit(request("req-1", "start"));
-					yield* protocol.submit(
-						request("req-2", "subscribe", { afterSequence: 0 }),
-					);
-					yield* Deferred.await(done);
-					yield* Fiber.interrupt(fiber);
-					return outputRecords;
-				}),
-			).pipe(Effect.provide(testLayer())),
+		const protocol = makeProtocol();
+		const pending = collectUntil(
+			protocol.output(),
+			(record) =>
+				record.kind === "response" &&
+				record.id === plotProtocolRequestId("req-2"),
 		);
-
+		await Promise.resolve();
+		await protocol.submit(request("req-1", "start"));
+		await protocol.submit(request("req-2", "subscribe", { afterSequence: 0 }));
+		const records = await pending;
 		const startResponseIndex = records.findIndex(
 			(record) =>
 				record.kind === "response" &&
@@ -427,10 +342,7 @@ describe("PlotProtocol handler", () => {
 			.slice(startResponseIndex + 1, subscribeResponseIndex)
 			.filter((record) => record.kind === "event");
 		const subscribeResponse = records[subscribeResponseIndex];
-
-		if (firstEvent === undefined) {
-			throw new Error("missing start event");
-		}
+		if (firstEvent === undefined) throw new Error("missing start event");
 		expect(startResponseIndex).toBeGreaterThan(0);
 		expect(subscribeResponseIndex).toBeGreaterThan(startResponseIndex);
 		expect(replayedEvents).toContainEqual(firstEvent);
@@ -442,9 +354,8 @@ describe("PlotProtocol handler", () => {
 				ok: true,
 			}),
 		);
-		if (subscribeResponse?.kind !== "response") {
+		if (subscribeResponse?.kind !== "response")
 			throw new Error("missing subscribe response");
-		}
 		expect(Number(subscribeResponse.lastEventSeq)).toBeGreaterThan(0);
 	});
 });

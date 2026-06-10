@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer, Stream } from "effect";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { sourceId, tickId, workKey, runId } from "@plot/agent/model";
-import { AgentSessionClient } from "../src/agent-session-client.js";
 import { makeAgentSessionWorkRunner } from "../src/agent-session-runner.js";
 
 const context = {
@@ -22,24 +20,28 @@ const context = {
 		diagnostics: [],
 		running: new Map(),
 	},
-	emitObservation: () => Effect.succeed(true),
+	signal: new AbortController().signal,
+	emitObservation: () => true,
+};
+
+const iterable = async function* <A>(items: readonly A[]) {
+	for (const item of items) yield item;
 };
 
 describe("agent session work runner", () => {
 	test("keeps agent execution non-fatal when onEvent fails", async () => {
-		const layer = Layer.succeed(AgentSessionClient, {
-			prompt: () => Stream.make({ type: "agent_start" } as AgentSessionEvent),
-		});
+		const client = {
+			prompt: () => iterable([{ type: "agent_start" } as AgentSessionEvent]),
+		};
 
-		const result = await Effect.runPromise(
-			Effect.gen(function* () {
-				const runner = yield* makeAgentSessionWorkRunner({
-					prompt: "do work",
-					onEvent: () => Effect.fail("listener failed"),
-				});
-				return yield* runner.run(context);
-			}).pipe(Effect.provide(layer)),
+		const runner = await makeAgentSessionWorkRunner(
+			{
+				prompt: "do work",
+				onEvent: () => Promise.reject("listener failed"),
+			},
+			client,
 		);
+		const result = await runner.run(context);
 
 		expect(result).toEqual({});
 	});
@@ -51,25 +53,23 @@ describe("agent session work runner", () => {
 		];
 		const seen: AgentSessionEvent[] = [];
 		const prompts: string[] = [];
-		const layer = Layer.succeed(AgentSessionClient, {
-			prompt: (request) => {
+		const client = {
+			prompt: (request: { prompt: string }) => {
 				prompts.push(request.prompt);
-				return Stream.fromIterable(events);
+				return iterable(events);
 			},
-		});
+		};
 
-		await Effect.runPromise(
-			Effect.gen(function* () {
-				const runner = yield* makeAgentSessionWorkRunner({
-					prompt: "do work",
-					onEvent: (event) =>
-						Effect.sync(() => {
-							seen.push(event);
-						}),
-				});
-				return yield* runner.run(context);
-			}).pipe(Effect.provide(layer)),
+		const runner = await makeAgentSessionWorkRunner(
+			{
+				prompt: "do work",
+				onEvent: (event) => {
+					seen.push(event);
+				},
+			},
+			client,
 		);
+		await runner.run(context);
 
 		expect(prompts).toEqual(["do work"]);
 		expect(seen).toEqual(events);
@@ -79,27 +79,26 @@ describe("agent session work runner", () => {
 
 	test("renders prompt templates with work template context", async () => {
 		const prompts: string[] = [];
-		const layer = Layer.succeed(AgentSessionClient, {
-			prompt: (request) => {
+		const client = {
+			prompt: (request: { prompt: string }) => {
 				prompts.push(request.prompt);
-				return Stream.make({ type: "agent_start" } as AgentSessionEvent);
+				return iterable([{ type: "agent_start" } as AgentSessionEvent]);
+			},
+		};
+
+		const runner = await makeAgentSessionWorkRunner(
+			{
+				prompt: "Review {{ repo }} PR #{{ pr.number }}",
+			},
+			client,
+		);
+		await runner.run({
+			...context,
+			work: {
+				workKey: workKey("agent:1"),
+				templateContext: { repo: "plot", pr: { number: 7 } },
 			},
 		});
-
-		await Effect.runPromise(
-			Effect.gen(function* () {
-				const runner = yield* makeAgentSessionWorkRunner({
-					prompt: "Review {{ repo }} PR #{{ pr.number }}",
-				});
-				return yield* runner.run({
-					...context,
-					work: {
-						workKey: workKey("agent:1"),
-						templateContext: { repo: "plot", pr: { number: 7 } },
-					},
-				});
-			}).pipe(Effect.provide(layer)),
-		);
 
 		expect(prompts).toEqual(["Review plot PR #7"]);
 	});

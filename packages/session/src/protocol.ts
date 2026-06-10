@@ -1,39 +1,44 @@
-import { Effect, Schema } from "effect";
-import * as Domain from "@plot/agent/model";
-import {
+import type { Observation } from "@plot/agent/model";
+import { positiveInt, type PositiveInt } from "@plot/agent/model";
+import { Result, TaggedError } from "better-result";
+import type {
 	PlotSessionEventSequence,
 	PlotSessionId,
-	type PlotSessionEvent as PlotSessionEventType,
+	PlotSessionEvent as PlotSessionEventType,
 } from "./plot-session.js";
 
-export const PlotProtocolVersion = Schema.Literal("plot.v1");
-export type PlotProtocolVersion = typeof PlotProtocolVersion.Type;
-
-export const PlotProtocolRequestId = Schema.NonEmptyString.pipe(
-	Schema.check(Schema.isMaxLength(128)),
-	Schema.brand("PlotProtocolRequestId"),
-);
-export type PlotProtocolRequestId = typeof PlotProtocolRequestId.Type;
-export const plotProtocolRequestId = (value: string): PlotProtocolRequestId =>
-	Schema.decodeUnknownSync(PlotProtocolRequestId)(value);
-
-export const PlotProtocolEpoch = Schema.NonEmptyString.pipe(
-	Schema.check(Schema.isMaxLength(128)),
-	Schema.brand("PlotProtocolEpoch"),
-);
-export type PlotProtocolEpoch = typeof PlotProtocolEpoch.Type;
-export const plotProtocolEpoch = (value: string): PlotProtocolEpoch =>
-	Schema.decodeUnknownSync(PlotProtocolEpoch)(value);
-
-export const PlotProtocolSequence = Schema.Number.pipe(
-	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-	Schema.brand("PlotProtocolSequence"),
-);
-export type PlotProtocolSequence = typeof PlotProtocolSequence.Type;
-export const plotProtocolSequence = (value: number): PlotProtocolSequence =>
-	Schema.decodeUnknownSync(PlotProtocolSequence)(value);
-
-export const PlotCommand = Schema.Literals([
+export type PlotProtocolVersion = "plot.v1";
+export type PlotProtocolRequestId = string;
+export const plotProtocolRequestId = (value: string): PlotProtocolRequestId => {
+	if (typeof value !== "string" || value.length === 0 || value.length > 128)
+		throw new Error("invalid request id");
+	return value;
+};
+export type PlotProtocolEpoch = string;
+export const plotProtocolEpoch = (value: string): PlotProtocolEpoch => {
+	if (typeof value !== "string" || value.length === 0 || value.length > 128)
+		throw new Error("invalid epoch");
+	return value;
+};
+export type PlotProtocolSequence = number;
+export const plotProtocolSequence = (value: number): PlotProtocolSequence => {
+	if (!Number.isInteger(value) || value < 0)
+		throw new Error("invalid protocol sequence");
+	return value;
+};
+export type PlotCommand =
+	| "start"
+	| "tick_once"
+	| "submit_observation"
+	| "get_snapshot"
+	| "subscribe"
+	| "shutdown"
+	| "ping"
+	| "auth_providers"
+	| "auth_status"
+	| "auth_login"
+	| "auth_logout";
+const commands = new Set<string>([
 	"start",
 	"tick_once",
 	"submit_observation",
@@ -46,209 +51,214 @@ export const PlotCommand = Schema.Literals([
 	"auth_login",
 	"auth_logout",
 ]);
-export type PlotCommand = typeof PlotCommand.Type;
+export type PlotProtocolErrorCode =
+	| "parse_error"
+	| "invalid_request"
+	| "unknown_command"
+	| "payload_too_large"
+	| "request_queue_full"
+	| "not_started"
+	| "already_started"
+	| "shutdown_requested"
+	| "session_shutdown"
+	| "tick_in_progress"
+	| "cursor_expired"
+	| "snapshot_unavailable"
+	| "auth_unavailable"
+	| "auth_input_required"
+	| "internal_error";
+export class PlotProtocolFailure extends TaggedError("PlotProtocolFailure")<{
+	readonly code: PlotProtocolErrorCode;
+	readonly message: string;
+	readonly details?: unknown;
+}>() {}
+export interface PlotProtocolLimits {
+	readonly maxInputLineBytes: PositiveInt;
+	readonly maxOutputRecordBytes: PositiveInt;
+	readonly maxPendingRequests: PositiveInt;
+	readonly maxEventBufferEvents: PositiveInt;
+	readonly maxEventBufferBytes: PositiveInt;
+	readonly maxObservationPayloadBytes: PositiveInt;
+	readonly maxRequestIdBytes: PositiveInt;
+	readonly maxReconnectAgeMs: PositiveInt;
+}
+export const defaultPlotProtocolLimits: PlotProtocolLimits = {
+	maxInputLineBytes: positiveInt(1024 * 1024),
+	maxOutputRecordBytes: positiveInt(2 * 1024 * 1024),
+	maxPendingRequests: positiveInt(64),
+	maxEventBufferEvents: positiveInt(1024),
+	maxEventBufferBytes: positiveInt(16 * 1024 * 1024),
+	maxObservationPayloadBytes: positiveInt(512 * 1024),
+	maxRequestIdBytes: positiveInt(128),
+	maxReconnectAgeMs: positiveInt(5 * 60 * 1000),
+};
+export interface SubscribeParams {
+	readonly afterSequence?: PlotProtocolSequence | undefined;
+}
+export interface SubmitObservationParams {
+	readonly observation: Observation;
+}
+export interface AuthProviderParams {
+	readonly provider: string;
+}
+export interface AuthStatusParams {
+	readonly provider?: string | undefined;
+}
+export interface AuthLoginParams {
+	readonly provider: string;
+	readonly promptResponses?: readonly string[] | undefined;
+	readonly selectResponse?: string | undefined;
+	readonly manualCode?: string | undefined;
+}
+export interface PlotClientRequestRecord {
+	readonly protocol: PlotProtocolVersion;
+	readonly kind: "request";
+	readonly id: PlotProtocolRequestId;
+	readonly command: PlotCommand;
+	readonly params?: unknown;
+}
+export type PlotClientRecord = PlotClientRequestRecord;
+export class PlotHelloRecord {
+	readonly protocol = "plot.v1";
+	readonly kind = "hello";
+	readonly sessionId!: PlotSessionId;
+	readonly epoch!: PlotProtocolEpoch;
+	readonly firstEventSeq!: PlotProtocolSequence;
+	readonly lastEventSeq!: PlotProtocolSequence;
+	readonly capabilities!: readonly string[];
+	readonly limits!: PlotProtocolLimits;
+	constructor(input: Omit<PlotHelloRecord, "protocol" | "kind">) {
+		Object.assign(this, input);
+	}
+}
+export class PlotEventRecord {
+	readonly protocol = "plot.v1";
+	readonly kind = "event";
+	readonly sessionId!: PlotSessionId;
+	readonly epoch!: PlotProtocolEpoch;
+	readonly sequence!: PlotSessionEventSequence;
+	readonly event: unknown;
+	constructor(input: Omit<PlotEventRecord, "protocol" | "kind">) {
+		Object.assign(this, input);
+	}
+}
+export class PlotSuccessResponseRecord {
+	readonly protocol = "plot.v1";
+	readonly kind = "response";
+	readonly id!: PlotProtocolRequestId;
+	readonly command!: PlotCommand;
+	readonly ok = true;
+	readonly lastEventSeq!: PlotProtocolSequence;
+	readonly data?: unknown;
+	constructor(
+		input: Omit<PlotSuccessResponseRecord, "protocol" | "kind" | "ok">,
+	) {
+		Object.assign(this, input);
+	}
+}
+export class PlotErrorPayload {
+	readonly code!: PlotProtocolErrorCode;
+	readonly message!: string;
+	readonly details?: unknown;
+	constructor(input: PlotErrorPayload) {
+		Object.assign(this, input);
+	}
+}
+export class PlotErrorResponseRecord {
+	readonly protocol = "plot.v1";
+	readonly kind = "response";
+	readonly id?: PlotProtocolRequestId;
+	readonly command?: string;
+	readonly ok = false;
+	readonly lastEventSeq?: PlotProtocolSequence;
+	readonly error!: PlotErrorPayload;
+	constructor(
+		input: Omit<PlotErrorResponseRecord, "protocol" | "kind" | "ok">,
+	) {
+		Object.assign(this, input);
+	}
+}
+export type PlotServerRecord =
+	| PlotHelloRecord
+	| PlotEventRecord
+	| PlotSuccessResponseRecord
+	| PlotErrorResponseRecord;
 
-export const PlotProtocolErrorCode = Schema.Literals([
-	"parse_error",
-	"invalid_request",
-	"unknown_command",
-	"payload_too_large",
-	"request_queue_full",
-	"not_started",
-	"already_started",
-	"shutdown_requested",
-	"session_shutdown",
-	"tick_in_progress",
-	"cursor_expired",
-	"snapshot_unavailable",
-	"auth_unavailable",
-	"auth_input_required",
-	"internal_error",
-]);
-export type PlotProtocolErrorCode = typeof PlotProtocolErrorCode.Type;
-
-export class PlotProtocolFailure extends Schema.TaggedErrorClass<PlotProtocolFailure>()(
-	"PlotProtocolFailure",
-	{
-		code: PlotProtocolErrorCode,
-		message: Schema.String,
-		details: Schema.optionalKey(Schema.Unknown),
-	},
-) {}
-
-export class PlotProtocolLimits extends Schema.Class<PlotProtocolLimits>(
-	"PlotProtocolLimits",
-)({
-	maxInputLineBytes: Domain.PositiveInt,
-	maxOutputRecordBytes: Domain.PositiveInt,
-	maxPendingRequests: Domain.PositiveInt,
-	maxEventBufferEvents: Domain.PositiveInt,
-	maxEventBufferBytes: Domain.PositiveInt,
-	maxObservationPayloadBytes: Domain.PositiveInt,
-	maxRequestIdBytes: Domain.PositiveInt,
-	maxReconnectAgeMs: Domain.PositiveInt,
-}) {}
-
-export const defaultPlotProtocolLimits = new PlotProtocolLimits({
-	maxInputLineBytes: Domain.positiveInt(1024 * 1024),
-	maxOutputRecordBytes: Domain.positiveInt(2 * 1024 * 1024),
-	maxPendingRequests: Domain.positiveInt(64),
-	maxEventBufferEvents: Domain.positiveInt(1024),
-	maxEventBufferBytes: Domain.positiveInt(16 * 1024 * 1024),
-	maxObservationPayloadBytes: Domain.positiveInt(512 * 1024),
-	maxRequestIdBytes: Domain.positiveInt(128),
-	maxReconnectAgeMs: Domain.positiveInt(5 * 60 * 1000),
-});
-
-export class SubscribeParams extends Schema.Class<SubscribeParams>(
-	"SubscribeParams",
-)({
-	afterSequence: Schema.optionalKey(PlotProtocolSequence),
-}) {}
-
-export class SubmitObservationParams extends Schema.Class<SubmitObservationParams>(
-	"SubmitObservationParams",
-)({
-	observation: Domain.Observation,
-}) {}
-
-export class AuthProviderParams extends Schema.Class<AuthProviderParams>(
-	"AuthProviderParams",
-)({
-	provider: Schema.NonEmptyString,
-}) {}
-
-export class AuthStatusParams extends Schema.Class<AuthStatusParams>(
-	"AuthStatusParams",
-)({
-	provider: Schema.optionalKey(Schema.NonEmptyString),
-}) {}
-
-export class AuthLoginParams extends Schema.Class<AuthLoginParams>(
-	"AuthLoginParams",
-)({
-	provider: Schema.NonEmptyString,
-	promptResponses: Schema.optionalKey(Schema.Array(Schema.String)),
-	selectResponse: Schema.optionalKey(Schema.String),
-	manualCode: Schema.optionalKey(Schema.String),
-}) {}
-
-export class PlotClientRequestRecord extends Schema.Class<PlotClientRequestRecord>(
-	"PlotClientRequestRecord",
-)({
-	protocol: PlotProtocolVersion,
-	kind: Schema.Literal("request"),
-	id: PlotProtocolRequestId,
-	command: PlotCommand,
-	params: Schema.optionalKey(Schema.Unknown),
-}) {}
-
-export const PlotClientRecord = PlotClientRequestRecord;
-export type PlotClientRecord = typeof PlotClientRecord.Type;
-
-export class PlotHelloRecord extends Schema.Class<PlotHelloRecord>(
-	"PlotHelloRecord",
-)({
-	protocol: PlotProtocolVersion,
-	kind: Schema.Literal("hello"),
-	sessionId: PlotSessionId,
-	epoch: PlotProtocolEpoch,
-	firstEventSeq: PlotProtocolSequence,
-	lastEventSeq: PlotProtocolSequence,
-	capabilities: Schema.Array(Schema.String),
-	limits: PlotProtocolLimits,
-}) {}
-
-export class PlotEventRecord extends Schema.Class<PlotEventRecord>(
-	"PlotEventRecord",
-)({
-	protocol: PlotProtocolVersion,
-	kind: Schema.Literal("event"),
-	sessionId: PlotSessionId,
-	epoch: PlotProtocolEpoch,
-	sequence: PlotSessionEventSequence,
-	event: Schema.Unknown,
-}) {}
-
-export class PlotSuccessResponseRecord extends Schema.Class<PlotSuccessResponseRecord>(
-	"PlotSuccessResponseRecord",
-)({
-	protocol: PlotProtocolVersion,
-	kind: Schema.Literal("response"),
-	id: PlotProtocolRequestId,
-	command: PlotCommand,
-	ok: Schema.Literal(true),
-	lastEventSeq: PlotProtocolSequence,
-	data: Schema.optionalKey(Schema.Unknown),
-}) {}
-
-export class PlotErrorPayload extends Schema.Class<PlotErrorPayload>(
-	"PlotErrorPayload",
-)({
-	code: PlotProtocolErrorCode,
-	message: Schema.String,
-	details: Schema.optionalKey(Schema.Unknown),
-}) {}
-
-export class PlotErrorResponseRecord extends Schema.Class<PlotErrorResponseRecord>(
-	"PlotErrorResponseRecord",
-)({
-	protocol: PlotProtocolVersion,
-	kind: Schema.Literal("response"),
-	id: Schema.optionalKey(PlotProtocolRequestId),
-	command: Schema.optionalKey(Schema.String),
-	ok: Schema.Literal(false),
-	lastEventSeq: Schema.optionalKey(PlotProtocolSequence),
-	error: PlotErrorPayload,
-}) {}
-
-export const PlotServerRecord = Schema.Union([
-	PlotHelloRecord,
-	PlotEventRecord,
-	PlotSuccessResponseRecord,
-	PlotErrorResponseRecord,
-]);
-export type PlotServerRecord = typeof PlotServerRecord.Type;
-
-export const decodePlotClientRecord = (
+const object = (value: unknown): Record<string, unknown> => {
+	if (typeof value !== "object" || value === null || Array.isArray(value))
+		throw new Error("expected object");
+	return value as Record<string, unknown>;
+};
+const nonEmpty = (value: unknown, field: string): string => {
+	if (typeof value !== "string" || value.length === 0)
+		throw new Error(`${field} must be non-empty string`);
+	return value;
+};
+export const decodePlotClientRecordResult = (
 	value: unknown,
-): Effect.Effect<PlotClientRecord, PlotProtocolFailure> =>
-	Schema.decodeUnknownEffect(PlotClientRecord)(value).pipe(
-		Effect.mapError(
-			(error) =>
-				new PlotProtocolFailure({
-					code: "invalid_request",
-					message: error.message,
-				}),
-		),
-	);
-
-export const decodePlotServerRecord = (
+): Result<PlotClientRecord, PlotProtocolFailure> =>
+	Result.try({
+		try: () => {
+			const r = object(value);
+			if (r["protocol"] !== "plot.v1" || r["kind"] !== "request")
+				throw new Error("invalid protocol request");
+			const id = plotProtocolRequestId(nonEmpty(r["id"], "id"));
+			const command = nonEmpty(r["command"], "command");
+			if (!commands.has(command))
+				throw new Error(`unknown command: ${command}`);
+			return {
+				protocol: "plot.v1" as const,
+				kind: "request" as const,
+				id,
+				command: command as PlotCommand,
+				...(r["params"] === undefined ? {} : { params: r["params"] }),
+			};
+		},
+		catch: (error) =>
+			new PlotProtocolFailure({
+				code: "invalid_request",
+				message: error instanceof Error ? error.message : String(error),
+			}),
+	});
+export const decodePlotClientRecord = async (
 	value: unknown,
-): Effect.Effect<PlotServerRecord, PlotProtocolFailure> =>
-	Schema.decodeUnknownEffect(PlotServerRecord)(value).pipe(
-		Effect.mapError(
-			(error) =>
-				new PlotProtocolFailure({
-					code: "invalid_request",
-					message: error.message,
-				}),
-		),
-	);
-
+): Promise<PlotClientRecord> => {
+	const result = decodePlotClientRecordResult(value);
+	if (Result.isError(result)) throw result.error;
+	return result.value;
+};
+export const decodePlotServerRecordResult = (
+	value: unknown,
+): Result<PlotServerRecord, PlotProtocolFailure> =>
+	Result.try({
+		try: () => {
+			const r = object(value);
+			if (r["protocol"] !== "plot.v1") throw new Error("invalid protocol");
+			return r as unknown as PlotServerRecord;
+		},
+		catch: (error) =>
+			new PlotProtocolFailure({
+				code: "invalid_request",
+				message: error instanceof Error ? error.message : String(error),
+			}),
+	});
+export const decodePlotServerRecord = async (
+	value: unknown,
+): Promise<PlotServerRecord> => {
+	const result = decodePlotServerRecordResult(value);
+	if (Result.isError(result)) throw result.error;
+	return result.value;
+};
 export const makePlotEventRecord = (
 	epoch: PlotProtocolEpoch,
 	event: PlotSessionEventType,
 ): PlotEventRecord =>
 	new PlotEventRecord({
-		protocol: "plot.v1",
-		kind: "event",
 		sessionId: event.sessionId,
 		epoch,
 		sequence: event.sequence,
 		event,
 	});
-
 export const makePlotSuccessResponse = (options: {
 	readonly id: PlotProtocolRequestId;
 	readonly command: PlotCommand;
@@ -256,15 +266,11 @@ export const makePlotSuccessResponse = (options: {
 	readonly data?: unknown;
 }): PlotSuccessResponseRecord =>
 	new PlotSuccessResponseRecord({
-		protocol: "plot.v1",
-		kind: "response",
 		id: options.id,
 		command: options.command,
-		ok: true,
 		lastEventSeq: options.lastEventSeq,
 		...(options.data === undefined ? {} : { data: options.data }),
 	});
-
 export const makePlotErrorResponse = (options: {
 	readonly code: PlotProtocolErrorCode;
 	readonly message: string;
@@ -274,11 +280,8 @@ export const makePlotErrorResponse = (options: {
 	readonly details?: unknown;
 }): PlotErrorResponseRecord =>
 	new PlotErrorResponseRecord({
-		protocol: "plot.v1",
-		kind: "response",
 		...(options.id === undefined ? {} : { id: options.id }),
 		...(options.command === undefined ? {} : { command: options.command }),
-		ok: false,
 		...(options.lastEventSeq === undefined
 			? {}
 			: { lastEventSeq: options.lastEventSeq }),

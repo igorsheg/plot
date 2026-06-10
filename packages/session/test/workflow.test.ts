@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
 import {
 	DEFAULT_WORKFLOW_PATH,
-	WorkflowFileSystem,
 	loadWorkflow,
 	parseWorkflowText,
 	resolveWorkflowPath,
@@ -10,9 +8,8 @@ import {
 
 describe("workflow contract", () => {
 	test("parses YAML front matter and preserves markdown prompt body", async () => {
-		const workflow = await Effect.runPromise(
-			parseWorkflowText(
-				`---
+		const workflow = await parseWorkflowText(
+			`---
 plot:
   maxRunDurationMs: 1000
 agent:
@@ -34,8 +31,7 @@ tracker:
 
 Use the current task context.
 `,
-				"WORKFLOW.md",
-			),
+			"WORKFLOW.md",
 		);
 
 		expect(workflow.path).toBe("WORKFLOW.md");
@@ -64,16 +60,9 @@ Use the current task context.
 	});
 
 	test("loads workflow content through an injected file system service", async () => {
-		const workflow = await Effect.runPromise(
-			loadWorkflow("custom/WORKFLOW.md").pipe(
-				Effect.provide(
-					Layer.succeed(WorkflowFileSystem, {
-						readFileString: (path) =>
-							Effect.succeed(`---\npath: ${path}\n---\n\nDo it.`),
-					}),
-				),
-			),
-		);
+		const workflow = await loadWorkflow("custom/WORKFLOW.md", {
+			readFileString: async (path) => `---\npath: ${path}\n---\n\nDo it.`,
+		});
 
 		expect(workflow).toEqual({
 			config: { path: "custom/WORKFLOW.md" },

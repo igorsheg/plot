@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Exit } from "effect";
 import { sourceId, tickId, workKey, runId } from "@plot/agent/model";
 import {
 	makePromptTemplateData,
@@ -27,30 +26,27 @@ const makeContext = (templateContext?: unknown) => ({
 		diagnostics: [],
 		running: new Map(),
 	},
-	emitObservation: () => Effect.succeed(true),
+	signal: new AbortController().signal,
+	emitObservation: () => true,
 });
 
 describe("workflow prompt templates", () => {
 	test("renders moustache-style Eta expressions from work context", async () => {
-		const result = await Effect.runPromise(
-			renderPromptTemplateForRunnerContext(
-				"Review {{ repo }} PR #{{ pr.number }}: {{ pr.title }}",
-				makeContext({
-					repo: "plot",
-					pr: { number: 42, title: "template prompts" },
-				}),
-			),
+		const result = await renderPromptTemplateForRunnerContext(
+			"Review {{ repo }} PR #{{ pr.number }}: {{ pr.title }}",
+			makeContext({
+				repo: "plot",
+				pr: { number: 42, title: "template prompts" },
+			}),
 		);
 
 		expect(result).toBe("Review plot PR #42: template prompts");
 	});
 
 	test("fails when templates reference missing variables", async () => {
-		const exit = await Effect.runPromiseExit(
+		await expect(
 			renderPromptTemplate("Review {{ repo }}", {}),
-		);
-
-		expect(Exit.isFailure(exit)).toBe(true);
+		).rejects.toThrow();
 	});
 
 	test("wraps scalar work context as value", () => {

@@ -24,7 +24,7 @@
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
-		"lint:effect": "effect-language-service diagnostics --project tsconfig.json --strict --format pretty",
+		"lint:effect": "echo effect-free",
 		"test": "bun test test"
 	},
 	"dependencies": {
@@ -32,7 +32,7 @@
 		"@earendil-works/pi-coding-agent": "0.79.0",
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
-		"effect": "4.0.0-beta.78",
+		"better-result": "^2.9.2",
 		"eta": "4.6.0",
 		"yaml": "2.9.0"
 	},

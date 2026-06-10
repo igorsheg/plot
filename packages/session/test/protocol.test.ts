@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
 import { tickId } from "@plot/agent/model";
 import {
 	SessionStartedEvent,
@@ -23,37 +22,35 @@ const epoch = plotProtocolEpoch("epoch-1");
 
 describe("plot protocol schema", () => {
 	test("decodes client request envelopes", async () => {
-		const request = await Effect.runPromise(
-			decodePlotClientRecord({
-				protocol: "plot.v1",
-				kind: "request",
-				id: "req-1",
-				command: "tick_once",
-			}),
-		);
+		const request = await decodePlotClientRecord({
+			protocol: "plot.v1",
+			kind: "request",
+			id: "req-1",
+			command: "tick_once",
+		});
 
 		expect(String(request.id)).toBe("req-1");
 		expect(request.command).toBe("tick_once");
 	});
 
 	test("rejects unknown commands before handling", async () => {
-		const failure = await Effect.runPromise(
-			Effect.flip(
-				decodePlotClientRecord({
-					protocol: "plot.v1",
-					kind: "request",
-					id: "req-1",
-					command: "prompt",
-				}),
-			),
-		);
+		let failure: { code: string } | undefined;
+		try {
+			await decodePlotClientRecord({
+				protocol: "plot.v1",
+				kind: "request",
+				id: "req-1",
+				command: "prompt",
+			});
+		} catch (error) {
+			failure = error as { code: string };
+		}
 
-		expect(failure.code).toBe("invalid_request");
+		expect(failure?.code).toBe("invalid_request");
 	});
 
 	test("wraps existing PlotSessionEvent without changing payload", () => {
 		const event = new SessionStartedEvent({
-			type: "session_started",
 			sessionId,
 			sequence: plotSessionEventSequence(1),
 		});
@@ -74,8 +71,6 @@ describe("plot protocol schema", () => {
 
 	test("constructs hello and response records", () => {
 		const hello = new PlotHelloRecord({
-			protocol: "plot.v1",
-			kind: "hello",
 			sessionId,
 			epoch,
 			firstEventSeq: plotProtocolSequence(0),

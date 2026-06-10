@@ -1,6 +1,4 @@
 #!/usr/bin/env bun
-import { Effect } from "effect";
-import { BunRuntime, BunServices } from "@effect/platform-bun";
 import {
 	fauxAssistantMessage,
 	registerPlotFauxProvider,
@@ -12,8 +10,11 @@ const faux = registerPlotFauxProvider({
 	responses: [fauxAssistantMessage(responseText)],
 });
 
-runPlotCli(process.argv.slice(2), processCliIo()).pipe(
-	Effect.provide(BunServices.layer),
-	Effect.ensuring(Effect.sync(() => faux.cleanup())),
-	BunRuntime.runMain({ disableErrorReporting: false }),
-);
+runPlotCli(process.argv.slice(2), processCliIo())
+	.catch((error) => {
+		process.stderr.write(
+			`${error instanceof Error ? error.message : String(error)}\n`,
+		);
+		process.exitCode = 1;
+	})
+	.finally(() => faux.cleanup());

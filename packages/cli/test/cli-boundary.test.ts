@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
 import { decodePlotServerRecord } from "@plot/session/protocol";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -29,7 +28,7 @@ const makeWorkflowFile = async () => {
 
 const decodeLines = (text: string) => {
 	const lines = text.split("\n").filter((line) => line.length > 0);
-	return Effect.all(
+	return Promise.all(
 		lines.map((line) => decodePlotServerRecord(JSON.parse(line) as unknown)),
 	);
 };
@@ -79,7 +78,7 @@ describe("plot CLI stdio process boundary", () => {
 		]);
 
 		expect(exitCode).toBe(0);
-		const records = await Effect.runPromise(decodeLines(stdout));
+		const records = await decodeLines(stdout);
 		expect(records.map((record) => record.kind)).toEqual(["hello", "response"]);
 		expect(records[0]).toEqual(
 			expect.objectContaining({

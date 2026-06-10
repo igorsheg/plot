@@ -1,43 +1,30 @@
-import {
-	Context,
-	Deferred,
-	Effect,
-	Layer,
-	PubSub,
-	Queue,
-	Ref,
-	Schema,
-	Scope,
-	Stream,
-	type Exit,
-} from "effect";
+import { AsyncQueue } from "@plot/common/async-queue";
+import { EventHub } from "@plot/common/event-stream";
 import { withWideEvent } from "@plot/common/observability";
-import {
-	PlotSession,
-	plotSessionEventSequence,
-	type PlotSessionShape,
-} from "./plot-session.js";
+import type { PlotSessionShape } from "./plot-session.js";
+import { plotSessionEventSequence } from "./plot-session.js";
 import type { PlotAuthShape } from "./pi-auth.js";
 import {
-	AuthLoginParams,
-	AuthProviderParams,
-	AuthStatusParams,
-	type PlotClientRecord,
-	type PlotCommand,
-	PlotEventRecord,
-	PlotHelloRecord,
-	type PlotProtocolEpoch,
-	PlotProtocolFailure,
-	type PlotProtocolLimits,
-	type PlotProtocolSequence,
-	type PlotServerRecord,
-	SubmitObservationParams,
-	SubscribeParams,
 	defaultPlotProtocolLimits,
 	makePlotErrorResponse,
 	makePlotSuccessResponse,
+	PlotErrorResponseRecord,
+	PlotEventRecord,
+	PlotHelloRecord,
+	PlotProtocolFailure,
 	plotProtocolEpoch,
 	plotProtocolSequence,
+	type AuthLoginParams,
+	type AuthProviderParams,
+	type AuthStatusParams,
+	type PlotClientRecord,
+	type PlotCommand,
+	type PlotProtocolEpoch,
+	type PlotProtocolLimits,
+	type PlotProtocolSequence,
+	type PlotServerRecord,
+	type SubmitObservationParams,
+	type SubscribeParams,
 } from "./protocol.js";
 import { makePlotProtocolReplayBuffer } from "./protocol-replay-buffer.js";
 
@@ -47,134 +34,84 @@ export interface PlotProtocolLayerOptions {
 	readonly capabilities?: readonly string[];
 	readonly outputCapacity?: number;
 	readonly auth?: PlotAuthShape;
+	readonly session?: PlotSessionShape;
 }
-
 export interface PlotProtocolShape {
-	readonly hello: () => Effect.Effect<PlotHelloRecord>;
-	readonly submit: (request: PlotClientRecord) => Effect.Effect<boolean, never>;
-	readonly output: () => Stream.Stream<PlotServerRecord>;
+	readonly hello: () => Promise<PlotHelloRecord>;
+	readonly submit: (request: PlotClientRecord) => Promise<boolean>;
+	readonly output: () => AsyncIterable<PlotServerRecord>;
 }
-
 interface QueuedProtocolRequest {
 	readonly request: PlotClientRecord;
-	readonly completed: Deferred.Deferred<boolean>;
+	readonly resolve: (value: boolean) => void;
 }
-
-export class PlotProtocol extends Context.Service<
-	PlotProtocol,
-	PlotProtocolShape
->()("@plot/session/PlotProtocol") {}
-
-const errorMessage = (error: unknown): string => {
-	if (error instanceof Error) return error.message;
-	return String(error);
-};
-
-const decodeSubscribeParams = (
-	value: unknown,
-): Effect.Effect<SubscribeParams, PlotProtocolFailure> =>
-	Schema.decodeUnknownEffect(SubscribeParams)(value ?? {}).pipe(
-		Effect.mapError(
-			(error) =>
-				new PlotProtocolFailure({
-					code: "invalid_request",
-					message: error.message,
-				}),
-		),
-	);
-
-const byteLength = (value: string) => new TextEncoder().encode(value).length;
-
-const observationPayloadBytes = (value: unknown) =>
-	Effect.try({
-		try: () => byteLength(JSON.stringify(value)),
-		catch: (error) =>
-			new PlotProtocolFailure({
-				code: "invalid_request",
-				message: errorMessage(error),
-			}),
-	});
-
+export type PlotProtocol = PlotProtocolShape;
+export const PlotProtocol = Symbol("PlotProtocol");
+const errorMessage = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
+const object = (value: unknown): Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
+const decodeSubscribeParams = (value: unknown): SubscribeParams => ({
+	afterSequence: object(value)["afterSequence"] as number | undefined,
+});
 const decodeSubmitObservationParams = (
 	value: unknown,
-): Effect.Effect<SubmitObservationParams, PlotProtocolFailure> =>
-	Schema.decodeUnknownEffect(SubmitObservationParams)(value ?? {}).pipe(
-		Effect.mapError(
-			(error) =>
-				new PlotProtocolFailure({
-					code: "invalid_request",
-					message: error.message,
-				}),
-		),
-	);
-
+): SubmitObservationParams => {
+	const observation = object(value)["observation"];
+	if (typeof observation !== "object" || observation === null)
+		throw new PlotProtocolFailure({
+			code: "invalid_request",
+			message: "observation is required",
+		});
+	return { observation: observation as SubmitObservationParams["observation"] };
+};
+const decodeAuthProviderParams = (value: unknown): AuthProviderParams => {
+	const provider = object(value)["provider"];
+	if (typeof provider !== "string" || provider.length === 0)
+		throw new PlotProtocolFailure({
+			code: "invalid_request",
+			message: "provider is required",
+		});
+	return { provider };
+};
+const decodeAuthStatusParams = (value: unknown): AuthStatusParams => {
+	const provider = object(value)["provider"];
+	return typeof provider === "string" ? { provider } : {};
+};
+const decodeAuthLoginParams = (value: unknown): AuthLoginParams => {
+	const r = object(value);
+	if (typeof r["provider"] !== "string" || r["provider"].length === 0)
+		throw new PlotProtocolFailure({
+			code: "invalid_request",
+			message: "provider is required",
+		});
+	return {
+		provider: r["provider"],
+		promptResponses: r["promptResponses"] as string[] | undefined,
+		selectResponse: r["selectResponse"] as string | undefined,
+		manualCode: r["manualCode"] as string | undefined,
+	};
+};
+const byteLength = (value: string) => new TextEncoder().encode(value).length;
 const checkObservationPayloadLimit = (
 	params: SubmitObservationParams,
 	limits: PlotProtocolLimits,
-) =>
-	observationPayloadBytes(params.observation).pipe(
-		Effect.flatMap((bytes) =>
-			bytes <= limits.maxObservationPayloadBytes
-				? Effect.void
-				: new PlotProtocolFailure({
-						code: "payload_too_large",
-						message: "observation exceeds maxObservationPayloadBytes",
-						details: {
-							maxObservationPayloadBytes: limits.maxObservationPayloadBytes,
-							actualBytes: bytes,
-						},
-					}),
-		),
-	);
-
-const decodeAuthProviderParams = (
-	value: unknown,
-): Effect.Effect<AuthProviderParams, PlotProtocolFailure> =>
-	Schema.decodeUnknownEffect(AuthProviderParams)(value ?? {}).pipe(
-		Effect.mapError(
-			(error) =>
-				new PlotProtocolFailure({
-					code: "invalid_request",
-					message: error.message,
-				}),
-		),
-	);
-
-const decodeAuthStatusParams = (
-	value: unknown,
-): Effect.Effect<AuthStatusParams, PlotProtocolFailure> =>
-	Schema.decodeUnknownEffect(AuthStatusParams)(value ?? {}).pipe(
-		Effect.mapError(
-			(error) =>
-				new PlotProtocolFailure({
-					code: "invalid_request",
-					message: error.message,
-				}),
-		),
-	);
-
-const decodeAuthLoginParams = (
-	value: unknown,
-): Effect.Effect<AuthLoginParams, PlotProtocolFailure> =>
-	Schema.decodeUnknownEffect(AuthLoginParams)(value ?? {}).pipe(
-		Effect.mapError(
-			(error) =>
-				new PlotProtocolFailure({
-					code: "invalid_request",
-					message: error.message,
-				}),
-		),
-	);
-
-const publish =
-	(pubsub: PubSub.PubSub<PlotServerRecord>) => (record: PlotServerRecord) =>
-		PubSub.publish(pubsub, record).pipe(Effect.asVoid);
-
-const currentSessionSequence = (session: PlotSessionShape) =>
-	session
-		.lastEventSequence()
-		.pipe(Effect.map((sequence) => plotProtocolSequence(Number(sequence))));
-
+) => {
+	const bytes = byteLength(JSON.stringify(params.observation));
+	if (bytes > limits.maxObservationPayloadBytes)
+		throw new PlotProtocolFailure({
+			code: "payload_too_large",
+			message: "observation exceeds maxObservationPayloadBytes",
+			details: {
+				maxObservationPayloadBytes: limits.maxObservationPayloadBytes,
+				actualBytes: bytes,
+			},
+		});
+};
+const currentSessionSequence = async (session: PlotSessionShape) =>
+	plotProtocolSequence(Number(await session.lastEventSequence()));
 const makeSuccessForRequest = (params: {
 	readonly request: PlotClientRecord;
 	readonly lastEventSeq: PlotProtocolSequence;
@@ -186,7 +123,6 @@ const makeSuccessForRequest = (params: {
 		lastEventSeq: params.lastEventSeq,
 		...(params.data === undefined ? {} : { data: params.data }),
 	});
-
 const makeFailureForRequest = (
 	request: PlotClientRecord,
 	error: PlotProtocolFailure,
@@ -200,399 +136,297 @@ const makeFailureForRequest = (
 		...(lastEventSeq === undefined ? {} : { lastEventSeq }),
 		...(error.details === undefined ? {} : { details: error.details }),
 	});
-
 export const makePlotProtocolLayer = (
 	options: PlotProtocolLayerOptions = {},
-): Layer.Layer<PlotProtocol, never, PlotSession> => {
+): PlotProtocolShape => {
+	if (!options.session) throw new Error("PlotProtocol requires session");
+	const session = options.session;
 	const epoch = options.epoch ?? plotProtocolEpoch("default");
 	const limits = options.limits ?? defaultPlotProtocolLimits;
 	const capabilities = options.capabilities ?? ["stdio_jsonl"];
-	const outputCapacity = options.outputCapacity ?? limits.maxPendingRequests;
-
-	return Layer.effect(
-		PlotProtocol,
-		Effect.gen(function* () {
-			const session = yield* PlotSession;
-			const output = yield* PubSub.sliding<PlotServerRecord>(outputCapacity);
-			const requests = yield* Queue.dropping<QueuedProtocolRequest>(
-				limits.maxPendingRequests,
-			);
-			const replay = yield* makePlotProtocolReplayBuffer(limits);
-			const protocolScope = yield* Scope.make();
-			yield* Effect.addFinalizer((exit: Exit.Exit<unknown, unknown>) =>
-				Effect.all([
-					Queue.shutdown(requests).pipe(Effect.asVoid),
-					PubSub.shutdown(output),
-					Scope.close(protocolScope, exit),
-				]).pipe(Effect.asVoid),
-			);
-
-			const publishOutput = publish(output);
-			const sequenceRef = yield* Ref.make(0);
-			const lastSessionSequenceRef = yield* Ref.make(0);
-			const nextProtocolSequence = Ref.updateAndGet(
-				sequenceRef,
-				(sequence) => sequence + 1,
-			).pipe(Effect.map(plotSessionEventSequence));
-			const appendAndPublishEvent = (event: unknown) =>
-				Effect.gen(function* () {
-					const sequence = yield* nextProtocolSequence;
-					const record = new PlotEventRecord({
-						protocol: "plot.v1",
-						kind: "event",
-						sessionId: session.id,
-						epoch,
-						sequence,
-						event,
-					});
-					yield* replay.append(record);
-					yield* publishOutput(record);
-				});
-			const publishAuthEvent = (type: string, payload: unknown) =>
-				appendAndPublishEvent({
-					type,
-					source: "plot_auth",
-					payload,
-				});
-			const waitForSessionFrontier = Effect.gen(function* () {
-				const frontier = yield* currentSessionSequence(session);
-				const target = Number(frontier);
-				while (true) {
-					const seen = yield* Ref.get(lastSessionSequenceRef);
-					if (seen >= target) break;
-					yield* Effect.yieldNow;
-				}
-				return yield* replay.lastSequence();
-			});
-			const mapUnknownError = (error: unknown) => {
-				if (error instanceof PlotProtocolFailure) return error;
-				return new PlotProtocolFailure({
+	const output = new EventHub<PlotServerRecord>(
+		options.outputCapacity ?? limits.maxPendingRequests,
+	);
+	const requests = new AsyncQueue<QueuedProtocolRequest>({
+		capacity: limits.maxPendingRequests,
+	});
+	let sequence = 0;
+	let lastSessionSequence = 0;
+	const replayPromise = makePlotProtocolReplayBuffer(limits);
+	const publishOutput = (record: PlotServerRecord) => output.publish(record);
+	const nextProtocolSequence = () => plotSessionEventSequence(++sequence);
+	const appendAndPublishEvent = async (event: unknown) => {
+		const replay = await replayPromise;
+		const record = new PlotEventRecord({
+			sessionId: session.id,
+			epoch,
+			sequence: nextProtocolSequence(),
+			event,
+		});
+		await replay.append(record);
+		publishOutput(record);
+	};
+	const publishAuthEvent = (type: string, payload: unknown) =>
+		appendAndPublishEvent({ type, source: "plot_auth", payload });
+	const waitForSessionFrontier = async () => {
+		const target = Number(await currentSessionSequence(session));
+		while (true) {
+			if (lastSessionSequence >= target)
+				return (await replayPromise).lastSequence();
+			await Promise.resolve();
+		}
+	};
+	const mapUnknownError = (error: unknown) =>
+		error instanceof PlotProtocolFailure
+			? error
+			: new PlotProtocolFailure({
 					code: "internal_error",
 					message: errorMessage(error),
 				});
-			};
-
-			const handleRequest = Effect.fn("PlotProtocol.handleRequest")(function* (
-				request: PlotClientRecord,
-			) {
-				const command: PlotCommand = request.command;
-				switch (command) {
-					case "ping": {
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { pong: true },
-							}),
-						];
-					}
-					case "start": {
-						yield* session.start().pipe(Effect.mapError(mapUnknownError));
-						const lastEventSeq = yield* waitForSessionFrontier;
-						return [makeSuccessForRequest({ request, lastEventSeq })];
-					}
-					case "tick_once": {
-						const result = yield* session
-							.tickOnce()
-							.pipe(Effect.mapError(mapUnknownError));
-						const lastEventSeq = yield* waitForSessionFrontier;
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { result },
-							}),
-						];
-					}
-					case "get_snapshot": {
-						const snapshot = yield* session
-							.snapshot()
-							.pipe(Effect.mapError(mapUnknownError));
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { snapshot, asOfSequence: lastEventSeq },
-							}),
-						];
-					}
-					case "subscribe": {
-						const params = yield* decodeSubscribeParams(request.params);
-						const afterSequence =
-							params.afterSequence ?? (yield* replay.lastSequence());
-						const replayed = yield* replay.replayAfter(afterSequence);
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							...replayed,
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { replayed: replayed.length },
-							}),
-						];
-					}
-					case "shutdown": {
-						const accepted = yield* session
-							.shutdown()
-							.pipe(Effect.mapError(mapUnknownError));
-						const lastEventSeq = yield* waitForSessionFrontier;
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { accepted },
-							}),
-						];
-					}
-					case "auth_providers": {
-						if (options.auth === undefined) {
-							return yield* new PlotProtocolFailure({
-								code: "auth_unavailable",
-								message: "auth service is not configured",
-							});
-						}
-						const providers = yield* Effect.tryPromise({
-							try: () => options.auth?.providers() ?? Promise.resolve([]),
-							catch: mapUnknownError,
-						});
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { providers },
-							}),
-						];
-					}
-					case "auth_status": {
-						if (options.auth === undefined) {
-							return yield* new PlotProtocolFailure({
-								code: "auth_unavailable",
-								message: "auth service is not configured",
-							});
-						}
-						const params = yield* decodeAuthStatusParams(request.params);
-						const status = yield* Effect.tryPromise({
-							try: () =>
-								options.auth?.status(params.provider) ?? Promise.resolve([]),
-							catch: mapUnknownError,
-						});
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { status },
-							}),
-						];
-					}
-					case "auth_login": {
-						if (options.auth === undefined) {
-							return yield* new PlotProtocolFailure({
-								code: "auth_unavailable",
-								message: "auth service is not configured",
-							});
-						}
-						const params = yield* decodeAuthLoginParams(request.params);
-						yield* publishAuthEvent("auth_login_started", {
-							provider: params.provider,
-						});
-						yield* Effect.tryPromise({
-							try: () =>
-								options.auth?.login({
-									provider: params.provider,
-									...(params.promptResponses === undefined
-										? {}
-										: { promptResponses: params.promptResponses }),
-									...(params.selectResponse === undefined
-										? {}
-										: { selectResponse: params.selectResponse }),
-									...(params.manualCode === undefined
-										? {}
-										: { manualCode: params.manualCode }),
-									events: {
-										auth: (info) =>
-											Effect.runSync(publishAuthEvent("auth_open_url", info)),
-										deviceCode: (info) =>
-											Effect.runSync(
-												publishAuthEvent("auth_device_code", info),
-											),
-										prompt: (prompt) =>
-											Effect.runSync(publishAuthEvent("auth_prompt", prompt)),
-										select: (prompt) =>
-											Effect.runSync(publishAuthEvent("auth_select", prompt)),
-										progress: (message) =>
-											Effect.runSync(
-												publishAuthEvent("auth_progress", { message }),
-											),
-									},
-								}) ?? Promise.resolve(),
-							catch: (error) => {
-								const message = errorMessage(error);
-								if (message.includes("requires prompt input")) {
-									return new PlotProtocolFailure({
-										code: "auth_input_required",
-										message,
-									});
-								}
-								return mapUnknownError(error);
+	const handleRequest = async (
+		request: PlotClientRecord,
+	): Promise<readonly PlotServerRecord[]> => {
+		switch (request.command as PlotCommand) {
+			case "ping":
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await (await replayPromise).lastSequence(),
+						data: { pong: true },
+					}),
+				];
+			case "start":
+				await session.start();
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await waitForSessionFrontier(),
+					}),
+				];
+			case "tick_once": {
+				const result = await session.tickOnce();
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await waitForSessionFrontier(),
+						data: { result },
+					}),
+				];
+			}
+			case "get_snapshot":
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await (await replayPromise).lastSequence(),
+						data: {
+							snapshot: await session.snapshot(),
+							asOfSequence: await (await replayPromise).lastSequence(),
+						},
+					}),
+				];
+			case "subscribe": {
+				const params = decodeSubscribeParams(request.params);
+				const replay = await replayPromise;
+				const afterSequence =
+					params.afterSequence ?? (await replay.lastSequence());
+				const replayed = await replay.replayAfter(afterSequence);
+				return [
+					...replayed,
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await replay.lastSequence(),
+						data: { replayed: replayed.length },
+					}),
+				];
+			}
+			case "shutdown":
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await waitForSessionFrontier(),
+						data: { accepted: await session.shutdown() },
+					}),
+				];
+			case "auth_providers": {
+				if (!options.auth)
+					throw new PlotProtocolFailure({
+						code: "auth_unavailable",
+						message: "auth service is not configured",
+					});
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await (await replayPromise).lastSequence(),
+						data: { providers: await options.auth.providers() },
+					}),
+				];
+			}
+			case "auth_status": {
+				if (!options.auth)
+					throw new PlotProtocolFailure({
+						code: "auth_unavailable",
+						message: "auth service is not configured",
+					});
+				const params = decodeAuthStatusParams(request.params);
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await (await replayPromise).lastSequence(),
+						data: { status: await options.auth.status(params.provider) },
+					}),
+				];
+			}
+			case "auth_login": {
+				if (!options.auth)
+					throw new PlotProtocolFailure({
+						code: "auth_unavailable",
+						message: "auth service is not configured",
+					});
+				const params = decodeAuthLoginParams(request.params);
+				await publishAuthEvent("auth_login_started", {
+					provider: params.provider,
+				});
+				try {
+					await options.auth.login({
+						provider: params.provider,
+						...(params.promptResponses === undefined
+							? {}
+							: { promptResponses: params.promptResponses }),
+						...(params.selectResponse === undefined
+							? {}
+							: { selectResponse: params.selectResponse }),
+						...(params.manualCode === undefined
+							? {}
+							: { manualCode: params.manualCode }),
+						events: {
+							auth: (info) => {
+								void publishAuthEvent("auth_open_url", info);
 							},
+							deviceCode: (info) => {
+								void publishAuthEvent("auth_device_code", info);
+							},
+							prompt: (prompt) => {
+								void publishAuthEvent("auth_prompt", prompt);
+							},
+							select: (prompt) => {
+								void publishAuthEvent("auth_select", prompt);
+							},
+							progress: (message) => {
+								void publishAuthEvent("auth_progress", { message });
+							},
+						},
+					});
+				} catch (error) {
+					const message = errorMessage(error);
+					if (message.includes("requires prompt input"))
+						throw new PlotProtocolFailure({
+							code: "auth_input_required",
+							message,
 						});
-						yield* publishAuthEvent("auth_login_succeeded", {
-							provider: params.provider,
-						});
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { provider: params.provider, loggedIn: true },
-							}),
-						];
-					}
-					case "auth_logout": {
-						if (options.auth === undefined) {
-							return yield* new PlotProtocolFailure({
-								code: "auth_unavailable",
-								message: "auth service is not configured",
-							});
-						}
-						const params = yield* decodeAuthProviderParams(request.params);
-						yield* Effect.tryPromise({
-							try: () =>
-								options.auth?.logout(params.provider) ?? Promise.resolve(),
-							catch: mapUnknownError,
-						});
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { provider: params.provider, loggedOut: true },
-							}),
-						];
-					}
-					case "submit_observation": {
-						const params = yield* decodeSubmitObservationParams(request.params);
-						yield* checkObservationPayloadLimit(params, limits);
-						const accepted = yield* session
-							.submitObservation(params.observation)
-							.pipe(Effect.mapError(mapUnknownError));
-						if (!accepted) {
-							return yield* new PlotProtocolFailure({
-								code: "internal_error",
-								message:
-									"observation was not accepted by the Plot loop mailbox",
-							});
-						}
-						const lastEventSeq = yield* replay.lastSequence();
-						return [
-							makeSuccessForRequest({
-								request,
-								lastEventSeq,
-								data: { accepted },
-							}),
-						];
-					}
+					throw mapUnknownError(error);
 				}
-			});
-
-			const processRequest = Effect.fn("PlotProtocol.processRequest")(
-				function* (request: PlotClientRecord) {
-					const lastBefore = yield* replay.lastSequence();
-					const records = yield* handleRequest(request).pipe(
-						Effect.catch((error) =>
-							Effect.succeed([
-								makeFailureForRequest(request, error, lastBefore),
-							]),
-						),
-					);
-					for (const record of records) {
-						yield* publishOutput(record);
-					}
-				},
-			);
-
-			yield* session.events().pipe(
-				Stream.runForEach((event) =>
-					appendAndPublishEvent(event).pipe(
-						Effect.andThen(
-							Ref.set(lastSessionSequenceRef, Number(event.sequence)),
-						),
-					),
-				),
-				Effect.forkIn(protocolScope, { startImmediately: true }),
-				Effect.asVoid,
-			);
-
-			yield* Effect.gen(function* () {
-				while (true) {
-					const queued = yield* Queue.take(requests);
-					yield* processRequest(queued.request);
-					yield* Deferred.succeed(queued.completed, true);
-				}
-			}).pipe(
-				Effect.forkIn(protocolScope, { startImmediately: true }),
-				Effect.asVoid,
-			);
-
-			const hello = Effect.fn("PlotProtocol.hello")(function* () {
-				return yield* withWideEvent(
-					"plot_protocol.hello",
-					{ epoch },
-					Effect.gen(function* () {
-						const snapshot = yield* replay.snapshot();
-						return new PlotHelloRecord({
-							protocol: "plot.v1",
-							kind: "hello",
-							sessionId: session.id,
-							epoch,
-							firstEventSeq: snapshot.firstEventSeq,
-							lastEventSeq: snapshot.lastEventSeq,
-							capabilities: [...capabilities],
-							limits,
-						});
+				await publishAuthEvent("auth_login_succeeded", {
+					provider: params.provider,
+				});
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await (await replayPromise).lastSequence(),
+						data: { provider: params.provider, loggedIn: true },
 					}),
-				);
-			});
-
-			const submit = Effect.fn("PlotProtocol.submit")(function* (
-				request: PlotClientRecord,
-			) {
-				return yield* withWideEvent(
-					"plot_protocol.submit",
-					{ request_id: request.id, command: request.command },
-					Effect.gen(function* () {
-						const completed = yield* Deferred.make<boolean>();
-						const accepted = yield* Queue.offer(requests, {
-							request,
-							completed,
-						});
-						if (!accepted) {
-							const lastEventSeq = yield* replay.lastSequence();
-							yield* publishOutput(
-								makePlotErrorResponse({
-									id: request.id,
-									command: request.command,
-									lastEventSeq,
-									code: "request_queue_full",
-									message: "protocol request queue is full",
-								}),
-							);
-							return false;
+				];
+			}
+			case "auth_logout": {
+				if (!options.auth)
+					throw new PlotProtocolFailure({
+						code: "auth_unavailable",
+						message: "auth service is not configured",
+					});
+				const params = decodeAuthProviderParams(request.params);
+				await options.auth.logout(params.provider);
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await (await replayPromise).lastSequence(),
+						data: { provider: params.provider, loggedOut: true },
+					}),
+				];
+			}
+			case "submit_observation": {
+				const params = decodeSubmitObservationParams(request.params);
+				checkObservationPayloadLimit(params, limits);
+				const accepted = await session.submitObservation(params.observation);
+				if (!accepted)
+					throw new PlotProtocolFailure({
+						code: "internal_error",
+						message: "observation was not accepted by the Plot loop mailbox",
+					});
+				return [
+					makeSuccessForRequest({
+						request,
+						lastEventSeq: await (await replayPromise).lastSequence(),
+						data: { accepted },
+					}),
+				];
+			}
+		}
+	};
+	const processRequest = async (request: PlotClientRecord) => {
+		const lastBefore = await (await replayPromise).lastSequence();
+		const records = await handleRequest(request).catch((error) => [
+			makeFailureForRequest(request, mapUnknownError(error), lastBefore),
+		]);
+		for (const record of records) publishOutput(record);
+	};
+	void (async () => {
+		for await (const event of session.events()) {
+			await appendAndPublishEvent(event);
+			lastSessionSequence = Number(event.sequence);
+		}
+	})();
+	void (async () => {
+		while (true) {
+			const queued = await requests.take();
+			await processRequest(queued.request);
+			queued.resolve(true);
+		}
+	})();
+	return {
+		hello: async () =>
+			withWideEvent("plot_protocol.hello", { epoch }, async () => {
+				const snapshot = await (await replayPromise).snapshot();
+				return new PlotHelloRecord({
+					sessionId: session.id,
+					epoch,
+					firstEventSeq: snapshot.firstEventSeq,
+					lastEventSeq: snapshot.lastEventSeq,
+					capabilities: [...capabilities],
+					limits,
+				});
+			}),
+		submit: async (request) =>
+			withWideEvent(
+				"plot_protocol.submit",
+				{ request_id: request.id, command: request.command },
+				async () =>
+					new Promise<boolean>((resolve) => {
+						if (!requests.offer({ request, resolve })) {
+							void (async () =>
+								publishOutput(
+									new PlotErrorResponseRecord({
+										id: request.id,
+										command: request.command,
+										lastEventSeq: await (await replayPromise).lastSequence(),
+										error: {
+											code: "request_queue_full",
+											message: "protocol request queue is full",
+										},
+									}),
+								))();
+							resolve(false);
 						}
-						return yield* Deferred.await(completed);
 					}),
-				);
-			});
-
-			return {
-				hello,
-				submit,
-				output: () => Stream.fromPubSub(output),
-			} satisfies PlotProtocolShape;
-		}),
-	);
+			),
+		output: () => output.subscribe(),
+	};
 };

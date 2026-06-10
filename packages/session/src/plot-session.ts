@@ -1,146 +1,137 @@
-import {
-	Context,
-	Effect,
-	Layer,
-	PubSub,
-	Ref,
-	Schema,
-	Scope,
-	Stream,
-	type Exit,
-} from "effect";
+import { EventHub } from "@plot/common/event-stream";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import type { AgentSessionEvent } from "./agent-session-types.js";
-import * as Domain from "@plot/agent/model";
 import type {
 	Observation,
 	PlotAgentEvent,
-	PlotAgentError,
 	RuntimeSnapshot,
 	SubjectKey,
 	TickResult,
 	WorkResult,
 } from "@plot/agent/model";
-import { makePlotAgentLayer, PlotAgent } from "@plot/agent/agent";
-import type { PlotAgentLayerOptions } from "@plot/agent/agent";
+import { makePlotAgentLayer } from "@plot/agent/agent";
+import type { PlotAgentLayerOptions, PlotAgentShape } from "@plot/agent/agent";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import {
-	AgentSessionClient,
-	type AgentSessionClientShape,
-	type PromptAgentSessionOptions,
+import type {
+	AgentSessionClientShape,
+	PromptAgentSessionOptions,
 } from "./agent-session-client.js";
 import type { AgentSessionWorkRunnerOptions } from "./agent-session-runner.js";
 import type { WorkflowDefinition } from "./workflow.js";
 import { renderPromptTemplateForRunnerContext } from "./workflow-template.js";
 
-export const PlotSessionId = Schema.NonEmptyString.pipe(
-	Schema.brand("PlotSessionId"),
-);
-export type PlotSessionId = typeof PlotSessionId.Type;
-export const plotSessionId = (value: string): PlotSessionId =>
-	Schema.decodeUnknownSync(PlotSessionId)(value);
-
-export const PlotSessionEventSequence = Schema.Number.pipe(
-	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
-	Schema.brand("PlotSessionEventSequence"),
-);
-export type PlotSessionEventSequence = typeof PlotSessionEventSequence.Type;
+export type PlotSessionId = string;
+export const plotSessionId = (value: string): PlotSessionId => {
+	if (value.length === 0) throw new Error("invalid session id");
+	return value;
+};
+export type PlotSessionEventSequence = number;
 export const plotSessionEventSequence = (
 	value: number,
-): PlotSessionEventSequence =>
-	Schema.decodeUnknownSync(PlotSessionEventSequence)(value);
-
-export const PlotSessionEventCursor = Schema.Number.pipe(
-	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-	Schema.brand("PlotSessionEventCursor"),
-);
-export type PlotSessionEventCursor = typeof PlotSessionEventCursor.Type;
-export const plotSessionEventCursor = (value: number): PlotSessionEventCursor =>
-	Schema.decodeUnknownSync(PlotSessionEventCursor)(value);
-
-export class SessionStartedEvent extends Schema.Class<SessionStartedEvent>(
-	"SessionStartedEvent",
-)({
-	type: Schema.Literal("session_started"),
-	sessionId: PlotSessionId,
-	sequence: PlotSessionEventSequence,
-}) {}
-
-export class SessionShutdownEvent extends Schema.Class<SessionShutdownEvent>(
-	"SessionShutdownEvent",
-)({
-	type: Schema.Literal("session_shutdown"),
-	sessionId: PlotSessionId,
-	sequence: PlotSessionEventSequence,
-}) {}
-
-export class PlotAgentEventEnvelope extends Schema.Class<PlotAgentEventEnvelope>(
-	"PlotAgentEventEnvelope",
-)({
-	type: Schema.Literal("plot_agent_event"),
-	sessionId: PlotSessionId,
-	sequence: PlotSessionEventSequence,
-	event: Domain.PlotAgentEvent,
-}) {}
-
-export class AgentSessionEventEnvelope extends Schema.Class<AgentSessionEventEnvelope>(
-	"AgentSessionEventEnvelope",
-)({
-	type: Schema.Literal("agent_session_event"),
-	sessionId: PlotSessionId,
-	sequence: PlotSessionEventSequence,
-	sourceId: Domain.SourceId,
-	runId: Domain.RunId,
-	workKey: Domain.WorkKey,
-	subject: Schema.optionalKey(Domain.SubjectKey),
-	eventType: Schema.String,
-	event: Schema.Unknown,
-}) {}
-
-export const PlotSessionEvent = Schema.Union([
-	SessionStartedEvent,
-	SessionShutdownEvent,
-	PlotAgentEventEnvelope,
-	AgentSessionEventEnvelope,
-]);
-export type PlotSessionEvent = typeof PlotSessionEvent.Type;
-
-export class PlotSessionError extends Schema.TaggedErrorClass<PlotSessionError>()(
-	"PlotSessionError",
-	{
-		phase: Schema.Literals(["setup"]),
-		message: Schema.String,
-	},
-) {}
+): PlotSessionEventSequence => {
+	if (!Number.isInteger(value) || value < 1)
+		throw new Error("invalid event sequence");
+	return value;
+};
+export type PlotSessionEventCursor = number;
+export const plotSessionEventCursor = (
+	value: number,
+): PlotSessionEventCursor => {
+	if (!Number.isInteger(value) || value < 0)
+		throw new Error("invalid event cursor");
+	return value;
+};
+export class SessionStartedEvent {
+	readonly type = "session_started";
+	constructor(
+		readonly input: {
+			readonly sessionId: PlotSessionId;
+			readonly sequence: PlotSessionEventSequence;
+		},
+	) {}
+	get sessionId() {
+		return this.input.sessionId;
+	}
+	get sequence() {
+		return this.input.sequence;
+	}
+}
+export class SessionShutdownEvent {
+	readonly type = "session_shutdown";
+	constructor(
+		readonly input: {
+			readonly sessionId: PlotSessionId;
+			readonly sequence: PlotSessionEventSequence;
+		},
+	) {}
+	get sessionId() {
+		return this.input.sessionId;
+	}
+	get sequence() {
+		return this.input.sequence;
+	}
+}
+export class PlotAgentEventEnvelope {
+	readonly type = "plot_agent_event";
+	readonly sessionId!: PlotSessionId;
+	readonly sequence!: PlotSessionEventSequence;
+	readonly event!: PlotAgentEvent;
+	constructor(input: {
+		readonly sessionId: PlotSessionId;
+		readonly sequence: PlotSessionEventSequence;
+		readonly event: PlotAgentEvent;
+	}) {
+		Object.assign(this, input);
+	}
+}
+export class AgentSessionEventEnvelope {
+	readonly type = "agent_session_event";
+	readonly sessionId!: PlotSessionId;
+	readonly sequence!: PlotSessionEventSequence;
+	readonly sourceId!: string;
+	readonly runId!: string;
+	readonly workKey!: string;
+	readonly subject?: SubjectKey;
+	readonly eventType!: string;
+	readonly event: unknown;
+	constructor(input: Omit<AgentSessionEventEnvelope, "type">) {
+		Object.assign(this, input);
+	}
+}
+export type PlotSessionEvent =
+	| SessionStartedEvent
+	| SessionShutdownEvent
+	| PlotAgentEventEnvelope
+	| AgentSessionEventEnvelope;
+export class PlotSessionError extends Error {
+	readonly phase = "setup";
+	constructor(input: { readonly phase?: "setup"; readonly message: string }) {
+		super(input.message);
+		this.name = "PlotSessionError";
+	}
+}
 
 interface AgentSessionRunnerConfig extends Omit<
 	AgentSessionWorkRunnerOptions,
 	"onEvent"
 > {
-	readonly onEvent?: (event: AgentSessionEvent) => Effect.Effect<void, unknown>;
+	readonly onEvent?: (event: AgentSessionEvent) => Promise<void> | void;
 	readonly wrapRunner?: (runner: WorkRunner) => WorkRunner;
 }
-
 export interface PlotSessionShape {
 	readonly id: PlotSessionId;
 	readonly workflow: WorkflowDefinition;
-	readonly start: () => Effect.Effect<void>;
-	readonly tickOnce: () => Effect.Effect<TickResult>;
-	readonly submitObservation: (
-		observation: Observation,
-	) => Effect.Effect<boolean>;
-	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
-	readonly events: () => Stream.Stream<PlotSessionEvent>;
-	readonly lastEventSequence: () => Effect.Effect<PlotSessionEventCursor>;
-	readonly shutdown: () => Effect.Effect<boolean>;
+	readonly start: () => Promise<void>;
+	readonly tickOnce: () => Promise<TickResult>;
+	readonly submitObservation: (observation: Observation) => Promise<boolean>;
+	readonly snapshot: () => Promise<RuntimeSnapshot>;
+	readonly events: () => AsyncIterable<PlotSessionEvent>;
+	readonly lastEventSequence: () => Promise<PlotSessionEventCursor>;
+	readonly shutdown: () => Promise<boolean>;
 }
-
-export class PlotSession extends Context.Service<
-	PlotSession,
-	PlotSessionShape
->()("@plot/session/PlotSession") {}
-
+export type PlotSession = PlotSessionShape;
+export const PlotSession = Symbol("PlotSession");
 interface BasePlotSessionLayerOptions {
 	readonly id?: PlotSessionId;
 	readonly workflow: WorkflowDefinition;
@@ -148,338 +139,235 @@ interface BasePlotSessionLayerOptions {
 	readonly agent?: Omit<PlotAgentLayerOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
 }
-
 export interface ExplicitRunnerPlotSessionLayerOptions extends BasePlotSessionLayerOptions {
 	readonly runner: WorkRunner;
 	readonly agentRunner?: never;
 }
-
 export interface AgentRunnerPlotSessionLayerOptions extends BasePlotSessionLayerOptions {
 	readonly runner?: never;
 	readonly agentRunner: AgentSessionRunnerConfig;
+	readonly client?: AgentSessionClientShape;
 }
-
 export type PlotSessionLayerOptions =
 	| ExplicitRunnerPlotSessionLayerOptions
 	| AgentRunnerPlotSessionLayerOptions;
-
-const makeSetupError = (message: string) =>
-	new PlotSessionError({ phase: "setup", message });
-
-const ensureOneRunner = (
-	options: PlotSessionLayerOptions,
-): Effect.Effect<void, PlotSessionError> => {
-	const runnerCount =
+const ensureOneRunner = (options: PlotSessionLayerOptions) => {
+	const n =
 		(options.runner === undefined ? 0 : 1) +
 		(options.agentRunner === undefined ? 0 : 1);
-	if (runnerCount === 1) return Effect.void;
-	return new PlotSessionError({
-		phase: "setup",
-		message: "exactly one of runner or agentRunner is required",
-	});
+	if (n !== 1)
+		throw new PlotSessionError({
+			message: "exactly one of runner or agentRunner is required",
+		});
 };
-
-const decodeEventCapacity = (value: number | undefined) =>
-	Schema.decodeUnknownEffect(Schema.Number.pipe(Schema.check(Schema.isInt())))(
-		value ?? 256,
-	).pipe(
-		Effect.filterOrFail(
-			(capacity) => capacity > 0,
-			() => makeSetupError("eventCapacity must be a positive integer"),
-		),
-		Effect.mapError(() =>
-			makeSetupError("eventCapacity must be a positive integer"),
-		),
-	);
-
-const publishScoped = <A>(pubsub: PubSub.PubSub<A>, event: A) =>
-	PubSub.publish(pubsub, event).pipe(Effect.ignore);
-
-const nextSequence = (sequenceRef: Ref.Ref<number>) =>
-	Ref.modify(sequenceRef, (current) => {
-		const next = current + 1;
-		return [plotSessionEventSequence(next), next] as const;
-	});
-
-const errorMessage = (error: unknown): string => {
-	if (error instanceof Error) return error.message;
-	return String(error);
-};
-
+const errorMessage = (error: unknown) =>
+	error instanceof Error ? error.message : String(error);
 const optionalSubject = (subject: SubjectKey | undefined) =>
 	subject === undefined ? {} : { subject };
-
-const resolveRequiredRunnerValue = <A>(
-	value: A | ((context: WorkRunnerContext) => Effect.Effect<A, unknown>),
-	context: WorkRunnerContext,
-) => {
-	if (typeof value === "function") {
-		return (value as (context: WorkRunnerContext) => Effect.Effect<A, unknown>)(
-			context,
-		);
-	}
-	return Effect.succeed(value);
+const nextSequence = (get: () => number, set: (n: number) => void) => {
+	const next = get() + 1;
+	set(next);
+	return plotSessionEventSequence(next);
 };
-
-const resolveOptionalRunnerValue = <A>(
-	value:
-		| A
-		| ((context: WorkRunnerContext) => Effect.Effect<A, unknown>)
-		| undefined,
+const resolveValue = async <A>(
+	value: A | ((context: WorkRunnerContext) => Promise<A> | A),
 	context: WorkRunnerContext,
-) => {
-	if (value === undefined) return Effect.void;
-	return resolveRequiredRunnerValue(value, context);
-};
-
+): Promise<A> =>
+	typeof value === "function"
+		? (value as (context: WorkRunnerContext) => Promise<A> | A)(context)
+		: value;
 const makeAgentRunner = (
 	client: AgentSessionClientShape,
 	config: AgentSessionRunnerConfig,
 	publishAgentEvent: (
 		context: WorkRunnerContext,
 		event: AgentSessionEvent,
-	) => Effect.Effect<void>,
-): WorkRunner => {
-	return {
-		run: (context): Effect.Effect<WorkResult, unknown> =>
-			Effect.gen(function* () {
-				const promptTemplate = yield* resolveRequiredRunnerValue(
-					config.prompt,
-					context,
-				);
-				const prompt = yield* renderPromptTemplateForRunnerContext(
-					promptTemplate,
-					context,
-				);
-				const create = yield* resolveOptionalRunnerValue(
-					config.create,
-					context,
-				);
-				const promptOptions = yield* resolveOptionalRunnerValue(
-					config.promptOptions,
-					context,
-				);
-				const request: PromptAgentSessionOptions = {
-					prompt,
-					...(create === undefined ? {} : { create }),
-					...(promptOptions === undefined ? {} : { promptOptions }),
-					log: {
-						source_id: context.sourceId,
-						run_id: context.run.runId,
-						work_key: context.work.workKey,
-						tick_id: context.tickId,
-					},
-				};
-				const notifyExternalListener = (event: AgentSessionEvent) =>
-					config.onEvent
-						? config.onEvent(event).pipe(
-								Effect.catch((error) =>
-									logWideEvent(
-										{
-											operation: "plot_session.agent_event_listener",
-											outcome: "error",
-											error: errorMessage(error),
-											event_type: event.type,
-											source_id: context.sourceId,
-											run_id: context.run.runId,
-											work_key: context.work.workKey,
-										},
-										"error",
-									),
-								),
-							)
-						: Effect.void;
-				yield* client
-					.prompt(request)
-					.pipe(
-						Stream.runForEach((event) =>
-							publishAgentEvent(context, event).pipe(
-								Effect.andThen(notifyExternalListener(event)),
-							),
-						),
+	) => Promise<void>,
+): WorkRunner => ({
+	run: async (context): Promise<WorkResult> => {
+		const promptTemplate = await resolveValue(config.prompt, context);
+		const prompt = await renderPromptTemplateForRunnerContext(
+			promptTemplate,
+			context,
+		);
+		const create =
+			config.create === undefined
+				? undefined
+				: await resolveValue(config.create, context);
+		const promptOptions =
+			config.promptOptions === undefined
+				? undefined
+				: await resolveValue(config.promptOptions, context);
+		const request: PromptAgentSessionOptions = {
+			prompt,
+			...(create === undefined ? {} : { create }),
+			...(promptOptions === undefined ? {} : { promptOptions }),
+			log: {
+				source_id: context.sourceId,
+				run_id: context.run.runId,
+				work_key: context.work.workKey,
+				tick_id: context.tickId,
+			},
+		};
+		for await (const event of client.prompt(request)) {
+			await publishAgentEvent(context, event);
+			if (config.onEvent) {
+				try {
+					await config.onEvent(event);
+				} catch (error) {
+					await logWideEvent(
+						{
+							operation: "plot_session.agent_event_listener",
+							outcome: "error",
+							error: errorMessage(error),
+							event_type: event.type,
+							source_id: context.sourceId,
+							run_id: context.run.runId,
+							work_key: context.work.workKey,
+						},
+						"error",
 					);
-				return {};
-			}),
-	};
-};
-
+				}
+			}
+		}
+		return {};
+	},
+});
 export function makePlotSessionLayer(
 	options: ExplicitRunnerPlotSessionLayerOptions,
-): Layer.Layer<PlotSession, PlotSessionError | PlotAgentError>;
+): PlotSessionShape;
 export function makePlotSessionLayer(
 	options: AgentRunnerPlotSessionLayerOptions,
-): Layer.Layer<
-	PlotSession,
-	PlotSessionError | PlotAgentError,
-	AgentSessionClient
->;
+): PlotSessionShape;
 export function makePlotSessionLayer(
 	options: PlotSessionLayerOptions,
-): Layer.Layer<
-	PlotSession,
-	PlotSessionError | PlotAgentError,
-	AgentSessionClient
-> {
+): PlotSessionShape {
+	ensureOneRunner(options);
 	const sessionId = options.id ?? plotSessionId("default");
-
-	return Layer.effect(
-		PlotSession,
-		Effect.gen(function* () {
-			yield* ensureOneRunner(options);
-			const eventCapacity = yield* decodeEventCapacity(options.eventCapacity);
-			const events = yield* PubSub.sliding<PlotSessionEvent>(eventCapacity);
-			const sequence = yield* Ref.make(0);
-			const sessionScope = yield* Scope.make();
-			yield* Effect.addFinalizer((exit: Exit.Exit<unknown, unknown>) =>
-				Scope.close(sessionScope, exit),
+	const eventCapacity = options.eventCapacity ?? 256;
+	if (!Number.isInteger(eventCapacity) || eventCapacity < 1)
+		throw new PlotSessionError({
+			message: "eventCapacity must be a positive integer",
+		});
+	const events = new EventHub<PlotSessionEvent>(eventCapacity);
+	let sequence = 0;
+	const publish = (event: PlotSessionEvent) => events.publish(event);
+	const publishAgentEvent = async (
+		context: WorkRunnerContext,
+		event: AgentSessionEvent,
+	) =>
+		publish(
+			new AgentSessionEventEnvelope({
+				sessionId,
+				sequence: nextSequence(
+					() => sequence,
+					(n) => {
+						sequence = n;
+					},
+				),
+				sourceId: context.sourceId,
+				runId: context.run.runId,
+				workKey: context.work.workKey,
+				...optionalSubject(context.work.subject),
+				eventType: event.type,
+				event,
+			}),
+		);
+	const runner =
+		options.runner ??
+		(() => {
+			if (!options.client)
+				throw new PlotSessionError({ message: "agentRunner requires client" });
+			const r = makeAgentRunner(
+				options.client,
+				options.agentRunner,
+				publishAgentEvent,
 			);
-
-			const publish = (event: PlotSessionEvent) => publishScoped(events, event);
-			const publishSessionStarted = Effect.gen(function* () {
-				const sequenceNumber = yield* nextSequence(sequence);
-				yield* publish(
-					new SessionStartedEvent({
-						type: "session_started",
-						sessionId,
-						sequence: sequenceNumber,
-					}),
-				);
-			});
-			const publishSessionShutdown = Effect.gen(function* () {
-				const sequenceNumber = yield* nextSequence(sequence);
-				yield* publish(
-					new SessionShutdownEvent({
-						type: "session_shutdown",
-						sessionId,
-						sequence: sequenceNumber,
-					}),
-				);
-			});
-			const publishPlotAgentEvent = (event: PlotAgentEvent) =>
-				Effect.gen(function* () {
-					const sequenceNumber = yield* nextSequence(sequence);
-					yield* publish(
-						new PlotAgentEventEnvelope({
-							type: "plot_agent_event",
+			return options.agentRunner.wrapRunner
+				? options.agentRunner.wrapRunner(r)
+				: r;
+		})();
+	const plotAgent: PlotAgentShape = makePlotAgentLayer({
+		...options.agent,
+		sources: options.sources,
+		runner,
+	});
+	void (async () => {
+		for await (const event of plotAgent.events())
+			publish(
+				new PlotAgentEventEnvelope({
+					sessionId,
+					sequence: nextSequence(
+						() => sequence,
+						(n) => {
+							sequence = n;
+						},
+					),
+					event,
+				}),
+			);
+	})();
+	return {
+		id: sessionId,
+		workflow: options.workflow,
+		start: async () =>
+			withWideEvent(
+				"plot_session.start",
+				{ session_id: sessionId },
+				async () => {
+					publish(
+						new SessionStartedEvent({
 							sessionId,
-							sequence: sequenceNumber,
-							event,
+							sequence: nextSequence(
+								() => sequence,
+								(n) => {
+									sequence = n;
+								},
+							),
 						}),
 					);
-				});
-			const publishAgentEvent = (
-				context: WorkRunnerContext,
-				event: AgentSessionEvent,
-			) =>
-				Effect.gen(function* () {
-					const sequenceNumber = yield* nextSequence(sequence);
-					yield* publish(
-						new AgentSessionEventEnvelope({
-							type: "agent_session_event",
+					await plotAgent.start();
+				},
+			),
+		tickOnce: async () =>
+			withWideEvent(
+				"plot_session.tick_once",
+				{ session_id: sessionId },
+				plotAgent.tickOnce(),
+			),
+		submitObservation: async (observation) =>
+			withWideEvent(
+				"plot_session.submit_observation",
+				{ session_id: sessionId, observation_type: observation.type },
+				plotAgent.offer({ type: "observation", observation }),
+			),
+		snapshot: async () =>
+			withWideEvent(
+				"plot_session.snapshot",
+				{ session_id: sessionId },
+				plotAgent.snapshot(),
+			),
+		events: () => events.subscribe(),
+		lastEventSequence: async () => plotSessionEventCursor(sequence),
+		shutdown: async () =>
+			withWideEvent(
+				"plot_session.shutdown",
+				{ session_id: sessionId },
+				async () => {
+					const accepted = await plotAgent.shutdown();
+					publish(
+						new SessionShutdownEvent({
 							sessionId,
-							sequence: sequenceNumber,
-							sourceId: context.sourceId,
-							runId: context.run.runId,
-							workKey: context.work.workKey,
-							...optionalSubject(context.work.subject),
-							eventType: event.type,
-							event,
+							sequence: nextSequence(
+								() => sequence,
+								(n) => {
+									sequence = n;
+								},
+							),
 						}),
 					);
-				});
-
-			const runner = options.runner
-				? options.runner
-				: yield* Effect.gen(function* () {
-						const agentRunner = makeAgentRunner(
-							yield* AgentSessionClient,
-							options.agentRunner,
-							publishAgentEvent,
-						);
-						return options.agentRunner.wrapRunner
-							? options.agentRunner.wrapRunner(agentRunner)
-							: agentRunner;
-					});
-			const plotAgentLayer = makePlotAgentLayer({
-				...options.agent,
-				sources: options.sources,
-				runner,
-			});
-			const plotAgentContext = yield* Layer.buildWithScope(
-				plotAgentLayer,
-				sessionScope,
-			);
-			const plotAgent = Context.get(plotAgentContext, PlotAgent);
-			yield* plotAgent
-				.events()
-				.pipe(
-					Stream.runForEach(publishPlotAgentEvent),
-					Effect.forkIn(sessionScope, { startImmediately: true }),
-					Effect.asVoid,
-				);
-
-			const start = Effect.fn("PlotSession.start")(function* () {
-				yield* withWideEvent(
-					"plot_session.start",
-					{ session_id: sessionId },
-					Effect.gen(function* () {
-						yield* publishSessionStarted;
-						yield* plotAgent.start();
-					}),
-				);
-			});
-			const tickOnce = Effect.fn("PlotSession.tickOnce")(function* () {
-				return yield* withWideEvent(
-					"plot_session.tick_once",
-					{ session_id: sessionId },
-					plotAgent.tickOnce(),
-				);
-			});
-			const submitObservation = Effect.fn("PlotSession.submitObservation")(
-				function* (observation: Observation) {
-					return yield* withWideEvent(
-						"plot_session.submit_observation",
-						{ session_id: sessionId, observation_type: observation.type },
-						plotAgent.offer({ type: "observation", observation }),
-					);
+					return accepted;
 				},
-			);
-			const snapshot = Effect.fn("PlotSession.snapshot")(function* () {
-				return yield* withWideEvent(
-					"plot_session.snapshot",
-					{ session_id: sessionId },
-					plotAgent.snapshot(),
-				);
-			});
-			const eventStream = () => Stream.fromPubSub(events);
-			const lastEventSequence = Effect.fn("PlotSession.lastEventSequence")(
-				function* () {
-					return plotSessionEventCursor(yield* Ref.get(sequence));
-				},
-			);
-			const shutdown = Effect.fn("PlotSession.shutdown")(function* () {
-				return yield* withWideEvent(
-					"plot_session.shutdown",
-					{ session_id: sessionId },
-					Effect.gen(function* () {
-						const accepted = yield* plotAgent.shutdown();
-						yield* publishSessionShutdown;
-						return accepted;
-					}),
-				);
-			});
-
-			return {
-				id: sessionId,
-				workflow: options.workflow,
-				start,
-				tickOnce,
-				submitObservation,
-				snapshot,
-				events: eventStream,
-				lastEventSequence,
-				shutdown,
-			} satisfies PlotSessionShape;
-		}),
-	);
+			),
+	};
 }

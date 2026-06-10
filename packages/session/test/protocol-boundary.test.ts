@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
 import { LoggerLive } from "@plot/common/observability";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { makePlotSessionLayer } from "../src/plot-session.js";
@@ -15,16 +14,17 @@ const workflow: WorkflowDefinition = {
 };
 
 const runner: WorkRunner = {
-	run: () => Effect.succeed({}),
+	run: () => ({}),
 };
 
 async function* stdin() {
 	yield '{"protocol":"plot.v1","kind":"request","id":"req-1","command":"ping"}\n';
 }
 
-const protocolLayer = makePlotProtocolLayer().pipe(
-	Layer.provide(makePlotSessionLayer({ workflow, sources: [], runner })),
-);
+const makeProtocol = () => {
+	const session = makePlotSessionLayer({ workflow, sources: [], runner });
+	return makePlotProtocolLayer({ session });
+};
 
 const captureProcessWrites = async (run: () => Promise<void>) => {
 	const runtimeConsole = Reflect.get(globalThis, "console") as Console;
@@ -76,29 +76,22 @@ const captureProcessWrites = async (run: () => Promise<void>) => {
 describe("stdio protocol boundary", () => {
 	test("keeps stdout protocol-only while telemetry goes to stderr", async () => {
 		const captured = await captureProcessWrites(async () => {
-			await Effect.runPromise(
-				runPlotProtocolStdio({
-					stdin: stdin(),
-					writeStdout: (line) =>
-						Effect.sync(() => {
-							process.stdout.write(line);
-						}),
-				}).pipe(
-					Effect.provide(
-						Layer.mergeAll(protocolLayer, LoggerLive({ stderr: true })),
-					),
-				),
-			);
+			LoggerLive({ stderr: true });
+			await runPlotProtocolStdio({
+				protocol: makeProtocol(),
+				stdin: stdin(),
+				writeStdout: (line) => {
+					process.stdout.write(line);
+				},
+			});
 		});
 
 		const stdoutLines = captured.stdout
 			.split("\n")
 			.filter((line) => line.length > 0);
-		const stdoutRecords = await Effect.runPromise(
-			Effect.all(
-				stdoutLines.map((line) =>
-					decodePlotServerRecord(JSON.parse(line) as unknown),
-				),
+		const stdoutRecords = await Promise.all(
+			stdoutLines.map((line) =>
+				decodePlotServerRecord(JSON.parse(line) as unknown),
 			),
 		);
 

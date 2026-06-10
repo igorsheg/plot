@@ -1,4 +1,3 @@
-import type { Effect } from "effect";
 import type {
 	Diagnostic,
 	Observation,
@@ -8,6 +7,7 @@ import type {
 	TickId,
 	WorkItem,
 } from "./model.js";
+import type { MaybePromise } from "./work-runner.js";
 
 export interface PhaseContext {
 	readonly sourceId: SourceId;
@@ -24,18 +24,18 @@ export interface WorkSource {
 	readonly policy?: WorkSourcePolicy;
 	readonly observeTick?: (
 		context: PhaseContext,
-	) => Effect.Effect<readonly Observation[], unknown>;
+	) => MaybePromise<readonly Observation[]>;
 	readonly reconcile?: (
 		context: PhaseContext,
-	) => Effect.Effect<readonly ReconcileProposal[], unknown>;
+	) => MaybePromise<readonly ReconcileProposal[]>;
 	readonly selectWork?: (
 		context: PhaseContext,
-	) => Effect.Effect<readonly WorkItem[], unknown>;
+	) => MaybePromise<readonly WorkItem[]>;
 }
 
 export interface AgentPolicy {
 	readonly maxConcurrentRuns?: number;
 	readonly validate?: (
 		snapshot: RuntimeSnapshot,
-	) => Effect.Effect<readonly Diagnostic[], unknown>;
+	) => MaybePromise<readonly Diagnostic[]>;
 }

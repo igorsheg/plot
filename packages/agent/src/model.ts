@@ -1,104 +1,97 @@
-import { Schema } from "effect";
+export type PositiveInt = number;
+export const positiveInt = (value: number): PositiveInt => {
+	if (!Number.isInteger(value) || value < 1)
+		throw new Error("expected positive integer");
+	return value;
+};
 
-const IdentifierText = Schema.NonEmptyString.pipe(
-	Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]+$/)),
-);
-const NonNegativeInt = Schema.Number.pipe(
-	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-);
+export type TickId = number;
+export const tickId = (value: number): TickId => {
+	if (!Number.isInteger(value) || value < 0)
+		throw new Error("expected non-negative integer");
+	return value;
+};
 
-export const PositiveInt = Schema.Number.pipe(
-	Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
-	Schema.brand("PositiveInt"),
-);
-export type PositiveInt = typeof PositiveInt.Type;
-export const positiveInt = (value: number): PositiveInt =>
-	Schema.decodeUnknownSync(PositiveInt)(value);
+const identifier = (value: string, name: string): string => {
+	if (
+		typeof value !== "string" ||
+		value.length === 0 ||
+		!/^[A-Za-z0-9._:-]+$/.test(value)
+	) {
+		throw new Error(`invalid ${name}`);
+	}
+	return value;
+};
 
-export const TickId = NonNegativeInt.pipe(Schema.brand("TickId"));
-export type TickId = typeof TickId.Type;
-export const tickId = (value: number): TickId =>
-	Schema.decodeUnknownSync(TickId)(value);
+const nonEmpty = (value: string, name: string): string => {
+	if (typeof value !== "string" || value.length === 0)
+		throw new Error(`invalid ${name}`);
+	return value;
+};
 
-export const SourceId = IdentifierText.pipe(Schema.brand("SourceId"));
-export type SourceId = typeof SourceId.Type;
+export type SourceId = string;
 export const sourceId = (value: string): SourceId =>
-	Schema.decodeUnknownSync(SourceId)(value);
-
-export const SubjectKey = Schema.NonEmptyString.pipe(
-	Schema.brand("SubjectKey"),
-);
-export type SubjectKey = typeof SubjectKey.Type;
+	identifier(value, "SourceId");
+export type SubjectKey = string;
 export const subjectKey = (value: string): SubjectKey =>
-	Schema.decodeUnknownSync(SubjectKey)(value);
+	nonEmpty(value, "SubjectKey");
+export type WorkKey = string;
+export const workKey = (value: string): WorkKey => nonEmpty(value, "WorkKey");
+export type RunId = string;
+export const runId = (value: string): RunId => identifier(value, "RunId");
 
-export const WorkKey = Schema.NonEmptyString.pipe(Schema.brand("WorkKey"));
-export type WorkKey = typeof WorkKey.Type;
-export const workKey = (value: string): WorkKey =>
-	Schema.decodeUnknownSync(WorkKey)(value);
+export type AgentPhase =
+	| "setup"
+	| "observe"
+	| "reconcile"
+	| "select"
+	| "act"
+	| "policy";
+export type HookPhase = "observe" | "reconcile" | "select";
 
-export const RunId = IdentifierText.pipe(Schema.brand("RunId"));
-export type RunId = typeof RunId.Type;
-export const runId = (value: string): RunId =>
-	Schema.decodeUnknownSync(RunId)(value);
+export class PlotAgentError extends Error {
+	readonly phase: AgentPhase;
+	readonly source_id?: SourceId;
+	constructor(input: {
+		readonly phase: AgentPhase;
+		readonly message: string;
+		readonly source_id?: SourceId;
+	}) {
+		super(input.message);
+		this.name = "PlotAgentError";
+		this.phase = input.phase;
+		if (input.source_id !== undefined) this.source_id = input.source_id;
+	}
+}
 
-export const AgentPhase = Schema.Literals([
-	"setup",
-	"observe",
-	"reconcile",
-	"select",
-	"act",
-	"policy",
-]);
-export type AgentPhase = typeof AgentPhase.Type;
-
-export const HookPhase = AgentPhase.pick(["observe", "reconcile", "select"]);
-export type HookPhase = typeof HookPhase.Type;
-
-export class PlotAgentError extends Schema.TaggedErrorClass<PlotAgentError>()(
-	"PlotAgentError",
-	{
-		phase: AgentPhase,
-		message: Schema.String,
-		source_id: Schema.optionalKey(SourceId),
-	},
-) {}
-
-export const Observation = Schema.Struct({
-	type: Schema.String,
-	subject: Schema.optionalKey(SubjectKey),
-	data: Schema.optionalKey(Schema.Unknown),
-});
-export type Observation = typeof Observation.Type;
-
-export const SetFactProposal = Schema.Struct({
-	type: Schema.Literal("set_fact"),
-	key: Schema.String,
-	value: Schema.Unknown,
-});
-export type SetFactProposal = typeof SetFactProposal.Type;
+export interface Observation {
+	readonly type: string;
+	readonly subject?: SubjectKey;
+	readonly data?: unknown;
+}
+export interface SetFactProposal {
+	readonly type: "set_fact";
+	readonly key: string;
+	readonly value: unknown;
+}
 export const setFact = (key: string, value: unknown): SetFactProposal => ({
 	type: "set_fact",
 	key,
 	value,
 });
-
-export const RemoveFactProposal = Schema.Struct({
-	type: Schema.Literal("remove_fact"),
-	key: Schema.String,
-});
-export type RemoveFactProposal = typeof RemoveFactProposal.Type;
+export interface RemoveFactProposal {
+	readonly type: "remove_fact";
+	readonly key: string;
+}
 export const removeFact = (key: string): RemoveFactProposal => ({
 	type: "remove_fact",
 	key,
 });
-
-export const InterruptWorkProposal = Schema.Struct({
-	type: Schema.Literal("interrupt_work"),
-	workKey: WorkKey,
-	reason: Schema.optionalKey(Schema.String),
-});
-export type InterruptWorkProposal = typeof InterruptWorkProposal.Type;
+export interface InterruptWorkProposal {
+	readonly type: "interrupt_work";
+	readonly workKey: WorkKey;
+	readonly reason?: string;
+}
 export const interruptWork = (
 	key: WorkKey,
 	reason?: string,
@@ -107,13 +100,11 @@ export const interruptWork = (
 	workKey: key,
 	...(reason === undefined ? {} : { reason }),
 });
-
-export const ScheduleWakeProposal = Schema.Struct({
-	type: Schema.Literal("schedule_wake"),
-	delayMs: PositiveInt,
-	reason: Schema.optionalKey(Schema.String),
-});
-export type ScheduleWakeProposal = typeof ScheduleWakeProposal.Type;
+export interface ScheduleWakeProposal {
+	readonly type: "schedule_wake";
+	readonly delayMs: PositiveInt;
+	readonly reason?: string;
+}
 export const scheduleWake = (
 	delayMs: number,
 	reason?: string,
@@ -122,121 +113,77 @@ export const scheduleWake = (
 	delayMs: positiveInt(delayMs),
 	...(reason === undefined ? {} : { reason }),
 });
+export type ReconcileProposal =
+	| SetFactProposal
+	| RemoveFactProposal
+	| InterruptWorkProposal
+	| ScheduleWakeProposal;
 
-export const ReconcileProposal = Schema.Union([
-	SetFactProposal,
-	RemoveFactProposal,
-	InterruptWorkProposal,
-	ScheduleWakeProposal,
-]);
-export type ReconcileProposal = typeof ReconcileProposal.Type;
-
-export const WorkItem = Schema.Struct({
-	workKey: WorkKey,
-	subject: Schema.optionalKey(SubjectKey),
-	templateContext: Schema.optionalKey(Schema.Unknown),
-});
-export type WorkItem = typeof WorkItem.Type;
-
-export const WorkRun = Schema.Struct({
-	runId: RunId,
-	sourceId: SourceId,
-	workKey: WorkKey,
-	subject: Schema.optionalKey(SubjectKey),
-});
-export type WorkRun = typeof WorkRun.Type;
-
-export const WorkResult = Schema.Struct({
-	output: Schema.optionalKey(Schema.Unknown),
-});
-export type WorkResult = typeof WorkResult.Type;
-
-export const CompletionStatus = Schema.Literals([
-	"succeeded",
-	"failed",
-	"interrupted",
-	"timed_out",
-]);
-export type CompletionStatus = typeof CompletionStatus.Type;
-
-export const Completion = Schema.Struct({
-	runId: RunId,
-	sourceId: SourceId,
-	workKey: WorkKey,
-	status: CompletionStatus,
-	subject: Schema.optionalKey(SubjectKey),
-	output: Schema.optionalKey(Schema.Unknown),
-	error: Schema.optionalKey(Schema.String),
-});
-export type Completion = typeof Completion.Type;
-
-export const Diagnostic = Schema.Struct({
-	level: Schema.Literals(["info", "warning", "error"]),
-	phase: Schema.Union([HookPhase, Schema.Literals(["act", "policy"])]),
-	message: Schema.String,
-	sourceId: Schema.optionalKey(SourceId),
-	runId: Schema.optionalKey(RunId),
-	workKey: Schema.optionalKey(WorkKey),
-});
-export type Diagnostic = typeof Diagnostic.Type;
-
-export const RuntimeSnapshot = Schema.Struct({
-	tickId: TickId,
-	facts: Schema.ReadonlyMap(Schema.String, Schema.Unknown),
-	observations: Schema.Array(Observation),
-	completions: Schema.Array(Completion),
-	diagnostics: Schema.Array(Diagnostic),
-	running: Schema.ReadonlyMap(WorkKey, WorkRun),
-});
-export type RuntimeSnapshot = typeof RuntimeSnapshot.Type;
-
-export const TickResult = Schema.Struct({
-	tickId: TickId,
-	observations: Schema.Array(Observation),
-	proposals: Schema.Array(ReconcileProposal),
-	selected: Schema.Array(WorkItem),
-	started: Schema.Array(WorkRun),
-	completions: Schema.Array(Completion),
-	diagnostics: Schema.Array(Diagnostic),
-	snapshot: RuntimeSnapshot,
-});
-export type TickResult = typeof TickResult.Type;
-
-export const PlotAgentEvent = Schema.Union([
-	Schema.Struct({
-		type: Schema.Literal("tick_started"),
-		tickId: TickId,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("tick_completed"),
-		result: TickResult,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("wake_scheduled"),
-		delayMs: PositiveInt,
-		reason: Schema.optionalKey(Schema.String),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("work_started"),
-		run: WorkRun,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("work_completed"),
-		completion: Completion,
-	}),
-]);
-export type PlotAgentEvent = typeof PlotAgentEvent.Type;
-
-export const PlotAgentMessage = Schema.Union([
-	Schema.Struct({
-		type: Schema.Literal("tick"),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("observation"),
-		observation: Observation,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("shutdown"),
-	}),
-]);
-export type PlotAgentMessage = typeof PlotAgentMessage.Type;
+export interface WorkItem {
+	readonly workKey: WorkKey;
+	readonly subject?: SubjectKey;
+	readonly templateContext?: unknown;
+}
+export interface WorkRun {
+	readonly runId: RunId;
+	readonly sourceId: SourceId;
+	readonly workKey: WorkKey;
+	readonly subject?: SubjectKey;
+}
+export interface WorkResult {
+	readonly output?: unknown;
+}
+export type CompletionStatus =
+	| "succeeded"
+	| "failed"
+	| "interrupted"
+	| "timed_out";
+export interface Completion {
+	readonly runId: RunId;
+	readonly sourceId: SourceId;
+	readonly workKey: WorkKey;
+	readonly status: CompletionStatus;
+	readonly subject?: SubjectKey;
+	readonly output?: unknown;
+	readonly error?: string;
+}
+export interface Diagnostic {
+	readonly level: "info" | "warning" | "error";
+	readonly phase: HookPhase | "act" | "policy";
+	readonly message: string;
+	readonly sourceId?: SourceId;
+	readonly runId?: RunId;
+	readonly workKey?: WorkKey;
+}
+export interface RuntimeSnapshot {
+	readonly tickId: TickId;
+	readonly facts: ReadonlyMap<string, unknown>;
+	readonly observations: readonly Observation[];
+	readonly completions: readonly Completion[];
+	readonly diagnostics: readonly Diagnostic[];
+	readonly running: ReadonlyMap<WorkKey, WorkRun>;
+}
+export interface TickResult {
+	readonly tickId: TickId;
+	readonly observations: readonly Observation[];
+	readonly proposals: readonly ReconcileProposal[];
+	readonly selected: readonly WorkItem[];
+	readonly started: readonly WorkRun[];
+	readonly completions: readonly Completion[];
+	readonly diagnostics: readonly Diagnostic[];
+	readonly snapshot: RuntimeSnapshot;
+}
+export type PlotAgentEvent =
+	| { readonly type: "tick_started"; readonly tickId: TickId }
+	| { readonly type: "tick_completed"; readonly result: TickResult }
+	| {
+			readonly type: "wake_scheduled";
+			readonly delayMs: PositiveInt;
+			readonly reason?: string;
+	  }
+	| { readonly type: "work_started"; readonly run: WorkRun }
+	| { readonly type: "work_completed"; readonly completion: Completion };
+export type PlotAgentMessage =
+	| { readonly type: "tick" }
+	| { readonly type: "observation"; readonly observation: Observation }
+	| { readonly type: "shutdown" };

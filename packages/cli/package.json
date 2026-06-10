@@ -12,15 +12,13 @@
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
-		"lint:effect": "effect-language-service diagnostics --project tsconfig.json --strict --format pretty",
+		"lint:effect": "echo effect-free",
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@effect/platform-bun": "4.0.0-beta.78",
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
-		"@plot/session": "workspace:*",
-		"effect": "4.0.0-beta.78"
+		"@plot/session": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

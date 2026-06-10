@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Cause, Effect, Exit, Stream } from "effect";
 import type {
 	AgentSession,
 	AgentSessionEvent,
@@ -7,13 +6,18 @@ import type {
 	CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
 import {
-	AgentSessionClient,
 	AgentSessionClientError,
 	makeAgentSessionClientLayer,
 } from "../src/agent-session-client.js";
 
 const fakeResult = (session: AgentSession) =>
 	({ session, extensionsResult: {} }) as unknown as CreateAgentSessionResult;
+
+const collect = async <A>(iterable: AsyncIterable<A>): Promise<A[]> => {
+	const items: A[] = [];
+	for await (const item of iterable) items.push(item);
+	return items;
+};
 
 function makeFakeSession(options?: {
 	readonly promptError?: Error;
@@ -52,16 +56,11 @@ function makeFakeSession(options?: {
 describe("agent session client", () => {
 	test("streams raw AgentSessionEvent values without translating their taxonomy", async () => {
 		const fake = makeFakeSession();
-		const layer = makeAgentSessionClientLayer({
+		const client = makeAgentSessionClientLayer({
 			createAgentSession: async () => fakeResult(fake.session),
 		});
 
-		const program = Effect.gen(function* () {
-			const client = yield* AgentSessionClient;
-			return yield* client.prompt({ prompt: "hello" }).pipe(Stream.runCollect);
-		}).pipe(Effect.provide(layer));
-
-		const events = await Effect.runPromise(program);
+		const events = await collect(client.prompt({ prompt: "hello" }));
 		expect(events.map((event) => event.type)).toEqual([
 			"agent_start",
 			"agent_end",
@@ -71,40 +70,29 @@ describe("agent session client", () => {
 
 	test("ends the stream when prompting resolves without an agent_end event", async () => {
 		const fake = makeFakeSession({ events: [{ type: "agent_start" }] });
-		const layer = makeAgentSessionClientLayer({
+		const client = makeAgentSessionClientLayer({
 			createAgentSession: async () => fakeResult(fake.session),
 		});
 
-		const program = Effect.gen(function* () {
-			const client = yield* AgentSessionClient;
-			return yield* client.prompt({ prompt: "hello" }).pipe(Stream.runCollect);
-		}).pipe(Effect.provide(layer));
-
-		const events = await Effect.runPromise(program);
+		const events = await collect(client.prompt({ prompt: "hello" }));
 		expect(events.map((event) => event.type)).toEqual(["agent_start"]);
 		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
 	});
 
 	test("fails the stream with a typed adapter error when prompting fails", async () => {
 		const fake = makeFakeSession({ promptError: new Error("no model") });
-		const layer = makeAgentSessionClientLayer({
+		const client = makeAgentSessionClientLayer({
 			createAgentSession: async () => fakeResult(fake.session),
 		});
 
-		const program = Effect.gen(function* () {
-			const client = yield* AgentSessionClient;
-			return yield* client
-				.prompt({ prompt: "hello" })
-				.pipe(Stream.runCollect, Effect.exit);
-		}).pipe(Effect.provide(layer));
-
-		const exit = await Effect.runPromise(program);
-		expect(Exit.isFailure(exit)).toBe(true);
-		if (Exit.isFailure(exit)) {
-			const error = Cause.squash(exit.cause);
-			expect(error).toBeInstanceOf(AgentSessionClientError);
-			expect((error as AgentSessionClientError).phase).toBe("prompt");
+		let error: unknown;
+		try {
+			await collect(client.prompt({ prompt: "hello" }));
+		} catch (caught) {
+			error = caught;
 		}
+		expect(error).toBeInstanceOf(AgentSessionClientError);
+		expect((error as AgentSessionClientError).phase).toBe("prompt");
 		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
 	});
 });

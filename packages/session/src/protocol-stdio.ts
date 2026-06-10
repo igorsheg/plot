@@ -1,6 +1,5 @@
-import { Effect, Stream } from "effect";
 import { logWideEvent } from "@plot/common/observability";
-import { PlotProtocol } from "./protocol-handler.js";
+import type { PlotProtocolShape } from "./protocol-handler.js";
 import {
 	PlotProtocolFailure,
 	defaultPlotProtocolLimits,
@@ -16,27 +15,16 @@ import {
 	splitJsonlChunk,
 	type JsonlDecoderState,
 } from "./protocol-jsonl.js";
-
 export type StdioChunk = string | Uint8Array;
-
 export interface PlotProtocolStdioOptions {
 	readonly stdin: AsyncIterable<StdioChunk>;
-	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
+	readonly writeStdout: (line: string) => Promise<void> | void;
 	readonly limits?: PlotProtocolLimits;
 	readonly emitHello?: boolean;
+	readonly protocol: PlotProtocolShape;
 }
-
-const errorMessage = (error: unknown): string => {
-	if (error instanceof Error) return error.message;
-	return String(error);
-};
-
-const inputFailure = (error: unknown) =>
-	new PlotProtocolFailure({
-		code: "internal_error",
-		message: errorMessage(error),
-	});
-
+const errorMessage = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
 const chunkDecoder = () => {
 	const decoder = new TextDecoder();
 	return {
@@ -47,96 +35,105 @@ const chunkDecoder = () => {
 		flush: () => decoder.decode(),
 	};
 };
-
 const protocolFailureRecord = (error: PlotProtocolFailure) =>
 	makePlotErrorResponse({
 		code: error.code,
 		message: error.message,
 		...(error.details === undefined ? {} : { details: error.details }),
 	});
-
-export const runPlotProtocolStdio = (
+export const runPlotProtocolStdio = async (
 	options: PlotProtocolStdioOptions,
-): Effect.Effect<void, never, PlotProtocol> =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const protocol = yield* PlotProtocol;
-			const limits = options.limits ?? defaultPlotProtocolLimits;
-			const decoder = chunkDecoder();
-			let state: JsonlDecoderState = initialJsonlDecoderState;
-
-			const writeRecord = (record: PlotServerRecord) =>
-				serializePlotServerJsonLine(record, limits).pipe(
-					Effect.catch((error) =>
-						serializePlotServerJsonLine(protocolFailureRecord(error), limits),
-					),
-					Effect.flatMap(options.writeStdout),
-					Effect.catch((error) =>
-						logWideEvent(
-							{
-								operation: "plot_protocol.stdio.write_stdout",
-								outcome: "error",
-								error: errorMessage(error),
-							},
-							"error",
+): Promise<void> => {
+	const protocol = options.protocol;
+	const limits = options.limits ?? defaultPlotProtocolLimits;
+	const decoder = chunkDecoder();
+	let state: JsonlDecoderState = initialJsonlDecoderState;
+	const writeRecord = async (record: PlotServerRecord) => {
+		try {
+			await options.writeStdout(
+				await serializePlotServerJsonLine(record, limits),
+			);
+		} catch (error) {
+			try {
+				await options.writeStdout(
+					await serializePlotServerJsonLine(
+						protocolFailureRecord(
+							error instanceof PlotProtocolFailure
+								? error
+								: new PlotProtocolFailure({
+										code: "internal_error",
+										message: errorMessage(error),
+									}),
 						),
+						limits,
 					),
 				);
-
-			const writeFailure = (error: PlotProtocolFailure) =>
-				writeRecord(protocolFailureRecord(error));
-
-			const handleLine = (line: string) =>
-				parsePlotClientJsonLine(line).pipe(
-					Effect.flatMap(protocol.submit),
-					Effect.catch(writeFailure),
-					Effect.asVoid,
+			} catch (writeError) {
+				await logWideEvent(
+					{
+						operation: "plot_protocol.stdio.write_stdout",
+						outcome: "error",
+						error: errorMessage(writeError),
+					},
+					"error",
 				);
-
-			const processText = (text: string) =>
-				splitJsonlChunk(state, text, limits).pipe(
-					Effect.flatMap((result) =>
-						Effect.gen(function* () {
-							state = result.state;
-							for (const line of result.lines) {
-								yield* handleLine(line);
-							}
-						}),
-					),
-					Effect.catch((error) =>
-						Effect.gen(function* () {
-							state = initialJsonlDecoderState;
-							yield* writeFailure(error);
-						}),
-					),
-				);
-
-			yield* protocol
-				.output()
-				.pipe(Stream.runForEach(writeRecord), Effect.forkScoped, Effect.asVoid);
-
-			if (options.emitHello !== false) {
-				yield* protocol.hello().pipe(Effect.flatMap(writeRecord));
 			}
-
-			yield* Stream.fromAsyncIterable(options.stdin, inputFailure).pipe(
-				Stream.runForEach((chunk) => processText(decoder.decode(chunk))),
-				Effect.catch(writeFailure),
+		}
+	};
+	const writeFailure = (error: PlotProtocolFailure) =>
+		writeRecord(protocolFailureRecord(error));
+	const handleLine = async (line: string) => {
+		try {
+			await protocol.submit(await parsePlotClientJsonLine(line));
+		} catch (error) {
+			await writeFailure(
+				error instanceof PlotProtocolFailure
+					? error
+					: new PlotProtocolFailure({
+							code: "internal_error",
+							message: errorMessage(error),
+						}),
 			);
-
-			const remainingText = decoder.flush();
-			if (remainingText !== "") yield* processText(remainingText);
-			const lines = yield* flushJsonlDecoder(state, limits).pipe(
-				Effect.catch((error) =>
-					writeFailure(error).pipe(Effect.as([] as readonly string[])),
-				),
+		}
+	};
+	const processText = async (text: string) => {
+		try {
+			const result = await splitJsonlChunk(state, text, limits);
+			state = result.state;
+			for (const line of result.lines) await handleLine(line);
+		} catch (error) {
+			state = initialJsonlDecoderState;
+			await writeFailure(
+				error instanceof PlotProtocolFailure
+					? error
+					: new PlotProtocolFailure({
+							code: "internal_error",
+							message: errorMessage(error),
+						}),
 			);
-			for (const line of lines) {
-				yield* handleLine(line);
-			}
-
-			// Give the output subscriber a deterministic chance to drain records
-			// published by the last accepted request before this scoped transport exits.
-			yield* Effect.yieldNow;
-		}),
-	);
+		}
+	};
+	void (async () => {
+		for await (const record of protocol.output()) await writeRecord(record);
+	})();
+	if (options.emitHello !== false) await writeRecord(await protocol.hello());
+	for await (const chunk of options.stdin)
+		await processText(decoder.decode(chunk));
+	const remainingText = decoder.flush();
+	if (remainingText !== "") await processText(remainingText);
+	let lines: readonly string[] = [];
+	try {
+		lines = await flushJsonlDecoder(state, limits);
+	} catch (error) {
+		await writeFailure(
+			error instanceof PlotProtocolFailure
+				? error
+				: new PlotProtocolFailure({
+						code: "internal_error",
+						message: errorMessage(error),
+					}),
+		);
+	}
+	for (const line of lines) await handleLine(line);
+	await Promise.resolve();
+};

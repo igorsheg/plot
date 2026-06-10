@@ -3,16 +3,15 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./async-queue": "./src/async-queue.ts",
+		"./event-stream": "./src/event-stream.ts",
 		"./observability": "./src/observability.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
-		"lint:effect": "effect-language-service diagnostics --project tsconfig.json --strict --format pretty",
+		"lint:effect": "echo effect-free",
 		"test": "bun test test"
-	},
-	"dependencies": {
-		"effect": "4.0.0-beta.78"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

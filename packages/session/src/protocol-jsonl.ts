@@ -1,107 +1,86 @@
-import { Effect, Schema } from "effect";
+import { Result } from "better-result";
 import {
 	PlotProtocolFailure,
-	PlotServerRecord,
 	defaultPlotProtocolLimits,
-	decodePlotClientRecord,
+	decodePlotClientRecordResult,
 	type PlotClientRecord,
 	type PlotProtocolLimits,
-	type PlotServerRecord as PlotServerRecordType,
+	type PlotServerRecord,
 } from "./protocol.js";
 
 export interface JsonlDecoderState {
 	readonly pending: string;
 }
-
 export interface JsonlChunkResult {
 	readonly lines: readonly string[];
 	readonly state: JsonlDecoderState;
 }
-
 export const initialJsonlDecoderState: JsonlDecoderState = { pending: "" };
-
 const stripTrailingCarriageReturn = (line: string) =>
 	line.endsWith("\r") ? line.slice(0, -1) : line;
-
 const byteLength = (value: string) => new TextEncoder().encode(value).length;
-
 const checkInputLineLimit = (line: string, limit: number) => {
-	if (byteLength(line) <= limit) return Effect.void;
-	return new PlotProtocolFailure({
-		code: "payload_too_large",
-		message: "JSONL record exceeds maxInputLineBytes",
-		details: { maxInputLineBytes: limit },
-	});
+	if (byteLength(line) > limit)
+		throw new PlotProtocolFailure({
+			code: "payload_too_large",
+			message: "JSONL record exceeds maxInputLineBytes",
+			details: { maxInputLineBytes: limit },
+		});
 };
-
 const checkOutputRecordLimit = (line: string, limit: number) => {
-	if (byteLength(line) <= limit) return Effect.void;
-	return new PlotProtocolFailure({
-		code: "payload_too_large",
-		message: "JSONL record exceeds maxOutputRecordBytes",
-		details: { maxOutputRecordBytes: limit },
-	});
+	if (byteLength(line) > limit)
+		throw new PlotProtocolFailure({
+			code: "payload_too_large",
+			message: "JSONL record exceeds maxOutputRecordBytes",
+			details: { maxOutputRecordBytes: limit },
+		});
 };
-
 const jsonProtocolReplacer = (_key: string, value: unknown) =>
 	value instanceof Map ? [...value] : value;
-
-export const serializeJsonLine = (value: PlotServerRecordType): string =>
-	`${JSON.stringify(
-		Schema.encodeSync(PlotServerRecord)(value),
-		jsonProtocolReplacer,
-	)}\n`;
-
-export const serializePlotServerJsonLine = (
-	value: PlotServerRecordType,
+export const serializeJsonLine = (value: PlotServerRecord): string =>
+	`${JSON.stringify(value, jsonProtocolReplacer)}\n`;
+export const serializePlotServerJsonLine = async (
+	value: PlotServerRecord,
 	limits: PlotProtocolLimits = defaultPlotProtocolLimits,
-): Effect.Effect<string, PlotProtocolFailure> =>
-	Effect.try({
-		try: () => serializeJsonLine(value),
-		catch: (error) =>
-			new PlotProtocolFailure({
-				code: "internal_error",
-				message: error instanceof Error ? error.message : String(error),
-			}),
-	}).pipe(
-		Effect.tap((line) =>
-			checkOutputRecordLimit(line, limits.maxOutputRecordBytes),
-		),
-	);
-
-export const splitJsonlChunk = (
+): Promise<string> => {
+	try {
+		const line = serializeJsonLine(value);
+		checkOutputRecordLimit(line, limits.maxOutputRecordBytes);
+		return line;
+	} catch (error) {
+		if (error instanceof PlotProtocolFailure) throw error;
+		throw new PlotProtocolFailure({
+			code: "internal_error",
+			message: error instanceof Error ? error.message : String(error),
+		});
+	}
+};
+export const splitJsonlChunk = async (
 	state: JsonlDecoderState,
 	chunk: string,
 	limits: PlotProtocolLimits = defaultPlotProtocolLimits,
-): Effect.Effect<JsonlChunkResult, PlotProtocolFailure> =>
-	Effect.gen(function* () {
-		const combined = `${state.pending}${chunk}`;
-		const parts = combined.split("\n");
-		const pending = parts.pop() ?? "";
-		const lines = parts.map(stripTrailingCarriageReturn);
-		for (const line of lines) {
-			yield* checkInputLineLimit(line, limits.maxInputLineBytes);
-		}
-		yield* checkInputLineLimit(pending, limits.maxInputLineBytes);
-		return {
-			lines,
-			state: { pending },
-		};
-	});
-
-export const flushJsonlDecoder = (
+): Promise<JsonlChunkResult> => {
+	const combined = `${state.pending}${chunk}`;
+	const parts = combined.split("\n");
+	const pending = parts.pop() ?? "";
+	const lines = parts.map(stripTrailingCarriageReturn);
+	for (const line of lines) checkInputLineLimit(line, limits.maxInputLineBytes);
+	checkInputLineLimit(pending, limits.maxInputLineBytes);
+	return { lines, state: { pending } };
+};
+export const flushJsonlDecoder = async (
 	state: JsonlDecoderState,
 	limits: PlotProtocolLimits = defaultPlotProtocolLimits,
-): Effect.Effect<readonly string[], PlotProtocolFailure> =>
-	Effect.gen(function* () {
-		if (state.pending === "") return [];
-		const line = stripTrailingCarriageReturn(state.pending);
-		yield* checkInputLineLimit(line, limits.maxInputLineBytes);
-		return [line];
-	});
-
-const parseUnknownJson = (line: string) =>
-	Effect.try({
+): Promise<readonly string[]> => {
+	if (state.pending === "") return [];
+	const line = stripTrailingCarriageReturn(state.pending);
+	checkInputLineLimit(line, limits.maxInputLineBytes);
+	return [line];
+};
+const parseUnknownJsonResult = (
+	line: string,
+): Result<unknown, PlotProtocolFailure> =>
+	Result.try({
 		try: () => JSON.parse(line) as unknown,
 		catch: (error) =>
 			new PlotProtocolFailure({
@@ -109,8 +88,14 @@ const parseUnknownJson = (line: string) =>
 				message: error instanceof Error ? error.message : String(error),
 			}),
 	});
-
-export const parsePlotClientJsonLine = (
+export const parsePlotClientJsonLineResult = (
 	line: string,
-): Effect.Effect<PlotClientRecord, PlotProtocolFailure> =>
-	parseUnknownJson(line).pipe(Effect.flatMap(decodePlotClientRecord));
+): Result<PlotClientRecord, PlotProtocolFailure> =>
+	parseUnknownJsonResult(line).andThen(decodePlotClientRecordResult);
+export const parsePlotClientJsonLine = async (
+	line: string,
+): Promise<PlotClientRecord> => {
+	const result = parsePlotClientJsonLineResult(line);
+	if (Result.isError(result)) throw result.error;
+	return result.value;
+};

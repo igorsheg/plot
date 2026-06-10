@@ -1,20 +1,5 @@
-import {
-	Cause,
-	Clock,
-	Context,
-	Effect,
-	Exit,
-	Fiber,
-	Layer,
-	Option,
-	PubSub,
-	Queue,
-	Ref,
-	Schema,
-	Scope,
-	Semaphore,
-	Stream,
-} from "effect";
+import { AsyncQueue } from "@plot/common/async-queue";
+import { EventHub } from "@plot/common/event-stream";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import * as Domain from "./model.js";
 import type {
@@ -25,16 +10,16 @@ import type {
 	Observation,
 	PlotAgentEvent,
 	PlotAgentMessage,
-	SourceId,
 	ReconcileProposal,
 	RuntimeSnapshot,
+	ScheduleWakeProposal,
+	SourceId,
 	SubjectKey,
 	TickResult,
 	WorkItem,
 	WorkKey,
 	WorkResult,
 	WorkRun,
-	ScheduleWakeProposal,
 } from "./model.js";
 import type { WorkRunner } from "./work-runner.js";
 import type { AgentPolicy, WorkSource } from "./work-source.js";
@@ -48,7 +33,6 @@ interface RuntimeState {
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
 	readonly nextRunIndex: number;
 }
-
 type InternalMessage =
 	| PlotAgentMessage
 	| {
@@ -56,18 +40,9 @@ type InternalMessage =
 			readonly run: WorkRun;
 			readonly completion: Completion;
 	  }
-	| {
-			readonly type: "scheduled_tick";
-			readonly token: number;
-	  }
-	| {
-			readonly type: "wake";
-	  }
-	| {
-			readonly type: "run_timeout";
-			readonly run: WorkRun;
-	  };
-
+	| { readonly type: "scheduled_tick"; readonly token: number }
+	| { readonly type: "wake" }
+	| { readonly type: "run_timeout"; readonly run: WorkRun };
 interface DrainedMessages {
 	readonly observations: readonly Observation[];
 	readonly completions: readonly {
@@ -77,35 +52,27 @@ interface DrainedMessages {
 	readonly timedOutRuns: readonly WorkRun[];
 	readonly shutdownRequested: boolean;
 }
-
 interface WorkSelection {
 	readonly source: WorkSource;
 	readonly work: WorkItem;
 }
-
 interface RunHandle {
 	readonly run: WorkRun;
-	readonly fiber: Fiber.Fiber<void>;
+	readonly controller: AbortController;
 }
 
 export interface PlotAgentShape {
-	readonly start: () => Effect.Effect<void>;
-	readonly run: () => Effect.Effect<void>;
-	readonly tickOnce: () => Effect.Effect<TickResult>;
-	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
-	readonly events: () => Stream.Stream<PlotAgentEvent>;
-	readonly offer: (message: PlotAgentMessage) => Effect.Effect<boolean>;
-	readonly wakeAfter: (
-		delayMs: number,
-		reason?: string,
-	) => Effect.Effect<void, Domain.PlotAgentError>;
-	readonly shutdown: () => Effect.Effect<boolean>;
+	readonly start: () => Promise<void>;
+	readonly run: () => Promise<void>;
+	readonly tickOnce: () => Promise<TickResult>;
+	readonly snapshot: () => Promise<RuntimeSnapshot>;
+	readonly events: () => AsyncIterable<PlotAgentEvent>;
+	readonly offer: (message: PlotAgentMessage) => Promise<boolean>;
+	readonly wakeAfter: (delayMs: number, reason?: string) => Promise<void>;
+	readonly shutdown: () => Promise<boolean>;
 }
-
-export class PlotAgent extends Context.Service<PlotAgent, PlotAgentShape>()(
-	"@plot/agent/agent/PlotAgent",
-) {}
-
+export type PlotAgent = PlotAgentShape;
+export const PlotAgent = Symbol("PlotAgent");
 export interface PlotAgentLayerOptions {
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
@@ -118,7 +85,7 @@ export interface PlotAgentLayerOptions {
 }
 
 const initialState: RuntimeState = {
-	tickId: Domain.tickId(0),
+	tickId: 0,
 	facts: new Map(),
 	observations: [],
 	completions: [],
@@ -126,31 +93,23 @@ const initialState: RuntimeState = {
 	running: new Map(),
 	nextRunIndex: 0,
 };
-
-const errorMessage = (error: unknown): string => {
-	if (error instanceof Error) return error.message;
-	return String(error);
-};
-
+const errorMessage = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
 const optionalSubject = (subject: SubjectKey | undefined) =>
 	subject === undefined ? {} : { subject };
-
 const optionalOutput = (output: unknown) =>
 	output === undefined ? {} : { output };
-
-const takeRight = <A>(items: readonly A[], limit: Domain.PositiveInt) =>
+const takeRight = <A>(items: readonly A[], limit: number) =>
 	items.length <= limit ? [...items] : items.slice(items.length - limit);
-
 const boundStateHistory = (
 	state: RuntimeState,
-	limit: Domain.PositiveInt,
+	limit: number,
 ): RuntimeState => ({
 	...state,
 	observations: takeRight(state.observations, limit),
 	completions: takeRight(state.completions, limit),
 	diagnostics: takeRight(state.diagnostics, limit),
 });
-
 const hookDiagnostic = (
 	phase: HookPhase,
 	sourceId: SourceId,
@@ -161,21 +120,17 @@ const hookDiagnostic = (
 	sourceId,
 	message: errorMessage(error),
 });
-
-const completionDiagnostic = (
-	completion: Completion,
-): Diagnostic | undefined => {
-	if (completion.status === "succeeded") return undefined;
-	return {
-		level: completion.status === "failed" ? "error" : "warning",
-		phase: "act",
-		sourceId: completion.sourceId,
-		runId: completion.runId,
-		workKey: completion.workKey,
-		message: completion.error ?? `work run ${completion.status}`,
-	};
-};
-
+const completionDiagnostic = (completion: Completion): Diagnostic | undefined =>
+	completion.status === "succeeded"
+		? undefined
+		: {
+				level: completion.status === "failed" ? "error" : "warning",
+				phase: "act",
+				sourceId: completion.sourceId,
+				runId: completion.runId,
+				workKey: completion.workKey,
+				message: completion.error ?? `work run ${completion.status}`,
+			};
 const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	tickId: state.tickId,
 	facts: new Map(state.facts),
@@ -184,62 +139,84 @@ const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	diagnostics: [...state.diagnostics],
 	running: new Map(state.running),
 });
+const sleep = (ms: number, signal?: AbortSignal) =>
+	new Promise<void>((resolve) => {
+		if (signal?.aborted) {
+			resolve();
+			return;
+		}
+		let settled = false;
+		const finish = () => {
+			if (settled) return;
+			settled = true;
+			resolve();
+		};
+		const id = setTimeout(finish, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(id);
+				finish();
+			},
+			{ once: true },
+		);
+	});
+const positive = (
+	value: number | undefined,
+	fallback: number,
+	message: string,
+) => {
+	const actual = value ?? fallback;
+	if (!Number.isInteger(actual) || actual < 1)
+		throw new Domain.PlotAgentError({ phase: "setup", message });
+	return actual;
+};
 
 const drainMessages = (
 	messages: readonly InternalMessage[],
 ): DrainedMessages => {
-	const observations: Observation[] = [];
-	const completions: { run: WorkRun; completion: Completion }[] = [];
-	const timedOutRuns: WorkRun[] = [];
+	const observations: Observation[] = [],
+		completions: { run: WorkRun; completion: Completion }[] = [],
+		timedOutRuns: WorkRun[] = [];
 	let shutdownRequested = false;
 	for (const message of messages) {
-		if (message.type === "observation") {
-			observations.push(message.observation);
-		} else if (message.type === "run_completed") {
+		if (message.type === "observation") observations.push(message.observation);
+		else if (message.type === "run_completed")
 			completions.push({ run: message.run, completion: message.completion });
-		} else if (message.type === "run_timeout") {
-			timedOutRuns.push(message.run);
-		} else if (message.type === "shutdown") {
-			shutdownRequested = true;
-		}
+		else if (message.type === "run_timeout") timedOutRuns.push(message.run);
+		else if (message.type === "shutdown") shutdownRequested = true;
 	}
 	return { observations, completions, timedOutRuns, shutdownRequested };
 };
-
 const applyFactProposals = (
 	facts: ReadonlyMap<string, unknown>,
 	proposals: readonly ReconcileProposal[],
-): ReadonlyMap<string, unknown> => {
+) => {
 	const next = new Map(facts);
 	for (const proposal of proposals) {
-		if (proposal.type === "set_fact") {
-			next.set(proposal.key, proposal.value);
-		} else if (proposal.type === "remove_fact") {
-			next.delete(proposal.key);
-		}
+		if (proposal.type === "set_fact") next.set(proposal.key, proposal.value);
+		else if (proposal.type === "remove_fact") next.delete(proposal.key);
 	}
 	return next;
 };
-
 const beginTick = (
 	state: RuntimeState,
 	drained: DrainedMessages,
-	historyLimit: Domain.PositiveInt,
+	historyLimit: number,
 ) => {
-	const running = new Map(state.running);
-	const completions: Completion[] = [];
-	const diagnostics: Diagnostic[] = [];
-
+	const running = new Map(state.running),
+		completions: Completion[] = [],
+		diagnostics: Diagnostic[] = [],
+		completedRuns: WorkRun[] = [];
 	for (const item of drained.completions) {
 		const active = running.get(item.run.workKey);
 		if (!active || active.runId !== item.run.runId) continue;
 		running.delete(item.run.workKey);
 		completions.push(item.completion);
-		const diagnostic = completionDiagnostic(item.completion);
-		if (diagnostic) diagnostics.push(diagnostic);
+		completedRuns.push(item.run);
+		const d = completionDiagnostic(item.completion);
+		if (d) diagnostics.push(d);
 	}
-	const completedRuns = drained.completions.map((item) => item.run);
-
 	for (const timedOutRun of drained.timedOutRuns) {
 		const active = running.get(timedOutRun.workKey);
 		if (!active || active.runId !== timedOutRun.runId) continue;
@@ -254,12 +231,13 @@ const beginTick = (
 			error: "work run timed out",
 		};
 		completions.push(completion);
-		const diagnostic = completionDiagnostic(completion);
-		if (diagnostic) diagnostics.push(diagnostic);
+		const d = completionDiagnostic(completion);
+		if (d) diagnostics.push(d);
 	}
-
-	if (drained.shutdownRequested) {
+	if (drained.shutdownRequested)
 		for (const run of running.values()) {
+			running.delete(run.workKey);
+			completedRuns.push(run);
 			const completion: Completion = {
 				runId: run.runId,
 				sourceId: run.sourceId,
@@ -268,18 +246,14 @@ const beginTick = (
 				...optionalSubject(run.subject),
 				error: "work run interrupted by plot agent shutdown",
 			};
-			running.delete(run.workKey);
-			completedRuns.push(run);
 			completions.push(completion);
-			const diagnostic = completionDiagnostic(completion);
-			if (diagnostic) diagnostics.push(diagnostic);
+			const d = completionDiagnostic(completion);
+			if (d) diagnostics.push(d);
 		}
-	}
-
 	const next = boundStateHistory(
 		{
 			...state,
-			tickId: Domain.tickId(state.tickId + 1),
+			tickId: state.tickId + 1,
 			observations: [...state.observations, ...drained.observations],
 			completions: [...state.completions, ...completions],
 			diagnostics: [...state.diagnostics, ...diagnostics],
@@ -289,12 +263,11 @@ const beginTick = (
 	);
 	return { state: next, completions, diagnostics, completedRuns };
 };
-
 const applyObserved = (
 	state: RuntimeState,
 	observations: readonly Observation[],
 	diagnostics: readonly Diagnostic[],
-	historyLimit: Domain.PositiveInt,
+	historyLimit: number,
 ): RuntimeState =>
 	boundStateHistory(
 		{
@@ -304,12 +277,11 @@ const applyObserved = (
 		},
 		historyLimit,
 	);
-
 const applyReconciled = (
 	state: RuntimeState,
 	proposals: readonly ReconcileProposal[],
 	diagnostics: readonly Diagnostic[],
-	historyLimit: Domain.PositiveInt,
+	historyLimit: number,
 ): RuntimeState =>
 	boundStateHistory(
 		{
@@ -321,31 +293,25 @@ const applyReconciled = (
 		},
 		historyLimit,
 	);
-
 const applyDiagnostics = (
 	state: RuntimeState,
 	diagnostics: readonly Diagnostic[],
-	historyLimit: Domain.PositiveInt,
+	historyLimit: number,
 ): RuntimeState =>
 	boundStateHistory(
-		{
-			...state,
-			diagnostics: [...state.diagnostics, ...diagnostics],
-		},
+		{ ...state, diagnostics: [...state.diagnostics, ...diagnostics] },
 		historyLimit,
 	);
-
 const interruptRunningWork = (
 	state: RuntimeState,
 	proposals: readonly InterruptWorkProposal[],
-	historyLimit: Domain.PositiveInt,
+	historyLimit: number,
 ) => {
-	const running = new Map(state.running);
-	const completions: Completion[] = [];
-	const diagnostics: Diagnostic[] = [];
-	const interruptedRuns: WorkRun[] = [];
-	const interruptedKeys = new Set<WorkKey>();
-
+	const running = new Map(state.running),
+		completions: Completion[] = [],
+		diagnostics: Diagnostic[] = [],
+		interruptedRuns: WorkRun[] = [],
+		interruptedKeys = new Set<WorkKey>();
 	for (const proposal of proposals) {
 		const run = running.get(proposal.workKey);
 		if (!run) continue;
@@ -361,10 +327,9 @@ const interruptRunningWork = (
 			error: proposal.reason ?? "work run interrupted by source proposal",
 		};
 		completions.push(completion);
-		const diagnostic = completionDiagnostic(completion);
-		if (diagnostic) diagnostics.push(diagnostic);
+		const d = completionDiagnostic(completion);
+		if (d) diagnostics.push(d);
 	}
-
 	return {
 		state: boundStateHistory(
 			{
@@ -381,281 +346,49 @@ const interruptRunningWork = (
 		interruptedKeys,
 	};
 };
-
-const decodeObservations = (value: unknown) =>
-	Schema.decodeUnknownEffect(Schema.Array(Domain.Observation))(value);
-
-const decodeProposals = (value: unknown) =>
-	Schema.decodeUnknownEffect(Schema.Array(Domain.ReconcileProposal))(value);
-
-const decodeWorkItems = (value: unknown) =>
-	Schema.decodeUnknownEffect(Schema.Array(Domain.WorkItem))(value);
-
-const decodeWorkResult = (value: unknown) =>
-	Schema.decodeUnknownEffect(Domain.WorkResult)(value);
-
-const runSourceObserve = (source: WorkSource, snapshot: RuntimeSnapshot) => {
-	if (!source.observeTick) return Effect.succeed([] as readonly Observation[]);
-	return source
-		.observeTick({ sourceId: source.id, tickId: snapshot.tickId, snapshot })
-		.pipe(
-			Effect.flatMap(decodeObservations),
-			Effect.catch((error) =>
-				logWideEvent(
-					{
-						operation: "plot_agent.source.observe",
-						outcome: "error",
-						error: errorMessage(error),
-						source_id: source.id,
-						tick_id: snapshot.tickId,
-					},
-					"error",
-				).pipe(Effect.as([hookDiagnostic("observe", source.id, error)])),
-			),
-		);
-};
-
-const runSourceReconcile = (source: WorkSource, snapshot: RuntimeSnapshot) => {
-	if (!source.reconcile)
-		return Effect.succeed({
-			proposals: [] as readonly ReconcileProposal[],
-			diagnostics: [] as readonly Diagnostic[],
-		});
-	return source
-		.reconcile({ sourceId: source.id, tickId: snapshot.tickId, snapshot })
-		.pipe(
-			Effect.flatMap(decodeProposals),
-			Effect.map((proposals) => ({
-				proposals,
-				diagnostics: [] as readonly Diagnostic[],
-			})),
-			Effect.catch((error) =>
-				logWideEvent(
-					{
-						operation: "plot_agent.source.reconcile",
-						outcome: "error",
-						error: errorMessage(error),
-						source_id: source.id,
-						tick_id: snapshot.tickId,
-					},
-					"error",
-				).pipe(
-					Effect.as({
-						proposals: [] as readonly ReconcileProposal[],
-						diagnostics: [hookDiagnostic("reconcile", source.id, error)],
-					}),
-				),
-			),
-		);
-};
-
-const runSourceSelectWork = (source: WorkSource, snapshot: RuntimeSnapshot) => {
-	if (!source.selectWork)
-		return Effect.succeed({
-			selected: [] as readonly WorkSelection[],
-			diagnostics: [] as readonly Diagnostic[],
-		});
-	return source
-		.selectWork({ sourceId: source.id, tickId: snapshot.tickId, snapshot })
-		.pipe(
-			Effect.flatMap(decodeWorkItems),
-			Effect.map((items) => ({
-				selected: items.map((work) => ({ source, work })),
-				diagnostics: [] as readonly Diagnostic[],
-			})),
-			Effect.catch((error) =>
-				logWideEvent(
-					{
-						operation: "plot_agent.source.select_work",
-						outcome: "error",
-						error: errorMessage(error),
-						source_id: source.id,
-						tick_id: snapshot.tickId,
-					},
-					"error",
-				).pipe(
-					Effect.as({
-						selected: [] as readonly WorkSelection[],
-						diagnostics: [hookDiagnostic("select", source.id, error)],
-					}),
-				),
-			),
-		);
-};
-
-const completionFromWorkResult = (
-	run: WorkRun,
-	result: WorkResult,
-): Completion => ({
-	runId: run.runId,
-	sourceId: run.sourceId,
-	workKey: run.workKey,
-	status: "succeeded",
-	...optionalSubject(run.subject),
-	...optionalOutput(result.output),
-});
-
-const executeWorkRun = (
-	runner: WorkRunner,
-	snapshot: RuntimeSnapshot,
-	selection: WorkSelection,
-	run: WorkRun,
-	mailbox: Queue.Enqueue<InternalMessage>,
-) =>
-	Effect.gen(function* () {
-		const startedAt = yield* Clock.currentTimeMillis;
-		const fields = {
-			operation: "plot_agent.work.run",
-			source_id: selection.source.id,
-			run_id: run.runId,
-			work_key: run.workKey,
-			tick_id: snapshot.tickId,
-			...optionalSubject(run.subject),
-		};
-		const emitObservation = (observation: Observation) => {
-			const withSubject =
-				observation.subject === undefined && run.subject !== undefined
-					? { ...observation, subject: run.subject }
-					: observation;
-			return Schema.decodeUnknownEffect(Domain.Observation)(withSubject).pipe(
-				Effect.flatMap((decoded) =>
-					Queue.offer(mailbox, { type: "observation", observation: decoded }),
-				),
-				Effect.catch(() => Effect.succeed(false)),
-			);
-		};
-		const exit = yield* Effect.exit(
-			runner
-				.run({
-					sourceId: selection.source.id,
-					tickId: snapshot.tickId,
-					run,
-					work: selection.work,
-					snapshot,
-					emitObservation,
-				})
-				.pipe(Effect.flatMap(decodeWorkResult)),
-		);
-		const duration_ms = (yield* Clock.currentTimeMillis) - startedAt;
-		if (Exit.isSuccess(exit)) {
-			const completion = completionFromWorkResult(run, exit.value);
-			yield* logWideEvent({
-				...fields,
-				outcome: "success",
-				status: "succeeded",
-				duration_ms,
-			});
-			yield* Queue.offer(mailbox, {
-				type: "run_completed",
-				run,
-				completion,
-			});
-			return;
-		}
-		const cause = exit.cause;
-		const interrupted = Cause.hasInterrupts(cause);
-		const error = interrupted ? "work run interrupted" : Cause.pretty(cause);
-		const completion: Completion = {
-			runId: run.runId,
-			sourceId: run.sourceId,
-			workKey: run.workKey,
-			status: interrupted ? "interrupted" : "failed",
-			...optionalSubject(run.subject),
-			error,
-		};
-		yield* logWideEvent(
-			{
-				...fields,
-				outcome: "error",
-				status: completion.status,
-				error,
-				duration_ms,
-			},
-			"error",
-		);
-		yield* Queue.offer(mailbox, {
-			type: "run_completed",
-			run,
-			completion,
-		});
-	});
-
-const ensureUniqueSources = (sources: readonly WorkSource[]) =>
-	Effect.gen(function* () {
-		const seen = new Set<SourceId>();
-		for (const source of sources) {
-			if (seen.has(source.id)) {
-				return yield* new Domain.PlotAgentError({
-					phase: "setup",
-					source_id: source.id,
-					message: `duplicate source id: ${source.id}`,
-				});
-			}
-			seen.add(source.id);
-		}
-	});
-
-const decodePositiveInt = (value: number, message: string) =>
-	Schema.decodeUnknownEffect(Domain.PositiveInt)(value).pipe(
-		Effect.mapError(
-			() =>
-				new Domain.PlotAgentError({
-					phase: "setup",
-					message,
-				}),
-		),
-	);
-
-const sortSelectedWork = (selected: readonly WorkSelection[]) =>
-	selected.toSorted((left, right) =>
-		String(left.work.workKey).localeCompare(String(right.work.workKey)),
-	);
-
 const runningCountBySource = (running: ReadonlyMap<WorkKey, WorkRun>) => {
 	const counts = new Map<SourceId, number>();
-	for (const run of running.values()) {
+	for (const run of running.values())
 		counts.set(run.sourceId, (counts.get(run.sourceId) ?? 0) + 1);
-	}
 	return counts;
 };
-
-const sourceHasCapacity = (
-	selection: WorkSelection,
-	runningBySource: ReadonlyMap<SourceId, number>,
-) => {
-	const maxRuns = selection.source.policy?.maxConcurrentRuns;
-	if (maxRuns === undefined) return true;
-	return (runningBySource.get(selection.source.id) ?? 0) < maxRuns;
-};
-
 const startEligibleRuns = (
 	state: RuntimeState,
 	selected: readonly WorkSelection[],
 	maxConcurrentRuns: number,
 	blockedThisTick: ReadonlySet<WorkKey> = new Set(),
 ) => {
-	const running = new Map(state.running);
-	const runningBySource = runningCountBySource(running);
-	const started: { run: WorkRun; selection: WorkSelection }[] = [];
-	const seen = new Set<WorkKey>();
+	const running = new Map(state.running),
+		runningBySource = runningCountBySource(running),
+		started: { run: WorkRun; selection: WorkSelection }[] = [],
+		seen = new Set<WorkKey>();
 	let nextRunIndex = state.nextRunIndex;
 	const capacity = Math.max(0, maxConcurrentRuns - running.size);
-
-	for (const selection of sortSelectedWork(selected)) {
+	for (const selection of selected.toSorted((a, b) =>
+		String(a.work.workKey).localeCompare(String(b.work.workKey)),
+	)) {
 		if (started.length >= capacity) break;
 		const { work } = selection;
-		if (seen.has(work.workKey)) continue;
+		if (
+			seen.has(work.workKey) ||
+			blockedThisTick.has(work.workKey) ||
+			running.has(work.workKey)
+		)
+			continue;
 		seen.add(work.workKey);
-		if (blockedThisTick.has(work.workKey)) continue;
-		if (running.has(work.workKey)) continue;
-		if (!sourceHasCapacity(selection, runningBySource)) continue;
+		const maxRuns = selection.source.policy?.maxConcurrentRuns;
+		if (
+			maxRuns !== undefined &&
+			(runningBySource.get(selection.source.id) ?? 0) >= maxRuns
+		)
+			continue;
 		const run: WorkRun = {
-			runId: Domain.runId(`run-${nextRunIndex}`),
+			runId: `run-${nextRunIndex}`,
 			sourceId: selection.source.id,
 			workKey: work.workKey,
 			...optionalSubject(work.subject),
 		};
-		nextRunIndex += 1;
+		nextRunIndex++;
 		running.set(work.workKey, run);
 		runningBySource.set(
 			selection.source.id,
@@ -663,501 +396,437 @@ const startEligibleRuns = (
 		);
 		started.push({ run, selection });
 	}
-
-	return {
-		state: { ...state, running, nextRunIndex },
-		started,
-	};
+	return { state: { ...state, running, nextRunIndex }, started };
 };
 
-export const makePlotAgentLayer = (options: PlotAgentLayerOptions) => {
-	const sources = options.sources;
-	const runner = options.runner;
-	const policy = options.policy ?? {};
-
-	return Layer.effect(
-		PlotAgent,
-		Effect.gen(function* () {
-			yield* ensureUniqueSources(sources);
-			const queueCapacity = yield* decodePositiveInt(
-				options.queueCapacity ?? 64,
-				"queueCapacity must be a positive integer",
-			);
-			const eventCapacity = yield* decodePositiveInt(
-				options.eventCapacity ?? 256,
-				"eventCapacity must be a positive integer",
-			);
-			const historyLimit = yield* decodePositiveInt(
-				options.historyLimit ?? 256,
-				"historyLimit must be a positive integer",
-			);
-			const tickIntervalMs =
-				options.tickIntervalMs === undefined
-					? undefined
-					: yield* decodePositiveInt(
-							options.tickIntervalMs,
-							"tickIntervalMs must be a positive integer",
-						);
-			const maxRunDurationMs =
-				options.maxRunDurationMs === undefined
-					? undefined
-					: yield* decodePositiveInt(
-							options.maxRunDurationMs,
-							"maxRunDurationMs must be a positive integer",
-						);
-			if (policy.maxConcurrentRuns !== undefined) {
-				yield* decodePositiveInt(
-					policy.maxConcurrentRuns,
-					"maxConcurrentRuns must be a positive integer",
+export const makePlotAgentLayer = (
+	options: PlotAgentLayerOptions,
+): PlotAgentShape => {
+	const sources = options.sources,
+		runner = options.runner,
+		policy = options.policy ?? {};
+	const seen = new Set<SourceId>();
+	for (const source of sources) {
+		if (seen.has(source.id))
+			throw new Domain.PlotAgentError({
+				phase: "setup",
+				source_id: source.id,
+				message: `duplicate source id: ${source.id}`,
+			});
+		seen.add(source.id);
+	}
+	const queueCapacity = positive(
+			options.queueCapacity,
+			64,
+			"queueCapacity must be a positive integer",
+		),
+		eventCapacity = positive(
+			options.eventCapacity,
+			256,
+			"eventCapacity must be a positive integer",
+		),
+		historyLimit = positive(
+			options.historyLimit,
+			256,
+			"historyLimit must be a positive integer",
+		);
+	const tickIntervalMs =
+		options.tickIntervalMs === undefined
+			? undefined
+			: positive(
+					options.tickIntervalMs,
+					1,
+					"tickIntervalMs must be a positive integer",
 				);
-			}
-			for (const source of sources) {
-				if (source.policy?.maxConcurrentRuns === undefined) continue;
-				yield* decodePositiveInt(
-					source.policy.maxConcurrentRuns,
-					`source ${source.id} maxConcurrentRuns must be a positive integer`,
+	const maxRunDurationMs =
+		options.maxRunDurationMs === undefined
+			? undefined
+			: positive(
+					options.maxRunDurationMs,
+					1,
+					"maxRunDurationMs must be a positive integer",
 				);
-			}
-			const stateRef = yield* Ref.make(initialState);
-			const snapshotRef = yield* Ref.make(snapshotFrom(initialState));
-			const mailbox = yield* Queue.bounded<InternalMessage>(queueCapacity);
-			const events = yield* PubSub.sliding<PlotAgentEvent>(eventCapacity);
-			const tickLock = yield* Semaphore.make(1);
-			const actorScope = yield* Scope.make();
-			const actionScope = yield* Scope.make();
-			const runHandles = yield* Ref.make(new Map<WorkKey, RunHandle>());
-			const actorStarted = yield* Ref.make(false);
-			const nextTickToken = yield* Ref.make(0);
-			const activeTickToken = yield* Ref.make<number | undefined>(undefined);
-			yield* Effect.addFinalizer((exit) =>
-				Scope.close(actionScope, exit).pipe(
-					Effect.andThen(Scope.close(actorScope, exit)),
+	if (policy.maxConcurrentRuns !== undefined)
+		positive(
+			policy.maxConcurrentRuns,
+			1,
+			"maxConcurrentRuns must be a positive integer",
+		);
+	for (const source of sources)
+		if (source.policy?.maxConcurrentRuns !== undefined)
+			positive(
+				source.policy.maxConcurrentRuns,
+				1,
+				`source ${source.id} maxConcurrentRuns must be a positive integer`,
+			);
+	let state = initialState,
+		snapshotCache = snapshotFrom(initialState),
+		actorStarted = false,
+		activeTickToken: number | undefined,
+		nextTickToken = 0,
+		tickChain = Promise.resolve();
+	const mailbox = new AsyncQueue<InternalMessage>({ capacity: queueCapacity }),
+		events = new EventHub<PlotAgentEvent>(eventCapacity),
+		runHandles = new Map<WorkKey, RunHandle>(),
+		timers = new Set<AbortController>();
+	const publishSnapshot = (s: RuntimeState) => {
+		snapshotCache = snapshotFrom(s);
+	};
+	const publishEvent = (event: PlotAgentEvent) => events.publish(event);
+	const timer = (delayMs: number, message: InternalMessage) => {
+		const c = new AbortController();
+		timers.add(c);
+		void sleep(delayMs, c.signal).then(() => {
+			timers.delete(c);
+			if (!c.signal.aborted) return mailbox.offer(message);
+			return false;
+		});
+		return c;
+	};
+	const interruptRunHandles = (runs: readonly WorkRun[]) => {
+		for (const run of runs) {
+			const handle = runHandles.get(run.workKey);
+			if (!handle || handle.run.runId !== run.runId) continue;
+			runHandles.delete(run.workKey);
+			handle.controller.abort();
+		}
+	};
+	const runHook = async <A>(
+		phase: HookPhase,
+		source: WorkSource,
+		f: (() => Promise<readonly A[]> | readonly A[]) | undefined,
+		fallback: readonly A[],
+	) => {
+		if (!f) return { items: fallback, diagnostics: [] as Diagnostic[] };
+		try {
+			return { items: await f(), diagnostics: [] as Diagnostic[] };
+		} catch (error) {
+			await logWideEvent(
+				{
+					operation: `plot_agent.source.${phase}`,
+					outcome: "error",
+					error: errorMessage(error),
+					source_id: source.id,
+					tick_id: state.tickId,
+				},
+				"error",
+			);
+			return {
+				items: fallback,
+				diagnostics: [hookDiagnostic(phase, source.id, error)],
+			};
+		}
+	};
+	const executeWorkRun = async (
+		selection: WorkSelection,
+		run: WorkRun,
+		runSnapshot: RuntimeSnapshot,
+		signal: AbortSignal,
+	) => {
+		const startedAt = Date.now();
+		const emitObservation = async (observation: Observation) =>
+			mailbox.offer({
+				type: "observation",
+				observation:
+					observation.subject === undefined && run.subject !== undefined
+						? { ...observation, subject: run.subject }
+						: observation,
+			});
+		try {
+			const result = await runner.run({
+				sourceId: selection.source.id,
+				tickId: runSnapshot.tickId,
+				run,
+				work: selection.work,
+				snapshot: runSnapshot,
+				signal,
+				emitObservation,
+			});
+			if (signal.aborted) throw new Error("work run interrupted");
+			const completion: Completion = {
+				runId: run.runId,
+				sourceId: run.sourceId,
+				workKey: run.workKey,
+				status: "succeeded",
+				...optionalSubject(run.subject),
+				...optionalOutput((result as WorkResult).output),
+			};
+			await logWideEvent({
+				operation: "plot_agent.work.run",
+				outcome: "success",
+				status: "succeeded",
+				source_id: selection.source.id,
+				run_id: run.runId,
+				work_key: run.workKey,
+				tick_id: runSnapshot.tickId,
+				duration_ms: Date.now() - startedAt,
+			});
+			mailbox.offer({ type: "run_completed", run, completion });
+		} catch (error) {
+			const interrupted = signal.aborted;
+			const completion: Completion = {
+				runId: run.runId,
+				sourceId: run.sourceId,
+				workKey: run.workKey,
+				status: interrupted ? "interrupted" : "failed",
+				...optionalSubject(run.subject),
+				error: interrupted ? "work run interrupted" : errorMessage(error),
+			};
+			await logWideEvent(
+				{
+					operation: "plot_agent.work.run",
+					outcome: "error",
+					status: completion.status,
+					error: completion.error,
+					source_id: selection.source.id,
+					run_id: run.runId,
+					work_key: run.workKey,
+					tick_id: runSnapshot.tickId,
+					duration_ms: Date.now() - startedAt,
+				},
+				"error",
+			);
+			mailbox.offer({ type: "run_completed", run, completion });
+		}
+	};
+	const runTickUnsafe = async (
+		initialMessages: readonly InternalMessage[] = [],
+	) =>
+		withWideEvent("plot_agent.tick", {}, async () => {
+			const drained = drainMessages([...initialMessages, ...mailbox.drain()]);
+			const began = beginTick(state, drained, historyLimit);
+			state = began.state;
+			const tickId = state.tickId;
+			publishEvent({ type: "tick_started", tickId });
+			for (const completion of began.completions)
+				publishEvent({ type: "work_completed", completion });
+			interruptRunHandles(began.completedRuns);
+			const observeResults = await Promise.all(
+				sources.map((source) =>
+					runHook(
+						"observe",
+						source,
+						source.observeTick
+							? () =>
+									source.observeTick!({
+										sourceId: source.id,
+										tickId,
+										snapshot: snapshotFrom(state),
+									})
+							: undefined,
+						[] as Observation[],
+					),
 				),
 			);
-
-			const publishSnapshot = (state: RuntimeState) =>
-				Ref.set(snapshotRef, snapshotFrom(state));
-
-			const publishEvent = (event: PlotAgentEvent) =>
-				PubSub.publish(events, event).pipe(Effect.ignore);
-
-			const snapshot = Effect.fn("PlotAgent.snapshot")(function* () {
-				return yield* Ref.get(snapshotRef);
-			});
-
-			const eventStream = () => Stream.fromPubSub(events);
-
-			const scheduleWakeAfter = Effect.fn("PlotAgent.scheduleWakeAfter")(
-				function* (delayMs: Domain.PositiveInt, reason?: string) {
-					yield* publishEvent({
-						type: "wake_scheduled",
-						delayMs,
-						...(reason === undefined ? {} : { reason }),
-					});
-					yield* Effect.sleep(delayMs).pipe(
-						Effect.andThen(Queue.offer(mailbox, { type: "wake" as const })),
-						Effect.forkIn(actorScope, { startImmediately: true }),
-						Effect.asVoid,
-					);
-				},
+			const observations = observeResults.flatMap(
+					(r) => r.items as Observation[],
+				),
+				observeDiagnostics = observeResults.flatMap((r) => r.diagnostics);
+			state = applyObserved(
+				state,
+				observations,
+				observeDiagnostics,
+				historyLimit,
 			);
-
-			const scheduleCadenceTick = Effect.fn("PlotAgent.scheduleCadenceTick")(
-				function* (delayMs: Domain.PositiveInt) {
-					const token = yield* Ref.modify(nextTickToken, (current) => {
-						const next = current + 1;
-						return [next, next] as const;
-					});
-					yield* Ref.set(activeTickToken, token);
-					yield* Effect.sleep(delayMs).pipe(
-						Effect.andThen(
-							Queue.offer(mailbox, { type: "scheduled_tick" as const, token }),
-						),
-						Effect.forkIn(actorScope, { startImmediately: true }),
-						Effect.asVoid,
-					);
-				},
-			);
-
-			const scheduleRunTimeout = Effect.fn("PlotAgent.scheduleRunTimeout")(
-				function* (run: WorkRun) {
-					if (maxRunDurationMs === undefined) return;
-					yield* Effect.sleep(maxRunDurationMs).pipe(
-						Effect.andThen(
-							Queue.offer(mailbox, { type: "run_timeout" as const, run }),
-						),
-						Effect.forkIn(actionScope, { startImmediately: true }),
-						Effect.asVoid,
-					);
-				},
-			);
-
-			const interruptRunHandles = Effect.fn("PlotAgent.interruptRunHandles")(
-				function* (runs: readonly WorkRun[]) {
-					const handles = yield* Ref.modify(runHandles, (current) => {
-						const next = new Map(current);
-						const matched: RunHandle[] = [];
-						for (const run of runs) {
-							const handle = next.get(run.workKey);
-							if (!handle || handle.run.runId !== run.runId) continue;
-							next.delete(run.workKey);
-							matched.push(handle);
-						}
-						return [matched, next] as const;
-					});
-					yield* Effect.forEach(
-						handles,
-						(handle) => Fiber.interrupt(handle.fiber),
-						{ discard: true },
-					);
-				},
-			);
-
-			const messageStartsTick = Effect.fn("PlotAgent.messageStartsTick")(
-				function* (message: InternalMessage) {
-					if (message.type !== "scheduled_tick") return true;
-					const active = yield* Ref.get(activeTickToken);
-					if (active !== message.token) return false;
-					yield* Ref.set(activeTickToken, undefined);
-					return true;
-				},
-			);
-
-			const collectQueuedMessages = Effect.fn(
-				"PlotAgent.collectQueuedMessages",
-			)(function* (initialMessages: readonly InternalMessage[]) {
-				const messages = [...initialMessages];
-				let draining = true;
-				while (draining) {
-					const message = yield* Queue.poll(mailbox);
-					if (Option.isSome(message)) {
-						messages.push(message.value);
-					} else {
-						draining = false;
-					}
-				}
-				return messages;
-			});
-
-			const runTick = Effect.fn("PlotAgent.runTick")(function* (
-				initialMessages: readonly InternalMessage[] = [],
-			) {
-				return yield* tickLock.withPermits(1)(
-					withWideEvent(
-						"plot_agent.tick",
-						{},
-						Effect.gen(function* () {
-							const messages = yield* collectQueuedMessages(initialMessages);
-							const drained = drainMessages(messages);
-							const began = yield* Ref.modify(stateRef, (state) => {
-								const result = beginTick(state, drained, historyLimit);
-								return [result, result.state] as const;
-							});
-							const tickId = began.state.tickId;
-							yield* publishEvent({ type: "tick_started", tickId });
-							yield* Effect.forEach(
-								began.completions,
-								(completion) =>
-									publishEvent({ type: "work_completed", completion }),
-								{ discard: true },
-							);
-							yield* interruptRunHandles(began.completedRuns);
-
-							const observeResults = yield* Effect.forEach(sources, (source) =>
-								runSourceObserve(source, snapshotFrom(began.state)),
-							);
-							const observeDiagnostics = observeResults
-								.flat()
-								.filter((item): item is Diagnostic => "level" in item);
-							const observations = observeResults
-								.flat()
-								.filter((item): item is Observation => !("level" in item));
-
-							const afterObserve = yield* Ref.modify(stateRef, (state) => {
-								const next = applyObserved(
-									state,
-									observations,
-									observeDiagnostics,
-									historyLimit,
-								);
-								return [next, next] as const;
-							});
-
-							const reconcileResults = yield* Effect.forEach(
-								sources,
-								(source) =>
-									runSourceReconcile(source, snapshotFrom(afterObserve)),
-							);
-							const proposals = reconcileResults.flatMap(
-								(result) => result.proposals,
-							);
-							const reconcileDiagnostics = reconcileResults.flatMap(
-								(result) => result.diagnostics,
-							);
-							yield* Ref.modify(stateRef, (state) => {
-								const next = applyReconciled(
-									state,
-									proposals,
-									reconcileDiagnostics,
-									historyLimit,
-								);
-								return [next, next] as const;
-							});
-							const interruptProposals = proposals.filter(
-								(proposal): proposal is InterruptWorkProposal =>
-									proposal.type === "interrupt_work",
-							);
-							const wakeProposals = proposals.filter(
-								(proposal): proposal is ScheduleWakeProposal =>
-									proposal.type === "schedule_wake",
-							);
-							yield* Effect.forEach(
-								wakeProposals,
-								(proposal) =>
-									scheduleWakeAfter(proposal.delayMs, proposal.reason),
-								{ discard: true },
-							);
-							const interrupted = yield* Ref.modify(stateRef, (state) => {
-								const result = interruptRunningWork(
-									state,
-									interruptProposals,
-									historyLimit,
-								);
-								return [result, result.state] as const;
-							});
-							yield* Effect.forEach(
-								interrupted.completions,
-								(completion) =>
-									publishEvent({ type: "work_completed", completion }),
-								{ discard: true },
-							);
-							yield* interruptRunHandles(interrupted.interruptedRuns);
-
-							const policyDiagnostics = policy.validate
-								? yield* policy.validate(snapshotFrom(interrupted.state)).pipe(
-										Effect.catch((error) =>
-											Effect.succeed([
-												{
-													level: "error" as const,
-													phase: "policy" as const,
-													message: errorMessage(error),
-												},
-											]),
-										),
-									)
-								: [];
-							if (policyDiagnostics.length > 0) {
-								yield* Ref.update(stateRef, (state) =>
-									applyDiagnostics(state, policyDiagnostics, historyLimit),
-								);
-							}
-
-							const policyFailed = policyDiagnostics.some(
-								(diagnostic) => diagnostic.level === "error",
-							);
-							if (policyFailed || drained.shutdownRequested) {
-								const current = yield* Ref.get(stateRef);
-								yield* publishSnapshot(current);
-								const result = {
-									tickId,
-									observations,
-									proposals,
-									selected: [],
-									started: [],
-									completions: [
-										...began.completions,
-										...interrupted.completions,
-									],
-									diagnostics: [
-										...began.diagnostics,
-										...observeDiagnostics,
-										...reconcileDiagnostics,
-										...interrupted.diagnostics,
-										...policyDiagnostics,
-									],
-									snapshot: snapshotFrom(current),
-								};
-								yield* publishEvent({ type: "tick_completed", result });
-								return {
-									shutdownRequested: drained.shutdownRequested,
-									result,
-								};
-							}
-
-							const beforeSelect = yield* Ref.get(stateRef);
-							const selectResults = yield* Effect.forEach(sources, (source) =>
-								runSourceSelectWork(source, snapshotFrom(beforeSelect)),
-							);
-							const selectDiagnostics = selectResults.flatMap(
-								(result) => result.diagnostics,
-							);
-							const selectedWithSources = selectResults.flatMap(
-								(result) => result.selected,
-							);
-							const selected = selectedWithSources.map(({ work }) => work);
-							if (selectDiagnostics.length > 0) {
-								yield* Ref.update(stateRef, (state) =>
-									applyDiagnostics(state, selectDiagnostics, historyLimit),
-								);
-							}
-
-							const maxRuns = policy.maxConcurrentRuns ?? 100;
-							const { state: afterStart, started } = yield* Ref.modify(
-								stateRef,
-								(state) => {
-									const result = startEligibleRuns(
-										state,
-										selectedWithSources,
-										maxRuns,
-										interrupted.interruptedKeys,
-									);
-									return [result, result.state] as const;
-								},
-							);
-							const runSnapshot = snapshotFrom(afterStart);
-							yield* Effect.forEach(
-								started,
-								({ run, selection }) =>
-									Effect.gen(function* () {
-										yield* publishEvent({ type: "work_started", run });
-										const fiber = yield* executeWorkRun(
-											runner,
-											runSnapshot,
-											selection,
-											run,
-											mailbox,
-										).pipe(
-											Effect.ignore,
-											Effect.forkIn(actionScope, { startImmediately: true }),
-										);
-										yield* Ref.update(runHandles, (current) => {
-											const next = new Map(current);
-											next.set(run.workKey, { run, fiber });
-											return next;
-										});
-										yield* scheduleRunTimeout(run);
-									}),
-								{ discard: true },
-							);
-
-							yield* publishSnapshot(afterStart);
-							const result = {
-								tickId,
-								observations,
-								proposals,
-								selected,
-								started: started.map(({ run }) => run),
-								completions: [...began.completions, ...interrupted.completions],
-								diagnostics: [
-									...began.diagnostics,
-									...observeDiagnostics,
-									...reconcileDiagnostics,
-									...interrupted.diagnostics,
-									...policyDiagnostics,
-									...selectDiagnostics,
-								],
-								snapshot: snapshotFrom(afterStart),
-							};
-							yield* publishEvent({ type: "tick_completed", result });
-							return {
-								shutdownRequested: drained.shutdownRequested,
-								result,
-							};
-						}),
+			const reconcileResults = await Promise.all(
+				sources.map((source) =>
+					runHook(
+						"reconcile",
+						source,
+						source.reconcile
+							? () =>
+									source.reconcile!({
+										sourceId: source.id,
+										tickId,
+										snapshot: snapshotFrom(state),
+									})
+							: undefined,
+						[] as ReconcileProposal[],
 					),
-				);
+				),
+			);
+			const proposals = reconcileResults.flatMap(
+					(r) => r.items as ReconcileProposal[],
+				),
+				reconcileDiagnostics = reconcileResults.flatMap((r) => r.diagnostics);
+			state = applyReconciled(
+				state,
+				proposals,
+				reconcileDiagnostics,
+				historyLimit,
+			);
+			const wakeProposals = proposals.filter(
+				(p): p is ScheduleWakeProposal => p.type === "schedule_wake",
+			);
+			for (const proposal of wakeProposals) {
+				publishEvent({
+					type: "wake_scheduled",
+					delayMs: proposal.delayMs,
+					...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
+				});
+				timer(proposal.delayMs, { type: "wake" });
+			}
+			const interrupted = interruptRunningWork(
+				state,
+				proposals.filter(
+					(p): p is InterruptWorkProposal => p.type === "interrupt_work",
+				),
+				historyLimit,
+			);
+			state = interrupted.state;
+			for (const completion of interrupted.completions)
+				publishEvent({ type: "work_completed", completion });
+			interruptRunHandles(interrupted.interruptedRuns);
+			const policyDiagnostics: readonly Diagnostic[] = policy.validate
+				? await Promise.resolve(policy.validate(snapshotFrom(state))).catch(
+						(error: unknown) => [
+							{
+								level: "error" as const,
+								phase: "policy" as const,
+								message: errorMessage(error),
+							},
+						],
+					)
+				: [];
+			if (policyDiagnostics.length)
+				state = applyDiagnostics(state, policyDiagnostics, historyLimit);
+			const policyFailed = policyDiagnostics.some((d) => d.level === "error");
+			if (policyFailed || drained.shutdownRequested) {
+				publishSnapshot(state);
+				const result: TickResult = {
+					tickId,
+					observations,
+					proposals,
+					selected: [],
+					started: [],
+					completions: [...began.completions, ...interrupted.completions],
+					diagnostics: [
+						...began.diagnostics,
+						...observeDiagnostics,
+						...reconcileDiagnostics,
+						...interrupted.diagnostics,
+						...policyDiagnostics,
+					],
+					snapshot: snapshotFrom(state),
+				};
+				publishEvent({ type: "tick_completed", result });
+				return { shutdownRequested: drained.shutdownRequested, result };
+			}
+			const selectResults = await Promise.all(
+				sources.map((source) =>
+					runHook(
+						"select",
+						source,
+						source.selectWork
+							? () =>
+									source.selectWork!({
+										sourceId: source.id,
+										tickId,
+										snapshot: snapshotFrom(state),
+									})
+							: undefined,
+						[] as WorkItem[],
+					),
+				),
+			);
+			const selectedWithSources = selectResults.flatMap((r, i) =>
+				(r.items as WorkItem[]).map((work) => ({ source: sources[i]!, work })),
+			);
+			const selectDiagnostics = selectResults.flatMap((r) => r.diagnostics);
+			if (selectDiagnostics.length)
+				state = applyDiagnostics(state, selectDiagnostics, historyLimit);
+			const startedResult = startEligibleRuns(
+				state,
+				selectedWithSources,
+				policy.maxConcurrentRuns ?? 100,
+				interrupted.interruptedKeys,
+			);
+			state = startedResult.state;
+			const runSnapshot = snapshotFrom(state);
+			for (const { run, selection } of startedResult.started) {
+				publishEvent({ type: "work_started", run });
+				const controller = new AbortController();
+				runHandles.set(run.workKey, { run, controller });
+				void executeWorkRun(selection, run, runSnapshot, controller.signal);
+				if (maxRunDurationMs !== undefined)
+					timer(maxRunDurationMs, { type: "run_timeout", run });
+			}
+			publishSnapshot(state);
+			const result: TickResult = {
+				tickId,
+				observations,
+				proposals,
+				selected: selectedWithSources.map((s) => s.work),
+				started: startedResult.started.map((s) => s.run),
+				completions: [...began.completions, ...interrupted.completions],
+				diagnostics: [
+					...began.diagnostics,
+					...observeDiagnostics,
+					...reconcileDiagnostics,
+					...interrupted.diagnostics,
+					...policyDiagnostics,
+					...selectDiagnostics,
+				],
+				snapshot: snapshotFrom(state),
+			};
+			publishEvent({ type: "tick_completed", result });
+			return { shutdownRequested: false, result };
+		});
+	const runTick = (messages: readonly InternalMessage[] = []) => {
+		const next = tickChain.then(() => runTickUnsafe(messages));
+		tickChain = next.then(
+			() => undefined,
+			() => undefined,
+		);
+		return next;
+	};
+	const api: PlotAgentShape = {
+		start: async () => {
+			if (actorStarted) return;
+			actorStarted = true;
+			mailbox.offer({ type: "wake" });
+			void api.run().finally(() => {
+				actorStarted = false;
 			});
-
-			const tickOnce = Effect.fn("PlotAgent.tickOnce")(function* () {
-				const tick = yield* runTick();
-				return tick.result;
-			});
-
-			const offer = Effect.fn("PlotAgent.offer")(function* (
-				message: PlotAgentMessage,
-			) {
-				return yield* Schema.decodeUnknownEffect(Domain.PlotAgentMessage)(
-					message,
-				).pipe(
-					Effect.flatMap((decoded) => Queue.offer(mailbox, decoded)),
-					Effect.catch(() => Effect.succeed(false)),
-				);
-			});
-
-			const run = Effect.fn("PlotAgent.run")(function* () {
-				yield* withWideEvent(
-					"plot_agent.run",
-					{ source_count: sources.length },
-					Effect.gen(function* () {
-						let running = true;
-						while (running) {
-							const message = yield* Queue.take(mailbox);
-							const shouldRun = yield* messageStartsTick(message);
-							if (!shouldRun) continue;
-							const tick = yield* runTick([message]);
-							running = !tick.shutdownRequested;
-							if (running && tickIntervalMs !== undefined) {
-								yield* scheduleCadenceTick(tickIntervalMs);
-							}
+		},
+		run: async () =>
+			withWideEvent(
+				"plot_agent.run",
+				{ source_count: sources.length },
+				async () => {
+					let running = true;
+					while (running) {
+						const message = await mailbox.take();
+						if (message.type === "scheduled_tick") {
+							if (activeTickToken !== message.token) continue;
+							activeTickToken = undefined;
 						}
-						yield* Scope.close(actionScope, Exit.void);
-					}),
-				);
+						const tick = await runTick([message]);
+						running = !tick.shutdownRequested;
+						if (running && tickIntervalMs !== undefined) {
+							const token = ++nextTickToken;
+							activeTickToken = token;
+							timer(tickIntervalMs, { type: "scheduled_tick", token });
+						}
+					}
+					for (const handle of runHandles.values()) handle.controller.abort();
+					for (const c of timers) c.abort();
+				},
+			),
+		tickOnce: async () => (await runTick()).result,
+		snapshot: async () => snapshotCache,
+		events: () => events.subscribe(),
+		offer: async (message) => mailbox.offer(message),
+		wakeAfter: async (delayMs, reason) => {
+			positive(delayMs, 1, "delayMs must be a positive integer");
+			publishEvent({
+				type: "wake_scheduled",
+				delayMs,
+				...(reason === undefined ? {} : { reason }),
 			});
-
-			const start = Effect.fn("PlotAgent.start")(function* () {
-				yield* withWideEvent(
-					"plot_agent.start",
-					{ source_count: sources.length },
-					Effect.gen(function* () {
-						const alreadyStarted = yield* Ref.get(actorStarted);
-						if (alreadyStarted) return;
-						yield* Ref.set(actorStarted, true);
-						yield* Queue.offer(mailbox, { type: "wake" });
-						yield* run().pipe(
-							Effect.ensuring(Ref.set(actorStarted, false)),
-							Effect.forkIn(actorScope, { startImmediately: true }),
-							Effect.asVoid,
-						);
-					}),
-				);
-			});
-
-			const wakeAfter = Effect.fn("PlotAgent.wakeAfter")(function* (
-				delayMs: number,
-				reason?: string,
-			) {
-				yield* withWideEvent(
-					"plot_agent.wake_after",
-					{ delay_ms: delayMs, ...(reason === undefined ? {} : { reason }) },
-					Effect.gen(function* () {
-						const decoded = yield* decodePositiveInt(
-							delayMs,
-							"delayMs must be a positive integer",
-						);
-						yield* scheduleWakeAfter(decoded, reason);
-					}),
-				);
-			});
-
-			const shutdown = Effect.fn("PlotAgent.shutdown")(function* () {
-				return yield* withWideEvent(
-					"plot_agent.shutdown",
-					{},
-					offer({ type: "shutdown" }),
-				);
-			});
-
-			return {
-				start,
-				run,
-				tickOnce,
-				snapshot,
-				events: eventStream,
-				offer,
-				wakeAfter,
-				shutdown,
-			} satisfies PlotAgentShape;
-		}),
-	);
+			timer(delayMs, { type: "wake" });
+		},
+		shutdown: async () => mailbox.offer({ type: "shutdown" }),
+	};
+	return api;
 };

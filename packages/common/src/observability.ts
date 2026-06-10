@@ -1,91 +1,82 @@
-import {
-	Cause,
-	Clock,
-	Effect,
-	Exit,
-	Layer,
-	Logger,
-	References,
-	type LogLevel,
-} from "effect";
-
+export type WideEventLevel = "debug" | "info" | "warning" | "error";
 export type Fields = Record<string, unknown>;
 
-export interface LoggerOptions {
-	readonly format?: "json" | "pretty" | "logfmt";
-	readonly level?: LogLevel.LogLevel;
+let minimumLevel: WideEventLevel = "info";
+let logToStderr = false;
+
+const priority: Record<WideEventLevel, number> = {
+	debug: 10,
+	info: 20,
+	warning: 30,
+	error: 40,
+};
+
+export interface LoggerLiveOptions {
 	readonly stderr?: boolean;
+	readonly level?: "Debug" | "Info" | "Warning" | "Error";
 }
 
-export const LoggerLive = (options: LoggerOptions = {}) => {
-	const stderr = options.stderr ?? true;
-	const logger =
-		options.format === "pretty"
-			? Logger.consolePretty()
-			: options.format === "logfmt"
-				? stderr
-					? Logger.withConsoleError(Logger.formatLogFmt)
-					: Logger.withConsoleLog(Logger.formatLogFmt)
-				: stderr
-					? Logger.withConsoleError(Logger.formatJson)
-					: Logger.withConsoleLog(Logger.formatJson);
-
-	return Layer.mergeAll(
-		Logger.layer([logger]),
-		Layer.succeed(Logger.LogToStderr, stderr),
-		Layer.succeed(References.MinimumLogLevel, options.level ?? "Info"),
-	);
-};
-
-const exitFields = <A, E>(exit: Exit.Exit<A, E>): Fields => {
-	if (Exit.isSuccess(exit)) {
-		return { outcome: "success" };
+const normalizeLevel = (level: LoggerLiveOptions["level"]): WideEventLevel => {
+	switch (level) {
+		case "Debug":
+			return "debug";
+		case "Warning":
+			return "warning";
+		case "Error":
+			return "error";
+		case "Info":
+		case undefined:
+			return "info";
 	}
-	return {
-		outcome: "error",
-		error: Cause.pretty(exit.cause),
-	};
 };
 
-export type WideEventLevel = "debug" | "info" | "warning" | "error";
+export const LoggerLive = (options: LoggerLiveOptions = {}) => {
+	minimumLevel = normalizeLevel(options.level);
+	logToStderr = options.stderr ?? false;
+	return { run: async <A>(thunk: () => Promise<A> | A) => thunk() };
+};
 
-export const logWideEvent = (
+export const logWideEvent = async (
 	fields: Fields,
 	level: WideEventLevel = "info",
-) => {
-	switch (level) {
-		case "debug":
-			return Effect.logDebug(fields);
-		case "warning":
-			return Effect.logWarning(fields);
-		case "error":
-			return Effect.logError(fields);
-		case "info":
-			return Effect.logInfo(fields);
+): Promise<void> => {
+	if (priority[level] < priority[minimumLevel]) return;
+	const record = { timestamp: new Date().toISOString(), level, ...fields };
+	const line = `${JSON.stringify(record)}\n`;
+	if (logToStderr) process.stderr.write(line);
+};
+
+export const withWideEvent = async <A>(
+	operation: string,
+	fields: Fields,
+	work: (() => Promise<A> | A) | Promise<A>,
+): Promise<A> => {
+	const started = Date.now();
+	try {
+		const value = await (typeof work === "function" ? work() : work);
+		await logWideEvent({
+			operation,
+			outcome: "success",
+			duration_ms: Date.now() - started,
+			...fields,
+		});
+		return value;
+	} catch (error) {
+		await logWideEvent(
+			{
+				operation,
+				outcome: "error",
+				duration_ms: Date.now() - started,
+				error: error instanceof Error ? error.message : String(error),
+				...fields,
+			},
+			"error",
+		);
+		throw error;
 	}
 };
 
-export const withWideEvent = <A, E, R>(
-	operation: string,
-	fields: Fields,
-	effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> =>
-	Effect.gen(function* () {
-		const startedAt = yield* Clock.currentTimeMillis;
-		const exit = yield* Effect.exit(effect);
-		const finishedAt = yield* Clock.currentTimeMillis;
-		const event = {
-			operation,
-			...fields,
-			...exitFields(exit),
-			duration_ms: finishedAt - startedAt,
-		};
-		yield* logWideEvent(event, Exit.isSuccess(exit) ? "info" : "error");
-		if (Exit.isSuccess(exit)) return exit.value;
-		return yield* Effect.failCause(exit.cause);
-	}).pipe(Effect.annotateLogs({ operation }), Effect.withLogSpan(operation));
-
-export const withFields = <A, E, R>(
-	fields: Fields,
-	effect: Effect.Effect<A, E, R>,
-) => effect.pipe(Effect.annotateLogs(fields));
+export const withFields = async <A>(
+	_fields: Fields,
+	work: (() => Promise<A> | A) | Promise<A>,
+): Promise<A> => (typeof work === "function" ? work() : work);

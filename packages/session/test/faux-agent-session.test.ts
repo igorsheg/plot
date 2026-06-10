@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Effect, Stream } from "effect";
 import { makeAgentSessionClientLayer } from "../src/agent-session-client.js";
-import { AgentSessionClient } from "../src/agent-session-client.js";
 import { makePlotCreateAgentSession } from "../src/pi-agent-session.js";
 import {
 	fauxAssistantMessage,
@@ -61,58 +59,47 @@ describe("faux agent-session harness", () => {
 					),
 			],
 		});
-		const paths = await writePlotFauxAgentFiles({
-			cwd: dir,
-			api: faux.api,
-			provider: faux.provider,
-			modelId: faux.modelId,
-			modelName: faux.modelName,
-		});
-		const workflow = await Effect.runPromise(
-			loadWorkflowFromNode(workflowPath),
-		);
-		const createAgentSession = makePlotCreateAgentSession({
-			workflow,
-			paths,
-			overrides: {
+		try {
+			const paths = await writePlotFauxAgentFiles({
+				cwd: dir,
+				api: faux.api,
 				provider: faux.provider,
-				model: faux.modelId,
-				apiKey: "plot-faux-key",
-				noTools: true,
-			},
-		});
+				modelId: faux.modelId,
+				modelName: faux.modelName,
+			});
+			const workflow = await loadWorkflowFromNode(workflowPath);
+			const createAgentSession = makePlotCreateAgentSession({
+				workflow,
+				paths,
+				overrides: {
+					provider: faux.provider,
+					model: faux.modelId,
+					apiKey: "plot-faux-key",
+					noTools: true,
+				},
+			});
+			const client = makeAgentSessionClientLayer({ createAgentSession });
+			const events: unknown[] = [];
+			for await (const event of client.prompt({
+				prompt: workflow.prompt,
+				create: { cwd: paths.cwd },
+			})) {
+				events.push(event);
+			}
 
-		const events = await Effect.runPromise(
-			Effect.gen(function* () {
-				const client = yield* AgentSessionClient;
-				const collected: unknown[] = [];
-				yield* client
-					.prompt({
-						prompt: workflow.prompt,
-						create: { cwd: paths.cwd },
-					})
-					.pipe(
-						Stream.runForEach((event) =>
-							Effect.sync(() => collected.push(event)),
-						),
-					);
-				return collected;
-			}).pipe(
-				Effect.provide(makeAgentSessionClientLayer({ createAgentSession })),
-				Effect.ensuring(Effect.sync(() => faux.cleanup())),
-			),
-		);
-
-		expect(
-			events.some(
-				(event) =>
-					event !== null &&
-					typeof event === "object" &&
-					"type" in event &&
-					event.type === "agent_end",
-			),
-		).toBe(true);
-		expect(JSON.stringify(events)).toContain("saw workflow prompt");
-		expect(faux.getPendingResponseCount()).toBe(0);
+			expect(
+				events.some(
+					(event) =>
+						event !== null &&
+						typeof event === "object" &&
+						"type" in event &&
+						event.type === "agent_end",
+				),
+			).toBe(true);
+			expect(JSON.stringify(events)).toContain("saw workflow prompt");
+			expect(faux.getPendingResponseCount()).toBe(0);
+		} finally {
+			faux.cleanup();
+		}
 	});
 });

@@ -1,4 +1,3 @@
-import type { Effect } from "effect";
 import type {
 	Observation,
 	RuntimeSnapshot,
@@ -9,19 +8,18 @@ import type {
 	WorkRun,
 } from "./model.js";
 
+export type MaybePromise<A> = A | Promise<A>;
+
 export interface WorkRunnerContext {
 	readonly sourceId: SourceId;
 	readonly tickId: TickId;
 	readonly run: WorkRun;
 	readonly work: WorkItem;
 	readonly snapshot: RuntimeSnapshot;
-	readonly emitObservation: (
-		observation: Observation,
-	) => Effect.Effect<boolean>;
+	readonly signal: AbortSignal;
+	readonly emitObservation: (observation: Observation) => MaybePromise<boolean>;
 }
 
 export interface WorkRunner {
-	readonly run: (
-		context: WorkRunnerContext,
-	) => Effect.Effect<WorkResult, unknown>;
+	readonly run: (context: WorkRunnerContext) => MaybePromise<WorkResult>;
 }

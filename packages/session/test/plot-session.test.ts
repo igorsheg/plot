@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Fiber, Layer, Stream } from "effect";
 import type { AgentSessionEvent } from "../src/agent-session-types.js";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { AgentSessionClient } from "../src/agent-session-client.js";
-import { PlotSession, makePlotSessionLayer } from "../src/plot-session.js";
+import { makePlotSessionLayer } from "../src/plot-session.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
 
 const workflow: WorkflowDefinition = {
@@ -14,40 +12,45 @@ const workflow: WorkflowDefinition = {
 	prompt: "Do useful work.",
 };
 
-const fakeAgentLayer = (events: readonly AgentSessionEvent[] = []) =>
-	Layer.succeed(AgentSessionClient, {
-		prompt: () => Stream.fromIterable(events),
-	});
+const iterable = async function* <A>(items: readonly A[]) {
+	for (const item of items) yield item;
+};
+
+const fakeAgentClient = (events: readonly AgentSessionEvent[] = []) => ({
+	prompt: () => iterable(events),
+});
+
+const collectN = async <A>(
+	stream: AsyncIterable<A>,
+	count: number,
+	predicate: (item: A) => boolean = () => true,
+): Promise<A[]> => {
+	const items: A[] = [];
+	for await (const item of stream) {
+		if (!predicate(item)) continue;
+		items.push(item);
+		if (items.length >= count) break;
+	}
+	return items;
+};
 
 describe("PlotSession", () => {
 	test("sequences lifecycle events for outer status surfaces", async () => {
 		const runner: WorkRunner = {
-			run: () => Effect.succeed({}),
+			run: () => ({}),
 		};
-
-		const result = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const session = yield* PlotSession;
-					const fiber = yield* session.events().pipe(
-						Stream.filter(
-							(event) =>
-								event.type === "session_started" ||
-								event.type === "session_shutdown",
-						),
-						Stream.take(2),
-						Stream.runCollect,
-						Effect.forkScoped,
-					);
-					yield* Effect.yieldNow;
-					yield* session.start();
-					yield* session.shutdown();
-					return yield* Fiber.join(fiber);
-				}),
-			).pipe(
-				Effect.provide(makePlotSessionLayer({ workflow, sources: [], runner })),
-			),
+		const session = makePlotSessionLayer({ workflow, sources: [], runner });
+		const collected = collectN(
+			session.events(),
+			2,
+			(event) =>
+				event.type === "session_started" || event.type === "session_shutdown",
 		);
+
+		await Promise.resolve();
+		await session.start();
+		await session.shutdown();
+		const result = await collected;
 
 		expect(result.map((event) => event.type)).toEqual([
 			"session_started",
@@ -60,74 +63,53 @@ describe("PlotSession", () => {
 	test("wraps plot agent events for outer status surfaces", async () => {
 		const source: WorkSource = {
 			id: sourceId("status-source"),
-			selectWork: () => Effect.succeed([{ workKey: workKey("status:1") }]),
+			selectWork: () => [{ workKey: workKey("status:1") }],
 		};
 		const runner: WorkRunner = {
-			run: () => Effect.succeed({}),
+			run: () => ({}),
 		};
+		const session = makePlotSessionLayer({
+			workflow,
+			sources: [source],
+			runner,
+		});
+		const collected = collectN(session.events(), 3);
 
-		const result = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const session = yield* PlotSession;
-					const fiber = yield* session
-						.events()
-						.pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped);
-					yield* Effect.yieldNow;
-					yield* session.tickOnce();
-					const events = yield* Fiber.join(fiber);
-					return events;
-				}),
-			).pipe(
-				Effect.provide(
-					makePlotSessionLayer({ workflow, sources: [source], runner }),
-				),
-			),
-		);
+		await Promise.resolve();
+		await session.tickOnce();
+		const result = await collected;
 
 		expect(result.map((event) => event.type)).toEqual([
 			"plot_agent_event",
 			"plot_agent_event",
 			"plot_agent_event",
 		]);
-		expect(
-			result.map((event) =>
-				"sequence" in event ? Number(event.sequence) : undefined,
-			),
-		).toEqual([1, 2, 3]);
+		expect(result.map((event) => Number(event.sequence))).toEqual([1, 2, 3]);
 	});
 
 	test("wraps raw agent session events with session and run provenance", async () => {
 		const rawEvent: AgentSessionEvent = { type: "agent_start" };
 		const source: WorkSource = {
 			id: sourceId("agent-source"),
-			selectWork: () => Effect.succeed([{ workKey: workKey("agent:1") }]),
+			selectWork: () => [{ workKey: workKey("agent:1") }],
 		};
 
-		const layer = makePlotSessionLayer({
+		const session = makePlotSessionLayer({
 			workflow,
 			sources: [source],
 			agentRunner: { prompt: "do work" },
-		}).pipe(Layer.provide(fakeAgentLayer([rawEvent])));
-		const result = await Effect.runPromise(
-			Effect.scoped(
-				Effect.gen(function* () {
-					const session = yield* PlotSession;
-					const fiber = yield* session.events().pipe(
-						Stream.filter((event) => event.type === "agent_session_event"),
-						Stream.take(1),
-						Stream.runCollect,
-						Effect.forkScoped,
-					);
-					yield* Effect.yieldNow;
-					yield* session.tickOnce();
-					const events = yield* Fiber.join(fiber);
-					const event = events[0];
-					expect(event).toBeDefined();
-					return event!;
-				}),
-			).pipe(Effect.provide(layer)),
+			client: fakeAgentClient([rawEvent]),
+		});
+		const collected = collectN(
+			session.events(),
+			1,
+			(event) => event.type === "agent_session_event",
 		);
+
+		await Promise.resolve();
+		await session.tickOnce();
+		const [result] = await collected;
+		expect(result).toBeDefined();
 
 		expect(result).toEqual(
 			expect.objectContaining({
@@ -137,6 +119,7 @@ describe("PlotSession", () => {
 				workKey: workKey("agent:1"),
 			}),
 		);
+		if (result?.type !== "agent_session_event") throw new Error("wrong event");
 		expect(result.event).toBe(rawEvent);
 	});
 });

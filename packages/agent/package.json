@@ -11,12 +11,11 @@
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
-		"lint:effect": "effect-language-service diagnostics --project tsconfig.json --strict --format pretty",
+		"lint:effect": "echo effect-free",
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@plot/common": "workspace:*",
-		"effect": "4.0.0-beta.78"
+		"@plot/common": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

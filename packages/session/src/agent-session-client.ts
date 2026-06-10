@@ -1,16 +1,14 @@
-import { Cause, Context, Effect, Layer, Queue, Schema, Stream } from "effect";
 import {
 	createAgentSession,
 	type AgentSession,
 } from "@earendil-works/pi-coding-agent";
+import { AsyncQueue } from "@plot/common/async-queue";
 import {
 	logWideEvent,
-	withFields,
 	withWideEvent,
 	type Fields,
 	type WideEventLevel,
 } from "@plot/common/observability";
-
 import type {
 	AgentSessionEvent,
 	CreateAgentSession,
@@ -18,68 +16,52 @@ import type {
 	PromptOptions,
 } from "./agent-session-types.js";
 
-const AgentSessionClientErrorPhase = Schema.Literals([
-	"create",
-	"prompt",
-	"dispose",
-]);
-export type AgentSessionClientErrorPhase =
-	typeof AgentSessionClientErrorPhase.Type;
-
-export class AgentSessionClientError extends Schema.TaggedErrorClass<AgentSessionClientError>()(
-	"AgentSessionClientError",
-	{
-		phase: AgentSessionClientErrorPhase,
-		message: Schema.String,
-	},
-) {}
-
+export type AgentSessionClientErrorPhase = "create" | "prompt" | "dispose";
+export class AgentSessionClientError extends Error {
+	readonly phase: AgentSessionClientErrorPhase;
+	constructor(input: {
+		readonly phase: AgentSessionClientErrorPhase;
+		readonly message: string;
+	}) {
+		super(input.message);
+		this.name = "AgentSessionClientError";
+		this.phase = input.phase;
+	}
+}
 export interface PromptAgentSessionOptions {
 	readonly create?: CreateAgentSessionOptions;
 	readonly prompt: string;
 	readonly promptOptions?: PromptOptions;
 	readonly log?: Fields;
 }
-
 export interface AgentSessionClientShape {
 	readonly prompt: (
 		options: PromptAgentSessionOptions,
-	) => Stream.Stream<AgentSessionEvent, AgentSessionClientError>;
+	) => AsyncIterable<AgentSessionEvent>;
 }
-
-export class AgentSessionClient extends Context.Service<
-	AgentSessionClient,
-	AgentSessionClientShape
->()("@plot/session/AgentSessionClient") {}
-
+export type AgentSessionClient = AgentSessionClientShape;
+export const AgentSessionClient = Symbol("AgentSessionClient");
 export interface AgentSessionClientLayerOptions {
 	readonly createAgentSession?: CreateAgentSession;
 }
-
 const errorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
-
 const createError = (phase: AgentSessionClientErrorPhase, error: unknown) =>
 	new AgentSessionClientError({ phase, message: errorMessage(error) });
-
-const disposeSession = (session: AgentSession) =>
-	Effect.try({
-		try: () => session.dispose(),
-		catch: (error) => createError("dispose", error),
-	}).pipe(
-		Effect.catch((error) =>
-			logWideEvent(
-				{
-					operation: "agent_session.dispose",
-					outcome: "error",
-					error: error.message,
-				},
-				"error",
-			),
-		),
-		Effect.asVoid,
-	);
-
+const disposeSession = async (session: AgentSession) => {
+	try {
+		session.dispose();
+	} catch (error) {
+		await logWideEvent(
+			{
+				operation: "agent_session.dispose",
+				outcome: "error",
+				error: errorMessage(error),
+			},
+			"error",
+		);
+	}
+};
 const sessionEventFields = (event: AgentSessionEvent): Fields => {
 	const fields: Fields = { event_type: event.type };
 	if ("toolName" in event && typeof event.toolName === "string")
@@ -91,91 +73,62 @@ const sessionEventFields = (event: AgentSessionEvent): Fields => {
 	if (event.type === "auto_retry_end") fields["retry_success"] = event.success;
 	return fields;
 };
-
-const sessionEventLogLevel = (event: AgentSessionEvent): WideEventLevel => {
-	if (
-		event.type === "message_start" ||
-		event.type === "message_update" ||
-		event.type === "message_end" ||
-		event.type === "tool_execution_update"
-	) {
-		return "debug";
-	}
-	return "info";
-};
-
+const sessionEventLogLevel = (event: AgentSessionEvent): WideEventLevel =>
+	event.type === "message_start" ||
+	event.type === "message_update" ||
+	event.type === "message_end" ||
+	event.type === "tool_execution_update"
+		? "debug"
+		: "info";
 export const makeAgentSessionClientLayer = (
 	options: AgentSessionClientLayerOptions = {},
-) => {
+): AgentSessionClientShape => {
 	const create = options.createAgentSession ?? createAgentSession;
-
-	return Layer.succeed(AgentSessionClient, {
-		prompt: (request) => {
-			const log = request.log ?? {};
-			return Stream.callback<AgentSessionEvent, AgentSessionClientError>(
-				(queue) =>
-					Effect.gen(function* () {
-						let ended = false;
-						const endQueue = () => {
-							if (ended) return;
-							ended = true;
-							Queue.endUnsafe(queue);
-						};
-						const result = yield* withWideEvent(
+	return {
+		prompt: (request) => ({
+			async *[Symbol.asyncIterator]() {
+				const log = request.log ?? {};
+				const queue = new AsyncQueue<AgentSessionEvent>();
+				let session: AgentSession | undefined;
+				let unsubscribe: (() => void) | undefined;
+				void (async () => {
+					try {
+						const result = await withWideEvent(
 							"agent_session.create",
 							log,
-							Effect.tryPromise({
-								try: () => create(request.create),
-								catch: (error) => createError("create", error),
-							}),
+							() => create(request.create),
 						);
-						const session = result.session;
-						const unsubscribe = session.subscribe((event) => {
-							Queue.offerUnsafe(queue, event);
-							if (event.type === "agent_end") endQueue();
+						session = result.session;
+						unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+							queue.offer(event);
+							if (event.type === "agent_end") queue.close();
 						});
-
-						yield* Effect.addFinalizer(() =>
-							Effect.sync(() => unsubscribe()).pipe(
-								Effect.andThen(disposeSession(session)),
-							),
+						await withWideEvent("agent_session.prompt", log, () =>
+							session!.prompt(request.prompt, request.promptOptions),
 						);
-
-						yield* withFields(
-							log,
-							withWideEvent(
-								"agent_session.prompt",
-								log,
-								Effect.tryPromise({
-									try: () =>
-										session.prompt(request.prompt, request.promptOptions),
-									catch: (error) => createError("prompt", error),
-								}),
-							).pipe(
-								Effect.tap(() => Effect.sync(endQueue)),
-								Effect.catch((error: AgentSessionClientError) =>
-									Effect.sync(() =>
-										Queue.failCauseUnsafe(queue, Cause.fail(error)),
-									),
-								),
-								Effect.forkScoped,
-							),
+						queue.close();
+					} catch (error) {
+						queue.fail(createError(session ? "prompt" : "create", error));
+					}
+				})();
+				try {
+					for await (const event of queue) {
+						await logWideEvent(
+							{
+								operation: "agent_session.event",
+								...log,
+								...sessionEventFields(event),
+							},
+							sessionEventLogLevel(event),
 						);
-					}),
-			).pipe(
-				Stream.tap((event) =>
-					logWideEvent(
-						{
-							operation: "agent_session.event",
-							...log,
-							...sessionEventFields(event),
-						},
-						sessionEventLogLevel(event),
-					),
-				),
-			);
-		},
-	} satisfies AgentSessionClientShape);
+						yield event;
+					}
+				} finally {
+					unsubscribe?.();
+					if (session) await disposeSession(session);
+				}
+			},
+		}),
+	};
 };
-
 export const AgentSessionClientLive = makeAgentSessionClientLayer();

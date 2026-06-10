@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
 import { decodePlotServerRecord } from "@plot/session/protocol";
 import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -31,7 +30,7 @@ const makeWorkflowFile = async () => {
 };
 
 const decodeLines = (text: string) =>
-	Effect.all(
+	Promise.all(
 		text
 			.split("\n")
 			.filter((line) => line.length > 0)
@@ -204,7 +203,7 @@ describe("plot CLI faux provider boundary", () => {
 			new Response(child.stderr).text(),
 			child.exited,
 		]);
-		const records = await Effect.runPromise(decodeLines(stdout));
+		const records = await decodeLines(stdout);
 		const eventTypes = records
 			.map(eventType)
 			.filter((type) => type !== undefined);

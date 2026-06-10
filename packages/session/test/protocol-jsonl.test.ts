@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
 import { positiveInt } from "@plot/agent/model";
 import {
 	PlotEventRecord,
@@ -46,8 +45,6 @@ describe("plot protocol JSONL framing", () => {
 	test("serializes map-shaped event payloads into JSON-safe arrays", async () => {
 		const line = serializeJsonLine(
 			new PlotEventRecord({
-				protocol: "plot.v1",
-				kind: "event",
 				sessionId: plotSessionId("default"),
 				epoch: plotProtocolEpoch("default"),
 				sequence: plotSessionEventSequence(1),
@@ -65,42 +62,37 @@ describe("plot protocol JSONL framing", () => {
 		};
 
 		expect(parsed.event.event.result.snapshot.facts).toEqual([["a", 1]]);
-		await Effect.runPromise(decodePlotServerRecord(parsed));
+		await decodePlotServerRecord(parsed);
 	});
 
 	test("enforces output record limits", async () => {
-		const failure = await Effect.runPromise(
-			Effect.flip(
-				serializePlotServerJsonLine(
-					makePlotSuccessResponse({
-						id: plotProtocolRequestId("req-1"),
-						command: "ping",
-						lastEventSeq: plotProtocolSequence(0),
-					}),
-					{
-						...defaultPlotProtocolLimits,
-						maxOutputRecordBytes: positiveInt(2),
-					},
-				),
-			),
-		);
-
-		expect(failure.code).toBe("payload_too_large");
-		expect(failure.message).toContain("maxOutputRecordBytes");
+		try {
+			await serializePlotServerJsonLine(
+				makePlotSuccessResponse({
+					id: plotProtocolRequestId("req-1"),
+					command: "ping",
+					lastEventSeq: plotProtocolSequence(0),
+				}),
+				{
+					...defaultPlotProtocolLimits,
+					maxOutputRecordBytes: positiveInt(2),
+				},
+			);
+			throw new Error("expected failure");
+		} catch (failure) {
+			expect((failure as { code: string }).code).toBe("payload_too_large");
+			expect((failure as Error).message).toContain("maxOutputRecordBytes");
+		}
 	});
 
 	test("splits LF JSONL chunks and strips trailing carriage returns", async () => {
-		const first = await Effect.runPromise(
-			splitJsonlChunk(
-				initialJsonlDecoderState,
-				'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}\r\n{"protocol"',
-			),
+		const first = await splitJsonlChunk(
+			initialJsonlDecoderState,
+			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}\r\n{"protocol"',
 		);
-		const second = await Effect.runPromise(
-			splitJsonlChunk(
-				first.state,
-				':"plot.v1","kind":"request","id":"r2","command":"shutdown"}\n',
-			),
+		const second = await splitJsonlChunk(
+			first.state,
+			':"plot.v1","kind":"request","id":"r2","command":"shutdown"}\n',
 		);
 
 		expect(first.lines).toEqual([
@@ -113,13 +105,11 @@ describe("plot protocol JSONL framing", () => {
 	});
 
 	test("flushes final unterminated line", async () => {
-		const split = await Effect.runPromise(
-			splitJsonlChunk(
-				initialJsonlDecoderState,
-				'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}',
-			),
+		const split = await splitJsonlChunk(
+			initialJsonlDecoderState,
+			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}',
 		);
-		const lines = await Effect.runPromise(flushJsonlDecoder(split.state));
+		const lines = await flushJsonlDecoder(split.state);
 
 		expect(split.lines).toEqual([]);
 		expect(lines).toEqual([
@@ -128,10 +118,8 @@ describe("plot protocol JSONL framing", () => {
 	});
 
 	test("parses and validates client JSON lines", async () => {
-		const request = await Effect.runPromise(
-			parsePlotClientJsonLine(
-				'{"protocol":"plot.v1","kind":"request","id":"r1","command":"subscribe","params":{"afterSequence":3}}',
-			),
+		const request = await parsePlotClientJsonLine(
+			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"subscribe","params":{"afterSequence":3}}',
 		);
 
 		expect(request.command).toBe("subscribe");
@@ -139,18 +127,22 @@ describe("plot protocol JSONL framing", () => {
 	});
 
 	test("reports parse errors distinctly from schema errors", async () => {
-		const parseFailure = await Effect.runPromise(
-			Effect.flip(parsePlotClientJsonLine("not-json")),
-		);
-		const schemaFailure = await Effect.runPromise(
-			Effect.flip(
-				parsePlotClientJsonLine(
-					'{"protocol":"plot.v1","kind":"request","id":"r1","command":"prompt"}',
-				),
-			),
-		);
+		let parseFailure: { code: string } | undefined;
+		let schemaFailure: { code: string } | undefined;
+		try {
+			await parsePlotClientJsonLine("not-json");
+		} catch (error) {
+			parseFailure = error as { code: string };
+		}
+		try {
+			await parsePlotClientJsonLine(
+				'{"protocol":"plot.v1","kind":"request","id":"r1","command":"prompt"}',
+			);
+		} catch (error) {
+			schemaFailure = error as { code: string };
+		}
 
-		expect(parseFailure.code).toBe("parse_error");
-		expect(schemaFailure.code).toBe("invalid_request");
+		expect(parseFailure?.code).toBe("parse_error");
+		expect(schemaFailure?.code).toBe("invalid_request");
 	});
 });

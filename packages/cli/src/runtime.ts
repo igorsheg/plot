@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
 import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
@@ -9,7 +8,6 @@ import {
 	runPlotSessionHostStdio,
 } from "@plot/session/session-host";
 import { resolveWorkflowPath } from "@plot/session/workflow";
-import type { LogLevel as EffectLogLevel } from "effect/LogLevel";
 
 export type LogFormat = "json" | "logfmt" | "pretty";
 export type LogLevelFlag =
@@ -20,7 +18,6 @@ export type LogLevelFlag =
 	| "error"
 	| "fatal"
 	| "none";
-
 interface BaseRunOptions {
 	readonly workflowPath?: string;
 	readonly sessionId: string;
@@ -38,35 +35,23 @@ interface BaseRunOptions {
 	readonly agentSessionOverrides?: PlotAgentSessionCliOverrides;
 	readonly createAgentSession?: CreateAgentSession;
 }
-
 export interface ServeStdioOptions extends BaseRunOptions {
 	readonly stdin: AsyncIterable<StdioChunk>;
-	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
+	readonly writeStdout: (line: string) => Promise<void> | void;
 }
-
 export interface RunDaemonOptions extends BaseRunOptions {
-	readonly onEvent?: (event: PlotSessionEvent) => Effect.Effect<void, unknown>;
+	readonly onEvent?: (event: PlotSessionEvent) => Promise<void> | void;
 }
-
-const toLogLevel = (level: LogLevelFlag): EffectLogLevel => {
-	switch (level) {
-		case "trace":
-			return "Trace";
-		case "debug":
-			return "Debug";
-		case "info":
-			return "Info";
-		case "warn":
-			return "Warn";
-		case "error":
-			return "Error";
-		case "fatal":
-			return "Fatal";
-		case "none":
-			return "None";
-	}
-};
-
+const toLogLevel = (
+	level: LogLevelFlag,
+): "Debug" | "Info" | "Warning" | "Error" =>
+	level === "debug" || level === "trace"
+		? "Debug"
+		: level === "error" || level === "fatal"
+			? "Error"
+			: level === "warn"
+				? "Warning"
+				: "Info";
 const workflowPathLogField = (options: BaseRunOptions) =>
 	resolveWorkflowPath({
 		cwd: options.cwd,
@@ -74,47 +59,32 @@ const workflowPathLogField = (options: BaseRunOptions) =>
 			? {}
 			: { workflowPath: options.workflowPath }),
 	});
-
-const provideCliLogger = <A>(
+const provideCliLogger = async <A>(
 	options: BaseRunOptions,
-	effect: Effect.Effect<A, unknown>,
-) =>
-	effect.pipe(
-		Effect.provide(
-			LoggerLive({
-				format: options.logFormat,
-				level: toLogLevel(options.logLevel),
-				stderr: true,
-			}),
-		),
-	);
-
-export const runDaemon = (
-	options: RunDaemonOptions,
-): Effect.Effect<void, unknown> =>
-	provideCliLogger(
-		options,
+	work: () => Promise<A> | A,
+): Promise<A> => {
+	LoggerLive({ level: toLogLevel(options.logLevel), stderr: true });
+	return work();
+};
+export const runDaemon = (options: RunDaemonOptions): Promise<void> =>
+	provideCliLogger(options, () =>
 		withWideEvent(
 			"plot_cli.run",
 			{
 				workflow_path: workflowPathLogField(options),
 				session_id: options.sessionId,
 			},
-			runPlotSessionHostDaemon(options),
+			() => runPlotSessionHostDaemon(options),
 		),
 	);
-
-export const serveStdio = (
-	options: ServeStdioOptions,
-): Effect.Effect<void, unknown> =>
-	provideCliLogger(
-		options,
+export const serveStdio = (options: ServeStdioOptions): Promise<void> =>
+	provideCliLogger(options, () =>
 		withWideEvent(
 			"plot_cli.serve_stdio",
 			{
 				workflow_path: workflowPathLogField(options),
 				session_id: options.sessionId,
 			},
-			runPlotSessionHostStdio(options),
+			() => runPlotSessionHostStdio(options),
 		),
 	);
