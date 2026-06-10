@@ -1,7 +1,7 @@
 ---
 name: plot-alpha-pr-review
 description: Review the current branch PR for Plot's alpha runtime rebuild.
-version: 1.0.0
+version: 1.1.0
 plot:
   queueCapacity: 8
   eventCapacity: 256
@@ -12,6 +12,10 @@ agent:
   model: gpt-5.5
   thinking: high
   allowProjectConfig: true
+extension:
+  source: ./github-pr-reviewer.extension.ts
+  config:
+    includeDrafts: false
 resources:
   contextFiles: true
   appendSystemPrompt:
@@ -34,69 +38,56 @@ resources:
 
 # {{ workflow.name }} Reviewer
 
-This prompt is rendered with Eta before the inner agent runs. In the built-in one-shot workflow, template data contains the YAML front matter under `workflow`; repository and PR details are discovered by the prompt below rather than supplied by a JavaScript extension.
+Review target: {{ work.title }}
 
-Review the GitHub PR for the current branch of this repository using {{ workflow.agent.provider }}/{{ workflow.agent.model }}. Default to a full technical review unless the user provides a narrower instruction in the prompt or comments.
+This workflow is backed by `github-pr-reviewer.extension.ts`. The extension
+discovers the current GitHub PR before the inner agent starts and passes the
+structured target as template data. Treat the block below as the starting point,
+then verify any fact you rely on against GitHub and git locally.
 
-## 1. Identify the PR
+{{ githubContext }}
 
-Use GitHub CLI from the repository root:
+## 1. Target handling
+
+If the extension says no pull request was found for the current branch, report
+that clearly and stop.
+
+If the extension says the PR is draft and draft policy says to stop, do not
+perform a full review; say it is draft and stop unless explicitly asked to
+review drafts.
+
+If a previous review by the current GitHub user exists, perform an incremental
+re-review:
+
+- Fetch the previous review body and inline comments.
+- Fetch commits since that review timestamp.
+- Check whether prior issues are resolved, still open, or partially addressed.
+- Review only new or changed commits for new issues.
+
+If no previous review exists, perform a fresh review.
+
+## 2. Gather context
+
+Use GitHub CLI and git from the repository root. Prefer the PR number already
+provided by the extension, but verify it before making review claims.
+
+Useful commands:
 
 ```bash
 gh repo view --json nameWithOwner -q '.nameWithOwner'
 git branch --show-current
-gh pr view --json number,title,isDraft,baseRefName,headRefName,url,author
+gh pr view --json number,title,isDraft,baseRefName,headRefName,url,author,headRefOid
+gh pr view <number> --json title,body,files,commits,additions,deletions,baseRefName,headRefName
+gh pr diff <number>
+git diff origin/$(gh pr view <number> --json baseRefName -q '.baseRefName')...HEAD --stat
+git diff origin/$(gh pr view <number> --json baseRefName -q '.baseRefName')...HEAD
 ```
 
-If `gh pr view` cannot infer the PR, look it up by current branch:
+Read changed files and nearby call sites. For every issue you intend to flag,
+read enough surrounding code to verify it is real and not pre-existing or
+handled elsewhere.
 
-```bash
-BRANCH=$(git branch --show-current)
-gh pr list --head "$BRANCH" --json number,title,isDraft,baseRefName,headRefName,url,author
-```
-
-If no PR exists, report that clearly and stop. If the PR is a draft, do not perform a full review; say it is draft and stop unless explicitly asked to review drafts.
-
-## 2. Detect re-review
-
-Check whether the current GitHub user already reviewed this PR:
-
-```bash
-REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
-PR=<number>
-CURRENT_GH_USER=$(gh api user -q '.login')
-gh api "repos/$REPO/pulls/$PR/reviews" \
-  --jq "[.[] | select(.user.login == \"$CURRENT_GH_USER\" and .state != \"DISMISSED\")] | sort_by(.submitted_at) | last"
-```
-
-If a previous review exists, perform an incremental re-review:
-
-- Fetch previous review body and inline comments.
-- Fetch commits since that review timestamp.
-- Check whether prior issues are resolved, still open, or partially addressed.
-- Review only new/changed commits for new issues.
-
-If no previous review exists, perform a fresh review.
-
-## 3. Gather context
-
-Fetch metadata and changed files:
-
-```bash
-gh pr view "$PR" --json title,body,files,commits,additions,deletions,baseRefName,headRefName
-```
-
-Inspect the diff with enough surrounding context:
-
-```bash
-gh pr diff "$PR"
-git diff origin/$(gh pr view "$PR" --json baseRefName -q '.baseRefName')...HEAD --stat
-git diff origin/$(gh pr view "$PR" --json baseRefName -q '.baseRefName')...HEAD
-```
-
-Read changed files and nearby call sites. For every issue you intend to flag, read enough surrounding code to verify it is real and not pre-existing or handled elsewhere.
-
-## 4. Plot-specific risk classification
+## 3. Plot-specific risk classification
 
 Classify risk from changed paths:
 
@@ -108,27 +99,39 @@ Classify risk from changed paths:
 | `packages/session/src/extension*`                          | MEDIUM/HIGH | Public plugin SDK contract                                                           |
 | `packages/cli/**`                                          | HIGH        | Process boundary, stdout/stderr split, path/auth defaults, CLI API                   |
 | `packages/common/**`                                       | MEDIUM      | Observability/log boundary                                                           |
-| Tests only                                                 | LOW/MEDIUM  | Verify tests match behavior and don't mask broken API                                |
+| Tests only                                                 | LOW/MEDIUM  | Verify tests match behavior and do not mask broken API                               |
 | Config/package manager files                               | MEDIUM      | Build, exports, dependency, package boundary risk                                    |
 
-Escalate to HIGH if a change crosses package boundaries, changes public exports, alters protocol schemas, changes auth paths, or affects stdout/stderr behavior.
+Escalate to HIGH if a change crosses package boundaries, changes public
+exports, alters protocol schemas, changes auth paths, or affects stdout/stderr
+behavior.
 
-## 5. Review checklist
+## 4. Review checklist
 
 Always check:
 
-- Package boundaries: no pi-mono imports in `@plot/agent`; no domain/plugin logic in the runtime kernel.
-- Effect correctness: typed errors, no hidden defects, no unbounded fibers/queues, correct layer ownership, no unnecessary public Effect types in author-facing SDKs.
-- Protocol correctness: event-first design, response frontier/order, replay cursor semantics, JSON-safe serialization, no raw logs on stdout.
-- CLI correctness: human commands use human output; protocol commands use `plot.v1` JSONL; errors/prompts/logs go to stderr; no compatibility shims or aliases unless explicitly designed.
-- Auth/model correctness: pi-native auth/model/settings/session systems are reused; no split-brain credential state; secrets never live in `WORKFLOW.md`.
-- Path correctness: user-level auth/model state vs project-level session/runtime state is intentional and documented in behavior.
-- Tests: boundary/process tests cover stdout cleanliness and faux provider behavior when relevant.
-- Simplicity: avoid clever abstractions, generic RPC sprawl, capability DSLs, barrels, or single-file directories unless clearly earned.
+- Package boundaries: no pi-mono imports in `@plot/agent`; no domain/plugin
+  logic in the runtime kernel.
+- Effect correctness: typed errors, no hidden defects, no unbounded
+  fibers/queues, correct layer ownership, no unnecessary public Effect types in
+  author-facing SDKs.
+- Protocol correctness: event-first design, response frontier/order, replay
+  cursor semantics, JSON-safe serialization, no raw logs on stdout.
+- CLI correctness: human commands use human output; protocol commands use
+  `plot.v1` JSONL; errors/prompts/logs go to stderr; no compatibility shims or
+  aliases unless explicitly designed.
+- Auth/model correctness: pi-native auth/model/settings/session systems are
+  reused; no split-brain credential state; secrets never live in `WORKFLOW.md`.
+- Path correctness: user-level auth/model state vs project-level
+  session/runtime state is intentional and documented in behavior.
+- Tests: boundary/process tests cover stdout cleanliness and faux provider
+  behavior when relevant.
+- Simplicity: avoid clever abstractions, generic RPC sprawl, capability DSLs,
+  barrels, or single-file directories unless clearly earned.
 
 Use `bun run check` if practical. If you do not run it, say so.
 
-## 6. Report format
+## 5. Report format
 
 Size the report to the PR:
 
@@ -136,7 +139,8 @@ Size the report to the PR:
 - Small PR: short summary plus issues.
 - Medium/Large PR: concise structured report.
 
-Do not include empty sections. If no issues are found, say: `No issues found. Approve.`
+Do not include empty sections. If no issues are found, say:
+`No issues found. Approve.`
 
 For issues, include:
 
@@ -146,11 +150,13 @@ For issues, include:
 - suggested fix
 - whether verified or uncertain
 
-Do not approve with unverified HIGH-risk concerns. Either verify them or mark them blocking.
+Do not approve with unverified HIGH-risk concerns. Either verify them or mark
+them blocking.
 
-## 7. Posting
+## 6. Posting
 
-Do not post a GitHub review automatically. End by asking whether to post, and recommend one of:
+Do not post a GitHub review automatically. End by asking whether to post, and
+recommend one of:
 
 - APPROVE
 - COMMENT

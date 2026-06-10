@@ -8,8 +8,8 @@
 	"type": "module",
 	"scripts": {
 		"bootstrap": "bun install",
-		"typecheck": "turbo run typecheck",
-		"lint": "turbo run lint && bun run lint:effect",
+		"typecheck": "tsc -p tsconfig.json --noEmit && turbo run typecheck",
+		"lint": "oxlint github-pr-reviewer.extension.ts --tsconfig tsconfig.json && turbo run lint && bun run lint:effect",
 		"lint:effect": "turbo run lint:effect",
 		"format": "oxfmt .",
 		"format:check": "oxfmt --check .",

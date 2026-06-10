@@ -3,5 +3,5 @@
 	"compilerOptions": {
 		"noEmit": true
 	},
-	"include": ["packages/**/*.ts"]
+	"include": ["packages/**/*.ts", "*.extension.ts"]
 }
