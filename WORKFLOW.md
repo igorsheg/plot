@@ -32,9 +32,11 @@ resources:
       - Generated UI surfaces are not relevant here; do not introduce React forwardRef or hand-edit generated UI.
 ---
 
-# Plot Alpha PR Reviewer
+# {{ workflow.name }} Reviewer
 
-Review the GitHub PR for the current branch of this repository. Default to a full technical review unless the user provides a narrower instruction in the prompt or comments.
+This prompt is rendered with Eta before the inner agent runs. In the built-in one-shot workflow, template data contains the YAML front matter under `workflow`; repository and PR details are discovered by the prompt below rather than supplied by a JavaScript extension.
+
+Review the GitHub PR for the current branch of this repository using {{ workflow.agent.provider }}/{{ workflow.agent.model }}. Default to a full technical review unless the user provides a narrower instruction in the prompt or comments.
 
 ## 1. Identify the PR
 
