@@ -145,7 +145,7 @@ Size the report to the PR:
 - Medium/Large PR: concise structured report.
 
 Do not include empty sections. If no issues are found, say:
-`No issues found. Approve.`
+`No issues found.`
 
 For issues, include:
 
@@ -166,16 +166,17 @@ for the current head SHA.
 
 Use:
 
-- `gh pr review <number> --approve --body-file <file>` when no issues are
-  found.
-- `gh pr review <number> --comment --body-file <file>` for non-blocking LOW
-  issues or informational findings.
+- `gh pr review <number> --comment --body-file <file>` when no issues are
+  found, for non-blocking LOW issues, or for informational findings.
 - `gh pr review <number> --request-changes --body-file <file>` for verified
   HIGH issues or any issue that should block merging.
+
+Never use `gh pr review --approve`. This demo workflow is an autonomous PR
+reviewer, not an autonomous approver.
 
 The posted review body should include the concise report from section 5 and the
 verification status, including whether `bun run check` was run.
 
 After posting, end your final assistant message with the posted disposition:
-`APPROVE`, `COMMENT`, or `REQUEST_CHANGES`. If posting fails, report the exact
-failure and do not claim success.
+`COMMENT` or `REQUEST_CHANGES`. If posting fails, report the exact failure and
+do not claim success.
