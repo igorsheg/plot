@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
-import { setFact, sourceId, workKey } from "@plot/agent/model";
+import { positiveInt, setFact, sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makePlotSessionLayer } from "../src/plot-session.js";
 import type { PlotAuthShape } from "../src/pi-auth.js";
 import {
 	PlotClientRequestRecord,
+	PlotProtocolLimits,
+	defaultPlotProtocolLimits,
 	plotProtocolEpoch,
 	plotProtocolRequestId,
 	plotProtocolSequence,
@@ -62,6 +64,43 @@ const testLayer = (options: { readonly auth?: PlotAuthShape } = {}) => {
 	return makePlotProtocolLayer({
 		epoch: plotProtocolEpoch("epoch-1"),
 		...(options.auth === undefined ? {} : { auth: options.auth }),
+	}).pipe(
+		Layer.provide(
+			makePlotSessionLayer({ workflow, sources: [source], runner }),
+		),
+	);
+};
+
+const observationTestLayer = (
+	options: {
+		readonly maxObservationPayloadBytes?: number;
+	} = {},
+) => {
+	const source: WorkSource = {
+		id: sourceId("observation-source"),
+		reconcile: ({ snapshot }) =>
+			Effect.succeed(
+				snapshot.observations.map((observation) =>
+					setFact(`observation:${observation.type}`, observation.data),
+				),
+			),
+	};
+	const runner: WorkRunner = {
+		run: () => Effect.succeed({}),
+	};
+	const limits = new PlotProtocolLimits({
+		...defaultPlotProtocolLimits,
+		...(options.maxObservationPayloadBytes === undefined
+			? {}
+			: {
+					maxObservationPayloadBytes: positiveInt(
+						options.maxObservationPayloadBytes,
+					),
+				}),
+	});
+	return makePlotProtocolLayer({
+		epoch: plotProtocolEpoch("epoch-1"),
+		limits,
 	}).pipe(
 		Layer.provide(
 			makePlotSessionLayer({ workflow, sources: [source], runner }),
@@ -144,6 +183,112 @@ describe("PlotProtocol handler", () => {
 				command: "tick_once",
 				ok: true,
 				lastEventSeq: plotProtocolSequence(3),
+			}),
+		);
+	});
+
+	test("accepts submitted observations into the Plot loop mailbox", async () => {
+		const records = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const protocol = yield* PlotProtocol;
+					const done = yield* Deferred.make<readonly PlotServerRecord[]>();
+					const outputRecords: PlotServerRecord[] = [];
+					yield* protocol.output().pipe(
+						Stream.runForEach((record) => {
+							outputRecords.push(record);
+							if (
+								record.kind === "response" &&
+								record.id === plotProtocolRequestId("req-3")
+							) {
+								return Deferred.succeed(done, [...outputRecords]).pipe(
+									Effect.asVoid,
+								);
+							}
+							return Effect.void;
+						}),
+						Effect.forkScoped({ startImmediately: true }),
+						Effect.asVoid,
+					);
+					yield* Effect.yieldNow;
+					yield* protocol.submit(
+						request("req-1", "submit_observation", {
+							observation: {
+								type: "github.pr.updated",
+								subject: "github:acme/web:pr:42",
+								data: { headSha: "sha-2" },
+							},
+						}),
+					);
+					yield* protocol.submit(request("req-2", "tick_once"));
+					yield* protocol.submit(request("req-3", "get_snapshot"));
+					return yield* Deferred.await(done);
+				}),
+			).pipe(Effect.provide(observationTestLayer())),
+		);
+
+		const submitResponse = records.find(
+			(record) =>
+				record.kind === "response" &&
+				record.id === plotProtocolRequestId("req-1"),
+		);
+		const snapshotResponse = records.find(
+			(record) =>
+				record.kind === "response" &&
+				record.id === plotProtocolRequestId("req-3"),
+		);
+		expect(submitResponse).toEqual(
+			expect.objectContaining({
+				kind: "response",
+				command: "submit_observation",
+				ok: true,
+				data: { accepted: true },
+			}),
+		);
+		expect(
+			(
+				(
+					snapshotResponse as Extract<
+						PlotServerRecord,
+						{ kind: "response"; ok: true }
+					>
+				).data as { snapshot: { facts: ReadonlyMap<string, unknown> } }
+			).snapshot.facts.get("observation:github.pr.updated"),
+		).toEqual({ headSha: "sha-2" });
+	});
+
+	test("rejects submitted observations over the payload limit", async () => {
+		const records = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const protocol = yield* PlotProtocol;
+					const fiber = yield* protocol
+						.output()
+						.pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped);
+					yield* Effect.yieldNow;
+					yield* protocol.submit(
+						request("req-1", "submit_observation", {
+							observation: {
+								type: "large.payload",
+								data: { text: "x".repeat(128) },
+							},
+						}),
+					);
+					return yield* Fiber.join(fiber);
+				}),
+			).pipe(
+				Effect.provide(
+					observationTestLayer({ maxObservationPayloadBytes: 32 }),
+				),
+			),
+		);
+
+		expect(records[0]).toEqual(
+			expect.objectContaining({
+				kind: "response",
+				command: "submit_observation",
+				ok: false,
+				error: expect.objectContaining({ code: "payload_too_large" }),
 			}),
 		);
 	});

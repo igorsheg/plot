@@ -13,6 +13,7 @@ import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import type { AgentSessionEvent } from "./agent-session-types.js";
 import * as Domain from "@plot/agent/model";
 import type {
+	Observation,
 	PlotAgentEvent,
 	PlotAgentError,
 	RuntimeSnapshot,
@@ -126,6 +127,9 @@ export interface PlotSessionShape {
 	readonly workflow: WorkflowDefinition;
 	readonly start: () => Effect.Effect<void>;
 	readonly tickOnce: () => Effect.Effect<TickResult>;
+	readonly submitObservation: (
+		observation: Observation,
+	) => Effect.Effect<boolean>;
 	readonly snapshot: () => Effect.Effect<RuntimeSnapshot>;
 	readonly events: () => Stream.Stream<PlotSessionEvent>;
 	readonly lastEventSequence: () => Effect.Effect<PlotSessionEventCursor>;
@@ -431,6 +435,15 @@ export function makePlotSessionLayer(
 					plotAgent.tickOnce(),
 				);
 			});
+			const submitObservation = Effect.fn("PlotSession.submitObservation")(
+				function* (observation: Observation) {
+					return yield* withWideEvent(
+						"plot_session.submit_observation",
+						{ session_id: sessionId, observation_type: observation.type },
+						plotAgent.offer({ type: "observation", observation }),
+					);
+				},
+			);
 			const snapshot = Effect.fn("PlotSession.snapshot")(function* () {
 				return yield* withWideEvent(
 					"plot_session.snapshot",
@@ -461,6 +474,7 @@ export function makePlotSessionLayer(
 				workflow: options.workflow,
 				start,
 				tickOnce,
+				submitObservation,
 				snapshot,
 				events: eventStream,
 				lastEventSequence,

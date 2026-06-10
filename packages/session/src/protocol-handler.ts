@@ -31,6 +31,7 @@ import {
 	type PlotProtocolLimits,
 	type PlotProtocolSequence,
 	type PlotServerRecord,
+	SubmitObservationParams,
 	SubscribeParams,
 	defaultPlotProtocolLimits,
 	makePlotErrorResponse,
@@ -79,6 +80,50 @@ const decodeSubscribeParams = (
 					code: "invalid_request",
 					message: error.message,
 				}),
+		),
+	);
+
+const byteLength = (value: string) => new TextEncoder().encode(value).length;
+
+const observationPayloadBytes = (value: unknown) =>
+	Effect.try({
+		try: () => byteLength(JSON.stringify(value)),
+		catch: (error) =>
+			new PlotProtocolFailure({
+				code: "invalid_request",
+				message: errorMessage(error),
+			}),
+	});
+
+const decodeSubmitObservationParams = (
+	value: unknown,
+): Effect.Effect<SubmitObservationParams, PlotProtocolFailure> =>
+	Schema.decodeUnknownEffect(SubmitObservationParams)(value ?? {}).pipe(
+		Effect.mapError(
+			(error) =>
+				new PlotProtocolFailure({
+					code: "invalid_request",
+					message: error.message,
+				}),
+		),
+	);
+
+const checkObservationPayloadLimit = (
+	params: SubmitObservationParams,
+	limits: PlotProtocolLimits,
+) =>
+	observationPayloadBytes(params.observation).pipe(
+		Effect.flatMap((bytes) =>
+			bytes <= limits.maxObservationPayloadBytes
+				? Effect.void
+				: new PlotProtocolFailure({
+						code: "payload_too_large",
+						message: "observation exceeds maxObservationPayloadBytes",
+						details: {
+							maxObservationPayloadBytes: limits.maxObservationPayloadBytes,
+							actualBytes: bytes,
+						},
+					}),
 		),
 	);
 
@@ -429,11 +474,28 @@ export const makePlotProtocolLayer = (
 							}),
 						];
 					}
-					case "submit_observation":
-						return yield* new PlotProtocolFailure({
-							code: "invalid_request",
-							message: "submit_observation is not implemented yet",
-						});
+					case "submit_observation": {
+						const params = yield* decodeSubmitObservationParams(request.params);
+						yield* checkObservationPayloadLimit(params, limits);
+						const accepted = yield* session
+							.submitObservation(params.observation)
+							.pipe(Effect.mapError(mapUnknownError));
+						if (!accepted) {
+							return yield* new PlotProtocolFailure({
+								code: "internal_error",
+								message:
+									"observation was not accepted by the Plot loop mailbox",
+							});
+						}
+						const lastEventSeq = yield* replay.lastSequence();
+						return [
+							makeSuccessForRequest({
+								request,
+								lastEventSeq,
+								data: { accepted },
+							}),
+						];
+					}
 				}
 			});
 
