@@ -21,7 +21,7 @@ export const LoggerLive = (options: LoggerOptions = {}) => {
 	const stderr = options.stderr ?? true;
 	const logger =
 		options.format === "pretty"
-			? Logger.consolePretty({ stderr })
+			? Logger.consolePretty()
 			: options.format === "logfmt"
 				? stderr
 					? Logger.withConsoleError(Logger.formatLogFmt)
@@ -32,6 +32,7 @@ export const LoggerLive = (options: LoggerOptions = {}) => {
 
 	return Layer.mergeAll(
 		Logger.layer([logger]),
+		Layer.succeed(Logger.LogToStderr, stderr),
 		Layer.succeed(References.MinimumLogLevel, options.level ?? "Info"),
 	);
 };
@@ -46,10 +47,23 @@ const exitFields = <A, E>(exit: Exit.Exit<A, E>): Fields => {
 	};
 };
 
+export type WideEventLevel = "debug" | "info" | "warning" | "error";
+
 export const logWideEvent = (
 	fields: Fields,
-	level: "info" | "error" = "info",
-) => (level === "error" ? Effect.logError(fields) : Effect.logInfo(fields));
+	level: WideEventLevel = "info",
+) => {
+	switch (level) {
+		case "debug":
+			return Effect.logDebug(fields);
+		case "warning":
+			return Effect.logWarning(fields);
+		case "error":
+			return Effect.logError(fields);
+		case "info":
+			return Effect.logInfo(fields);
+	}
+};
 
 export const withWideEvent = <A, E, R>(
 	operation: string,

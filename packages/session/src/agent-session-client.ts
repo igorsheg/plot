@@ -8,6 +8,7 @@ import {
 	withFields,
 	withWideEvent,
 	type Fields,
+	type WideEventLevel,
 } from "@plot/common/observability";
 
 import type {
@@ -91,6 +92,18 @@ const sessionEventFields = (event: AgentSessionEvent): Fields => {
 	return fields;
 };
 
+const sessionEventLogLevel = (event: AgentSessionEvent): WideEventLevel => {
+	if (
+		event.type === "message_start" ||
+		event.type === "message_update" ||
+		event.type === "message_end" ||
+		event.type === "tool_execution_update"
+	) {
+		return "debug";
+	}
+	return "info";
+};
+
 export const makeAgentSessionClientLayer = (
 	options: AgentSessionClientLayerOptions = {},
 ) => {
@@ -151,11 +164,14 @@ export const makeAgentSessionClientLayer = (
 					}),
 			).pipe(
 				Stream.tap((event) =>
-					logWideEvent({
-						operation: "agent_session.event",
-						...log,
-						...sessionEventFields(event),
-					}),
+					logWideEvent(
+						{
+							operation: "agent_session.event",
+							...log,
+							...sessionEventFields(event),
+						},
+						sessionEventLogLevel(event),
+					),
 				),
 			);
 		},
