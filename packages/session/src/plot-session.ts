@@ -118,6 +118,7 @@ interface AgentSessionRunnerConfig extends Omit<
 	"onEvent"
 > {
 	readonly onEvent?: (event: AgentSessionEvent) => Effect.Effect<void, unknown>;
+	readonly wrapRunner?: (runner: WorkRunner) => WorkRunner;
 }
 
 export interface PlotSessionShape {
@@ -385,11 +386,16 @@ export function makePlotSessionLayer(
 
 			const runner = options.runner
 				? options.runner
-				: makeAgentRunner(
-						yield* AgentSessionClient,
-						options.agentRunner,
-						publishAgentEvent,
-					);
+				: yield* Effect.gen(function* () {
+						const agentRunner = makeAgentRunner(
+							yield* AgentSessionClient,
+							options.agentRunner,
+							publishAgentEvent,
+						);
+						return options.agentRunner.wrapRunner
+							? options.agentRunner.wrapRunner(agentRunner)
+							: agentRunner;
+					});
 			const plotAgentLayer = makePlotAgentLayer({
 				...options.agent,
 				sources: options.sources,

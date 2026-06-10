@@ -1,4 +1,12 @@
-import { Context, Deferred, Effect, Fiber, Layer, Stream } from "effect";
+import {
+	Context,
+	Deferred,
+	Effect,
+	Fiber,
+	Layer,
+	Schema,
+	Stream,
+} from "effect";
 import {
 	positiveInt,
 	setFact,
@@ -6,9 +14,11 @@ import {
 	subjectKey,
 	workKey,
 	type Completion,
+	type TickResult,
 } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makeAgentSessionClientLayer } from "./agent-session-client.js";
+import { makePlotExtensionSourceBundleFromWorkflow } from "./extension-source.js";
 import type { CreateAgentSession } from "./agent-session-types.js";
 import {
 	makePlotCreateAgentSession,
@@ -71,7 +81,16 @@ interface HostComposition {
 	readonly requestQueueCapacity: number;
 	readonly replayCapacity: number;
 	readonly sessionLayer: Layer.Layer<PlotSession, unknown, never>;
+	readonly shutdown: () => Effect.Effect<void>;
 }
+
+export class PlotSessionHostRunError extends Schema.TaggedErrorClass<PlotSessionHostRunError>()(
+	"PlotSessionHostRunError",
+	{
+		phase: Schema.Literal("run"),
+		message: Schema.String,
+	},
+) {}
 
 const workflowSourceId = sourceId("workflow");
 const workflowSubject = subjectKey("workflow");
@@ -146,6 +165,12 @@ const makeHostComposition = (
 			...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
 			...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
 		};
+		const extensionBundle = workflow.runtime.extension
+			? yield* makePlotExtensionSourceBundleFromWorkflow({ workflow, paths })
+			: undefined;
+		const sources = extensionBundle
+			? [extensionBundle.source]
+			: [makeOneShotWorkflowSource(workflow)];
 		const createAgentSession =
 			options.createAgentSession ??
 			makePlotCreateAgentSession({
@@ -161,12 +186,15 @@ const makeHostComposition = (
 		const sessionLayer = makePlotSessionLayer({
 			id: plotSessionId(options.sessionId),
 			workflow,
-			sources: [makeOneShotWorkflowSource(workflow)],
+			sources,
 			eventCapacity,
 			agent: agentOptions,
 			agentRunner: {
 				prompt: workflow.prompt,
 				create: { cwd: paths.cwd },
+				...(extensionBundle === undefined
+					? {}
+					: { wrapRunner: extensionBundle.wrapRunner }),
 			},
 		}).pipe(Layer.provide(agentSessionClientLayer));
 
@@ -176,6 +204,7 @@ const makeHostComposition = (
 			requestQueueCapacity,
 			replayCapacity,
 			sessionLayer,
+			shutdown: extensionBundle?.shutdown ?? (() => Effect.void),
 		};
 	});
 
@@ -184,8 +213,19 @@ const completionFromEvent = (
 ): Completion | undefined => {
 	if (event.type !== "plot_agent_event") return undefined;
 	if (event.event.type !== "work_completed") return undefined;
-	if (event.event.completion.workKey !== workflowWorkKey) return undefined;
 	return event.event.completion;
+};
+
+const quiescentTickFromEvent = (
+	event: PlotSessionEvent,
+): TickResult | undefined => {
+	if (event.type !== "plot_agent_event") return undefined;
+	if (event.event.type !== "tick_completed") return undefined;
+	const result = event.event.result;
+	if (result.snapshot.running.size > 0) return undefined;
+	if (result.started.length > 0) return undefined;
+	if (result.selected.length > 0) return undefined;
+	return result;
 };
 
 export const runPlotSessionHostOnce = (
@@ -194,16 +234,27 @@ export const runPlotSessionHostOnce = (
 	Effect.scoped(
 		Effect.gen(function* () {
 			const host = yield* makeHostComposition(options);
+			yield* Effect.addFinalizer(() => host.shutdown());
 			const context = yield* Layer.build(host.sessionLayer);
 			const session = Context.get(context, PlotSession);
-			const completed = yield* Deferred.make<Completion>();
+			const completed: Completion[] = [];
+			const quiescent = yield* Deferred.make<TickResult>();
 			const events = session.events().pipe(
 				Stream.runForEach((event) => {
 					const emit = options.onEvent?.(event) ?? Effect.void;
 					const completion = completionFromEvent(event);
-					if (completion === undefined) return emit;
+					const tick = quiescentTickFromEvent(event);
 					return emit.pipe(
-						Effect.andThen(Deferred.succeed(completed, completion)),
+						Effect.andThen(
+							completion === undefined
+								? Effect.void
+								: Effect.sync(() => completed.push(completion)),
+						),
+						Effect.andThen(
+							tick === undefined
+								? Effect.void
+								: Deferred.succeed(quiescent, tick),
+						),
 						Effect.asVoid,
 					);
 				}),
@@ -212,9 +263,16 @@ export const runPlotSessionHostOnce = (
 				Effect.forkScoped({ startImmediately: true }),
 			);
 			yield* session.start();
-			const completion = yield* Deferred.await(completed);
+			yield* Deferred.await(quiescent);
 			yield* Fiber.interrupt(eventsFiber);
 			yield* session.shutdown();
+			const completion = completed.at(-1);
+			if (completion === undefined) {
+				return yield* new PlotSessionHostRunError({
+					phase: "run",
+					message: "plot run finished without completing work",
+				});
+			}
 			return { workflow: host.workflow, paths: host.paths, completion };
 		}),
 	);
@@ -222,22 +280,25 @@ export const runPlotSessionHostOnce = (
 export const runPlotSessionHostStdio = (
 	options: PlotSessionHostStdioOptions,
 ): Effect.Effect<void, unknown> =>
-	Effect.gen(function* () {
-		const host = yield* makeHostComposition(options);
-		const limits = makePlotProtocolLimits({
-			requestQueueCapacity: host.requestQueueCapacity,
-			replayCapacity: host.replayCapacity,
-		});
-		const protocolLayer = makePlotProtocolLayer({
-			epoch: plotProtocolEpoch(options.sessionId),
-			limits,
-			outputCapacity: host.requestQueueCapacity,
-			auth: makePlotAuth(host.paths),
-		}).pipe(Layer.provide(host.sessionLayer));
+	Effect.scoped(
+		Effect.gen(function* () {
+			const host = yield* makeHostComposition(options);
+			yield* Effect.addFinalizer(() => host.shutdown());
+			const limits = makePlotProtocolLimits({
+				requestQueueCapacity: host.requestQueueCapacity,
+				replayCapacity: host.replayCapacity,
+			});
+			const protocolLayer = makePlotProtocolLayer({
+				epoch: plotProtocolEpoch(options.sessionId),
+				limits,
+				outputCapacity: host.requestQueueCapacity,
+				auth: makePlotAuth(host.paths),
+			}).pipe(Layer.provide(host.sessionLayer));
 
-		yield* runPlotProtocolStdio({
-			stdin: options.stdin,
-			writeStdout: options.writeStdout,
-			limits,
-		}).pipe(Effect.provide(protocolLayer));
-	});
+			yield* runPlotProtocolStdio({
+				stdin: options.stdin,
+				writeStdout: options.writeStdout,
+				limits,
+			}).pipe(Effect.provide(protocolLayer));
+		}),
+	);
