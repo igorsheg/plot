@@ -606,6 +606,34 @@ const makeAuthCommand = (io: PlotCliIo) =>
 		]),
 	);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const textFromContent = (content: unknown): string => {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.flatMap((block) => {
+			if (!isRecord(block)) return [];
+			if (block["type"] !== "text") return [];
+			const text = block["text"];
+			return typeof text === "string" ? [text] : [];
+		})
+		.join("\n");
+};
+
+const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
+	if (!isRecord(event)) return undefined;
+	const messages = event["messages"];
+	if (!Array.isArray(messages)) return undefined;
+	const assistant = messages.findLast(
+		(message) => isRecord(message) && message["role"] === "assistant",
+	);
+	if (!isRecord(assistant)) return undefined;
+	const text = textFromContent(assistant["content"]).trim();
+	return text.length > 0 ? text : undefined;
+};
+
 const renderRunEvent = (event: PlotSessionEvent): string | undefined => {
 	switch (event.type) {
 		case "session_started":
@@ -614,7 +642,12 @@ const renderRunEvent = (event: PlotSessionEvent): string | undefined => {
 			return `Shutdown session ${event.sessionId}.\n`;
 		case "agent_session_event":
 			if (event.eventType === "agent_start") return "Inner agent started.\n";
-			if (event.eventType === "agent_end") return "Inner agent finished.\n";
+			if (event.eventType === "agent_end") {
+				const finalText = finalAssistantTextFromAgentEnd(event.event);
+				return finalText === undefined
+					? "Inner agent finished.\n"
+					: `\nFinal assistant message:\n${finalText}\n\nInner agent finished.\n`;
+			}
 			return undefined;
 		case "plot_agent_event": {
 			const plotEvent = event.event;

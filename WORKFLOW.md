@@ -1,7 +1,7 @@
 ---
 name: plot-alpha-pr-review
 description: Review the current branch PR for Plot's alpha runtime rebuild.
-version: 1.1.0
+version: 1.2.0
 plot:
   queueCapacity: 8
   eventCapacity: 256
@@ -57,8 +57,12 @@ If the extension says the PR is draft and draft policy says to stop, do not
 perform a full review; say it is draft and stop unless explicitly asked to
 review drafts.
 
-If a previous review by the current GitHub user exists, perform an incremental
-re-review:
+If the extension says a previous review by the current GitHub user exists for
+this same PR head SHA, report that the current head has already been reviewed
+and stop without posting another review.
+
+If a previous review by the current GitHub user exists for an older head SHA,
+perform an incremental re-review:
 
 - Fetch the previous review body and inline comments.
 - Fetch commits since that review timestamp.
@@ -156,11 +160,22 @@ them blocking.
 
 ## 6. Posting
 
-Do not post a GitHub review automatically. End by asking whether to post, and
-recommend one of:
+This workflow is autonomous. Do not ask whether to post. Before finishing,
+write the review body to a temporary file and post exactly one GitHub PR review
+for the current head SHA.
 
-- APPROVE
-- COMMENT
-- REQUEST_CHANGES
+Use:
 
-If asked to post, use `gh pr review` with the current repository and PR number.
+- `gh pr review <number> --approve --body-file <file>` when no issues are
+  found.
+- `gh pr review <number> --comment --body-file <file>` for non-blocking LOW
+  issues or informational findings.
+- `gh pr review <number> --request-changes --body-file <file>` for verified
+  HIGH issues or any issue that should block merging.
+
+The posted review body should include the concise report from section 5 and the
+verification status, including whether `bun run check` was run.
+
+After posting, end your final assistant message with the posted disposition:
+`APPROVE`, `COMMENT`, or `REQUEST_CHANGES`. If posting fails, report the exact
+failure and do not claim success.

@@ -144,6 +144,8 @@ describe("plot CLI faux provider boundary", () => {
 		]);
 
 		expect(stdout).toContain("Started work workflow:default");
+		expect(stdout).toContain("Final assistant message:");
+		expect(stdout).toContain("hello from plot run");
 		expect(stdout).toContain("Completed work workflow:default: succeeded");
 		expect(stdout).not.toContain("Workflow cli-faux finished with succeeded");
 		expect(stderr).not.toContain("plot_cli.run");

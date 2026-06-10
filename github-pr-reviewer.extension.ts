@@ -24,6 +24,7 @@ interface PreviousReviewInfo {
 	readonly state: string;
 	readonly submittedAt?: string;
 	readonly url?: string;
+	readonly commitId?: string;
 }
 
 const defaultConfig: GitHubPrReviewerConfig = {
@@ -147,10 +148,12 @@ const parsePreviousReview = (
 	if (state === undefined) return undefined;
 	const submittedAt = stringField(value, "submitted_at");
 	const url = stringField(value, "html_url");
+	const commitId = stringField(value, "commit_id");
 	return {
 		state,
 		...(submittedAt === undefined ? {} : { submittedAt }),
 		...(url === undefined ? {} : { url }),
+		...(commitId === undefined ? {} : { commitId }),
 	};
 };
 
@@ -259,6 +262,15 @@ const contextBlock = (values: {
 		if (values.previousReview.url !== undefined) {
 			lines.push(`- Previous review URL: ${values.previousReview.url}`);
 		}
+		if (values.previousReview.commitId !== undefined) {
+			lines.push(`- Previous review commit: ${values.previousReview.commitId}`);
+		}
+		if (
+			values.pr.headRefOid !== undefined &&
+			values.previousReview.commitId === values.pr.headRefOid
+		) {
+			lines.push("- Previous review already covers the current head SHA");
+		}
 	}
 	return lines.join("\n");
 };
@@ -287,6 +299,12 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 				pr === undefined
 					? undefined
 					: await loadPreviousReview(paths.cwd, repo, pr.number);
+			if (
+				pr?.headRefOid !== undefined &&
+				previousReview?.commitId === pr.headRefOid
+			) {
+				return [];
+			}
 			const id =
 				pr === undefined
 					? `github:${repo}:branch:${branch}:no-pr`
