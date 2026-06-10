@@ -8,6 +8,8 @@ plot:
   replayCapacity: 512
   maxRunDurationMs: 900000
 agent:
+  provider: openai-codex
+  model: gpt-5.5
   thinking: high
   allowProjectConfig: true
 resources:
