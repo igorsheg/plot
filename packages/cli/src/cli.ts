@@ -2,7 +2,11 @@ import { createInterface } from "node:readline/promises";
 import { Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
-import { makePlotAuth } from "@plot/session/pi-auth";
+import {
+	makePlotAuth,
+	type PlotAuthStatusInfo,
+	type PlotModelInfo,
+} from "@plot/session/pi-auth";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
 import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
@@ -12,7 +16,8 @@ export const version = "0.0.0";
 
 export interface PlotCliIo {
 	readonly stdin: AsyncIterable<StdioChunk>;
-	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
+	readonly writeStdout: (text: string) => Effect.Effect<void, unknown>;
+	readonly writeStderr?: (text: string) => Effect.Effect<void, unknown>;
 	readonly createAgentSession?: CreateAgentSession;
 }
 
@@ -39,6 +44,7 @@ const writeProcessStdout = (line: string) =>
 export const processCliIo = (): PlotCliIo => ({
 	stdin: process.stdin as AsyncIterable<StdioChunk>,
 	writeStdout: writeProcessStdout,
+	writeStderr: writeProcessStderr,
 });
 
 const writeProcessStderr = (text: string) =>
@@ -53,51 +59,22 @@ const writeProcessStderr = (text: string) =>
 		catch: (error) => new PlotCliIoError({ message: errorMessage(error) }),
 	});
 
-const nowIso = () => new Date().toISOString();
+const writeCliStderr = (io: PlotCliIo, text: string) =>
+	(io.writeStderr ?? writeProcessStderr)(text);
 
-const jsonLine = (value: unknown) => `${JSON.stringify(value)}\n`;
-
-const commandEnvelope = (options: {
-	readonly command: string;
-	readonly result: unknown;
-	readonly nextActions?: readonly unknown[];
-}) => ({
-	ok: true,
-	command: options.command,
-	timestamp: nowIso(),
-	result: options.result,
-	next_actions: options.nextActions ?? [],
-});
-
-const errorEnvelope = (options: {
-	readonly command: string;
-	readonly error: unknown;
-	readonly fix: string;
-	readonly retryable?: boolean;
-}) => ({
-	ok: false,
-	command: options.command,
-	timestamp: nowIso(),
-	error: {
-		message: errorMessage(options.error),
-		retryable: options.retryable ?? false,
-	},
-	fix: options.fix,
-	next_actions: [],
-});
-
-const outputJsonCommand = (
+const runHumanCommand = <A>(
 	io: PlotCliIo,
-	command: string,
-	effect: Effect.Effect<unknown, unknown>,
+	effect: Effect.Effect<A, unknown>,
+	render: (value: A) => string,
 	fix: string,
 ) =>
 	effect.pipe(
-		Effect.map((result) => commandEnvelope({ command, result })),
+		Effect.flatMap((value) => io.writeStdout(render(value))),
 		Effect.catch((error) =>
-			Effect.succeed(errorEnvelope({ command, error, fix })),
+			writeCliStderr(io, `Error: ${errorMessage(error)}\nFix: ${fix}\n`).pipe(
+				Effect.andThen(Effect.fail(error)),
+			),
 		),
-		Effect.flatMap((record) => io.writeStdout(jsonLine(record))),
 	);
 
 const authPromise = <A>(run: () => Promise<A>) =>
@@ -105,6 +82,61 @@ const authPromise = <A>(run: () => Promise<A>) =>
 		try: run,
 		catch: (error) => new PlotCliIoError({ message: errorMessage(error) }),
 	});
+
+const formatTokenCount = (count: number): string => {
+	if (count >= 1_000_000) {
+		const millions = count / 1_000_000;
+		return millions % 1 === 0 ? `${millions}M` : `${millions.toFixed(1)}M`;
+	}
+	if (count >= 1_000) {
+		const thousands = count / 1_000;
+		return thousands % 1 === 0 ? `${thousands}K` : `${thousands.toFixed(1)}K`;
+	}
+	return count.toString();
+};
+
+const renderTable = (
+	rows: readonly Record<string, string>[],
+	headers: readonly string[],
+) => {
+	const widths = Object.fromEntries(
+		headers.map((header) => [
+			header,
+			Math.max(header.length, ...rows.map((row) => row[header]?.length ?? 0)),
+		]),
+	);
+	return [
+		headers.map((header) => header.padEnd(widths[header] ?? 0)).join("  "),
+		...rows.map((row) =>
+			headers
+				.map((header) => (row[header] ?? "").padEnd(widths[header] ?? 0))
+				.join("  "),
+		),
+	].join("\n");
+};
+
+const renderModels = (
+	search: string | undefined,
+	models: readonly PlotModelInfo[],
+) => {
+	if (models.length === 0) {
+		return search === undefined
+			? "No models available. Configure provider auth and try again.\n"
+			: `No models matching "${search}"\n`;
+	}
+	const body = renderTable(
+		models.map((model) => ({
+			provider: model.provider,
+			model: model.model,
+			context: formatTokenCount(model.context),
+			"max-out": formatTokenCount(model.maxOutput),
+			thinking: model.thinking ? "yes" : "no",
+			images: model.images ? "yes" : "no",
+		})),
+		["provider", "model", "context", "max-out", "thinking", "images"],
+	);
+	return `${body}\n`;
+};
 
 const listModels = (
 	io: PlotCliIo,
@@ -115,12 +147,25 @@ const listModels = (
 		readonly search?: string;
 	},
 ) =>
-	outputJsonCommand(
+	runHumanCommand(
 		io,
-		"list_models",
 		authPromise(() => makeAuth(options).listModels(options.search)),
+		(models) => renderModels(options.search, models),
 		"Configure provider auth or pass a valid --cwd/--plot-dir/--agent-dir.",
 	);
+
+const renderAuthStatus = (statuses: readonly PlotAuthStatusInfo[]) => {
+	if (statuses.length === 0) return "No auth providers found.\n";
+	return `${renderTable(
+		statuses.map((status) => ({
+			provider: status.provider,
+			configured: status.configured ? "yes" : "no",
+			source: status.source ?? "",
+			label: status.label ?? "",
+		})),
+		["provider", "configured", "source", "label"],
+	)}\n`;
+};
 
 const readPrompt = (message: string): Promise<string> => {
 	const readline = createInterface({
@@ -419,10 +464,10 @@ const makeAuthStatusCommand = (io: PlotCliIo) =>
 		},
 		(options) => {
 			const provider = Option.getOrUndefined(options.provider);
-			return outputJsonCommand(
+			return runHumanCommand(
 				io,
-				"auth status",
 				authPromise(() => makeAuth(options).status(provider)),
+				renderAuthStatus,
 				"Pass --provider <provider> from `plot --list-models`.",
 			);
 		},
@@ -438,12 +483,12 @@ const makeAuthLogoutCommand = (io: PlotCliIo) =>
 			provider: Flag.string("provider"),
 		},
 		(options) =>
-			outputJsonCommand(
+			runHumanCommand(
 				io,
-				"auth logout",
 				authPromise(() => makeAuth(options).logout(options.provider)).pipe(
-					Effect.as({ provider: options.provider, logged_out: true }),
+					Effect.as(options.provider),
 				),
+				(provider) => `Logged out from ${provider}.\n`,
 				"Pass a valid --provider from `plot --list-models`.",
 			),
 	).pipe(Command.withDescription("Remove stored auth for a provider"));
@@ -459,9 +504,8 @@ const makeAuthLoginCommand = (io: PlotCliIo) =>
 		},
 		(options) => {
 			const auth = makeAuth(options);
-			return outputJsonCommand(
+			return runHumanCommand(
 				io,
-				"auth login",
 				authPromise(() =>
 					auth.login({
 						provider: options.provider,
@@ -506,7 +550,8 @@ const makeAuthLoginCommand = (io: PlotCliIo) =>
 							return answer.trim() || prompt.options[0]?.id;
 						},
 					}),
-				).pipe(Effect.as({ provider: options.provider, logged_in: true })),
+				).pipe(Effect.as(options.provider)),
+				(provider) => `Logged in to ${provider}.\n`,
 				"Run in an interactive terminal or use the protocol auth_login command with promptResponses.",
 			);
 		},

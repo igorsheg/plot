@@ -57,7 +57,7 @@ describe("plot CLI", () => {
 		);
 	});
 
-	test("prints pi-style --list-models as a JSON command envelope", async () => {
+	test("prints pi-style --list-models as a text table", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-cli-models-"));
 		tempDirs.push(dir);
 		await writePlotFauxAgentFiles({ cwd: dir });
@@ -77,19 +77,11 @@ describe("plot CLI", () => {
 			else process.env["PLOT_FAUX_API_KEY"] = previousKey;
 		}
 
-		const record = JSON.parse(stdout.join("")) as {
-			readonly ok: boolean;
-			readonly command: string;
-			readonly result: readonly {
-				readonly provider: string;
-				readonly model: string;
-			}[];
-		};
-		expect(record.ok).toBe(true);
-		expect(record.command).toBe("list_models");
-		expect(record.result).toEqual([
-			expect.objectContaining({ provider: "plot-faux", model: "faux-1" }),
-		]);
+		const output = stdout.join("");
+		expect(output).toContain("provider");
+		expect(output).toContain("model");
+		expect(output).toContain("plot-faux");
+		expect(output).toContain("faux-1");
 	});
 
 	test("serves plot.v1 over stdio with telemetry on stderr", async () => {
