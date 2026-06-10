@@ -208,7 +208,7 @@ const plotDirFlag = Flag.optional(
 const agentDirFlag = Flag.optional(
 	Flag.string("agent-dir").pipe(
 		Flag.withDescription(
-			"pi-compatible agent directory, default <plot-dir>/agent",
+			"pi-compatible agent directory, default ~/.plot/agent",
 		),
 	),
 );

@@ -77,7 +77,11 @@ export const registerPlotFauxProvider = (
 export const writePlotFauxAgentFiles = async (
 	options: WritePlotFauxAgentFilesOptions,
 ) => {
-	const paths = resolvePlotPaths(options);
+	const localAgentDir = `${options.plotDir ?? ".plot"}/agent`;
+	const paths = resolvePlotPaths({
+		...options,
+		agentDir: options.agentDir ?? localAgentDir,
+	});
 	const provider = options.provider ?? DEFAULT_PROVIDER;
 	const modelId = options.modelId ?? DEFAULT_MODEL_ID;
 	const api = options.api ?? DEFAULT_API;

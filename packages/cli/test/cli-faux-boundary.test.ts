@@ -111,6 +111,8 @@ describe("plot CLI faux provider boundary", () => {
 				workflow.path,
 				"--cwd",
 				workflow.dir,
+				"--agent-dir",
+				join(workflow.dir, ".plot/agent"),
 				"--log-format",
 				"json",
 				"--provider",

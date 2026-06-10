@@ -67,10 +67,20 @@ describe("plot CLI", () => {
 
 		try {
 			await Effect.runPromise(
-				runPlotCli(["list-models", "faux", "--cwd", dir], {
-					stdin: chunks([]),
-					writeStdout: (line) => Effect.sync(() => stdout.push(line)),
-				}).pipe(Effect.provide(BunServices.layer)),
+				runPlotCli(
+					[
+						"list-models",
+						"faux",
+						"--cwd",
+						dir,
+						"--agent-dir",
+						join(dir, ".plot/agent"),
+					],
+					{
+						stdin: chunks([]),
+						writeStdout: (line) => Effect.sync(() => stdout.push(line)),
+					},
+				).pipe(Effect.provide(BunServices.layer)),
 			);
 		} finally {
 			if (previousKey === undefined) delete process.env["PLOT_FAUX_API_KEY"];

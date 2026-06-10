@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 export interface PlotPathOptions {
@@ -23,7 +24,7 @@ export const resolvePlotPaths = (options: PlotPathOptions): PlotPaths => {
 	return {
 		cwd,
 		plotDir,
-		agentDir: resolve(cwd, options.agentDir ?? `${plotDir}/agent`),
+		agentDir: resolve(cwd, options.agentDir ?? `${homedir()}/.plot/agent`),
 		sessionDir: resolve(cwd, options.sessionDir ?? `${plotDir}/sessions`),
 		skillsDir: resolve(cwd, `${plotDir}/skills`),
 		extensionsDir: resolve(cwd, `${plotDir}/extensions`),
