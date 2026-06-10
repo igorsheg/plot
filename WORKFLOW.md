@@ -29,7 +29,7 @@ resources:
       Important project invariants:
       - @plot/agent is provider-free, task-free, domain-free runtime machinery.
       - pi-mono integration belongs behind @plot/session or @plot/cli, never in @plot/agent.
-      - Public Plot extension authoring APIs must be plain TypeScript/Node ergonomics; no public Effect or Schema semantics.
+      - Public Plot extension authoring APIs must be plain TypeScript/Node ergonomics; no public framework-specific semantics.
       - WORKFLOW.md is config plus prompt, not a pipeline DSL.
       - Human CLI commands print human text. Machine protocol mode (`plot serve stdio`) prints only explicit `plot.v1` JSONL records on stdout.
       - Logs and telemetry go to stderr. Never leak raw or huge model payloads.

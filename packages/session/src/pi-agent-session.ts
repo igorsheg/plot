@@ -61,7 +61,7 @@ const withDefaultResourcePath = (
 	values: readonly string[] | undefined,
 ) => [defaultPath, ...workflowPaths(paths, values)];
 
-const effectiveAgent = (
+const resolvedAgent = (
 	workflow: WorkflowDefinition,
 	overrides: PlotAgentSessionCliOverrides | undefined,
 ): WorkflowAgentConfig => {
@@ -90,7 +90,7 @@ const effectiveAgent = (
 	};
 };
 
-const effectiveResources = (
+const resolvedResources = (
 	workflow: WorkflowDefinition,
 	overrides: PlotAgentSessionCliOverrides | undefined,
 ): WorkflowResourcesConfig => ({
@@ -159,8 +159,8 @@ export const makePlotCreateAgentSession = (
 	return async (
 		request?: CreateAgentSessionOptions,
 	): Promise<CreateAgentSessionResult> => {
-		const agent = effectiveAgent(workflow, overrides);
-		const resources = effectiveResources(workflow, overrides);
+		const agent = resolvedAgent(workflow, overrides);
+		const resources = resolvedResources(workflow, overrides);
 		const authStorage =
 			request?.authStorage ??
 			AuthStorage.create(join(paths.agentDir, "auth.json"));

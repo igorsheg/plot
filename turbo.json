@@ -12,11 +12,6 @@
 			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../../.oxlintrc.json"],
 			"outputs": []
 		},
-		"lint:effect": {
-			"dependsOn": ["^lint:effect"],
-			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../@repo/*.json"],
-			"outputs": []
-		},
 		"test": {
 			"dependsOn": ["^test"],
 			"inputs": ["$TURBO_DEFAULT$"],

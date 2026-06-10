@@ -60,12 +60,12 @@ const writeCliStderr = (io: PlotCliIo, text: string) =>
 	(io.writeStderr ?? writeProcessStderr)(text);
 const runHumanCommand = async <A>(
 	io: PlotCliIo,
-	effect: Promise<A>,
+	operation: Promise<A>,
 	render: (value: A) => string,
 	fix: string,
 ) => {
 	try {
-		await io.writeStdout(render(await effect));
+		await io.writeStdout(render(await operation));
 	} catch (error) {
 		await writeCliStderr(io, `Error: ${errorMessage(error)}\nFix: ${fix}\n`);
 		throw error;

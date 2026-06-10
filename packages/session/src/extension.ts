@@ -41,17 +41,17 @@ export interface PlotExtensionFailedEvent extends PlotExtensionWorkEvent {
 export interface PlotExtensionRuntime {
 	/** Discover eligible domain work. No returned work means this tick is a no-op. */
 	readonly discover: () => MaybePromise<readonly PlotExtensionWork[]>;
-	/** Optional side effect after Plot claims work and before the inner agent runs. */
+	/** Optional callback after Plot claims work and before the inner agent runs. */
 	readonly started?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
-	/** Optional side effect after the inner agent finishes successfully. */
+	/** Optional callback after the inner agent finishes successfully. */
 	readonly completed?: (
 		event: PlotExtensionCompletedEvent,
 	) => MaybePromise<void>;
-	/** Optional side effect after the inner agent fails. */
+	/** Optional callback after the inner agent fails. */
 	readonly failed?: (event: PlotExtensionFailedEvent) => MaybePromise<void>;
-	/** Optional side effect after Plot interrupts a run. */
+	/** Optional callback after Plot interrupts a run. */
 	readonly interrupted?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
-	/** Optional side effect after Plot times out a run. */
+	/** Optional callback after Plot times out a run. */
 	readonly timedOut?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
 	/** Optional process/session cleanup. */
 	readonly shutdown?: () => MaybePromise<void>;

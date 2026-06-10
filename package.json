@@ -9,8 +9,7 @@
 	"scripts": {
 		"bootstrap": "bun install",
 		"typecheck": "tsc -p tsconfig.json --noEmit && turbo run typecheck",
-		"lint": "oxlint github-pr-reviewer.extension.ts github-pr-review-poster.ts --tsconfig tsconfig.json && turbo run lint && bun run lint:effect",
-		"lint:effect": "turbo run lint:effect",
+		"lint": "oxlint github-pr-reviewer.extension.ts github-pr-review-poster.ts --tsconfig tsconfig.json && turbo run lint",
 		"format": "oxfmt .",
 		"format:check": "oxfmt --check .",
 		"test": "turbo run test",

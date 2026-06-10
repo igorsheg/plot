@@ -10,7 +10,6 @@
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
-		"lint:effect": "echo effect-free",
 		"test": "bun test test"
 	},
 	"devDependencies": {
