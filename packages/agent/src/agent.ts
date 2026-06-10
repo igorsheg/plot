@@ -1083,9 +1083,7 @@ export const makePlotAgentLayer = (options: PlotAgentLayerOptions) => {
 						const alreadyStarted = yield* Ref.get(actorStarted);
 						if (alreadyStarted) return;
 						yield* Ref.set(actorStarted, true);
-						if (tickIntervalMs !== undefined) {
-							yield* Queue.offer(mailbox, { type: "wake" });
-						}
+						yield* Queue.offer(mailbox, { type: "wake" });
 						yield* run().pipe(
 							Effect.ensuring(Ref.set(actorStarted, false)),
 							Effect.forkIn(actorScope, { startImmediately: true }),

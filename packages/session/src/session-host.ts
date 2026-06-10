@@ -1,6 +1,7 @@
 import { Context, Deferred, Effect, Fiber, Layer, Stream } from "effect";
 import {
 	positiveInt,
+	setFact,
 	sourceId,
 	subjectKey,
 	workKey,
@@ -75,17 +76,24 @@ interface HostComposition {
 const workflowSourceId = sourceId("workflow");
 const workflowSubject = subjectKey("workflow");
 const workflowWorkKey = workKey("workflow:default");
+const workflowCompletedFact = "workflow:default:completed";
 
 export const makeOneShotWorkflowSource = (
 	workflow: WorkflowDefinition,
 ): WorkSource => ({
 	id: workflowSourceId,
-	selectWork: ({ snapshot }) => {
-		if (snapshot.running.has(workflowWorkKey)) return Effect.succeed([]);
+	reconcile: ({ snapshot }) => {
 		const completed = snapshot.completions.some(
 			(completion) => completion.workKey === workflowWorkKey,
 		);
-		if (completed) return Effect.succeed([]);
+		if (!completed) return Effect.succeed([]);
+		return Effect.succeed([setFact(workflowCompletedFact, true)]);
+	},
+	selectWork: ({ snapshot }) => {
+		if (snapshot.running.has(workflowWorkKey)) return Effect.succeed([]);
+		if (snapshot.facts.get(workflowCompletedFact) === true) {
+			return Effect.succeed([]);
+		}
 		return Effect.succeed([
 			{
 				workKey: workflowWorkKey,
@@ -171,13 +179,6 @@ const makeHostComposition = (
 		};
 	});
 
-const completionFromTickResult = (result: {
-	readonly completions: readonly Completion[];
-}): Completion | undefined =>
-	result.completions.find(
-		(completion) => completion.workKey === workflowWorkKey,
-	);
-
 const completionFromEvent = (
 	event: PlotSessionEvent,
 ): Completion | undefined => {
@@ -186,11 +187,6 @@ const completionFromEvent = (
 	if (event.event.completion.workKey !== workflowWorkKey) return undefined;
 	return event.event.completion;
 };
-
-const isWorkflowAgentEnd = (event: PlotSessionEvent) =>
-	event.type === "agent_session_event" &&
-	event.workKey === workflowWorkKey &&
-	event.eventType === "agent_end";
 
 export const runPlotSessionHostOnce = (
 	options: PlotSessionHostRunOptions,
@@ -201,41 +197,22 @@ export const runPlotSessionHostOnce = (
 			const context = yield* Layer.build(host.sessionLayer);
 			const session = Context.get(context, PlotSession);
 			const completed = yield* Deferred.make<Completion>();
-			const agentEnded = yield* Deferred.make<void>();
 			const events = session.events().pipe(
 				Stream.runForEach((event) => {
 					const emit = options.onEvent?.(event) ?? Effect.void;
 					const completion = completionFromEvent(event);
-					if (completion !== undefined) {
-						return emit.pipe(
-							Effect.andThen(Deferred.succeed(completed, completion)),
-							Effect.asVoid,
-						);
-					}
-					if (isWorkflowAgentEnd(event)) {
-						return emit.pipe(
-							Effect.andThen(Deferred.succeed(agentEnded, undefined)),
-							Effect.asVoid,
-						);
-					}
-					return emit;
+					if (completion === undefined) return emit;
+					return emit.pipe(
+						Effect.andThen(Deferred.succeed(completed, completion)),
+						Effect.asVoid,
+					);
 				}),
 			);
 			const eventsFiber = yield* events.pipe(
 				Effect.forkScoped({ startImmediately: true }),
 			);
-			const firstTick = yield* session.tickOnce();
-			let completion = completionFromTickResult(firstTick);
-			if (completion === undefined) {
-				completion = yield* Deferred.await(completed).pipe(
-					Effect.race(Deferred.await(agentEnded).pipe(Effect.as(undefined))),
-				);
-			}
-			while (completion === undefined) {
-				yield* Effect.sleep(50);
-				const tick = yield* session.tickOnce();
-				completion = completionFromTickResult(tick);
-			}
+			yield* session.start();
+			const completion = yield* Deferred.await(completed);
 			yield* Fiber.interrupt(eventsFiber);
 			yield* session.shutdown();
 			return { workflow: host.workflow, paths: host.paths, completion };

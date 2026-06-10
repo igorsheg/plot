@@ -29,9 +29,16 @@ describe("PlotSession", () => {
 			Effect.scoped(
 				Effect.gen(function* () {
 					const session = yield* PlotSession;
-					const fiber = yield* session
-						.events()
-						.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
+					const fiber = yield* session.events().pipe(
+						Stream.filter(
+							(event) =>
+								event.type === "session_started" ||
+								event.type === "session_shutdown",
+						),
+						Stream.take(2),
+						Stream.runCollect,
+						Effect.forkScoped,
+					);
 					yield* Effect.yieldNow;
 					yield* session.start();
 					yield* session.shutdown();
@@ -46,7 +53,8 @@ describe("PlotSession", () => {
 			"session_started",
 			"session_shutdown",
 		]);
-		expect(result.map((event) => Number(event.sequence))).toEqual([1, 2]);
+		expect(Number(result[0]?.sequence)).toBe(1);
+		expect(Number(result[1]?.sequence)).toBeGreaterThan(1);
 	});
 
 	test("wraps plot agent events for outer status surfaces", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Fiber, Layer, Stream } from "effect";
-import { sourceId, workKey } from "@plot/agent/model";
+import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
+import { setFact, sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makePlotSessionLayer } from "../src/plot-session.js";
@@ -10,6 +10,7 @@ import {
 	plotProtocolEpoch,
 	plotProtocolRequestId,
 	plotProtocolSequence,
+	type PlotServerRecord,
 } from "../src/protocol.js";
 import {
 	PlotProtocol,
@@ -37,9 +38,23 @@ const request = (
 	});
 
 const testLayer = (options: { readonly auth?: PlotAuthShape } = {}) => {
+	const key = workKey("protocol:1");
+	const completedFact = "protocol:completed";
 	const source: WorkSource = {
 		id: sourceId("protocol-source"),
-		selectWork: () => Effect.succeed([{ workKey: workKey("protocol:1") }]),
+		reconcile: ({ snapshot }) => {
+			const completed = snapshot.completions.some(
+				(completion) => completion.workKey === key,
+			);
+			if (!completed) return Effect.succeed([]);
+			return Effect.succeed([setFact(completedFact, true)]);
+		},
+		selectWork: ({ snapshot }) => {
+			if (snapshot.facts.get(completedFact) === true) {
+				return Effect.succeed([]);
+			}
+			return Effect.succeed([{ workKey: key }]);
+		},
 	};
 	const runner: WorkRunner = {
 		run: () => Effect.succeed({}),
@@ -225,34 +240,66 @@ describe("PlotProtocol handler", () => {
 			Effect.scoped(
 				Effect.gen(function* () {
 					const protocol = yield* PlotProtocol;
-					const fiber = yield* protocol
-						.output()
-						.pipe(Stream.take(4), Stream.runCollect, Effect.forkScoped);
+					const done = yield* Deferred.make<void>();
+					const outputRecords: PlotServerRecord[] = [];
+					const fiber = yield* protocol.output().pipe(
+						Stream.runForEach((record) => {
+							outputRecords.push(record);
+							if (
+								record.kind === "response" &&
+								record.id === plotProtocolRequestId("req-2")
+							) {
+								return Deferred.succeed(done, undefined).pipe(Effect.asVoid);
+							}
+							return Effect.void;
+						}),
+						Effect.forkScoped,
+					);
 					yield* Effect.yieldNow;
 					yield* protocol.submit(request("req-1", "start"));
 					yield* protocol.submit(
 						request("req-2", "subscribe", { afterSequence: 0 }),
 					);
-					return yield* Fiber.join(fiber);
+					yield* Deferred.await(done);
+					yield* Fiber.interrupt(fiber);
+					return outputRecords;
 				}),
 			).pipe(Effect.provide(testLayer())),
 		);
 
-		expect(records.map((record) => record.kind)).toEqual([
-			"event",
-			"response",
-			"event",
-			"response",
-		]);
-		expect(records[2]).toEqual(records[0]);
-		expect(records[3]).toEqual(
+		const startResponseIndex = records.findIndex(
+			(record) =>
+				record.kind === "response" &&
+				record.id === plotProtocolRequestId("req-1"),
+		);
+		const subscribeResponseIndex = records.findIndex(
+			(record) =>
+				record.kind === "response" &&
+				record.id === plotProtocolRequestId("req-2"),
+		);
+		const firstEvent = records.find((record) => record.kind === "event");
+		const replayedEvents = records
+			.slice(startResponseIndex + 1, subscribeResponseIndex)
+			.filter((record) => record.kind === "event");
+		const subscribeResponse = records[subscribeResponseIndex];
+
+		if (firstEvent === undefined) {
+			throw new Error("missing start event");
+		}
+		expect(startResponseIndex).toBeGreaterThan(0);
+		expect(subscribeResponseIndex).toBeGreaterThan(startResponseIndex);
+		expect(replayedEvents).toContainEqual(firstEvent);
+		expect(subscribeResponse).toEqual(
 			expect.objectContaining({
 				kind: "response",
 				id: plotProtocolRequestId("req-2"),
 				command: "subscribe",
 				ok: true,
-				lastEventSeq: plotProtocolSequence(1),
 			}),
 		);
+		if (subscribeResponse?.kind !== "response") {
+			throw new Error("missing subscribe response");
+		}
+		expect(Number(subscribeResponse.lastEventSeq)).toBeGreaterThan(0);
 	});
 });
