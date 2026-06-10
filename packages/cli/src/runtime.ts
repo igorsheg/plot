@@ -25,8 +25,8 @@ import {
 	type StdioChunk,
 } from "@plot/session/protocol-stdio";
 import {
-	DEFAULT_WORKFLOW_PATH,
-	loadWorkflowFromNode,
+	loadDiscoveredWorkflowFromNode,
+	resolveWorkflowPath,
 	type WorkflowDefinition,
 } from "@plot/session/workflow";
 import type { LogLevel as EffectLogLevel } from "effect/LogLevel";
@@ -124,12 +124,21 @@ export const serveStdio = (
 	return withWideEvent(
 		"plot_cli.serve_stdio",
 		{
-			workflow_path: options.workflowPath ?? DEFAULT_WORKFLOW_PATH,
+			workflow_path: resolveWorkflowPath({
+				cwd: options.cwd,
+				...(options.workflowPath === undefined
+					? {}
+					: { workflowPath: options.workflowPath }),
+			}),
 			session_id: options.sessionId,
 		},
 		Effect.gen(function* () {
-			const workflowPath = options.workflowPath ?? DEFAULT_WORKFLOW_PATH;
-			const workflow = yield* loadWorkflowFromNode(workflowPath);
+			const workflow = yield* loadDiscoveredWorkflowFromNode({
+				cwd: options.cwd,
+				...(options.workflowPath === undefined
+					? {}
+					: { workflowPath: options.workflowPath }),
+			});
 			const paths = resolvePlotPaths({
 				cwd: options.cwd,
 				...(options.plotDir === undefined ? {} : { plotDir: options.plotDir }),

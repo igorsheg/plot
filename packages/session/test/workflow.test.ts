@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
+	DEFAULT_WORKFLOW_PATH,
 	WorkflowFileSystem,
 	loadWorkflow,
 	parseWorkflowText,
+	resolveWorkflowPath,
 } from "../src/workflow.js";
 
 describe("workflow contract", () => {
@@ -79,5 +81,20 @@ Use the current task context.
 			path: "custom/WORKFLOW.md",
 			prompt: "Do it.",
 		});
+	});
+
+	test("resolves workflow discovery relative to the project cwd", () => {
+		expect(resolveWorkflowPath({ cwd: "/repo" })).toBe(
+			`/repo/${DEFAULT_WORKFLOW_PATH}`,
+		);
+		expect(
+			resolveWorkflowPath({ cwd: "/repo", workflowPath: "ops/review.md" }),
+		).toBe("/repo/ops/review.md");
+		expect(
+			resolveWorkflowPath({
+				cwd: "/repo",
+				workflowPath: "/tmp/WORKFLOW.md",
+			}),
+		).toBe("/tmp/WORKFLOW.md");
 	});
 });

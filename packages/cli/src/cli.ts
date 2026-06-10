@@ -185,10 +185,11 @@ const searchArg = Argument.string("search").pipe(
 	Argument.withDescription("Optional model search text"),
 );
 
-const workflowFlag = Flag.string("workflow").pipe(
-	Flag.withDefault(DEFAULT_WORKFLOW_PATH),
-	Flag.withDescription(
-		`Path to the WORKFLOW.md contract to load, default ${DEFAULT_WORKFLOW_PATH}`,
+const workflowFlag = Flag.optional(
+	Flag.string("workflow").pipe(
+		Flag.withDescription(
+			`Path to the WORKFLOW.md contract to load, default ${DEFAULT_WORKFLOW_PATH} in --cwd`,
+		),
 	),
 );
 
@@ -634,6 +635,7 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 			appendSystemPrompt: appendSystemPromptFlag,
 		},
 		(options) => {
+			const workflowPath = Option.getOrUndefined(options.workflowPath);
 			const plotDir = Option.getOrUndefined(options.plotDir);
 			const agentDir = Option.getOrUndefined(options.agentDir);
 			const sessionDir = Option.getOrUndefined(options.sessionDir);
@@ -646,7 +648,7 @@ const makeServeStdioCommand = (io: PlotCliIo) =>
 			const maxRunDurationMs = Option.getOrUndefined(options.maxRunDurationMs);
 			const agentSessionOverrides = makeAgentSessionOverrides(options);
 			return serveStdio({
-				workflowPath: options.workflowPath,
+				...(workflowPath === undefined ? {} : { workflowPath }),
 				sessionId: options.sessionId,
 				cwd: options.cwd,
 				...(plotDir === undefined ? {} : { plotDir }),

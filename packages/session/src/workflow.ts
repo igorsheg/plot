@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { withWideEvent } from "@plot/common/observability";
 import { parse as parseYaml } from "yaml";
 
@@ -173,6 +174,20 @@ export const parseWorkflowText = (
 
 export const DEFAULT_WORKFLOW_PATH = "WORKFLOW.md";
 
+export interface WorkflowDiscoveryOptions {
+	readonly cwd: string;
+	readonly workflowPath?: string;
+}
+
+export const resolveWorkflowPath = (
+	options: WorkflowDiscoveryOptions,
+): string => {
+	const workflowPath = options.workflowPath ?? DEFAULT_WORKFLOW_PATH;
+	return isAbsolute(workflowPath)
+		? workflowPath
+		: resolve(options.cwd, workflowPath);
+};
+
 export const loadWorkflow = (
 	path = DEFAULT_WORKFLOW_PATH,
 ): Effect.Effect<WorkflowDefinition, PlotWorkflowError, WorkflowFileSystem> =>
@@ -190,3 +205,8 @@ export const loadWorkflowFromNode = (
 	path = DEFAULT_WORKFLOW_PATH,
 ): Effect.Effect<WorkflowDefinition, PlotWorkflowError> =>
 	loadWorkflow(path).pipe(Effect.provide(nodeWorkflowFileSystemLayer));
+
+export const loadDiscoveredWorkflowFromNode = (
+	options: WorkflowDiscoveryOptions,
+): Effect.Effect<WorkflowDefinition, PlotWorkflowError> =>
+	loadWorkflowFromNode(resolveWorkflowPath(options));
