@@ -1,7 +1,12 @@
 import { createInterface } from "node:readline/promises";
 import { Effect, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
+import {
+	runOnce,
+	serveStdio,
+	type LogFormat,
+	type LogLevelFlag,
+} from "./runtime.js";
 import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
 import {
 	makePlotAuth,
@@ -10,6 +15,7 @@ import {
 } from "@plot/session/pi-auth";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
+import type { PlotSessionEvent } from "@plot/session/plot-session";
 import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 
@@ -600,6 +606,132 @@ const makeAuthCommand = (io: PlotCliIo) =>
 		]),
 	);
 
+const renderRunEvent = (event: PlotSessionEvent): string | undefined => {
+	switch (event.type) {
+		case "session_started":
+			return `Started session ${event.sessionId}.\n`;
+		case "session_shutdown":
+			return `Shutdown session ${event.sessionId}.\n`;
+		case "agent_session_event":
+			if (event.eventType === "agent_start") return "Inner agent started.\n";
+			if (event.eventType === "agent_end") return "Inner agent finished.\n";
+			return undefined;
+		case "plot_agent_event": {
+			const plotEvent = event.event;
+			if (plotEvent.type === "work_started") {
+				return `Started work ${plotEvent.run.workKey}.\n`;
+			}
+			if (plotEvent.type === "work_completed") {
+				return `Completed work ${plotEvent.completion.workKey}: ${plotEvent.completion.status}.\n`;
+			}
+			return undefined;
+		}
+	}
+};
+
+const makeRunCommand = (io: PlotCliIo) =>
+	Command.make(
+		"run",
+		{
+			workflowPath: workflowFlag,
+			sessionId: sessionIdFlag,
+			cwd: cwdFlag,
+			plotDir: plotDirFlag,
+			agentDir: agentDirFlag,
+			sessionDir: sessionDirFlag,
+			logLevel: logLevelFlag,
+			logFormat: logFormatFlag,
+			requestQueueCapacity: requestQueueCapacityFlag,
+			eventCapacity: eventCapacityFlag,
+			replayCapacity: replayCapacityFlag,
+			tickIntervalMs: tickIntervalMsFlag,
+			maxRunDurationMs: maxRunDurationMsFlag,
+			provider: providerFlag,
+			model: modelFlag,
+			apiKey: apiKeyFlag,
+			thinking: thinkingFlag,
+			tools: toolsFlag,
+			excludeTools: excludeToolsFlag,
+			noTools: noToolsFlag,
+			noBuiltinTools: noBuiltinToolsFlag,
+			projectConfig: projectConfigFlag,
+			skills: skillFlag,
+			promptTemplates: promptTemplateFlag,
+			noSkills: noSkillsFlag,
+			noPromptTemplates: noPromptTemplatesFlag,
+			noContextFiles: noContextFilesFlag,
+			systemPrompt: systemPromptFlag,
+			appendSystemPrompt: appendSystemPromptFlag,
+		},
+		(options) => {
+			const workflowPath = Option.getOrUndefined(options.workflowPath);
+			const plotDir = Option.getOrUndefined(options.plotDir);
+			const agentDir = Option.getOrUndefined(options.agentDir);
+			const sessionDir = Option.getOrUndefined(options.sessionDir);
+			const requestQueueCapacity = Option.getOrUndefined(
+				options.requestQueueCapacity,
+			);
+			const eventCapacity = Option.getOrUndefined(options.eventCapacity);
+			const replayCapacity = Option.getOrUndefined(options.replayCapacity);
+			const tickIntervalMs = Option.getOrUndefined(options.tickIntervalMs);
+			const maxRunDurationMs = Option.getOrUndefined(options.maxRunDurationMs);
+			const agentSessionOverrides = makeAgentSessionOverrides(options);
+			return runOnce({
+				...(workflowPath === undefined ? {} : { workflowPath }),
+				sessionId: options.sessionId,
+				cwd: options.cwd,
+				...(plotDir === undefined ? {} : { plotDir }),
+				...(agentDir === undefined ? {} : { agentDir }),
+				...(sessionDir === undefined ? {} : { sessionDir }),
+				logLevel: options.logLevel as LogLevelFlag,
+				logFormat: options.logFormat as LogFormat,
+				...(requestQueueCapacity === undefined ? {} : { requestQueueCapacity }),
+				...(eventCapacity === undefined ? {} : { eventCapacity }),
+				...(replayCapacity === undefined ? {} : { replayCapacity }),
+				...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
+				...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
+				...(agentSessionOverrides === undefined
+					? {}
+					: { agentSessionOverrides }),
+				...(io.createAgentSession === undefined
+					? {}
+					: { createAgentSession: io.createAgentSession }),
+				onEvent: (event) => {
+					const line = renderRunEvent(event);
+					return line === undefined ? Effect.void : io.writeStdout(line);
+				},
+			}).pipe(
+				Effect.flatMap((result) => {
+					const completion = result.completion;
+					const workflowName =
+						result.workflow.runtime.name ??
+						result.workflow.config["name"] ??
+						"workflow";
+					const summary = `Workflow ${workflowName} finished with ${completion.status}.\n`;
+					const write = io.writeStdout(summary);
+					if (completion.status === "succeeded") return write;
+					return write.pipe(
+						Effect.andThen(
+							Effect.fail(
+								new PlotCliIoError({
+									message: completion.error ?? completion.status,
+								}),
+							),
+						),
+					);
+				}),
+				Effect.catch((error) =>
+					writeCliStderr(
+						io,
+						`Error: ${errorMessage(error)}\nFix: Check WORKFLOW.md, auth status, and provider/model settings.\n`,
+					).pipe(Effect.andThen(Effect.fail(error))),
+				),
+			);
+		},
+	).pipe(
+		Command.withDescription("Run WORKFLOW.md once and print human progress"),
+	);
+
 const makeServeStdioCommand = (io: PlotCliIo) =>
 	Command.make(
 		"stdio",
@@ -687,6 +819,7 @@ export const makePlotCommand = (io: PlotCliIo = processCliIo()) => {
 		Command.withDescription("Autonomous Plot runtime"),
 		Command.withSubcommands([
 			makeListModelsCommand(io),
+			makeRunCommand(io),
 			serve,
 			makeAuthCommand(io),
 		]),

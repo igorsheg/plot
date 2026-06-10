@@ -1,5 +1,11 @@
-import { Effect, Layer } from "effect";
-import { positiveInt, sourceId, subjectKey, workKey } from "@plot/agent/model";
+import { Context, Effect, Fiber, Layer, Stream } from "effect";
+import {
+	positiveInt,
+	sourceId,
+	subjectKey,
+	workKey,
+	type Completion,
+} from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makeAgentSessionClientLayer } from "./agent-session-client.js";
 import type { CreateAgentSession } from "./agent-session-types.js";
@@ -8,8 +14,13 @@ import {
 	type PlotAgentSessionCliOverrides,
 } from "./pi-agent-session.js";
 import { makePlotAuth } from "./pi-auth.js";
-import { resolvePlotPaths } from "./plot-paths.js";
-import { makePlotSessionLayer, plotSessionId } from "./plot-session.js";
+import { resolvePlotPaths, type PlotPaths } from "./plot-paths.js";
+import {
+	makePlotSessionLayer,
+	PlotSession,
+	plotSessionId,
+	type PlotSessionEvent,
+} from "./plot-session.js";
 import { makePlotProtocolLayer } from "./protocol-handler.js";
 import {
 	PlotProtocolLimits,
@@ -22,7 +33,7 @@ import {
 	type WorkflowDefinition,
 } from "./workflow.js";
 
-export interface PlotSessionHostStdioOptions {
+export interface PlotSessionHostOptions {
 	readonly workflowPath?: string;
 	readonly sessionId: string;
 	readonly cwd: string;
@@ -36,8 +47,29 @@ export interface PlotSessionHostStdioOptions {
 	readonly maxRunDurationMs?: number;
 	readonly agentSessionOverrides?: PlotAgentSessionCliOverrides;
 	readonly createAgentSession?: CreateAgentSession;
+}
+
+export interface PlotSessionHostStdioOptions extends PlotSessionHostOptions {
 	readonly stdin: AsyncIterable<StdioChunk>;
 	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
+}
+
+export interface PlotSessionHostRunOptions extends PlotSessionHostOptions {
+	readonly onEvent?: (event: PlotSessionEvent) => Effect.Effect<void, unknown>;
+}
+
+export interface PlotSessionHostRunResult {
+	readonly workflow: WorkflowDefinition;
+	readonly paths: PlotPaths;
+	readonly completion: Completion;
+}
+
+interface HostComposition {
+	readonly workflow: WorkflowDefinition;
+	readonly paths: PlotPaths;
+	readonly requestQueueCapacity: number;
+	readonly replayCapacity: number;
+	readonly sessionLayer: Layer.Layer<PlotSession, unknown, never>;
 }
 
 const workflowSourceId = sourceId("workflow");
@@ -74,9 +106,9 @@ export const makePlotProtocolLimits = (values: {
 		maxEventBufferEvents: positiveInt(values.replayCapacity),
 	});
 
-export const runPlotSessionHostStdio = (
-	options: PlotSessionHostStdioOptions,
-): Effect.Effect<void, unknown> =>
+const makeHostComposition = (
+	options: PlotSessionHostOptions,
+): Effect.Effect<HostComposition, unknown> =>
 	Effect.gen(function* () {
 		const workflow = yield* loadDiscoveredWorkflowFromNode({
 			cwd: options.cwd,
@@ -129,16 +161,67 @@ export const runPlotSessionHostStdio = (
 				create: { cwd: paths.cwd },
 			},
 		}).pipe(Layer.provide(agentSessionClientLayer));
-		const limits = makePlotProtocolLimits({
+
+		return {
+			workflow,
+			paths,
 			requestQueueCapacity,
 			replayCapacity,
+			sessionLayer,
+		};
+	});
+
+const completionFromTickResult = (result: {
+	readonly completions: readonly Completion[];
+}): Completion | undefined =>
+	result.completions.find(
+		(completion) => completion.workKey === workflowWorkKey,
+	);
+
+export const runPlotSessionHostOnce = (
+	options: PlotSessionHostRunOptions,
+): Effect.Effect<PlotSessionHostRunResult, unknown> =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const host = yield* makeHostComposition(options);
+			const context = yield* Layer.build(host.sessionLayer);
+			const session = Context.get(context, PlotSession);
+			const events = session
+				.events()
+				.pipe(
+					Stream.runForEach((event) => options.onEvent?.(event) ?? Effect.void),
+				);
+			const eventsFiber = yield* events.pipe(
+				Effect.forkScoped({ startImmediately: true }),
+			);
+			let tick = yield* session.tickOnce();
+			let completion = completionFromTickResult(tick);
+			while (completion === undefined) {
+				yield* Effect.sleep(50);
+				tick = yield* session.tickOnce();
+				completion = completionFromTickResult(tick);
+			}
+			yield* Fiber.interrupt(eventsFiber);
+			yield* session.shutdown();
+			return { workflow: host.workflow, paths: host.paths, completion };
+		}),
+	);
+
+export const runPlotSessionHostStdio = (
+	options: PlotSessionHostStdioOptions,
+): Effect.Effect<void, unknown> =>
+	Effect.gen(function* () {
+		const host = yield* makeHostComposition(options);
+		const limits = makePlotProtocolLimits({
+			requestQueueCapacity: host.requestQueueCapacity,
+			replayCapacity: host.replayCapacity,
 		});
 		const protocolLayer = makePlotProtocolLayer({
 			epoch: plotProtocolEpoch(options.sessionId),
 			limits,
-			outputCapacity: requestQueueCapacity,
-			auth: makePlotAuth(paths),
-		}).pipe(Layer.provide(sessionLayer));
+			outputCapacity: host.requestQueueCapacity,
+			auth: makePlotAuth(host.paths),
+		}).pipe(Layer.provide(host.sessionLayer));
 
 		yield* runPlotProtocolStdio({
 			stdin: options.stdin,

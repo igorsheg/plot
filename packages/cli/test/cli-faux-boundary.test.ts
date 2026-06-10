@@ -99,6 +99,51 @@ describe("plot CLI faux provider boundary", () => {
 		);
 	});
 
+	test("runs WORKFLOW.md once with the production Plot pi factory", async () => {
+		const workflow = await makeWorkflowFile();
+		const child = Bun.spawn(
+			[
+				"bun",
+				fileURLToPath(new URL("../src/testing-main.ts", import.meta.url)),
+				"run",
+				"--workflow",
+				workflow.path,
+				"--cwd",
+				workflow.dir,
+				"--agent-dir",
+				join(workflow.dir, ".plot/agent"),
+				"--log-format",
+				"json",
+				"--provider",
+				"plot-faux",
+				"--model",
+				"faux-1",
+				"--no-tools",
+			],
+			{
+				stdout: "pipe",
+				stderr: "pipe",
+				env: {
+					...process.env,
+					PLOT_FAUX_API_KEY: "plot-faux-key",
+					PLOT_FAUX_RESPONSE_TEXT: "hello from plot run",
+				},
+			},
+		);
+
+		const [stdout, stderr, exitCode] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+
+		expect(exitCode).toBe(0);
+		expect(stdout).toContain("Started work workflow:default");
+		expect(stdout).toContain("Completed work workflow:default: succeeded");
+		expect(stdout).toContain("Workflow cli-faux finished with succeeded");
+		expect(stderr).toContain("plot_cli.run");
+	});
+
 	test("exercises the production Plot pi factory with a deterministic faux provider", async () => {
 		const workflow = await makeWorkflowFile();
 		const child = Bun.spawn(
