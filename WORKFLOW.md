@@ -1,7 +1,7 @@
 ---
 name: plot-alpha-pr-review
 description: Review the current branch PR for Plot's alpha runtime rebuild.
-version: 1.2.0
+version: 1.3.0
 plot:
   queueCapacity: 8
   eventCapacity: 256
@@ -58,11 +58,11 @@ If the extension says the PR is draft and draft policy says to stop, do not
 perform a full review; say it is draft and stop unless explicitly asked to
 review drafts.
 
-If the extension says a previous Plot review comment already exists for this
-same PR head SHA, report that the current head has already been reviewed and
-stop without posting another comment.
+If the extension says a previous Plot review post already exists for this same
+PR head SHA, report that the current head has already been reviewed and stop
+without posting another review.
 
-If a previous GitHub review or Plot review comment by the current GitHub user
+If a previous GitHub review or Plot review post by the current GitHub user
 exists for an older head SHA, perform an incremental re-review:
 
 - Fetch the previous review body and inline comments.
@@ -162,34 +162,81 @@ them blocking.
 ## 6. Posting
 
 This workflow is autonomous. Do not ask whether to post. Before finishing,
-write the review body to a temporary file and post exactly one GitHub PR comment
-for the current head SHA.
-
-Use:
+post exactly one GitHub pull request review for the current head SHA using the
+local guarded poster:
 
 ```bash
-gh pr comment <number> --body-file <file>
+bun github-pr-review-poster.ts <review-json-file>
 ```
 
-Never use `gh pr review`, `gh pr review --approve`, or
-`gh pr review --request-changes`. This demo workflow is an autonomous PR
-reviewer/commenter, not an autonomous approving or blocking GitHub reviewer.
-GitHub also disallows requesting changes on your own PR.
+The poster uses GitHub's pull request review API with `event: COMMENT` only. It
+may create inline review comments, so GitHub renders a real review with file
+conversations and "View reviewed changes" UX. It never approves and never
+requests changes. Do not call `gh pr review --approve` or
+`gh pr review --request-changes`; GitHub also disallows requesting changes on
+your own PR.
 
-The posted comment body should include the concise report from section 5, the
-verification status, and the durable marker supplied by the extension:
+Write a JSON file for the poster with this shape:
+
+```json
+{
+	"repo": "owner/name",
+	"prNumber": 123,
+	"commitId": "current-head-sha",
+	"marker": "<!-- plot-pr-review:current-head-sha -->",
+	"body": "markdown summary including the marker",
+	"comments": [
+		{
+			"path": "packages/example.ts",
+			"line": 42,
+			"side": "RIGHT",
+			"body": "inline finding comment"
+		}
+	]
+}
+```
+
+Inline comments are preferred for verified findings on changed lines. Use the
+HEAD-side line number from the changed file and `side: "RIGHT"`. The poster
+resolves file line numbers to GitHub diff positions and skips inline comments
+that do not map to the PR diff. If a finding spans multiple lines, include
+`startLine` and `startSide: "RIGHT"` when you can verify the range. If a finding
+is real but does not map cleanly to one changed line, include it in the review
+body only.
+
+The posted review body should be concise and readable:
 
 ```md
 <!-- plot-pr-review:<head-sha> -->
+
+## Plot Review
+
+**Disposition:** COMMENT | BLOCKING_COMMENT
+**Verification:** `bun run check` passed | not run
+**Head:** `<head-sha>`
+
+### Summary
+
+...
+
+### Findings
+
+- **HIGH** `path:line` — short title. One-sentence impact and fix.
+
+### Confidence
+
+High/Medium/Low, with one short reason.
 ```
 
-Use a clear textual disposition in the comment body:
+Use a clear textual disposition in the review body:
 
 - `Disposition: COMMENT` when no issues are found, for non-blocking LOW issues,
   or for informational findings.
 - `Disposition: BLOCKING_COMMENT` for verified HIGH issues or any issue that
-  should block merging, while still posting with `gh pr comment`.
+  should block merging, while still posting a GitHub review with event COMMENT.
 
-After posting, end your final assistant message with the posted textual
-disposition: `COMMENT` or `BLOCKING_COMMENT`. If posting fails, report the exact
+After posting, read the poster's JSON output. End your final assistant message
+with the posted textual disposition and inline count, for example:
+`BLOCKING_COMMENT, inline comments: 2`. If any inline comments were skipped or
+posting falls back to summary-only, say so. If posting fails, report the exact
 failure and do not claim success.

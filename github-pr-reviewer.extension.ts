@@ -27,7 +27,8 @@ interface PreviousReviewInfo {
 	readonly commitId?: string;
 }
 
-interface PreviousPlotCommentInfo {
+interface PreviousPlotPostInfo {
+	readonly kind: "issue_comment" | "pull_request_review";
 	readonly createdAt?: string;
 	readonly url?: string;
 	readonly marker: string;
@@ -163,14 +164,17 @@ const parsePreviousReview = (
 	};
 };
 
-const parsePreviousPlotComment = (
+const parsePreviousPlotPost = (
 	value: unknown,
 	marker: string,
-): PreviousPlotCommentInfo | undefined => {
+	kind: PreviousPlotPostInfo["kind"],
+): PreviousPlotPostInfo | undefined => {
 	if (!isRecord(value)) return undefined;
-	const createdAt = stringField(value, "created_at");
+	const createdAt =
+		stringField(value, "created_at") ?? stringField(value, "submitted_at");
 	const url = stringField(value, "html_url");
 	return {
+		kind,
 		marker,
 		...(createdAt === undefined ? {} : { createdAt }),
 		...(url === undefined ? {} : { url }),
@@ -237,12 +241,12 @@ const loadPreviousReview = async (
 const plotCommentMarker = (headSha: string) =>
 	`<!-- plot-pr-review:${headSha} -->`;
 
-const loadPreviousPlotComment = async (
+const loadPreviousPlotIssueComment = async (
 	cwd: string,
 	repo: string,
 	prNumber: number,
 	headSha: string,
-): Promise<PreviousPlotCommentInfo | undefined> => {
+): Promise<PreviousPlotPostInfo | undefined> => {
 	const currentUser = await loadCurrentUser(cwd);
 	if (currentUser === undefined || currentUser.length === 0) return undefined;
 	const marker = plotCommentMarker(headSha);
@@ -250,7 +254,7 @@ const loadPreviousPlotComment = async (
   .[]
   | select(.user.login == ${JSON.stringify(currentUser)} and ((.body // "") | contains(${JSON.stringify(marker)})))
 ] | sort_by(.created_at) | last`;
-	return parsePreviousPlotComment(
+	return parsePreviousPlotPost(
 		parseJson(
 			await commandOptional(cwd, "gh", [
 				"api",
@@ -260,15 +264,52 @@ const loadPreviousPlotComment = async (
 			]),
 		),
 		marker,
+		"issue_comment",
 	);
 };
+
+const loadPreviousPlotReview = async (
+	cwd: string,
+	repo: string,
+	prNumber: number,
+	headSha: string,
+): Promise<PreviousPlotPostInfo | undefined> => {
+	const currentUser = await loadCurrentUser(cwd);
+	if (currentUser === undefined || currentUser.length === 0) return undefined;
+	const marker = plotCommentMarker(headSha);
+	const jq = `[
+  .[]
+  | select(.user.login == ${JSON.stringify(currentUser)} and .state != "DISMISSED" and ((.body // "") | contains(${JSON.stringify(marker)})))
+] | sort_by(.submitted_at) | last`;
+	return parsePreviousPlotPost(
+		parseJson(
+			await commandOptional(cwd, "gh", [
+				"api",
+				`repos/${repo}/pulls/${prNumber}/reviews`,
+				"--jq",
+				jq,
+			]),
+		),
+		marker,
+		"pull_request_review",
+	);
+};
+
+const loadPreviousPlotPost = async (
+	cwd: string,
+	repo: string,
+	prNumber: number,
+	headSha: string,
+) =>
+	(await loadPreviousPlotReview(cwd, repo, prNumber, headSha)) ??
+	(await loadPreviousPlotIssueComment(cwd, repo, prNumber, headSha));
 
 const contextBlock = (values: {
 	readonly repo: string;
 	readonly branch: string;
 	readonly pr?: PullRequestInfo;
 	readonly previousReview?: PreviousReviewInfo;
-	readonly previousPlotComment?: PreviousPlotCommentInfo;
+	readonly previousPlotPost?: PreviousPlotPostInfo;
 	readonly includeDrafts: boolean;
 }) => {
 	const lines = [
@@ -299,18 +340,20 @@ const contextBlock = (values: {
 	if (values.pr.isDraft && !values.includeDrafts) {
 		lines.push("- Draft policy: stop after reporting that the PR is draft");
 	}
-	if (values.previousPlotComment === undefined) {
-		lines.push("- Previous Plot review comment for current head: none found");
+	if (values.previousPlotPost === undefined) {
+		lines.push("- Previous Plot review post for current head: none found");
 	} else {
-		lines.push("- Previous Plot review comment already covers current head");
-		if (values.previousPlotComment.createdAt !== undefined) {
+		lines.push(
+			`- Previous Plot review post already covers current head (${values.previousPlotPost.kind})`,
+		);
+		if (values.previousPlotPost.createdAt !== undefined) {
 			lines.push(
-				`- Previous Plot review comment created: ${values.previousPlotComment.createdAt}`,
+				`- Previous Plot review post created: ${values.previousPlotPost.createdAt}`,
 			);
 		}
-		if (values.previousPlotComment.url !== undefined) {
+		if (values.previousPlotPost.url !== undefined) {
 			lines.push(
-				`- Previous Plot review comment URL: ${values.previousPlotComment.url}`,
+				`- Previous Plot review post URL: ${values.previousPlotPost.url}`,
 			);
 		}
 	}
@@ -365,16 +408,16 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 				pr === undefined
 					? undefined
 					: await loadPreviousReview(paths.cwd, repo, pr.number);
-			const previousPlotComment =
+			const previousPlotPost =
 				pr?.headRefOid === undefined
 					? undefined
-					: await loadPreviousPlotComment(
+					: await loadPreviousPlotPost(
 							paths.cwd,
 							repo,
 							pr.number,
 							pr.headRefOid,
 						);
-			if (previousPlotComment !== undefined) {
+			if (previousPlotPost !== undefined) {
 				return [];
 			}
 			const id =
@@ -401,9 +444,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 							branch,
 							...(pr === undefined ? {} : { pr }),
 							...(previousReview === undefined ? {} : { previousReview }),
-							...(previousPlotComment === undefined
-								? {}
-								: { previousPlotComment }),
+							...(previousPlotPost === undefined ? {} : { previousPlotPost }),
 							includeDrafts: config.includeDrafts,
 						}),
 					},
