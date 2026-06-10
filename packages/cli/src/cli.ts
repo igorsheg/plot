@@ -2,6 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { Effect, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
+import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
 import {
 	makePlotAuth,
 	type PlotAuthStatusInfo,
@@ -185,8 +186,10 @@ const searchArg = Argument.string("search").pipe(
 );
 
 const workflowFlag = Flag.string("workflow").pipe(
-	Flag.withDefault("WORKFLOW.md"),
-	Flag.withDescription("Path to the WORKFLOW.md contract to load"),
+	Flag.withDefault(DEFAULT_WORKFLOW_PATH),
+	Flag.withDescription(
+		`Path to the WORKFLOW.md contract to load, default ${DEFAULT_WORKFLOW_PATH}`,
+	),
 );
 
 const sessionIdFlag = Flag.string("session-id").pipe(

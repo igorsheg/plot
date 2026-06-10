@@ -171,8 +171,10 @@ export const parseWorkflowText = (
 		}),
 	);
 
+export const DEFAULT_WORKFLOW_PATH = "WORKFLOW.md";
+
 export const loadWorkflow = (
-	path = "WORKFLOW.md",
+	path = DEFAULT_WORKFLOW_PATH,
 ): Effect.Effect<WorkflowDefinition, PlotWorkflowError, WorkflowFileSystem> =>
 	withWideEvent(
 		"workflow.load",
@@ -185,6 +187,6 @@ export const loadWorkflow = (
 	);
 
 export const loadWorkflowFromNode = (
-	path = "WORKFLOW.md",
+	path = DEFAULT_WORKFLOW_PATH,
 ): Effect.Effect<WorkflowDefinition, PlotWorkflowError> =>
 	loadWorkflow(path).pipe(Effect.provide(nodeWorkflowFileSystemLayer));
