@@ -69,6 +69,10 @@ export interface PlotSessionHostRunOptions extends PlotSessionHostOptions {
 	readonly onEvent?: (event: PlotSessionEvent) => Effect.Effect<void, unknown>;
 }
 
+export interface PlotSessionHostDaemonOptions extends PlotSessionHostOptions {
+	readonly onEvent?: (event: PlotSessionEvent) => Effect.Effect<void, unknown>;
+}
+
 export interface PlotSessionHostRunResult {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
@@ -274,6 +278,28 @@ export const runPlotSessionHostOnce = (
 				});
 			}
 			return { workflow: host.workflow, paths: host.paths, completion };
+		}),
+	);
+
+export const runPlotSessionHostDaemon = (
+	options: PlotSessionHostDaemonOptions,
+): Effect.Effect<void, unknown> =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const host = yield* makeHostComposition(options);
+			const context = yield* Layer.build(host.sessionLayer);
+			const session = Context.get(context, PlotSession);
+			yield* Effect.addFinalizer(() =>
+				session.shutdown().pipe(Effect.andThen(host.shutdown())),
+			);
+			const events = session
+				.events()
+				.pipe(
+					Stream.runForEach((event) => options.onEvent?.(event) ?? Effect.void),
+				);
+			yield* events.pipe(Effect.forkScoped({ startImmediately: true }));
+			yield* session.start();
+			return yield* Effect.never;
 		}),
 	);
 

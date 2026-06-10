@@ -6,6 +6,7 @@ plot:
   queueCapacity: 8
   eventCapacity: 256
   replayCapacity: 512
+  tickIntervalMs: 300000
   maxRunDurationMs: 900000
 agent:
   provider: openai-codex

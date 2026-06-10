@@ -2,7 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { Effect, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
-	runOnce,
+	runDaemon,
 	serveStdio,
 	type LogFormat,
 	type LogLevelFlag,
@@ -676,7 +676,7 @@ const makeRunCommand = (io: PlotCliIo) =>
 			const tickIntervalMs = Option.getOrUndefined(options.tickIntervalMs);
 			const maxRunDurationMs = Option.getOrUndefined(options.maxRunDurationMs);
 			const agentSessionOverrides = makeAgentSessionOverrides(options);
-			return runOnce({
+			return runDaemon({
 				...(workflowPath === undefined ? {} : { workflowPath }),
 				sessionId: options.sessionId,
 				cwd: options.cwd,
@@ -701,25 +701,6 @@ const makeRunCommand = (io: PlotCliIo) =>
 					return line === undefined ? Effect.void : io.writeStdout(line);
 				},
 			}).pipe(
-				Effect.flatMap((result) => {
-					const completion = result.completion;
-					const workflowName =
-						result.workflow.runtime.name ??
-						result.workflow.config["name"] ??
-						"workflow";
-					const summary = `Workflow ${workflowName} finished with ${completion.status}.\n`;
-					const write = io.writeStdout(summary);
-					if (completion.status === "succeeded") return write;
-					return write.pipe(
-						Effect.andThen(
-							Effect.fail(
-								new PlotCliIoError({
-									message: completion.error ?? completion.status,
-								}),
-							),
-						),
-					);
-				}),
 				Effect.catch((error) =>
 					writeCliStderr(
 						io,
@@ -729,7 +710,9 @@ const makeRunCommand = (io: PlotCliIo) =>
 			);
 		},
 	).pipe(
-		Command.withDescription("Run WORKFLOW.md once and print human progress"),
+		Command.withDescription(
+			"Run WORKFLOW.md continuously and print human progress",
+		),
 	);
 
 const makeServeStdioCommand = (io: PlotCliIo) =>

@@ -5,9 +5,8 @@ import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-sessio
 import type { PlotSessionEvent } from "@plot/session/plot-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 import {
-	runPlotSessionHostOnce,
+	runPlotSessionHostDaemon,
 	runPlotSessionHostStdio,
-	type PlotSessionHostRunResult,
 } from "@plot/session/session-host";
 import { resolveWorkflowPath } from "@plot/session/workflow";
 import type { LogLevel as EffectLogLevel } from "effect/LogLevel";
@@ -45,7 +44,7 @@ export interface ServeStdioOptions extends BaseRunOptions {
 	readonly writeStdout: (line: string) => Effect.Effect<void, unknown>;
 }
 
-export interface RunOnceOptions extends BaseRunOptions {
+export interface RunDaemonOptions extends BaseRunOptions {
 	readonly onEvent?: (event: PlotSessionEvent) => Effect.Effect<void, unknown>;
 }
 
@@ -90,9 +89,9 @@ const provideCliLogger = <A>(
 		),
 	);
 
-export const runOnce = (
-	options: RunOnceOptions,
-): Effect.Effect<PlotSessionHostRunResult, unknown> =>
+export const runDaemon = (
+	options: RunDaemonOptions,
+): Effect.Effect<void, unknown> =>
 	provideCliLogger(
 		options,
 		withWideEvent(
@@ -101,7 +100,7 @@ export const runOnce = (
 				workflow_path: workflowPathLogField(options),
 				session_id: options.sessionId,
 			},
-			runPlotSessionHostOnce(options),
+			runPlotSessionHostDaemon(options),
 		),
 	);
 
