@@ -25,6 +25,15 @@ export interface PlotAuthStatusInfo {
 	readonly label?: string;
 }
 
+export interface PlotModelInfo {
+	readonly provider: string;
+	readonly model: string;
+	readonly context: number;
+	readonly maxOutput: number;
+	readonly thinking: boolean;
+	readonly images: boolean;
+}
+
 export interface PlotAuthLoginEventSink {
 	readonly auth?: (info: OAuthAuthInfo) => void;
 	readonly deviceCode?: (info: OAuthDeviceCodeInfo) => void;
@@ -48,6 +57,7 @@ export interface PlotAuthLoginOptions {
 
 export interface PlotAuthShape {
 	readonly providers: () => Promise<readonly PlotAuthProviderInfo[]>;
+	readonly listModels: (search?: string) => Promise<readonly PlotModelInfo[]>;
 	readonly status: (
 		provider?: string,
 	) => Promise<readonly PlotAuthStatusInfo[]>;
@@ -79,6 +89,13 @@ const statusFor = (
 		...(status.source === undefined ? {} : { source: status.source }),
 		...(status.label === undefined ? {} : { label: status.label }),
 	};
+};
+
+const matchesModelSearch = (model: PlotModelInfo, search: string) => {
+	const query = search.toLowerCase();
+	return `${model.provider} ${model.model} ${model.provider}/${model.model}`
+		.toLowerCase()
+		.includes(query);
 };
 
 const makeCallbacks = (options: PlotAuthLoginOptions): OAuthLoginCallbacks => {
@@ -140,6 +157,27 @@ export const makePlotAuth = (paths: PlotPaths): PlotAuthShape => {
 					...(status.label === undefined ? {} : { label: status.label }),
 				};
 			});
+		},
+		listModels: async (search) => {
+			modelRegistry.refresh();
+			authStorage.reload();
+			const models = modelRegistry
+				.getAvailable()
+				.map((model) => ({
+					provider: model.provider,
+					model: model.id,
+					context: model.contextWindow,
+					maxOutput: model.maxTokens,
+					thinking: model.reasoning,
+					images: model.input.includes("image"),
+				}))
+				.toSorted((left, right) => {
+					const byProvider = left.provider.localeCompare(right.provider);
+					if (byProvider !== 0) return byProvider;
+					return left.model.localeCompare(right.model);
+				});
+			if (search === undefined || search.length === 0) return models;
+			return models.filter((model) => matchesModelSearch(model, search));
 		},
 		status: async (provider) => {
 			modelRegistry.refresh();

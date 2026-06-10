@@ -63,6 +63,7 @@ const fakeAuth = (): PlotAuthShape => ({
 			configured: false,
 		},
 	],
+	listModels: async () => [],
 	status: async (provider) => [
 		{
 			provider: provider ?? "fake-oauth",

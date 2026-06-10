@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { BunServices } from "@effect/platform-bun";
 import { decodePlotServerRecord } from "@plot/session/protocol";
+import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,28 +57,39 @@ describe("plot CLI", () => {
 		);
 	});
 
-	test("prints auth providers as a JSON command envelope", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "plot-cli-auth-"));
+	test("prints pi-style --list-models as a JSON command envelope", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-cli-models-"));
 		tempDirs.push(dir);
+		await writePlotFauxAgentFiles({ cwd: dir });
+		const previousKey = process.env["PLOT_FAUX_API_KEY"];
+		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
 		const stdout: string[] = [];
 
-		await Effect.runPromise(
-			runPlotCli(["auth", "providers", "--cwd", dir], {
-				stdin: chunks([]),
-				writeStdout: (line) => Effect.sync(() => stdout.push(line)),
-			}).pipe(Effect.provide(BunServices.layer)),
-		);
+		try {
+			await Effect.runPromise(
+				runPlotCli(["--list-models", "faux", "--cwd", dir], {
+					stdin: chunks([]),
+					writeStdout: (line) => Effect.sync(() => stdout.push(line)),
+				}).pipe(Effect.provide(BunServices.layer)),
+			);
+		} finally {
+			if (previousKey === undefined) delete process.env["PLOT_FAUX_API_KEY"];
+			else process.env["PLOT_FAUX_API_KEY"] = previousKey;
+		}
 
 		const record = JSON.parse(stdout.join("")) as {
 			readonly ok: boolean;
 			readonly command: string;
-			readonly result: readonly { readonly id: string }[];
+			readonly result: readonly {
+				readonly provider: string;
+				readonly model: string;
+			}[];
 		};
 		expect(record.ok).toBe(true);
-		expect(record.command).toBe("auth providers");
-		expect(record.result.some((provider) => provider.id === "anthropic")).toBe(
-			true,
-		);
+		expect(record.command).toBe("list_models");
+		expect(record.result).toEqual([
+			expect.objectContaining({ provider: "plot-faux", model: "faux-1" }),
+		]);
 	});
 
 	test("serves plot.v1 over stdio with telemetry on stderr", async () => {
