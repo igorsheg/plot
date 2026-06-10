@@ -1,4 +1,4 @@
-import { Context, Effect, Fiber, Layer, Stream } from "effect";
+import { Context, Deferred, Effect, Fiber, Layer, Stream } from "effect";
 import {
 	positiveInt,
 	sourceId,
@@ -178,6 +178,20 @@ const completionFromTickResult = (result: {
 		(completion) => completion.workKey === workflowWorkKey,
 	);
 
+const completionFromEvent = (
+	event: PlotSessionEvent,
+): Completion | undefined => {
+	if (event.type !== "plot_agent_event") return undefined;
+	if (event.event.type !== "work_completed") return undefined;
+	if (event.event.completion.workKey !== workflowWorkKey) return undefined;
+	return event.event.completion;
+};
+
+const isWorkflowAgentEnd = (event: PlotSessionEvent) =>
+	event.type === "agent_session_event" &&
+	event.workKey === workflowWorkKey &&
+	event.eventType === "agent_end";
+
 export const runPlotSessionHostOnce = (
 	options: PlotSessionHostRunOptions,
 ): Effect.Effect<PlotSessionHostRunResult, unknown> =>
@@ -186,19 +200,40 @@ export const runPlotSessionHostOnce = (
 			const host = yield* makeHostComposition(options);
 			const context = yield* Layer.build(host.sessionLayer);
 			const session = Context.get(context, PlotSession);
-			const events = session
-				.events()
-				.pipe(
-					Stream.runForEach((event) => options.onEvent?.(event) ?? Effect.void),
-				);
+			const completed = yield* Deferred.make<Completion>();
+			const agentEnded = yield* Deferred.make<void>();
+			const events = session.events().pipe(
+				Stream.runForEach((event) => {
+					const emit = options.onEvent?.(event) ?? Effect.void;
+					const completion = completionFromEvent(event);
+					if (completion !== undefined) {
+						return emit.pipe(
+							Effect.andThen(Deferred.succeed(completed, completion)),
+							Effect.asVoid,
+						);
+					}
+					if (isWorkflowAgentEnd(event)) {
+						return emit.pipe(
+							Effect.andThen(Deferred.succeed(agentEnded, undefined)),
+							Effect.asVoid,
+						);
+					}
+					return emit;
+				}),
+			);
 			const eventsFiber = yield* events.pipe(
 				Effect.forkScoped({ startImmediately: true }),
 			);
-			let tick = yield* session.tickOnce();
-			let completion = completionFromTickResult(tick);
+			const firstTick = yield* session.tickOnce();
+			let completion = completionFromTickResult(firstTick);
+			if (completion === undefined) {
+				completion = yield* Deferred.await(completed).pipe(
+					Effect.race(Deferred.await(agentEnded).pipe(Effect.as(undefined))),
+				);
+			}
 			while (completion === undefined) {
 				yield* Effect.sleep(50);
-				tick = yield* session.tickOnce();
+				const tick = yield* session.tickOnce();
 				completion = completionFromTickResult(tick);
 			}
 			yield* Fiber.interrupt(eventsFiber);
