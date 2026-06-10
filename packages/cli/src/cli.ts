@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { Effect, Option, Schema } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/unstable/cli";
 import { serveStdio, type LogFormat, type LogLevelFlag } from "./runtime.js";
 import { makePlotAuth } from "@plot/session/pi-auth";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
@@ -408,30 +408,6 @@ const makeAuth = (options: {
 		}),
 	);
 
-const makeListModelsCommand = (io: PlotCliIo) =>
-	Command.make(
-		"models",
-		{
-			cwd: cwdFlag,
-			plotDir: plotDirFlag,
-			agentDir: agentDirFlag,
-			search: Argument.string("search").pipe(Argument.optional),
-		},
-		(options) =>
-			listModels(io, {
-				cwd: options.cwd,
-				plotDir: options.plotDir,
-				agentDir: options.agentDir,
-				...(Option.isNone(options.search)
-					? {}
-					: { search: options.search.value }),
-			}),
-	).pipe(
-		Command.withDescription(
-			"List available pi models, equivalent to pi --list-models [search]",
-		),
-	);
-
 const makeAuthStatusCommand = (io: PlotCliIo) =>
 	Command.make(
 		"status",
@@ -447,7 +423,7 @@ const makeAuthStatusCommand = (io: PlotCliIo) =>
 				io,
 				"auth status",
 				authPromise(() => makeAuth(options).status(provider)),
-				"Pass --provider <provider> from `plot --list-models` or `plot models`.",
+				"Pass --provider <provider> from `plot --list-models`.",
 			);
 		},
 	).pipe(Command.withDescription("Show configured auth without secrets"));
@@ -468,7 +444,7 @@ const makeAuthLogoutCommand = (io: PlotCliIo) =>
 				authPromise(() => makeAuth(options).logout(options.provider)).pipe(
 					Effect.as({ provider: options.provider, logged_out: true }),
 				),
-				"Pass a valid --provider from `plot --list-models` or `plot models`.",
+				"Pass a valid --provider from `plot --list-models`.",
 			),
 	).pipe(Command.withDescription("Remove stored auth for a provider"));
 
@@ -656,11 +632,7 @@ export const makePlotCommand = (io: PlotCliIo = processCliIo()) => {
 
 	return Command.make("plot").pipe(
 		Command.withDescription("Autonomous Plot runtime"),
-		Command.withSubcommands([
-			serve,
-			makeListModelsCommand(io),
-			makeAuthCommand(io),
-		]),
+		Command.withSubcommands([serve, makeAuthCommand(io)]),
 	);
 };
 
