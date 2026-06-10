@@ -7,6 +7,7 @@ import type {
 	CreateAgentSessionOptions,
 	PromptOptions,
 } from "./agent-session-types.js";
+import { renderPromptTemplateForRunnerContext } from "./workflow-template.js";
 
 type RunnerValue<A> =
 	| A
@@ -60,8 +61,12 @@ export const makeAgentSessionWorkRunner = (
 						tick_id: context.tickId,
 					},
 					Effect.gen(function* () {
-						const prompt = yield* resolveRequiredRunnerValue(
+						const promptTemplate = yield* resolveRequiredRunnerValue(
 							options.prompt,
+							context,
+						);
+						const prompt = yield* renderPromptTemplateForRunnerContext(
+							promptTemplate,
 							context,
 						);
 						const create = yield* resolveOptionalRunnerValue(

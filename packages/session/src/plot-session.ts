@@ -31,6 +31,7 @@ import {
 } from "./agent-session-client.js";
 import type { AgentSessionWorkRunnerOptions } from "./agent-session-runner.js";
 import type { WorkflowDefinition } from "./workflow.js";
+import { renderPromptTemplateForRunnerContext } from "./workflow-template.js";
 
 export const PlotSessionId = Schema.NonEmptyString.pipe(
 	Schema.brand("PlotSessionId"),
@@ -237,8 +238,12 @@ const makeAgentRunner = (
 	return {
 		run: (context): Effect.Effect<WorkResult, unknown> =>
 			Effect.gen(function* () {
-				const prompt = yield* resolveRequiredRunnerValue(
+				const promptTemplate = yield* resolveRequiredRunnerValue(
 					config.prompt,
+					context,
+				);
+				const prompt = yield* renderPromptTemplateForRunnerContext(
+					promptTemplate,
 					context,
 				);
 				const create = yield* resolveOptionalRunnerValue(

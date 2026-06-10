@@ -16,7 +16,8 @@
 		"./protocol-replay-buffer": "./src/protocol-replay-buffer.ts",
 		"./protocol-stdio": "./src/protocol-stdio.ts",
 		"./testing/faux-agent-session": "./src/testing/faux-agent-session.ts",
-		"./workflow": "./src/workflow.ts"
+		"./workflow": "./src/workflow.ts",
+		"./workflow-template": "./src/workflow-template.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -30,6 +31,7 @@
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
 		"effect": "4.0.0-beta.78",
+		"eta": "4.6.0",
 		"yaml": "2.9.0"
 	},
 	"devDependencies": {

@@ -68,6 +68,7 @@ gh api "repos/$REPO/pulls/$PR/reviews" \
 ```
 
 If a previous review exists, perform an incremental re-review:
+
 - Fetch previous review body and inline comments.
 - Fetch commits since that review timestamp.
 - Check whether prior issues are resolved, still open, or partially addressed.
@@ -97,16 +98,16 @@ Read changed files and nearby call sites. For every issue you intend to flag, re
 
 Classify risk from changed paths:
 
-| Path | Risk | Why |
-| --- | --- | --- |
-| `packages/agent/**` | HIGH | Runtime scheduling, claims, queueing, interruption, timeouts, provider-free boundary |
-| `packages/session/src/protocol*` | HIGH | Machine protocol, event ordering, replay, stdout contract |
-| `packages/session/src/pi-*`, `packages/session/src/*auth*` | HIGH | pi-mono auth/model/session reuse and secret/state boundaries |
-| `packages/session/src/extension*` | MEDIUM/HIGH | Public plugin SDK contract |
-| `packages/cli/**` | HIGH | Process boundary, stdout/stderr split, path/auth defaults, CLI API |
-| `packages/common/**` | MEDIUM | Observability/log boundary |
-| Tests only | LOW/MEDIUM | Verify tests match behavior and don't mask broken API |
-| Config/package manager files | MEDIUM | Build, exports, dependency, package boundary risk |
+| Path                                                       | Risk        | Why                                                                                  |
+| ---------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `packages/agent/**`                                        | HIGH        | Runtime scheduling, claims, queueing, interruption, timeouts, provider-free boundary |
+| `packages/session/src/protocol*`                           | HIGH        | Machine protocol, event ordering, replay, stdout contract                            |
+| `packages/session/src/pi-*`, `packages/session/src/*auth*` | HIGH        | pi-mono auth/model/session reuse and secret/state boundaries                         |
+| `packages/session/src/extension*`                          | MEDIUM/HIGH | Public plugin SDK contract                                                           |
+| `packages/cli/**`                                          | HIGH        | Process boundary, stdout/stderr split, path/auth defaults, CLI API                   |
+| `packages/common/**`                                       | MEDIUM      | Observability/log boundary                                                           |
+| Tests only                                                 | LOW/MEDIUM  | Verify tests match behavior and don't mask broken API                                |
+| Config/package manager files                               | MEDIUM      | Build, exports, dependency, package boundary risk                                    |
 
 Escalate to HIGH if a change crosses package boundaries, changes public exports, alters protocol schemas, changes auth paths, or affects stdout/stderr behavior.
 
@@ -136,6 +137,7 @@ Size the report to the PR:
 Do not include empty sections. If no issues are found, say: `No issues found. Approve.`
 
 For issues, include:
+
 - severity: HIGH / MEDIUM / LOW
 - exact file/path and code context
 - why it matters

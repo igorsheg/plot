@@ -76,4 +76,31 @@ describe("agent session work runner", () => {
 		expect(seen[0]).toBe(events[0]);
 		expect(seen[1]).toBe(events[1]);
 	});
+
+	test("renders prompt templates with work template context", async () => {
+		const prompts: string[] = [];
+		const layer = Layer.succeed(AgentSessionClient, {
+			prompt: (request) => {
+				prompts.push(request.prompt);
+				return Stream.make({ type: "agent_start" } as AgentSessionEvent);
+			},
+		});
+
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const runner = yield* makeAgentSessionWorkRunner({
+					prompt: "Review {{ repo }} PR #{{ pr.number }}",
+				});
+				return yield* runner.run({
+					...context,
+					work: {
+						workKey: workKey("agent:1"),
+						templateContext: { repo: "plot", pr: { number: 7 } },
+					},
+				});
+			}).pipe(Effect.provide(layer)),
+		);
+
+		expect(prompts).toEqual(["Review plot PR #7"]);
+	});
 });
