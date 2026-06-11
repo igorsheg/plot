@@ -59,8 +59,9 @@ Unless the target has no PR or is draft-skipped, use this sequence:
    - Classifies the PR as `trivial`, `lite`, or `full`.
    - Returns the specialist reviewer set for the tier.
 3. `spawn_reviewers`
-   - Runs specialist review passes and returns structured candidate signals.
-   - Treat these as leads, not final findings.
+   - Runs specialist pi agent sessions.
+   - Returns `reviewerOutputs` for quick coordinator reading and raw `results` with pi events for debugging/evidence.
+   - Treat specialist outputs as leads, not final findings.
 4. Inspect/verify yourself.
    - Read changed files, callers, sibling patterns, tests, and protocol/runtime boundaries as needed.
    - Run focused commands when useful (`rg`, `git diff`, `bun run test`, `bun run check`, etc.).

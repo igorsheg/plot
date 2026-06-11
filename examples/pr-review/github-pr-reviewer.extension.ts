@@ -697,6 +697,44 @@ const usageFromAgentEvent = (event: AgentSessionEvent) => {
 	return usage;
 };
 
+const textFromContent = (content: unknown): string | undefined => {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return undefined;
+	const parts = content.flatMap((part) => {
+		if (typeof part === "string") return [part];
+		if (!isRecord(part)) return [];
+		const text = part["text"] ?? part["content"];
+		return typeof text === "string" ? [text] : [];
+	});
+	const joined = parts.join("");
+	return joined.length === 0 ? undefined : joined;
+};
+
+const textFromAgentEvent = (event: AgentSessionEvent): string | undefined => {
+	const record = event as unknown;
+	if (!isRecord(record)) return undefined;
+	const message = isRecord(record["message"]) ? record["message"] : undefined;
+	if (message === undefined) return undefined;
+	const role = message["role"];
+	if (role !== undefined && role !== "assistant") return undefined;
+	return textFromContent(message["content"]);
+};
+
+const reviewerOutputFromResult = (
+	reviewer: ReviewerName,
+	result: PlotRunAgentResult,
+) => {
+	const outputText = result.events
+		.map(textFromAgentEvent)
+		.filter((text): text is string => text !== undefined)
+		.at(-1);
+	return {
+		reviewer,
+		outputText: outputText ?? "",
+		eventCount: result.events.length,
+	};
+};
+
 const spawnReviewers = async (
 	cwd: string,
 	work: PlotExtensionWork,
@@ -753,9 +791,12 @@ const spawnReviewers = async (
 	const results = await runAgents(runs, {
 		concurrency: Math.min(4, runs.length),
 	});
+	const reviewerOutputs = results.map((result, index) =>
+		reviewerOutputFromResult(reviewers[index] ?? "code_quality", result),
+	);
 	return toolResult(
-		`Specialist reviewer agents completed. Coordinator must verify, deduplicate, and judge their raw pi events before posting.`,
-		{ tier, reviewers, results },
+		`Specialist reviewer agents completed. Coordinator must verify, deduplicate, and judge their outputs before posting.`,
+		{ tier, reviewers, reviewerOutputs, results },
 	);
 };
 
