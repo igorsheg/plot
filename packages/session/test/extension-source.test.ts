@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { makePlotAgentLayer } from "@plot/agent/agent";
 import { workKey } from "@plot/agent/model";
+import { Type } from "typebox";
 import {
 	loadPlotExtensionRuntimeFromWorkflow,
 	makePlotExtensionSourceBundle,
@@ -60,6 +61,8 @@ describe("Plot extension source adapter", () => {
 		const lifecycle: string[] = [];
 		const bundle = makePlotExtensionSourceBundle({
 			workflow,
+			paths,
+			config: undefined,
 			extension: {
 				id: "github-pr-reviewer",
 				create: () => ({ discover: () => [] }),
@@ -123,6 +126,8 @@ describe("Plot extension source adapter", () => {
 		const firstInterrupted = deferred<void>();
 		const bundle = makePlotExtensionSourceBundle({
 			workflow,
+			paths,
+			config: undefined,
 			extension: {
 				id: "github-pr-reviewer",
 				create: () => ({ discover: () => [] }),
@@ -200,6 +205,65 @@ describe("Plot extension source adapter", () => {
 		expect(interrupted).toEqual(["github:acme/web:pr:42:sha-1"]);
 	});
 
+	test("binds registered pi tools to the current Plot work", async () => {
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: { token: "test-token" },
+			extension: {
+				id: "github-pr-reviewer",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => [
+					{
+						id: "github:acme/web:pr:42",
+						version: "sha-1",
+						title: "Review PR #42",
+					},
+				],
+			},
+			tools: [
+				({ work, runId, config }) => ({
+					name: "github_pr_comment",
+					label: "Comment on PR",
+					description: `Comment on ${work.id} during ${runId} with ${String((config as { token: string }).token)}.`,
+					parameters: Type.Object({ body: Type.String() }),
+					execute: async () => ({
+						content: [{ type: "text", text: `commented on ${work.id}` }],
+						details: { workId: work.id, runId },
+					}),
+				}),
+			],
+		});
+		const runner: WorkRunner = {
+			run: async (context) => {
+				const create = await bundle.createOptions(context);
+				expect(create.customTools).toHaveLength(1);
+				expect(create.customTools[0]?.name).toBe("github_pr_comment");
+				expect(create.customTools[0]?.description).toBe(
+					"Comment on github:acme/web:pr:42 during run-0 with test-token.",
+				);
+				const result = await create.customTools[0]?.execute(
+					"tool-1",
+					{ body: "looks good" },
+					undefined,
+					undefined,
+					undefined as never,
+				);
+				expect(result?.content).toEqual([
+					{ type: "text", text: "commented on github:acme/web:pr:42" },
+				]);
+				return { output: "ok" };
+			},
+		};
+
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const first = await agent.tickOnce();
+
+		expect(first.started).toHaveLength(1);
+	});
+
 	test("loads a local extension module that imports the public SDK", async () => {
 		const dir = await makeTempDir();
 		const extensionPath = join(dir, "extension.ts");
@@ -227,6 +291,42 @@ export default definePlotExtension({
 		expect(await loaded.runtime.discover()).toEqual([
 			{ id: "work:from-sdk", version: "v1" },
 		]);
+	});
+
+	test("loads extension-registered pi tool definitions from the public SDK", async () => {
+		const dir = await makeTempDir();
+		const extensionPath = join(dir, "extension.ts");
+		await writeFile(
+			extensionPath,
+			`import { definePlotExtension, defineTool } from "plot-ai/sdk";
+export default definePlotExtension({
+  id: "tool-sdk-test",
+  create: ({ registerTool }) => {
+    registerTool(defineTool({
+      name: "echo_plot_context",
+      label: "Echo Plot Context",
+      description: "Echoes Plot context.",
+      parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+      execute: async (_id, params) => ({ content: [{ type: "text", text: params.value }], details: {} })
+    }));
+    return { discover: () => [] };
+  }
+});
+`,
+		);
+		const loaded = await loadPlotExtensionRuntimeFromWorkflow({
+			paths: { ...paths, cwd: dir },
+			workflow: {
+				...workflow,
+				path: join(dir, "WORKFLOW.md"),
+				runtime: { extension: { source: "./extension.ts" } },
+			},
+		});
+
+		expect(loaded.tools).toHaveLength(1);
+		expect(loaded.tools[0]).toEqual(
+			expect.objectContaining({ name: "echo_plot_context" }),
+		);
 	});
 
 	test("loads a local extension module from WORKFLOW.md config", async () => {

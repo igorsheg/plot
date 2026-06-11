@@ -95,6 +95,7 @@ describe("Plot extension SDK", () => {
 			paths,
 			workflow,
 			work: (input) => input,
+			registerTool: () => {},
 		});
 		const work = await runtime.discover();
 

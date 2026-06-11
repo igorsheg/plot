@@ -1,3 +1,13 @@
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+
+export type {
+	AgentToolResult,
+	AgentToolUpdateCallback,
+	ToolDefinition,
+	ToolExecutionMode,
+} from "@earendil-works/pi-coding-agent";
+export { defineTool } from "@earendil-works/pi-coding-agent";
+
 export type MaybePromise<A> = A | Promise<A>;
 
 export interface WorkDisplay {
@@ -27,7 +37,7 @@ export interface PlotExtensionWork {
 	readonly context?: unknown;
 }
 
-export interface PlotExtensionSetupContext<Config = unknown> {
+export interface PlotToolContext<Config = unknown> {
 	readonly workflow: unknown;
 	readonly paths: {
 		readonly cwd: string;
@@ -39,7 +49,20 @@ export interface PlotExtensionSetupContext<Config = unknown> {
 		readonly promptsDir: string;
 	};
 	readonly config: Config;
+	readonly work: PlotExtensionWork;
+	readonly runId?: string;
+}
+
+export type PlotExtensionTool<Config = unknown> =
+	| ToolDefinition
+	| ((context: PlotToolContext<Config>) => MaybePromise<ToolDefinition>);
+
+export interface PlotExtensionSetupContext<Config = unknown> {
+	readonly workflow: unknown;
+	readonly paths: PlotToolContext<Config>["paths"];
+	readonly config: Config;
 	readonly work: (input: PlotExtensionWork) => PlotExtensionWork;
+	readonly registerTool: (tool: PlotExtensionTool<Config>) => void;
 }
 
 export interface PlotExtensionWorkEvent {

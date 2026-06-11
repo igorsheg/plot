@@ -20,7 +20,10 @@ import type {
 	MaybePromise,
 	PlotExtension,
 	PlotExtensionRuntime,
+	PlotExtensionTool,
 	PlotExtensionWork,
+	PlotToolContext,
+	ToolDefinition,
 } from "./extension.js";
 import * as plotSdk from "@plot/sdk";
 
@@ -34,9 +37,14 @@ export class PlotExtensionSourceError extends TaggedError(
 export interface LoadedPlotExtensionRuntime {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
+	readonly tools: readonly PlotExtensionTool[];
+	readonly config: unknown;
 }
 export interface PlotExtensionSourceBundle {
 	readonly source: WorkSource;
+	readonly createOptions: (
+		context: WorkRunnerContext,
+	) => Promise<{ readonly customTools: ToolDefinition[] }>;
 	readonly wrapRunner: (runner: WorkRunner) => WorkRunner;
 	readonly shutdown: () => Promise<void>;
 }
@@ -114,6 +122,38 @@ const toSubject = (work: PlotExtensionWork) =>
 	subjectKey(work.subject ?? work.id);
 const decodeDiscoveredWorks = (value: unknown): readonly PlotExtensionWork[] =>
 	Array.isArray(value) ? (value as readonly PlotExtensionWork[]) : [];
+const resolveToolDefinitions = async (options: {
+	readonly tools: readonly PlotExtensionTool[];
+	readonly workflow: WorkflowDefinition;
+	readonly paths: PlotPaths;
+	readonly config: unknown;
+	readonly work: PlotExtensionWork;
+	readonly runId?: string;
+}): Promise<ToolDefinition[]> => {
+	const context: PlotToolContext = {
+		workflow: options.workflow,
+		paths: options.paths,
+		config: options.config,
+		work: options.work,
+		...(options.runId === undefined ? {} : { runId: options.runId }),
+	};
+	const resolved = await Promise.all(
+		options.tools.map((tool) =>
+			typeof tool === "function" ? Promise.resolve(tool(context)) : tool,
+		),
+	);
+	const names = new Set<string>();
+	for (const tool of resolved) {
+		if (names.has(tool.name)) {
+			throw new PlotExtensionSourceError({
+				phase: "create",
+				message: `duplicate extension tool name: ${tool.name}`,
+			});
+		}
+		names.add(tool.name);
+	}
+	return resolved;
+};
 const invokeCompletionHook = async (
 	runtime: PlotExtensionRuntime,
 	source: SourceId,
@@ -147,6 +187,9 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
 	readonly workflow: WorkflowDefinition;
+	readonly paths: PlotPaths;
+	readonly config: unknown;
+	readonly tools?: readonly PlotExtensionTool[];
 	readonly maxConcurrentRuns?: number;
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
@@ -232,6 +275,21 @@ export const makePlotExtensionSourceBundle = (options: {
 	};
 	return {
 		source: workSource,
+		createOptions: async (context) => {
+			const work = selectedWork.get(context.work.workKey);
+			if (work === undefined || !options.tools?.length)
+				return { customTools: [] };
+			return {
+				customTools: await resolveToolDefinitions({
+					tools: options.tools,
+					workflow: options.workflow,
+					paths: options.paths,
+					config: options.config,
+					work,
+					runId: String(context.run.runId),
+				}),
+			};
+		},
 		wrapRunner: (runner) => ({
 			run: async (context: WorkRunnerContext) => {
 				const work = selectedWork.get(context.work.workKey);
@@ -328,26 +386,33 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 				extension.parseConfig?.(extensionConfig.config),
 			)
 		: extensionConfig.config;
+	const tools: PlotExtensionTool[] = [];
 	const runtime = await runMaybePromise("create", source, () =>
 		extension.create({
 			config,
 			workflow: options.workflow,
 			paths: options.paths,
 			work: (input) => input,
+			registerTool: (tool) => {
+				tools.push(tool as PlotExtensionTool);
+			},
 		}),
 	);
-	return { extension, runtime };
+	return { extension, runtime, tools, config };
 };
 export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
 }): Promise<PlotExtensionSourceBundle> => {
-	const { extension, runtime } =
+	const { extension, runtime, tools, config } =
 		await loadPlotExtensionRuntimeFromWorkflow(options);
 	return makePlotExtensionSourceBundle({
 		extension,
 		runtime,
 		workflow: options.workflow,
+		paths: options.paths,
+		config,
+		tools,
 		...(options.workflow.runtime.extension?.maxConcurrentRuns === undefined
 			? {}
 			: {

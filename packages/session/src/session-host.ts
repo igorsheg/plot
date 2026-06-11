@@ -7,6 +7,7 @@ import {
 	type Completion,
 	type TickResult,
 } from "@plot/agent/model";
+import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makeAgentSessionClientLayer } from "./agent-session-client.js";
 import { makePlotExtensionSourceBundleFromWorkflow } from "./extension-source.js";
@@ -164,6 +165,16 @@ export const createPlotSessionHost = async (
 				: { overrides: options.agentSessionOverrides }),
 		});
 	const client = makeAgentSessionClientLayer({ createAgentSession });
+	const agentRunnerCreate = async (context: WorkRunnerContext) => {
+		const extensionCreate = await extensionBundle?.createOptions(context);
+		return {
+			cwd: paths.cwd,
+			...(extensionCreate === undefined ||
+			extensionCreate.customTools.length === 0
+				? {}
+				: { customTools: extensionCreate.customTools }),
+		};
+	};
 	const session = makePlotSessionLayer({
 		id: plotSessionId(options.sessionId),
 		workflow,
@@ -172,7 +183,7 @@ export const createPlotSessionHost = async (
 		agent: agentOptions,
 		agentRunner: {
 			prompt: workflow.prompt,
-			create: { cwd: paths.cwd },
+			create: agentRunnerCreate,
 			...(extensionBundle === undefined
 				? {}
 				: { wrapRunner: extensionBundle.wrapRunner }),

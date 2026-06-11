@@ -11,6 +11,9 @@
 		"test": "echo 'no sdk tests yet'",
 		"build": "rm -rf dist && bun build src/index.ts --target=node --format=esm --outfile=dist/index.js && tsc -p tsconfig.build.json"
 	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "0.79.0"
+	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"
 	}

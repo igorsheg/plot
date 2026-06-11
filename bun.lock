@@ -49,6 +49,9 @@
     },
     "packages/sdk": {
       "name": "@plot/sdk",
+      "dependencies": {
+        "@earendil-works/pi-coding-agent": "0.79.0",
+      },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
       },
