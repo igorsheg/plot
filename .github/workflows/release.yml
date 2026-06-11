@@ -120,7 +120,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          target_commitish: ${{ env.SOURCE_REF }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
