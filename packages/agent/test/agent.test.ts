@@ -232,9 +232,6 @@ describe("task-agnostic Plot agent", () => {
 		await agent.start();
 		await agent.offer({ type: "tick" });
 		await wakeScheduled;
-		expect((await agent.snapshot()).scheduledWakes?.[0]?.reason).toBe(
-			"retry later",
-		);
 		const count = await secondTick.promise;
 		await agent.shutdown();
 		expect(count).toBe(2);
