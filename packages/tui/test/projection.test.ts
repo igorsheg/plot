@@ -35,6 +35,8 @@ const agentEvent = (
 	sequence: number,
 	message: string,
 	workKey = "source:item:42",
+	eventType = "tool_call",
+	event: Record<string, unknown> = { type: eventType, command: message },
 ) =>
 	eventRecord(sequence, {
 		type: "agent_session_event",
@@ -44,8 +46,8 @@ const agentEvent = (
 		runId: "run-1",
 		workKey,
 		subject: "source:item:42",
-		eventType: "tool_call",
-		event: { type: "tool_call", command: message },
+		eventType,
+		event,
 	});
 
 describe("Plot TUI projection", () => {
@@ -74,11 +76,93 @@ describe("Plot TUI projection", () => {
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(projection, agentEvent(2, "bun run check"));
 
-		expect(projection.timeline[0]).toContain("tool_call");
+		expect(projection.timeline[0]).toContain("Running: bun run check");
 		expect(projection.debugEvents[0]).toContain("tool_call");
 		expect(projection.debugEvents.length).toBeGreaterThanOrEqual(
 			projection.timeline.length,
 		);
+	});
+
+	test("counts real turns instead of streamed deltas", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			agentEvent(2, "turn", "source:item:42", "turn_start", {
+				type: "turn_start",
+				turnId: "turn-1",
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			agentEvent(3, "delta", "source:item:42", "message_update", {
+				type: "message_update",
+				text: "partial",
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			agentEvent(4, "delta", "source:item:42", "tool_execution_update", {
+				type: "tool_execution_update",
+				command: "gh pr diff 1532",
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			agentEvent(5, "turn", "source:item:42", "turn_start", {
+				type: "turn_start",
+				turnId: "turn-1",
+			}),
+		);
+
+		const work = projection.running.get("source:item:42");
+		expect(work?.turnCount).toBe(1);
+		expect(work?.eventCount).toBe(4);
+		expect(work?.messageCount).toBe(1);
+		expect(work?.toolUpdateCount).toBe(1);
+	});
+
+	test("compacts tool updates out of the operator timeline", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			agentEvent(
+				2,
+				"gh pr diff 1532",
+				"source:item:42",
+				"tool_execution_start",
+				{
+					type: "tool_execution_start",
+					command: "gh pr diff 1532",
+				},
+			),
+		);
+		projection = reduceRecord(
+			projection,
+			agentEvent(3, "chunk", "source:item:42", "tool_execution_update", {
+				type: "tool_execution_update",
+				command: "gh pr diff 1532",
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			agentEvent(4, "gh pr diff 1532", "source:item:42", "tool_execution_end", {
+				type: "tool_execution_end",
+				command: "gh pr diff 1532",
+			}),
+		);
+
+		const work = projection.running.get("source:item:42");
+		expect(work?.timeline).toEqual([
+			"#4 Ran: gh pr diff 1532",
+			"#2 Running: gh pr diff 1532",
+			"#1 work started",
+		]);
+		expect(projection.timeline.join("\n")).not.toContain(
+			"tool_execution_update",
+		);
+		expect(projection.debugEvents[0]).toContain("tool_execution_end");
 	});
 
 	test("snapshot repairs running rows by work key", () => {

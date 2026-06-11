@@ -8,15 +8,24 @@ import {
 } from "./dashboard-render.js";
 import { style } from "./style.js";
 
+const tokenText = (selected: RunningWorkProjection) =>
+	selected.tokens?.total === undefined ? "0" : String(selected.tokens.total);
+
 export const detailBodyLines = (
 	selected: RunningWorkProjection,
 ): readonly DashboardLine[] => [
 	item(`title=${selected.title}`),
 	item(
-		`status=running stage=${selected.stage} turn=${selected.turnCount} check=${selected.check}${selected.tokens?.total === undefined ? "" : ` tokens=${selected.tokens.total}`}`,
+		`status=running stage=${selected.stage} turns=${selected.turnCount} events=${selected.eventCount} tool_updates=${selected.toolUpdateCount} messages=${selected.messageCount} check=${selected.check} tokens=${tokenText(selected)}`,
 	),
 	section("CURRENT ACTIVITY", style.border),
-	item(selected.lastMessage),
+	item(selected.activity),
+	section("LAST MEANINGFUL OUTPUT", style.border),
+	item(selected.lastMeaningful),
+	section("RECENT ACTIVITY", style.border),
+	...(selected.timeline.length === 0
+		? [emptyItem(style.muted)]
+		: selected.timeline.map((entry) => item(entry))),
 	section("OBSERVATIONS", style.border),
 	...(selected.observations.length === 0
 		? [emptyItem(style.muted)]
@@ -25,8 +34,6 @@ export const detailBodyLines = (
 	...(selected.commands.length === 0
 		? [emptyItem(style.muted)]
 		: selected.commands.map((command) => item(command))),
-	section("TIMELINE", style.border),
-	...selected.timeline.map((entry) => item(entry)),
 ];
 
 export const detailViewLines = (input: {

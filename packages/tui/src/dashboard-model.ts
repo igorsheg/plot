@@ -11,6 +11,7 @@ export interface FleetRowModel {
 	readonly ageTurn: string;
 	readonly tokens: string;
 	readonly check: RunningWorkProjection["check"];
+	readonly activity: string;
 	readonly last: string;
 	readonly stale: boolean;
 }
@@ -47,7 +48,7 @@ const ageAndTurns = (work: RunningWorkProjection, nowMs: number) => {
 		work.startedAtMs === undefined
 			? "n/a"
 			: formatDuration(nowMs - work.startedAtMs);
-	return work.turnCount > 0 ? `${age} / ${work.turnCount}` : age;
+	return `${age} / t${work.turnCount}`;
 };
 
 const isStale = (work: RunningWorkProjection, nowMs: number) =>
@@ -71,7 +72,8 @@ export const dashboardModelFrom = (
 			ageTurn: ageAndTurns(work, nowMs),
 			tokens: formatCount(tokenTotal(work)),
 			check: work.check,
-			last: work.lastMessage,
+			activity: work.activity,
+			last: work.lastMeaningful,
 			stale: isStale(work, nowMs),
 		}));
 	const totalTokens = formatCount(

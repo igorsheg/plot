@@ -14,6 +14,16 @@ import { style } from "./style.js";
 
 const stageStyle = (stage: WorkStage) => {
 	switch (stage) {
+		case "starting":
+			return style.stage.waiting;
+		case "thinking":
+			return style.stage.waiting;
+		case "investigating":
+			return style.stage.exploring;
+		case "running_tool":
+			return style.stage.acting;
+		case "posting":
+			return style.stage.publishing;
 		case "exploring":
 			return style.stage.exploring;
 		case "reading":
@@ -33,27 +43,15 @@ const stageStyle = (stage: WorkStage) => {
 	}
 };
 
-const checkStyle = (check: FleetRowModel["check"]) => {
-	switch (check) {
-		case "not-run":
-			return style.check.notRun;
-		case "running":
-			return style.check.running;
-		case "passed":
-			return style.check.passed;
-		case "failed":
-			return style.check.failed;
-	}
-};
-
 const statusDot = (stage: WorkStage) => stageStyle(stage)("●");
 
 export const fleetCells = (width: number) => {
 	const content = Math.max(30, width - 2);
-	const fixed = 12 + 12 + 10 + 9 + 5;
-	const name = Math.max(18, Math.min(34, Math.floor(content * 0.32)));
-	const last = Math.max(8, content - fixed - name);
-	return { name, stage: 12, age: 12, tokens: 10, check: 9, last };
+	const fixed = 14 + 12 + 10 + 5;
+	const name = Math.max(14, Math.min(26, Math.floor(content * 0.24)));
+	const activity = Math.max(16, Math.min(36, Math.floor(content * 0.32)));
+	const last = Math.max(8, content - fixed - name - activity);
+	return { name, stage: 14, age: 12, tokens: 10, activity, last };
 };
 
 const fleetHeader = (width: number): DashboardLine => {
@@ -63,8 +61,8 @@ const fleetHeader = (width: number): DashboardLine => {
 		style.muted(cell("stage", cells.stage)),
 		style.muted(cell("age/turn", cells.age)),
 		style.muted(cell("tokens", cells.tokens)),
-		style.muted(cell("check", cells.check)),
-		style.muted("last"),
+		style.muted(cell("activity", cells.activity)),
+		style.muted("last meaningful"),
 	]);
 };
 
@@ -75,7 +73,7 @@ const fleetSeparator = (width: number): DashboardLine => {
 		style.muted(cell("─".repeat(cells.stage), cells.stage)),
 		style.muted(cell("─".repeat(cells.age), cells.age)),
 		style.muted(cell("─".repeat(cells.tokens), cells.tokens)),
-		style.muted(cell("─".repeat(cells.check), cells.check)),
+		style.muted(cell("─".repeat(cells.activity), cells.activity)),
 		style.muted("─".repeat(cells.last)),
 	]);
 };
@@ -101,7 +99,7 @@ const fleetRow = (
 			rowModel.stale ? style.muted : style.value,
 		),
 		cell(rowModel.tokens, cells.tokens, style.value),
-		cell(rowModel.check, cells.check, checkStyle(rowModel.check)),
+		fit(rowModel.activity, cells.activity),
 		fit(
 			rowModel.stale ? `stale · ${rowModel.last}` : rowModel.last,
 			cells.last,
