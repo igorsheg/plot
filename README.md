@@ -1,53 +1,81 @@
 # Plot
 
-**A control plane for long-running coding agents.**
+```txt
+PLOT CONTROL PLANE █
+AGENT FLEET [TYPESCRIPT]
 
-Plot watches for work, reconciles what changed, starts agent sessions, and gives you a terminal dashboard for the whole fleet.
+~~~
 
-It is not a workflow engine that tries to script every thought an agent has. Plot owns orchestration. The agent owns the investigation.
+LOOP:   TICK -> RECONCILE -> ACT
+MODE:   OPERATOR SUPERVISED
+STATUS: EARLY / ONLINE
+
+~~~
+
+KEEP AGENTS RUNNING. KEEP HUMANS IN CONTROL.
+```
+
+Plot keeps coding agents running while you do something else.
+
+It finds work, starts agents, tracks what happened, and gives you a terminal dashboard when things need attention.
 
 ```bash
 npm install -g plot-ai
-plot --help
+plot tui --workflow WORKFLOW.md
 ```
 
-## Why Plot exists
+## The problem
 
-Most agent automation falls into one of two traps:
+Coding agents are powerful, but the operating model is still awkward.
 
-- **Too manual** — you run one prompt at a time and babysit every step.
-- **Too rigid** — a pipeline decides every tool call and turns a capable agent into a form filler.
+You either:
 
-Plot sits in the middle.
+- run one prompt, wait, inspect, repeat
+- build a brittle script that tells the agent exactly what to do
+- lose track of which agents are running, blocked, stale, or done
 
-It gives you a small runtime loop:
+Plot gives agents a place to run.
+
+Not a cage. A control plane.
+
+## What Plot does
+
+Plot runs a small loop:
 
 ```txt
 tick -> reconcile -> act
 ```
 
-Sources observe the world and decide what work exists. Plot schedules that work, tracks attempts, handles wakeups and lifecycle, and streams events into a dashboard. Agent sessions get a clear task and then use their own tools, judgment, and context to do the job.
+On each tick, Plot asks your workflow what changed. Your workflow returns work. Plot decides what can run, starts agent sessions, tracks them, and records the result.
 
-## Install
+The agent still gets to be an agent. It can read files, run commands, inspect state, and make decisions inside the task you gave it.
+
+Plot handles the boring operational parts:
+
+- finding work
+- starting runs
+- limiting concurrency
+- retrying later
+- timing out stale work
+- showing status in a terminal UI
+- keeping a protocol stream for automation
+
+## Try it
+
+Install the CLI:
 
 ```bash
 npm install -g plot-ai
 plot --help
 ```
 
-The npm package installs the `plot` binary for your platform.
-
-## Try it with PR review
-
-Plot ships with a standalone GitHub PR review example.
-
-From this repository:
+Run the PR review example from a repository with an open GitHub PR:
 
 ```bash
 plot tui --workflow examples/pr-review/WORKFLOW.md
 ```
 
-Or run once without the dashboard:
+Or run it once without the dashboard:
 
 ```bash
 plot run --workflow examples/pr-review/WORKFLOW.md
@@ -55,59 +83,77 @@ plot run --workflow examples/pr-review/WORKFLOW.md
 
 The example expects:
 
-- GitHub CLI installed and authenticated
-- a current branch with an associated pull request
-- provider/model auth configured through pi-compatible agent auth
+- `gh` installed and authenticated
+- a branch with an associated pull request
+- agent provider auth configured
 
-## What you get
-
-### A generic fleet dashboard
+## The dashboard
 
 ```bash
 plot tui --workflow WORKFLOW.md
 ```
 
-The TUI shows running work, status, retries/backoff, token usage, recent events, detail view, config view, and raw debug events. It is generic over workflows and plugins — PR review is just one example.
+The TUI is built for watching a fleet, not tailing a log.
 
-### A plain TypeScript extension surface
+You can see:
 
-Extensions are trusted local code. They discover work and reconcile completions using normal TypeScript.
+- what is running
+- what is blocked
+- what is waiting for backoff
+- which runs are stale
+- token usage
+- recent activity
+- raw debug events when you need them
 
-They can contribute display hints like title, subtitle, labels, and URL. They do not own rendering or keybindings.
+The dashboard stays generic. Your workflow can describe work with titles, labels, URLs, and short status text. Plot owns the rendering.
 
-### Agent sessions with agency
+## Workflows are just files
 
-Plot does not micromanage inner agent reasoning. A workflow prompt can give posture, invariants, and expectations. The agent session decides which files to read, which commands to run, and how to complete the task.
-
-## Workflow shape
-
-A workflow is a Markdown file with front matter:
+A workflow is a Markdown file with front matter and a prompt.
 
 ```md
 ---
-name: my-workflow
+name: review-current-pr
 agent:
   provider: openai-codex
   model: gpt-5.5
   thinking: high
 extension:
-  source: ./my-extension.ts
+  source: ./github-pr-reviewer.extension.ts
 plot:
   tickIntervalMs: 300000
 resources:
   contextFiles: true
   skills:
-    - ./skills/review
+    - ./skills/pr-review
 ---
 
-# {{ workflow.name }}
+# Review {{ work.title }}
 
-Handle: {{ work.title }}
-
-Use the repository, tools, and judgment. Produce one durable result.
+Use the repository, GitHub CLI, tests, and your judgment.
+Post one useful review.
 ```
 
-`--cwd` controls the project/runtime root. Workflow resources are explicit; Plot does not auto-load mutable `.plot/agent/skills` behavior.
+The extension finds work. The prompt tells the agent how to handle it.
+
+No hidden project magic: workflow resources are explicit. `.plot/` is for runtime state, not surprise behavior.
+
+## Extensions are plain TypeScript
+
+Extensions are trusted local code.
+
+They can talk to GitHub, Linear, a queue, a database, a filesystem, or anything else you can reach from TypeScript. They return work items. Plot runs them.
+
+That means you can build workflows like:
+
+- review every open PR
+- investigate failed CI jobs
+- triage production errors
+- refresh generated docs
+- check dependency updates
+- run recurring repo maintenance
+
+Plot should not care what kind of work it is. It should care whether the work is running, waiting, blocked, failed, or complete.
 
 ## Commands
 
@@ -120,7 +166,7 @@ plot tui --workflow WORKFLOW.md
 plot serve stdio --workflow WORKFLOW.md
 ```
 
-`serve stdio` is the machine protocol mode. It keeps stdout protocol-clean and sends logs/telemetry elsewhere.
+`plot serve stdio` is for automation. stdout is reserved for Plot protocol messages, so other tools can safely parse it.
 
 ## Developing Plot
 
@@ -129,7 +175,7 @@ bun install
 bun run check
 ```
 
-Useful package checks:
+Common checks:
 
 ```bash
 bun run typecheck
@@ -140,21 +186,21 @@ bun run format:check
 
 ## Releases
 
-Releases are tag-driven.
+Releases happen from tags.
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Prereleases publish on the `beta` npm tag:
+Prereleases publish to the `beta` npm tag:
 
 ```bash
 git tag v0.1.0-beta.1
 git push origin v0.1.0-beta.1
 ```
 
-Local release validation:
+Run a local release rehearsal:
 
 ```bash
 bun run release:local --version 0.1.0-beta.1
@@ -162,13 +208,13 @@ bun run release:local --version 0.1.0-beta.1
 
 ## Status
 
-Plot is early. The important shape is in place:
+Plot is early.
 
-- Effect-free TypeScript runtime
-- async queues/event streams
-- protocol-bound TUI control plane
-- plugin display metadata without plugin-owned UI
-- standalone PR review example
-- Bun single-executable platform packages via `plot-ai`
+The PR review workflow is the first serious example. The goal is broader: a small, understandable runtime for useful long-running agent work.
 
-The bet is simple: keep orchestration explicit, keep agents capable, and make the operator experience good enough that you can trust a fleet instead of tailing logs.
+The taste is simple:
+
+- workflows should feel like TypeScript, not YAML gymnastics
+- agents should keep their judgment
+- operators should get a dashboard, not a pile of logs
+- orchestration should be explicit enough to trust
