@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { ProcessTerminal, TUI, matchesKey } from "./pi-tui/index.ts";
 import {
 	createPlotProtocolSessionHost,
@@ -54,6 +55,8 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 				work.check,
 				work.tokens?.total,
 			]),
+			pulse: projection.pulse,
+			activity: projection.activity[0]?.atMs,
 			completed: projection.completed.length,
 			diagnostics: projection.diagnostics,
 			scheduledWakes: projection.scheduledWakes,
@@ -138,6 +141,20 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			refresh();
 		}, 250);
 	};
+	const openUrl = (url: string) => {
+		if (!/^https?:\/\//.test(url)) return;
+		const command =
+			process.platform === "darwin"
+				? "open"
+				: process.platform === "win32"
+					? "start"
+					: "xdg-open";
+		try {
+			spawn(command, [url], { stdio: "ignore", detached: true }).unref();
+		} catch (error) {
+			fail(error);
+		}
+	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
 			void request("tick_once").then(refresh).catch(fail);
@@ -149,6 +166,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			setStatus("shutting_down");
 			void request("shutdown").finally(() => tui.stop());
 		},
+		openUrl,
 		height: () => terminal.rows,
 	});
 	tui.addChild(dashboard);

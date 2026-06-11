@@ -1,172 +1,132 @@
-import type { DashboardProjection, WorkStage } from "./projection.js";
-import type { DashboardModel, FleetRowModel } from "./dashboard-model.js";
+import type {
+	DashboardModel,
+	WorkRowModel,
+	ScheduledRowModel,
+} from "./dashboard-model.js";
 import {
+	blank,
 	cell,
-	emptyItem,
-	fit,
 	footer,
 	item,
-	row,
 	section,
+	spread,
 	type DashboardLine,
 } from "./dashboard-render.js";
 import { style } from "./style.js";
 
-const stageStyle = (stage: WorkStage) => {
-	switch (stage) {
-		case "starting":
-			return style.stage.waiting;
-		case "thinking":
-			return style.stage.waiting;
-		case "investigating":
-			return style.stage.exploring;
-		case "running_tool":
-			return style.stage.acting;
-		case "posting":
-			return style.stage.publishing;
-		case "exploring":
-			return style.stage.exploring;
-		case "reading":
-			return style.stage.reading;
-		case "testing":
-			return style.stage.testing;
-		case "acting":
-			return style.stage.acting;
-		case "publishing":
-			return style.stage.publishing;
-		case "blocked":
-			return style.stage.blocked;
-		case "failed":
-			return style.stage.failed;
-		case "waiting":
-			return style.stage.waiting;
-	}
+const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+const rowGlyph = (row: WorkRowModel, nowMs: number) => {
+	if (row.attention) return style.bad("●");
+	if (row.stale) return style.dim("○");
+	if (row.stage === "waiting" || row.stage === "starting")
+		return style.muted("◌");
+	const frame =
+		spinnerFrames[
+			(Math.floor(nowMs / 1000) + row.work.eventCount) % spinnerFrames.length
+		]!;
+	return style.ok(frame);
 };
 
-const statusDot = (stage: WorkStage) => stageStyle(stage)("●");
-
-export const fleetCells = (width: number) => {
-	const content = Math.max(30, width - 2);
-	const fixed = 14 + 12 + 10 + 5;
-	const name = Math.max(14, Math.min(26, Math.floor(content * 0.24)));
-	const activity = Math.max(16, Math.min(36, Math.floor(content * 0.32)));
-	const last = Math.max(8, content - fixed - name - activity);
-	return { name, stage: 14, age: 12, tokens: 10, activity, last };
-};
-
-const fleetHeader = (width: number): DashboardLine => {
-	const cells = fleetCells(width);
-	return row([
-		style.muted(cell("work", cells.name)),
-		style.muted(cell("stage", cells.stage)),
-		style.muted(cell("age/turn", cells.age)),
-		style.muted(cell("tokens", cells.tokens)),
-		style.muted(cell("activity", cells.activity)),
-		style.muted("last meaningful"),
-	]);
-};
-
-const fleetSeparator = (width: number): DashboardLine => {
-	const cells = fleetCells(width);
-	return row([
-		style.muted(cell("─".repeat(cells.name), cells.name)),
-		style.muted(cell("─".repeat(cells.stage), cells.stage)),
-		style.muted(cell("─".repeat(cells.age), cells.age)),
-		style.muted(cell("─".repeat(cells.tokens), cells.tokens)),
-		style.muted(cell("─".repeat(cells.activity), cells.activity)),
-		style.muted("─".repeat(cells.last)),
-	]);
-};
-
-const fleetRow = (
-	rowModel: FleetRowModel,
-	index: number,
-	selectedIndex: number,
+const workRowLines = (
+	row: WorkRowModel,
+	selected: boolean,
 	width: number,
-): DashboardLine => {
-	const cells = fleetCells(width);
-	const selected = index === selectedIndex;
-	const marker = selected ? "›" : " ";
-	const text = `│ ${[
-		cell(
-			`${marker} ${statusDot(rowModel.stage)} ${rowModel.label}`,
-			cells.name,
-		),
-		cell(rowModel.stage, cells.stage, stageStyle(rowModel.stage)),
-		cell(
-			rowModel.ageTurn,
-			cells.age,
-			rowModel.stale ? style.muted : style.value,
-		),
-		cell(rowModel.tokens, cells.tokens, style.value),
-		fit(rowModel.activity, cells.activity),
-		fit(
-			rowModel.stale ? `stale · ${rowModel.last}` : rowModel.last,
-			cells.last,
-		),
-	].join(" ")}`;
-	return {
-		text: rowModel.stale && !selected ? style.row.stale(text) : text,
+	nowMs: number,
+): readonly DashboardLine[] => {
+	const marker = selected ? style.label("›") : " ";
+	const label = row.stale ? style.row.stale(row.label) : style.text(row.label);
+	const meta = `${cell(row.stage, 10, style.stage[row.stage])} ${style.muted(
+		`${row.age} · ${row.turns} · ${row.tokens}`,
+	)}`;
+	const first = spread(
+		`${marker} ${rowGlyph(row, nowMs)} ${label}`,
+		meta,
+		width,
 		selected,
-	};
+	);
+	const second = spread(
+		`     ${style.muted(row.activity)}`,
+		style.dim(row.lastEventAgo),
+		width,
+		selected,
+	);
+	return [first, second];
 };
+
+const scheduledRowLine = (wake: ScheduledRowModel): DashboardLine =>
+	item(
+		`  ↻ wake in ${wake.inSeconds}s${wake.reason === undefined ? "" : ` · ${wake.reason}`}`,
+		style.muted,
+	);
+
+const emptyWorkLine = (model: DashboardModel): DashboardLine => {
+	const wake = model.pulse.nextWake;
+	const suffix = wake === undefined ? "" : ` · next tick in ${wake.inSeconds}s`;
+	return item(`  no active work — watching${suffix}`, style.muted);
+};
+
+const activityGlyph = (tone: "ok" | "bad" | "info") =>
+	tone === "ok"
+		? style.ok("✓")
+		: tone === "bad"
+			? style.bad("✗")
+			: style.muted("·");
 
 export const fleetViewLines = (input: {
 	readonly header: readonly DashboardLine[];
-	readonly projection: DashboardProjection;
 	readonly model: DashboardModel;
 	readonly selectedIndex: number;
 	readonly width: number;
-	readonly debug: boolean;
-	readonly feedOffset: number;
+	readonly footerText: string;
+	readonly footerStyle?: (value: string) => string;
+	readonly nowMs?: number;
 }): readonly DashboardLine[] => {
-	const feed = input.debug
-		? input.projection.debugEvents
-		: input.projection.timeline;
+	const { model, width } = input;
+	const nowMs = input.nowMs ?? Date.now();
+	const attention =
+		model.attention.length === 0
+			? []
+			: [
+					blank(),
+					item(style.warn(`▲ ATTENTION (${model.attention.length})`)),
+					...model.attention.map((entry) =>
+						item(`  ${style.bad("●")} ${entry.text}`),
+					),
+				];
+	const scheduled =
+		model.work.length === 0
+			? model.scheduled.filter((wake) => wake.reason !== undefined)
+			: model.scheduled;
+	const workTitle =
+		`WORK · ${model.work.length} running` +
+		(scheduled.length > 0 ? ` · ${scheduled.length} scheduled` : "");
+	const workLines =
+		model.work.length === 0
+			? [emptyWorkLine(model), ...scheduled.map(scheduledRowLine)]
+			: [
+					...model.work.flatMap((row, index) =>
+						workRowLines(row, index === input.selectedIndex, width, nowMs),
+					),
+					...scheduled.map(scheduledRowLine),
+				];
+	const activityLines =
+		model.activity.length === 0
+			? [item("  nothing yet", style.muted)]
+			: model.activity
+					.slice(0, 8)
+					.map((entry) =>
+						item(
+							`  ${cell(entry.ago, 12, style.dim)} ${activityGlyph(entry.tone)} ${entry.text}`,
+						),
+					);
 	return [
 		...input.header,
-		section("RUNNING WORK", style.border),
-		fleetHeader(input.width),
-		fleetSeparator(input.width),
-		...(input.model.running.length === 0
-			? [emptyItem(style.muted)]
-			: input.model.running.map((work, index) =>
-					fleetRow(work, index, input.selectedIndex, input.width),
-				)),
-		section("SCHEDULED / BACKOFF", style.border),
-		...(input.projection.scheduledWakes.length === 0
-			? [emptyItem(style.muted)]
-			: input.projection.scheduledWakes.slice(0, 5).map((wake) => {
-					const dueInMs = Math.max(0, wake.dueAtMs - Date.now());
-					const seconds = Math.ceil(dueInMs / 1000);
-					return item(
-						`↻ in ${seconds}s${wake.reason === undefined ? "" : ` ${wake.reason}`}`,
-						style.muted,
-					);
-				})),
-		section("RECENT COMPLETIONS", style.border),
-		...(input.projection.completed.length === 0
-			? [emptyItem(style.muted)]
-			: input.projection.completed.map((completion) =>
-					item(
-						`${completion.status} ${completion.workKey} ${completion.message}`,
-					),
-				)),
-		section("DIAGNOSTICS", style.border),
-		...(input.projection.diagnostics.length === 0
-			? [emptyItem(style.muted)]
-			: input.projection.diagnostics.map((diagnostic) =>
-					item(diagnostic, style.status.error),
-				)),
-		section(input.debug ? "DEBUG EVENTS" : "TIMELINE", style.border),
-		...(feed.length === 0
-			? [emptyItem(style.muted)]
-			: feed
-					.slice(input.feedOffset, input.feedOffset + 8)
-					.map((entry) => item(entry))),
-		footer(
-			"↑/↓ select · enter details · c config · r force tick · g refresh · d debug · q shutdown",
-			style.muted,
-		),
+		...attention,
+		section(workTitle),
+		...workLines,
+		section("ACTIVITY"),
+		...activityLines,
+		footer(input.footerText, input.footerStyle ?? style.muted),
 	];
 };

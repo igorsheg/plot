@@ -1,4 +1,9 @@
-import { truncateToWidth, type Component } from "./pi-tui/index.ts";
+import {
+	truncateToWidth,
+	visibleWidth,
+	type Component,
+} from "./pi-tui/index.ts";
+import { style } from "./style.js";
 
 export type TextStyle = (value: string) => string;
 
@@ -21,14 +26,37 @@ export const cell = (
 	apply: TextStyle = (text) => text,
 ) => apply(fit(value, width));
 
-export const row = (parts: readonly string[]) => asLine(`│ ${parts.join(" ")}`);
+// The left rail (╭ │ ├ ╰) is one continuous frame; it always renders in the
+// border color, independent of the content styling on the rest of the row.
+const rail = (glyph: string) => style.border(glyph);
+
+export const row = (parts: readonly string[]) =>
+	asLine(`${rail("│")} ${parts.join(" ")}`);
 export const item = (value: string, apply?: TextStyle) =>
-	asLine(`│ ${apply === undefined ? value : apply(value)}`);
+	asLine(`${rail("│")} ${apply === undefined ? value : apply(value)}`);
 export const emptyItem = (muted: TextStyle) => item("none", muted);
-export const section = (title: string, border: TextStyle) =>
-	asLine(border(`├─ ${title}`));
-export const footer = (help: string, muted: TextStyle) =>
-	asLine(muted(`╰─ ${help}`));
+export const blank = () => asLine(rail("│"));
+export const section = (title: string, apply: TextStyle = style.muted) =>
+	asLine(`${rail("├─")} ${apply(title)}`);
+export const footer = (help: string, apply: TextStyle = style.muted) =>
+	asLine(`${rail("╰─")} ${apply(help)}`);
+
+/** Left text, right text pinned to the right edge; left truncates first. */
+export const spread = (
+	left: string,
+	right: string,
+	width: number,
+	selected = false,
+): DashboardLine => {
+	const content = Math.max(1, width - 2);
+	const rightWidth = visibleWidth(right);
+	const leftFitted = fit(left, Math.max(1, content - rightWidth - 1));
+	const gap = Math.max(1, content - visibleWidth(leftFitted) - rightWidth);
+	return asLine(
+		`${rail("│")} ${leftFitted}${" ".repeat(gap)}${right}`,
+		selected,
+	);
+};
 
 export const renderLines = (
 	lines: readonly DashboardLine[],

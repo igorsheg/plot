@@ -1,9 +1,8 @@
 import { matchesKey, parseKey, type Component } from "./pi-tui/index.ts";
 import { configViewLines } from "./config-view.js";
-import { dashboardModelFrom } from "./dashboard-model.js";
+import { dashboardModelFrom, type DashboardModel } from "./dashboard-model.js";
 import {
 	renderLines,
-	row,
 	asLine,
 	type DashboardLine,
 	maxScroll,
@@ -19,10 +18,28 @@ export interface DashboardActions {
 	readonly refresh: () => void;
 	readonly toggleDebug: () => void;
 	readonly shutdown: () => void;
+	readonly openUrl?: (url: string) => void;
 	readonly height?: () => number;
 }
 
 type ViewMode = "fleet" | "debug" | "config" | "detail";
+
+const statusGlyph = (status: TuiStatus) => {
+	switch (status) {
+		case "running":
+			return style.status.running("◉");
+		case "error":
+			return style.status.error("●");
+		case "shutting_down":
+			return style.status.warning("◉");
+		case "stopped":
+			return style.dim("○");
+		case "starting":
+			return style.muted("◌");
+		default:
+			return style.muted("◉");
+	}
+};
 
 const statusStyle = (status: TuiStatus) => {
 	switch (status) {
@@ -44,6 +61,7 @@ export class PlotDashboard implements Component {
 	private mode: ViewMode = "fleet";
 	private selectedIndex = 0;
 	private scrollOffset = 0;
+	private confirmQuit = false;
 	private readonly actions: DashboardActions;
 
 	constructor(projection: DashboardProjection, actions: DashboardActions) {
@@ -59,9 +77,22 @@ export class PlotDashboard implements Component {
 
 	handleInput(data: string): void {
 		const key = parseKey(data);
-		if (matchesKey(data, "ctrl+c") || key === "q") this.actions.shutdown();
-		else if (key === "r") this.actions.tick();
+		if (matchesKey(data, "ctrl+c")) {
+			this.actions.shutdown();
+			return;
+		}
+		if (this.confirmQuit) {
+			if (key === "q") {
+				this.actions.shutdown();
+				return;
+			}
+			this.confirmQuit = false;
+			if (key === "escape" || key === "esc") return;
+		}
+		if (key === "q") this.confirmQuit = true;
+		else if (key === "t") this.actions.tick();
 		else if (key === "g") this.actions.refresh();
+		else if (key === "o") this.openSelectedUrl();
 		else if (key === "d") {
 			this.actions.toggleDebug();
 			this.changeMode(this.mode === "debug" ? "fleet" : "debug");
@@ -77,14 +108,18 @@ export class PlotDashboard implements Component {
 		const model = dashboardModelFrom(this.projection);
 		this.selectedIndex = Math.min(
 			this.selectedIndex,
-			Math.max(0, model.running.length - 1),
+			Math.max(0, model.work.length - 1),
 		);
-		const header = this.header(model.running.length, model.totalTokens);
-		const selected = model.running[this.selectedIndex]?.work;
+		const header = this.header(model);
+		const selected = model.work[this.selectedIndex]?.work;
 		const viewportRows = this.viewportRows();
 		const lines =
 			this.mode === "config"
-				? this.scrolled(configViewLines(this.projection, header), viewportRows)
+				? this.scrolled(
+						configViewLines(this.projection, header),
+						header.length,
+						viewportRows,
+					)
 				: this.mode === "detail"
 					? detailViewLines({
 							header,
@@ -104,19 +139,38 @@ export class PlotDashboard implements Component {
 							})
 						: fleetViewLines({
 								header,
-								projection: this.projection,
 								model,
 								selectedIndex: this.selectedIndex,
 								width,
-								debug: false,
-								feedOffset: 0,
+								...this.fleetFooter(),
 							});
 		return renderLines(lines, width, style.row.selected);
 	}
 
+	private fleetFooter(): {
+		readonly footerText: string;
+		readonly footerStyle?: (value: string) => string;
+	} {
+		if (this.confirmQuit)
+			return {
+				footerText: "shut down the fleet? q confirm · esc cancel",
+				footerStyle: style.warn,
+			};
+		return {
+			footerText:
+				"↑↓ select · enter detail · o open · t tick · g refresh · c config · d debug · q quit",
+		};
+	}
+
+	private openSelectedUrl(): void {
+		const model = dashboardModelFrom(this.projection);
+		const url = model.work[this.selectedIndex]?.work.url;
+		if (url !== undefined) this.actions.openUrl?.(url);
+	}
+
 	private viewportRows(): number {
 		const terminalRows = this.actions.height?.() ?? 24;
-		return Math.max(4, terminalRows - 8);
+		return Math.max(4, terminalRows - 6);
 	}
 
 	private changeMode(mode: ViewMode): void {
@@ -135,58 +189,55 @@ export class PlotDashboard implements Component {
 		else this.scrollOffset = Math.max(0, this.scrollOffset - 1);
 	}
 
-	private header(
-		runningCount: number,
-		totalTokens: string,
-	): readonly DashboardLine[] {
+	private header(model: DashboardModel): readonly DashboardLine[] {
 		const p = this.projection;
 		const runtime = p.runtime;
 		const agent =
 			runtime.provider && runtime.model
 				? `${runtime.provider}/${runtime.model}`
-				: (runtime.model ?? runtime.provider ?? "unknown");
-		const skills =
-			runtime.skills.length === 0
-				? "none"
-				: runtime.skills.length <= 2
-					? runtime.skills.join(",")
-					: `${runtime.skills.length} skills`;
-		const diagnosticCount = p.diagnostics.length;
-		const statusText =
-			diagnosticCount > 0 ? `${p.status} with diagnostics` : p.status;
-		const workState =
-			runningCount === 0 && p.scheduledWakes.length === 0 ? "idle" : "active";
-		const nextWake = p.scheduledWakes[0];
-		const nextWakeText =
-			nextWake === undefined
-				? "none"
-				: `${Math.ceil(Math.max(0, nextWake.dueAtMs - Date.now()) / 1000)}s`;
+				: (runtime.model ?? runtime.provider ?? "unknown agent");
+		const thinking =
+			runtime.thinking === undefined ? "" : ` thinking ${runtime.thinking}`;
+		const identity = [p.workflowName, `${agent}${thinking}`, runtime.cwdName]
+			.filter((part) => part.length > 0)
+			.join(" · ");
+		const pulse = model.pulse;
+		const tickText =
+			pulse.tick === undefined
+				? style.muted("no ticks yet")
+				: `${style.text(`tick #${pulse.tick.id}`)}${style.muted(
+						` · ${pulse.tick.ago} · found ${pulse.tick.found}`,
+					)}`;
+		const wakeText =
+			pulse.nextWake !== undefined
+				? `${style.muted("next wake ")}${style.text(`${pulse.nextWake.inSeconds}s`)}`
+				: pulse.runningCount > 0
+					? undefined
+					: style.muted("no wake scheduled");
+		const runningText =
+			pulse.runningCount > 0
+				? style.ok(`${pulse.runningCount} running`)
+				: style.muted("0 running");
+		const segments = [
+			`${statusGlyph(p.status)} ${statusStyle(p.status)(p.status)}`,
+			tickText,
+			...(wakeText === undefined ? [] : [wakeText]),
+			runningText,
+			style.muted(`${pulse.totalTokens} tok`),
+		];
 		return [
-			asLine(style.appTitle("╭─ PLOT STATUS")),
-			row([
-				`${style.label("Status: ")}${statusStyle(p.status)(statusText)}`,
-				`${style.label("Work: ")}${style.status.running(String(runningCount))}${style.muted(" running · ")}${style.status.success(String(p.completed.length))}${style.muted(" completed · ")}${diagnosticCount > 0 ? style.status.error(String(diagnosticCount)) : style.muted("0")}${style.muted(" diagnostics")}`,
-				`${style.label("Tokens: ")}${style.value(totalTokens)}`,
-			]),
-			row([
-				`${style.label("Agent: ")}${style.value(agent)}`,
-				`${style.muted("thinking ")}${style.value(runtime.thinking ?? "default")}`,
-				`${style.muted("skills ")}${style.value(skills)}`,
-				`${style.muted("cwd ")}${style.value(runtime.cwdName)}`,
-			]),
-			row([
-				`${style.label("Workflow: ")}${style.value(p.workflowName)}`,
-				`${style.label("Mode: ")}${style.value(workState)}`,
-				`${style.label("Next wake: ")}${nextWake === undefined ? style.muted(nextWakeText) : style.value(nextWakeText)}`,
-			]),
+			asLine(
+				`${style.border("╭─ ")}${style.brand("PLOT")}${style.muted(` · ${identity}`)}`,
+			),
+			asLine(`${style.border("│ ")}${segments.join(style.dim(" · "))}`),
 		];
 	}
 
 	private scrolled(
 		lines: readonly DashboardLine[],
+		headerRows: number,
 		viewportRows: number,
 	): readonly DashboardLine[] {
-		const headerRows = 4;
 		const footerRows = 1;
 		const fixedHead = lines.slice(0, headerRows);
 		const fixedFoot = lines.slice(-footerRows);
@@ -204,7 +255,7 @@ export class PlotDashboard implements Component {
 
 	private clampedDetailScroll(
 		selected:
-			| ReturnType<typeof dashboardModelFrom>["running"][number]["work"]
+			| ReturnType<typeof dashboardModelFrom>["work"][number]["work"]
 			| undefined,
 		viewportRows: number,
 	): number {

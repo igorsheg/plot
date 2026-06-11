@@ -1,4 +1,5 @@
-import type { RunningWorkProjection } from "./projection.js";
+import { workLabel, type RunningWorkProjection } from "./projection.js";
+import { formatAgo, formatDuration, formatTokens } from "./dashboard-model.js";
 import {
 	emptyItem,
 	footer,
@@ -8,33 +9,64 @@ import {
 } from "./dashboard-render.js";
 import { style } from "./style.js";
 
-const tokenText = (selected: RunningWorkProjection) =>
-	selected.tokens?.total === undefined ? "0" : String(selected.tokens.total);
+const tokenLine = (selected: RunningWorkProjection): string => {
+	const tokens = selected.tokens;
+	if (tokens === undefined) return "tokens none yet";
+	const parts = [
+		`tokens ${formatTokens(tokens.total ?? 0)} total`,
+		...(tokens.input === undefined ? [] : [`${formatTokens(tokens.input)} in`]),
+		...(tokens.output === undefined
+			? []
+			: [`${formatTokens(tokens.output)} out`]),
+	];
+	return parts.join(" · ");
+};
 
 export const detailBodyLines = (
 	selected: RunningWorkProjection,
-): readonly DashboardLine[] => [
-	item(`title=${selected.title}`),
-	item(
-		`status=running stage=${selected.stage} turns=${selected.turnCount} events=${selected.eventCount} tool_updates=${selected.toolUpdateCount} messages=${selected.messageCount} check=${selected.check} tokens=${tokenText(selected)}`,
-	),
-	section("CURRENT ACTIVITY", style.border),
-	item(selected.activity),
-	section("LAST MEANINGFUL OUTPUT", style.border),
-	item(selected.lastMeaningful),
-	section("RECENT ACTIVITY", style.border),
-	...(selected.timeline.length === 0
-		? [emptyItem(style.muted)]
-		: selected.timeline.map((entry) => item(entry))),
-	section("OBSERVATIONS", style.border),
-	...(selected.observations.length === 0
-		? [emptyItem(style.muted)]
-		: selected.observations.map((observation) => item(observation))),
-	section("COMMANDS", style.border),
-	...(selected.commands.length === 0
-		? [emptyItem(style.muted)]
-		: selected.commands.map((command) => item(command))),
-];
+	nowMs = Date.now(),
+): readonly DashboardLine[] => {
+	const age =
+		selected.startedAtMs === undefined
+			? "n/a"
+			: formatDuration(nowMs - selected.startedAtMs);
+	return [
+		...(selected.subtitle === undefined
+			? []
+			: [item(selected.subtitle, style.muted)]),
+		...(selected.url === undefined ? [] : [item(selected.url, style.accent)]),
+		item(
+			`${style.stage[selected.stage](selected.stage)}${style.muted(
+				` · age ${age} · turns ${selected.turnCount} · events ${selected.eventCount} · check ${selected.check}`,
+			)}`,
+		),
+		item(tokenLine(selected), style.muted),
+		section("NOW"),
+		item(
+			`${selected.activity}${
+				selected.lastEventAtMs === undefined
+					? ""
+					: ` · ${formatAgo(nowMs - selected.lastEventAtMs)}`
+			}`,
+		),
+		section("TIMELINE"),
+		...(selected.timeline.length === 0
+			? [emptyItem(style.muted)]
+			: selected.timeline.map((entry) =>
+					item(
+						`${style.dim(formatAgo(nowMs - entry.atMs).padEnd(12))} ${entry.text}`,
+					),
+				)),
+		section("OBSERVATIONS"),
+		...(selected.observations.length === 0
+			? [emptyItem(style.muted)]
+			: selected.observations.map((observation) => item(observation))),
+		section("COMMANDS"),
+		...(selected.commands.length === 0
+			? [emptyItem(style.muted)]
+			: selected.commands.map((command) => item(command, style.muted))),
+	];
+};
 
 export const detailViewLines = (input: {
 	readonly header: readonly DashboardLine[];
@@ -45,19 +77,19 @@ export const detailViewLines = (input: {
 	if (input.selected === undefined) {
 		return [
 			...input.header,
-			section("DETAIL", style.border),
+			section("DETAIL"),
 			emptyItem(style.muted),
-			footer("esc fleet", style.muted),
+			footer("esc back", style.muted),
 		];
 	}
 	const body = detailBodyLines(input.selected);
 	return [
 		...input.header,
-		section(
-			`WORK ${input.selected.primary ?? input.selected.workKey}`,
-			style.border,
-		),
+		section(`WORK ${workLabel(input.selected)}`),
 		...body.slice(input.scrollOffset, input.scrollOffset + input.viewportRows),
-		footer("j/k scroll · esc fleet · d raw events · q shutdown", style.muted),
+		footer(
+			`j/k scroll${input.selected.url === undefined ? "" : " · o open"} · esc back · q quit`,
+			style.muted,
+		),
 	];
 };

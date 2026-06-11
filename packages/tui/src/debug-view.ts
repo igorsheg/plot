@@ -15,11 +15,11 @@ export const debugViewLines = (input: {
 	readonly viewportRows: number;
 }): readonly DashboardLine[] => [
 	...input.header,
-	section("DEBUG EVENTS", style.border),
+	section("DEBUG EVENTS"),
 	...(input.projection.debugEvents.length === 0
 		? [emptyItem(style.muted)]
 		: input.projection.debugEvents
 				.slice(input.scrollOffset, input.scrollOffset + input.viewportRows)
 				.map((entry) => item(entry))),
-	footer("j/k scroll · esc fleet · d close · q shutdown", style.muted),
+	footer("j/k scroll · esc back · d close · q quit", style.muted),
 ];

@@ -11,18 +11,32 @@ export type TuiStatus =
 
 export type WorkStage =
 	| "starting"
-	| "thinking"
-	| "investigating"
-	| "exploring"
-	| "reading"
-	| "testing"
-	| "running_tool"
-	| "acting"
-	| "posting"
-	| "publishing"
 	| "waiting"
+	| "working"
+	| "verifying"
+	| "finishing"
 	| "blocked"
 	| "failed";
+
+export interface TimelineEntry {
+	readonly atMs: number;
+	readonly text: string;
+}
+
+export type ActivityTone = "ok" | "bad" | "info";
+
+export interface ActivityEntry {
+	readonly atMs: number;
+	readonly tone: ActivityTone;
+	readonly text: string;
+}
+
+export interface LoopPulse {
+	readonly tickId: number;
+	readonly atMs: number;
+	readonly found: number;
+	readonly started: number;
+}
 
 export interface RunningWorkProjection {
 	readonly workKey: string;
@@ -31,6 +45,8 @@ export interface RunningWorkProjection {
 	readonly subject?: string;
 	readonly primary?: string;
 	readonly title: string;
+	readonly subtitle?: string;
+	readonly url?: string;
 	readonly stage: WorkStage;
 	readonly startedAtSeq: number;
 	readonly lastEventSeq: number;
@@ -47,7 +63,7 @@ export interface RunningWorkProjection {
 	readonly check: "not-run" | "running" | "passed" | "failed";
 	readonly commands: readonly string[];
 	readonly observations: readonly string[];
-	readonly timeline: readonly string[];
+	readonly timeline: readonly TimelineEntry[];
 	readonly tokens?: {
 		readonly input?: number;
 		readonly output?: number;
@@ -57,8 +73,11 @@ export interface RunningWorkProjection {
 
 export interface CompletedWorkProjection {
 	readonly workKey: string;
+	readonly label: string;
 	readonly status: string;
 	readonly message: string;
+	readonly atMs: number;
+	readonly url?: string;
 }
 
 export interface ScheduledWakeProjection {
@@ -73,11 +92,12 @@ export interface DashboardProjection {
 	readonly runtime: RuntimeIdentityProjection;
 	readonly status: TuiStatus;
 	readonly frontier: number;
+	readonly pulse?: LoopPulse;
 	readonly running: ReadonlyMap<string, RunningWorkProjection>;
 	readonly completed: readonly CompletedWorkProjection[];
 	readonly diagnostics: readonly string[];
 	readonly scheduledWakes: readonly ScheduledWakeProjection[];
-	readonly timeline: readonly string[];
+	readonly activity: readonly ActivityEntry[];
 	readonly debugEvents: readonly string[];
 }
 
@@ -100,7 +120,7 @@ export const emptyProjection = (
 	completed: [],
 	diagnostics: [],
 	scheduledWakes: [],
-	timeline: [],
+	activity: [],
 	debugEvents: [],
 });
 
@@ -187,6 +207,18 @@ const extractTokens = (event: unknown) => {
 const appendBounded = (items: readonly string[], item: string, max: number) =>
 	[item, ...items.filter((existing) => existing !== item)].slice(0, max);
 
+const prependTimeline = (
+	items: readonly TimelineEntry[],
+	entry: TimelineEntry,
+	max: number,
+) => [entry, ...items].slice(0, max);
+
+const prependActivity = (
+	items: readonly ActivityEntry[],
+	entry: ActivityEntry,
+	max = 50,
+) => [entry, ...items].slice(0, max);
+
 const rawEventType = (event: unknown, fallback: string) =>
 	isRecord(event) ? (text(event["type"]) ?? fallback) : fallback;
 
@@ -255,33 +287,33 @@ const inferStage = (message: string, eventType: string): WorkStage => {
 	if (haystack.includes("auth")) return "blocked";
 	if (haystack.includes("error") || haystack.includes("failed"))
 		return "failed";
-	if (haystack.includes("gh pr review") || haystack.includes("/reviews"))
-		return "posting";
-	if (haystack.includes("post") || haystack.includes("publish"))
-		return "publishing";
+	if (
+		haystack.includes("gh pr review") ||
+		haystack.includes("/reviews") ||
+		haystack.includes("post") ||
+		haystack.includes("publish")
+	)
+		return "finishing";
 	if (
 		haystack.includes("bun run check") ||
 		haystack.includes("bun run test") ||
 		haystack.includes("typecheck")
 	)
-		return "testing";
+		return "verifying";
 	if (
 		haystack.includes("read") ||
 		haystack.includes("edit") ||
-		haystack.includes("file")
-	)
-		return "reading";
-	if (
+		haystack.includes("file") ||
 		haystack.includes("search") ||
 		haystack.includes("rg ") ||
 		haystack.includes("git ") ||
-		haystack.includes("diff")
+		haystack.includes("diff") ||
+		haystack.includes("tool") ||
+		haystack.includes("command") ||
+		haystack.includes("turn_start") ||
+		haystack.includes("message")
 	)
-		return "exploring";
-	if (haystack.includes("tool") || haystack.includes("command"))
-		return "running_tool";
-	if (haystack.includes("turn_start") || haystack.includes("message"))
-		return "thinking";
+		return "working";
 	return "waiting";
 };
 
@@ -294,7 +326,7 @@ const activityFor = (message: string, eventType: string, rawType: string) => {
 	return message;
 };
 
-const shouldShowInTimeline = (eventType: string, rawType: string) =>
+const isMeaningful = (eventType: string, rawType: string) =>
 	isTurnStart(eventType, rawType) ||
 	isTurnEnd(eventType, rawType) ||
 	isToolStart(eventType, rawType) ||
@@ -317,6 +349,12 @@ const inferCheck = (
 	return previous;
 };
 
+export const workLabel = (work: {
+	readonly primary?: string;
+	readonly title: string;
+}) =>
+	work.primary === undefined ? work.title : `${work.primary} ${work.title}`;
+
 export const applySnapshot = (
 	projection: DashboardProjection,
 	data: unknown,
@@ -333,18 +371,20 @@ export const applySnapshot = (
 		const subject = text(run["subject"]);
 		const previous = running.get(workKey);
 		const display = displayFrom(run["display"]);
-		const primary = displayString(display, "primary");
+		const primary = previous?.primary ?? displayString(display, "primary");
 		const title = displayString(display, "title");
-		const subtitle = displayString(display, "subtitle");
+		const subtitle = previous?.subtitle ?? displayString(display, "subtitle");
+		const url = previous?.url ?? displayString(display, "url");
 		const labels = displayLabels(display);
-		const displayPrimary = previous?.primary ?? primary;
 		running.set(workKey, {
 			workKey,
 			runId: text(run["runId"]) ?? previous?.runId ?? "run",
 			sourceId: text(run["sourceId"]) ?? previous?.sourceId ?? "source",
 			...(subject === undefined ? {} : { subject }),
-			...(displayPrimary === undefined ? {} : { primary: displayPrimary }),
+			...(primary === undefined ? {} : { primary }),
 			title: previous?.title ?? title ?? subtitle ?? subject ?? workKey,
+			...(subtitle === undefined ? {} : { subtitle }),
+			...(url === undefined ? {} : { url }),
 			stage: previous?.stage ?? "waiting",
 			startedAtSeq: previous?.startedAtSeq ?? projection.frontier,
 			lastEventSeq: previous?.lastEventSeq ?? projection.frontier,
@@ -405,6 +445,120 @@ export const applySnapshot = (
 	return { ...projection, running, diagnostics, scheduledWakes };
 };
 
+const reduceTickCompleted = (
+	projection: DashboardProjection,
+	result: unknown,
+	observedAtMs: number,
+): DashboardProjection => {
+	if (!isRecord(result)) return projection;
+	const tickId = typeof result["tickId"] === "number" ? result["tickId"] : 0;
+	const found = Array.isArray(result["selected"])
+		? result["selected"].length
+		: 0;
+	const started = Array.isArray(result["started"])
+		? result["started"].length
+		: 0;
+	const pulse: LoopPulse = { tickId, atMs: observedAtMs, found, started };
+	const activity =
+		found > 0
+			? prependActivity(projection.activity, {
+					atMs: observedAtMs,
+					tone: "info",
+					text: `tick #${tickId} found ${found} work, started ${started}`,
+				})
+			: projection.activity;
+	return { ...projection, pulse, activity };
+};
+
+const reduceWorkStarted = (
+	projection: DashboardProjection,
+	run: Record<string, unknown>,
+	sequence: number,
+	observedAtMs: number,
+): DashboardProjection => {
+	const workKey = text(run["workKey"]) ?? "work";
+	const subject = text(run["subject"]);
+	const running = new Map(projection.running);
+	const display = displayFrom(run["display"]);
+	const primary = displayString(display, "primary");
+	const title = displayString(display, "title");
+	const subtitle = displayString(display, "subtitle");
+	const url = displayString(display, "url");
+	const labels = displayLabels(display);
+	const work: RunningWorkProjection = {
+		workKey,
+		runId: text(run["runId"]) ?? "run",
+		sourceId: text(run["sourceId"]) ?? "source",
+		...(subject === undefined ? {} : { subject }),
+		...(primary === undefined ? {} : { primary }),
+		title: title ?? subtitle ?? subject ?? workKey,
+		...(subtitle === undefined ? {} : { subtitle }),
+		...(url === undefined ? {} : { url }),
+		stage: "starting",
+		startedAtSeq: sequence,
+		lastEventSeq: sequence,
+		startedAtMs: observedAtMs,
+		lastEventAtMs: observedAtMs,
+		turnCount: 0,
+		eventCount: 0,
+		toolUpdateCount: 0,
+		messageCount: 0,
+		seenTurnIds: [],
+		lastMessage: labels.join(",") || "started",
+		activity: "Starting work",
+		lastMeaningful: "started",
+		check: "not-run",
+		commands: [],
+		observations: [],
+		timeline: [{ atMs: observedAtMs, text: "work started" }],
+	};
+	running.set(workKey, work);
+	return {
+		...projection,
+		running,
+		activity: prependActivity(projection.activity, {
+			atMs: observedAtMs,
+			tone: "info",
+			text: `${workLabel(work)} started`,
+		}),
+	};
+};
+
+const reduceWorkCompleted = (
+	projection: DashboardProjection,
+	completion: Record<string, unknown>,
+	observedAtMs: number,
+): DashboardProjection => {
+	const workKey = text(completion["workKey"]) ?? "work";
+	const status = text(completion["status"]) ?? "completed";
+	const error = text(completion["error"]);
+	const running = new Map(projection.running);
+	const prior = running.get(workKey);
+	running.delete(workKey);
+	const label = prior === undefined ? workKey : workLabel(prior);
+	const ok = status === "succeeded";
+	return {
+		...projection,
+		running,
+		activity: prependActivity(projection.activity, {
+			atMs: observedAtMs,
+			tone: ok ? "ok" : "bad",
+			text: `${label} ${status}${error === undefined ? "" : ` · ${error}`}`,
+		}),
+		completed: [
+			{
+				workKey,
+				label,
+				status,
+				message: error ?? "completed",
+				atMs: observedAtMs,
+				...(prior?.url === undefined ? {} : { url: prior.url }),
+			},
+			...projection.completed,
+		].slice(0, 20),
+	};
+};
+
 export const reduceRecord = (
 	projection: DashboardProjection,
 	record: PlotServerRecord,
@@ -425,69 +579,16 @@ export const reduceRecord = (
 	if (!isRecord(event)) return next;
 	if (event["type"] === "plot_agent_event" && isRecord(event["event"])) {
 		const agentEvent = event["event"];
-		if (agentEvent["type"] === "work_started" && isRecord(agentEvent["run"])) {
-			const run = agentEvent["run"];
-			const workKey = text(run["workKey"]) ?? "work";
-			const subject = text(run["subject"]);
-			const running = new Map(next.running);
-			const display = displayFrom(run["display"]);
-			const primary = displayString(display, "primary");
-			const title = displayString(display, "title");
-			const subtitle = displayString(display, "subtitle");
-			const labels = displayLabels(display);
-			running.set(workKey, {
-				workKey,
-				runId: text(run["runId"]) ?? "run",
-				sourceId: text(run["sourceId"]) ?? "source",
-				...(subject === undefined ? {} : { subject }),
-				...(primary === undefined ? {} : { primary }),
-				title: title ?? subtitle ?? subject ?? workKey,
-				stage: "starting",
-				startedAtSeq: sequence,
-				lastEventSeq: sequence,
-				startedAtMs: observedAtMs,
-				lastEventAtMs: observedAtMs,
-				turnCount: 0,
-				eventCount: 0,
-				toolUpdateCount: 0,
-				messageCount: 0,
-				seenTurnIds: [],
-				lastMessage: labels.join(",") || "started",
-				activity: "Starting work",
-				lastMeaningful: "started",
-				check: "not-run",
-				commands: [],
-				observations: [],
-				timeline: [`#${sequence} work started`],
-			});
-			next = {
-				...next,
-				running,
-				timeline: [`#${sequence} work started`, ...next.timeline].slice(0, 8),
-			};
-		}
+		if (agentEvent["type"] === "tick_completed")
+			return reduceTickCompleted(next, agentEvent["result"], observedAtMs);
+		if (agentEvent["type"] === "work_started" && isRecord(agentEvent["run"]))
+			return reduceWorkStarted(next, agentEvent["run"], sequence, observedAtMs);
 		if (
 			agentEvent["type"] === "work_completed" &&
 			isRecord(agentEvent["completion"])
-		) {
-			const completion = agentEvent["completion"];
-			const workKey = text(completion["workKey"]) ?? "work";
-			const running = new Map(next.running);
-			running.delete(workKey);
-			next = {
-				...next,
-				running,
-				timeline: [`#${sequence} work completed`, ...next.timeline].slice(0, 8),
-				completed: [
-					{
-						workKey,
-						status: text(completion["status"]) ?? "completed",
-						message: text(completion["error"]) ?? "completed",
-					},
-					...next.completed,
-				].slice(0, 5),
-			};
-		}
+		)
+			return reduceWorkCompleted(next, agentEvent["completion"], observedAtMs);
+		return next;
 	}
 	if (event["type"] === "agent_session_event") {
 		const workKey = text(event["workKey"]);
@@ -517,21 +618,17 @@ export const reduceRecord = (
 			id !== undefined && !priorTurnIds.includes(id)
 				? [...priorTurnIds, id]
 				: priorTurnIds;
-		const turnCount = seenTurnIds.length;
-		const eventCount = (previous?.eventCount ?? 0) + 1;
-		const toolUpdateCount =
-			(previous?.toolUpdateCount ?? 0) +
-			(isToolUpdate(eventType, rawType) ? 1 : 0);
-		const messageCount =
-			(previous?.messageCount ?? 0) +
-			(isMessageDelta(eventType, rawType) ? 1 : 0);
 		const activity = activityFor(message, eventType, rawType);
-		const meaningful = shouldShowInTimeline(eventType, rawType);
+		const meaningful = isMeaningful(eventType, rawType);
 		const lastMeaningful = meaningful
 			? activity
 			: (previous?.lastMeaningful ?? "waiting");
 		const timeline = meaningful
-			? appendBounded(previous?.timeline ?? [], `#${sequence} ${activity}`, 12)
+			? prependTimeline(
+					previous?.timeline ?? [],
+					{ atMs: observedAtMs, text: activity },
+					12,
+				)
 			: (previous?.timeline ?? []);
 		running.set(workKey, {
 			workKey,
@@ -540,15 +637,23 @@ export const reduceRecord = (
 			...(subject === undefined ? {} : { subject }),
 			...(previous?.primary === undefined ? {} : { primary: previous.primary }),
 			title: previous?.title ?? subject ?? workKey,
+			...(previous?.subtitle === undefined
+				? {}
+				: { subtitle: previous.subtitle }),
+			...(previous?.url === undefined ? {} : { url: previous.url }),
 			stage: inferStage(message, `${eventType} ${rawType}`),
 			startedAtSeq: previous?.startedAtSeq ?? sequence,
 			lastEventSeq: sequence,
 			startedAtMs: previous?.startedAtMs ?? observedAtMs,
 			lastEventAtMs: observedAtMs,
-			turnCount,
-			eventCount,
-			toolUpdateCount,
-			messageCount,
+			turnCount: seenTurnIds.length,
+			eventCount: (previous?.eventCount ?? 0) + 1,
+			toolUpdateCount:
+				(previous?.toolUpdateCount ?? 0) +
+				(isToolUpdate(eventType, rawType) ? 1 : 0),
+			messageCount:
+				(previous?.messageCount ?? 0) +
+				(isMessageDelta(eventType, rawType) ? 1 : 0),
 			seenTurnIds,
 			lastMessage: message,
 			activity,
@@ -559,18 +664,7 @@ export const reduceRecord = (
 			timeline,
 			...(tokens === undefined ? {} : { tokens }),
 		});
-		next = {
-			...next,
-			running,
-			...(meaningful
-				? {
-						timeline: [`#${sequence} ${activity}`, ...next.timeline].slice(
-							0,
-							8,
-						),
-					}
-				: {}),
-		};
+		return { ...next, running };
 	}
 	return next;
 };

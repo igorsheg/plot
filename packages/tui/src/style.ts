@@ -4,22 +4,13 @@ type ColorValue = string | number;
 type PlotColor =
 	| "accent"
 	| "border"
-	| "borderAccent"
-	| "borderMuted"
 	| "success"
 	| "error"
 	| "warning"
 	| "muted"
 	| "dim"
 	| "text"
-	| "thinkingText"
-	| "selectedBg"
-	| "toolPendingBg"
-	| "toolSuccessBg"
-	| "toolErrorBg"
-	| "toolTitle"
-	| "toolOutput"
-	| "thinkingHigh";
+	| "selectedBg";
 
 const colorEnabled =
 	process.env["NO_COLOR"] === undefined && process.env["TERM"] !== "dumb";
@@ -33,23 +24,14 @@ const colorMode = (): ColorMode => {
 
 const palette = {
 	accent: "#8abeb7",
-	border: "#5f87ff",
-	borderAccent: "#00d7ff",
-	borderMuted: "#505050",
+	border: "#505050",
 	success: "#b5bd68",
 	error: "#cc6666",
 	warning: "#f0c674",
 	muted: "#808080",
 	dim: "#666666",
 	text: "#d4d4d4",
-	thinkingText: "#808080",
 	selectedBg: "#3a3a4a",
-	toolPendingBg: "#282832",
-	toolSuccessBg: "#283228",
-	toolErrorBg: "#3c2828",
-	toolTitle: "#d4d4d4",
-	toolOutput: "#808080",
-	thinkingHigh: "#b294bb",
 } satisfies Record<PlotColor, ColorValue>;
 
 const ansi = {
@@ -118,21 +100,15 @@ const rgbTo256 = (r: number, g: number, b: number): number => {
 
 const fgAnsi = (color: ColorValue, mode: ColorMode): string => {
 	if (typeof color === "number") return `\x1b[38;5;${color}m`;
-	if (mode === "truecolor") {
-		const { r, g, b } = hexToRgb(color);
-		return `\x1b[38;2;${r};${g};${b}m`;
-	}
 	const { r, g, b } = hexToRgb(color);
+	if (mode === "truecolor") return `\x1b[38;2;${r};${g};${b}m`;
 	return `\x1b[38;5;${rgbTo256(r, g, b)}m`;
 };
 
 const bgAnsi = (color: ColorValue, mode: ColorMode): string => {
 	if (typeof color === "number") return `\x1b[48;5;${color}m`;
-	if (mode === "truecolor") {
-		const { r, g, b } = hexToRgb(color);
-		return `\x1b[48;2;${r};${g};${b}m`;
-	}
 	const { r, g, b } = hexToRgb(color);
+	if (mode === "truecolor") return `\x1b[48;2;${r};${g};${b}m`;
 	return `\x1b[48;5;${rgbTo256(r, g, b)}m`;
 };
 
@@ -153,37 +129,35 @@ const bold = (value: string) =>
 const inverse = (value: string) =>
 	colorEnabled ? `${ansi.inverse}${value}${ansi.reset}` : value;
 
+// Hue is reserved for state: green = healthy, yellow = waiting on something,
+// red = needs a human. Hierarchy comes from weight and brightness.
 export const style = {
-	appTitle: compose(fg("borderAccent"), bold),
-	panelTitle: compose(fg("text"), bold),
-	border: fg("borderMuted"),
-	borderAccent: fg("border"),
+	brand: compose(fg("text"), bold),
 	label: compose(fg("text"), bold),
-	value: fg("accent"),
+	text: fg("text"),
+	value: fg("text"),
+	accent: fg("accent"),
 	muted: fg("muted"),
-	selected: compose(bg("selectedBg"), fg("text")),
+	dim: fg("dim"),
+	border: fg("border"),
 	inverse,
+	ok: fg("success"),
+	warn: fg("warning"),
+	bad: compose(fg("error"), bold),
 	status: {
 		running: fg("success"),
-		idle: fg("accent"),
+		idle: fg("muted"),
 		warning: fg("warning"),
 		error: compose(fg("error"), bold),
 		success: fg("success"),
 	},
 	stage: {
-		exploring: fg("accent"),
-		reading: fg("border"),
-		testing: fg("warning"),
-		acting: fg("thinkingHigh"),
-		publishing: fg("success"),
+		starting: fg("muted"),
 		waiting: fg("muted"),
-		blocked: fg("error"),
-		failed: compose(fg("error"), bold),
-	},
-	check: {
-		notRun: fg("muted"),
-		running: fg("warning"),
-		passed: fg("success"),
+		working: fg("text"),
+		verifying: fg("warning"),
+		finishing: fg("success"),
+		blocked: compose(fg("error"), bold),
 		failed: compose(fg("error"), bold),
 	},
 	row: {

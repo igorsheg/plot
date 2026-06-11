@@ -15,7 +15,7 @@ export const configViewLines = (
 	const r = projection.runtime;
 	return [
 		...header,
-		section("RUNTIME", style.border),
+		section("RUNTIME"),
 		item(`workflow: ${r.workflowPath ?? projection.workflowName}`),
 		item(`cwd: ${r.cwd}`),
 		item(`provider: ${r.provider ?? "unknown"}`),
@@ -30,12 +30,12 @@ export const configViewLines = (
 		item(
 			`max run duration: ${r.maxRunDurationMs === undefined ? "default" : `${r.maxRunDurationMs}ms`}`,
 		),
-		section("SKILLS", style.border),
+		section("SKILLS"),
 		...(r.skillPaths.length === 0
 			? [emptyItem(style.muted)]
 			: r.skillPaths.map((skill) => item(skill))),
 		footer(
-			"j/k scroll · esc/fleet · c close · r force tick · g refresh · q shutdown",
+			"j/k scroll · esc back · c close · t tick · g refresh · q quit",
 			style.muted,
 		),
 	];

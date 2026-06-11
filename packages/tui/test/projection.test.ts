@@ -15,18 +15,26 @@ const eventRecord = (sequence: number, event: unknown): PlotServerRecord => ({
 	event,
 });
 
-const workStarted = (sequence: number, workKey = "source:item:42") =>
+const plotAgentEvent = (sequence: number, event: Record<string, unknown>) =>
 	eventRecord(sequence, {
 		type: "plot_agent_event",
 		sessionId: "default",
 		sequence,
-		event: {
-			type: "work_started",
-			run: {
-				runId: "run-1",
-				sourceId: "extension:worker",
-				workKey,
-				subject: "source:item:42",
+		event,
+	});
+
+const workStarted = (sequence: number, workKey = "source:item:42") =>
+	plotAgentEvent(sequence, {
+		type: "work_started",
+		run: {
+			runId: "run-1",
+			sourceId: "extension:worker",
+			workKey,
+			subject: "source:item:42",
+			display: {
+				primary: "#42",
+				title: "Fix checkout totals",
+				url: "https://example.com/pr/42",
 			},
 		},
 	});
@@ -51,36 +59,68 @@ const agentEvent = (
 	});
 
 describe("Plot TUI projection", () => {
-	test("maps agent activity to operator-facing stages", () => {
+	test("maps agent activity to collapsed operator stages", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(projection, agentEvent(2, "git diff --stat"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("exploring");
+		expect(projection.running.get("source:item:42")?.stage).toBe("working");
 
 		projection = reduceRecord(projection, agentEvent(3, "bun run check"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("testing");
+		expect(projection.running.get("source:item:42")?.stage).toBe("verifying");
 		expect(projection.running.get("source:item:42")?.check).toBe("running");
 
-		projection = reduceRecord(projection, agentEvent(4, "read src/index.ts"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("reading");
+		projection = reduceRecord(projection, agentEvent(4, "publish result"));
+		expect(projection.running.get("source:item:42")?.stage).toBe("finishing");
 
-		projection = reduceRecord(projection, agentEvent(5, "publish result"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("publishing");
-
-		projection = reduceRecord(projection, agentEvent(6, "auth required"));
+		projection = reduceRecord(projection, agentEvent(5, "auth required"));
 		expect(projection.running.get("source:item:42")?.stage).toBe("blocked");
 	});
 
-	test("keeps raw debug events separate from projected timeline", () => {
+	test("captures the loop pulse from tick_completed", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(
+			projection,
+			plotAgentEvent(1, {
+				type: "tick_completed",
+				result: {
+					tickId: 7,
+					selected: [{ workKey: "source:item:42" }],
+					started: [{ workKey: "source:item:42" }],
+				},
+			}),
+		);
+		expect(projection.pulse).toMatchObject({ tickId: 7, found: 1, started: 1 });
+		expect(projection.activity[0]?.text).toContain("tick #7 found 1");
+	});
+
+	test("feeds fleet activity from work lifecycle, not raw event spam", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(projection, agentEvent(2, "bun run check"));
-
-		expect(projection.timeline[0]).toContain("Running: bun run check");
-		expect(projection.debugEvents[0]).toContain("tool_call");
-		expect(projection.debugEvents.length).toBeGreaterThanOrEqual(
-			projection.timeline.length,
+		projection = reduceRecord(
+			projection,
+			plotAgentEvent(3, {
+				type: "work_completed",
+				completion: {
+					workKey: "source:item:42",
+					status: "succeeded",
+				},
+			}),
 		);
+
+		expect(projection.activity.map((entry) => entry.text)).toEqual([
+			"#42 Fix checkout totals succeeded",
+			"#42 Fix checkout totals started",
+		]);
+		expect(projection.activity[0]?.tone).toBe("ok");
+		expect(projection.completed[0]).toMatchObject({
+			workKey: "source:item:42",
+			label: "#42 Fix checkout totals",
+			status: "succeeded",
+			url: "https://example.com/pr/42",
+		});
+		expect(projection.completed[0]?.atMs).toBeGreaterThan(0);
+		expect(projection.debugEvents.length).toBeGreaterThanOrEqual(3);
 	});
 
 	test("counts real turns instead of streamed deltas", () => {
@@ -122,7 +162,7 @@ describe("Plot TUI projection", () => {
 		expect(work?.toolUpdateCount).toBe(1);
 	});
 
-	test("compacts tool updates out of the operator timeline", () => {
+	test("compacts tool updates out of the per-work timeline", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(
@@ -154,14 +194,12 @@ describe("Plot TUI projection", () => {
 		);
 
 		const work = projection.running.get("source:item:42");
-		expect(work?.timeline).toEqual([
-			"#4 Ran: gh pr diff 1532",
-			"#2 Running: gh pr diff 1532",
-			"#1 work started",
+		expect(work?.timeline.map((entry) => entry.text)).toEqual([
+			"Ran: gh pr diff 1532",
+			"Running: gh pr diff 1532",
+			"work started",
 		]);
-		expect(projection.timeline.join("\n")).not.toContain(
-			"tool_execution_update",
-		);
+		expect(work?.timeline.every((entry) => entry.atMs > 0)).toBe(true);
 		expect(projection.debugEvents[0]).toContain("tool_execution_end");
 	});
 
