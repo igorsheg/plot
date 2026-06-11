@@ -60,8 +60,8 @@ Unless the target has no PR or is draft-skipped, use this sequence:
    - Returns the specialist reviewer set for the tier.
 3. `spawn_reviewers`
    - Runs specialist pi agent sessions.
-   - Returns `reviewerOutputs` for quick coordinator reading and raw `results` with pi events for debugging/evidence.
-   - Treat specialist outputs as leads, not final findings.
+   - Returns `parsedCandidateFindings`, `reviewerOutputs` for quick coordinator reading, and raw `results` with pi events for debugging/evidence.
+   - Treat parsed specialist findings as leads, not final findings.
 4. Inspect/verify yourself.
    - Read changed files, callers, sibling patterns, tests, and protocol/runtime boundaries as needed.
    - Run focused commands when useful (`rg`, `git diff`, `bun run test`, `bun run check`, etc.).
@@ -112,7 +112,7 @@ Use this disposition rubric:
 - `COMMENT`: no issues, informational notes, or non-blocking P1/P2 findings.
 - `BLOCKING_COMMENT`: verified P0 issue, security exposure, data loss, protocol breakage, or production safety risk.
 
-Bias toward approval. A single non-critical warning in an otherwise clean PR should usually be `COMMENT`, not blocking.
+Bias toward approval. A single non-critical warning in an otherwise clean PR should usually be `COMMENT`, not blocking. The posting tool enforces this rubric as a final guardrail: critical findings request changes; non-critical findings cannot request changes.
 
 ## Findings format
 
