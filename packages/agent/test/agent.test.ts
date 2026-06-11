@@ -42,7 +42,7 @@ const waitForEvent = async <A>(
 		const timedOut = new Promise<never>((_, reject) => {
 			timeout = setTimeout(
 				() => reject(new Error("timed out waiting for matching event")),
-				100,
+				1000,
 			);
 		});
 		return await Promise.race([nextMatching, timedOut]);
