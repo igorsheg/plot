@@ -214,16 +214,22 @@ export class PlotDashboard implements Component {
 				: pulse.runningCount > 0
 					? undefined
 					: style.muted("no wake scheduled");
+		const runningValue =
+			pulse.maxConcurrentRuns === undefined
+				? String(pulse.runningCount)
+				: `${pulse.runningCount}/${pulse.maxConcurrentRuns}`;
 		const runningText =
 			pulse.runningCount > 0
-				? style.ok(`${pulse.runningCount} running`)
-				: style.muted("0 running");
+				? style.ok(`${runningValue} running`)
+				: style.muted(`${runningValue} running`);
 		const segments = [
 			`${statusGlyph(p.status)} ${statusStyle(p.status)(p.status)}`,
 			tickText,
 			...(wakeText === undefined ? [] : [wakeText]),
 			runningText,
 			style.muted(`${pulse.totalTokens} tok`),
+			...(pulse.totalCost === undefined ? [] : [style.muted(pulse.totalCost)]),
+			style.muted(`${pulse.throughput} ${pulse.throughputGraph}`),
 		];
 		return [
 			asLine(

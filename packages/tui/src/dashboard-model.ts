@@ -18,7 +18,11 @@ export interface PulseModel {
 		readonly reason?: string;
 	};
 	readonly runningCount: number;
+	readonly maxConcurrentRuns?: number;
 	readonly totalTokens: string;
+	readonly totalCost?: string;
+	readonly throughput: string;
+	readonly throughputGraph: string;
 }
 
 export interface AttentionItemModel {
@@ -67,6 +71,9 @@ export const formatTokens = (value: number) => {
 	return `${(value / 1_000_000).toFixed(1)}m`;
 };
 
+export const formatCost = (value: number) =>
+	`$${value.toFixed(value < 1 ? 4 : 2)}`;
+
 export const formatDuration = (ms: number) => {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
 	const minutes = Math.floor(seconds / 60);
@@ -89,6 +96,47 @@ const isStale = (work: RunningWorkProjection, nowMs: number) =>
 	nowMs - work.lastEventAtMs > staleThresholdMs;
 
 const tokenTotal = (work: RunningWorkProjection) => work.tokens?.total ?? 0;
+
+const sparkChars = "▁▂▃▄▅▆▇█";
+const throughputWindowMs = 60 * 1000;
+const throughputBuckets = 8;
+
+const tokenThroughput = (
+	samples: DashboardProjection["tokenSamples"],
+	nowMs: number,
+) => {
+	const windowStart = nowMs - throughputWindowMs;
+	const recent = samples.filter((sample) => sample.atMs >= windowStart);
+	if (recent.length < 2)
+		return { rate: 0, graph: sparkChars[0]?.repeat(throughputBuckets) ?? "" };
+	const first = recent[0];
+	const last = recent[recent.length - 1];
+	if (first === undefined || last === undefined || last.atMs <= first.atMs)
+		return { rate: 0, graph: sparkChars[0]?.repeat(throughputBuckets) ?? "" };
+	const rate = ((last.tokens - first.tokens) * 1000) / (last.atMs - first.atMs);
+	const bucketMs = throughputWindowMs / throughputBuckets;
+	const buckets = Array.from({ length: throughputBuckets }, (_, index) => {
+		const start = windowStart + index * bucketMs;
+		const end = start + bucketMs;
+		const inBucket = recent.filter(
+			(sample) => sample.atMs >= start && sample.atMs < end,
+		);
+		if (inBucket.length < 2) return 0;
+		const bucketFirst = inBucket[0];
+		const bucketLast = inBucket[inBucket.length - 1];
+		if (bucketFirst === undefined || bucketLast === undefined) return 0;
+		return Math.max(0, bucketLast.tokens - bucketFirst.tokens);
+	});
+	const max = Math.max(...buckets, 1);
+	const graph = buckets
+		.map(
+			(value) =>
+				sparkChars[Math.ceil((value / max) * (sparkChars.length - 1))] ??
+				sparkChars[0],
+		)
+		.join("");
+	return { rate, graph };
+};
 
 const workRow = (work: RunningWorkProjection, nowMs: number): WorkRowModel => ({
 	work,
@@ -139,12 +187,8 @@ export const dashboardModelFrom = (
 				Number(b.attention) - Number(a.attention) ||
 				a.work.startedAtSeq - b.work.startedAtSeq,
 		);
-	const totalTokens = formatTokens(
-		[...projection.running.values()].reduce(
-			(total, work) => total + tokenTotal(work),
-			0,
-		),
-	);
+	const throughput = tokenThroughput(projection.tokenSamples, nowMs);
+	const totalTokens = formatTokens(projection.usageTotals.tokens);
 	const nextWake = projection.scheduledWakes[0];
 	return {
 		pulse: {
@@ -171,7 +215,15 @@ export const dashboardModelFrom = (
 						},
 					}),
 			runningCount: rows.length,
+			...(projection.runtime.maxConcurrentRuns === undefined
+				? {}
+				: { maxConcurrentRuns: projection.runtime.maxConcurrentRuns }),
 			totalTokens,
+			...(projection.usageTotals.cost === undefined
+				? {}
+				: { totalCost: formatCost(projection.usageTotals.cost) }),
+			throughput: `${formatTokens(Math.round(throughput.rate))} tps`,
+			throughputGraph: throughput.graph,
 		},
 		attention: attentionFrom(rows, projection.diagnostics),
 		work: rows,

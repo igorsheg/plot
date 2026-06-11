@@ -38,6 +38,16 @@ export interface LoopPulse {
 	readonly started: number;
 }
 
+export interface UsageTotals {
+	readonly tokens: number;
+	readonly cost?: number;
+}
+
+export interface TokenSample {
+	readonly atMs: number;
+	readonly tokens: number;
+}
+
 export interface RunningWorkProjection {
 	readonly workKey: string;
 	readonly runId: string;
@@ -68,6 +78,7 @@ export interface RunningWorkProjection {
 		readonly input?: number;
 		readonly output?: number;
 		readonly total?: number;
+		readonly cost?: number;
 	};
 }
 
@@ -93,6 +104,8 @@ export interface DashboardProjection {
 	readonly status: TuiStatus;
 	readonly frontier: number;
 	readonly pulse?: LoopPulse;
+	readonly usageTotals: UsageTotals;
+	readonly tokenSamples: readonly TokenSample[];
 	readonly running: ReadonlyMap<string, RunningWorkProjection>;
 	readonly completed: readonly CompletedWorkProjection[];
 	readonly diagnostics: readonly string[];
@@ -116,6 +129,8 @@ export const emptyProjection = (
 	runtime,
 	status: "starting",
 	frontier: 0,
+	usageTotals: { tokens: 0 },
+	tokenSamples: [],
 	running: new Map(),
 	completed: [],
 	diagnostics: [],
@@ -172,37 +187,73 @@ const summarizeAgentEvent = (event: unknown): string => {
 	return JSON.stringify(event).replace(/\s+/g, " ").slice(0, 120);
 };
 
-const extractTokens = (event: unknown) => {
-	if (!isRecord(event)) return undefined;
-	const usage = isRecord(event["usage"]) ? event["usage"] : event;
-	const input =
-		typeof usage["input"] === "number"
-			? usage["input"]
-			: typeof usage["inputTokens"] === "number"
-				? usage["inputTokens"]
-				: undefined;
-	const output =
-		typeof usage["output"] === "number"
-			? usage["output"]
-			: typeof usage["outputTokens"] === "number"
-				? usage["outputTokens"]
-				: undefined;
-	const total =
-		typeof usage["total"] === "number"
-			? usage["total"]
-			: typeof usage["totalTokens"] === "number"
-				? usage["totalTokens"]
-				: input !== undefined || output !== undefined
-					? (input ?? 0) + (output ?? 0)
-					: undefined;
-	return input === undefined && output === undefined && total === undefined
-		? undefined
-		: {
-				...(input === undefined ? {} : { input }),
-				...(output === undefined ? {} : { output }),
-				...(total === undefined ? {} : { total }),
-			};
+interface UsageDelta {
+	readonly input?: number;
+	readonly output?: number;
+	readonly total: number;
+	readonly cost?: number;
+}
+
+const numberAt = (
+	record: Record<string, unknown>,
+	...keys: readonly string[]
+) => {
+	for (const key of keys) {
+		const value = record[key];
+		if (typeof value === "number") return value;
+	}
+	return undefined;
 };
+
+// pi-mono attaches per-call Usage to the assistant message on message_end:
+// event.message.usage = { input, output, totalTokens, cost: { total } }.
+const extractUsage = (event: unknown): UsageDelta | undefined => {
+	if (!isRecord(event)) return undefined;
+	const message = isRecord(event["message"]) ? event["message"] : undefined;
+	const usage = isRecord(message?.["usage"])
+		? message["usage"]
+		: isRecord(event["usage"])
+			? event["usage"]
+			: undefined;
+	if (usage === undefined) return undefined;
+	const input = numberAt(usage, "input", "inputTokens");
+	const output = numberAt(usage, "output", "outputTokens");
+	const total =
+		numberAt(usage, "totalTokens", "total") ??
+		(input !== undefined || output !== undefined
+			? (input ?? 0) + (output ?? 0)
+			: undefined);
+	if (total === undefined) return undefined;
+	const cost = isRecord(usage["cost"])
+		? numberAt(usage["cost"], "total")
+		: undefined;
+	return {
+		...(input === undefined ? {} : { input }),
+		...(output === undefined ? {} : { output }),
+		total,
+		...(cost === undefined ? {} : { cost }),
+	};
+};
+
+const addUsage = (
+	previous: RunningWorkProjection["tokens"],
+	delta: UsageDelta,
+): NonNullable<RunningWorkProjection["tokens"]> => ({
+	input: (previous?.input ?? 0) + (delta.input ?? 0),
+	output: (previous?.output ?? 0) + (delta.output ?? 0),
+	total: (previous?.total ?? 0) + delta.total,
+	cost: (previous?.cost ?? 0) + (delta.cost ?? 0),
+});
+
+const sampleWindowMs = 90 * 1000;
+
+const appendSample = (
+	samples: readonly TokenSample[],
+	sample: TokenSample,
+): readonly TokenSample[] =>
+	[...samples, sample].filter(
+		(entry) => sample.atMs - entry.atMs <= sampleWindowMs,
+	);
 
 const appendBounded = (items: readonly string[], item: string, max: number) =>
 	[item, ...items.filter((existing) => existing !== item)].slice(0, max);
@@ -603,7 +654,25 @@ export const reduceRecord = (
 		const running = new Map(next.running);
 		const previous = running.get(workKey);
 		const subject = text(event["subject"]) ?? previous?.subject;
-		const tokens = extractTokens(rawEvent) ?? previous?.tokens;
+		const usage = extractUsage(rawEvent);
+		const tokens =
+			usage === undefined
+				? previous?.tokens
+				: addUsage(previous?.tokens, usage);
+		const usageTotals =
+			usage === undefined
+				? next.usageTotals
+				: {
+						tokens: next.usageTotals.tokens + usage.total,
+						cost: (next.usageTotals.cost ?? 0) + (usage.cost ?? 0),
+					};
+		const tokenSamples =
+			usage === undefined
+				? next.tokenSamples
+				: appendSample(next.tokenSamples, {
+						atMs: observedAtMs,
+						tokens: usageTotals.tokens,
+					});
 		const commands = isCommand(message)
 			? appendBounded(previous?.commands ?? [], message, 8)
 			: (previous?.commands ?? []);
@@ -664,7 +733,7 @@ export const reduceRecord = (
 			timeline,
 			...(tokens === undefined ? {} : { tokens }),
 		});
-		return { ...next, running };
+		return { ...next, usageTotals, tokenSamples, running };
 	}
 	return next;
 };

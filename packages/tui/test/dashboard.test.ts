@@ -1,7 +1,21 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { PlotDashboard } from "../src/dashboard.js";
 import { emptyProjection } from "../src/projection.js";
 import type { RunningWorkProjection } from "../src/projection.js";
+
+const fixedNowMs = 1_700_000_000_000;
+
+const fixture = (name: string) =>
+	readFileSync(
+		join(import.meta.dir, "fixtures", "dashboard", `${name}.txt`),
+		"utf8",
+	);
+
+const escape = String.fromCharCode(27);
+const stripAnsi = (text: string) =>
+	text.replace(new RegExp(`${escape}\\[[0-9;]*m`, "g"), "");
 
 const runningWork = (
 	overrides: Partial<RunningWorkProjection> & { workKey: string },
@@ -37,6 +51,115 @@ describe("PlotDashboard", () => {
 		toggleDebug: () => {},
 		shutdown: () => {},
 	};
+
+	const withFixedNow = <T>(run: () => T): T => {
+		const original = Date.now;
+		Date.now = () => fixedNowMs;
+		try {
+			return run();
+		} finally {
+			Date.now = original;
+		}
+	};
+
+	test("matches canonical dashboard snapshots", () =>
+		withFixedNow(() => {
+			const base = emptyProjection("default", "workflow", {
+				cwd: "/repo/epic",
+				cwdName: "epic",
+				provider: "anthropic",
+				model: "claude",
+				skills: [],
+				skillPaths: [],
+				maxConcurrentRuns: 4,
+			});
+			const cases = {
+				idle: {
+					...base,
+					status: "running" as const,
+					pulse: {
+						tickId: 42,
+						atMs: fixedNowMs - 3_000,
+						found: 0,
+						started: 0,
+					},
+					scheduledWakes: [
+						{ dueAtMs: fixedNowMs + 26_000, delayMs: 30_000, reason: "poll" },
+					],
+				},
+				super_busy: {
+					...base,
+					status: "running" as const,
+					pulse: {
+						tickId: 43,
+						atMs: fixedNowMs - 1_000,
+						found: 5,
+						started: 2,
+					},
+					usageTotals: { tokens: 12_000, cost: 0.0345 },
+					tokenSamples: [
+						{ atMs: fixedNowMs - 50_000, tokens: 1_000 },
+						{ atMs: fixedNowMs - 40_000, tokens: 3_000 },
+						{ atMs: fixedNowMs - 30_000, tokens: 7_000 },
+						{ atMs: fixedNowMs - 20_000, tokens: 10_000 },
+						{ atMs: fixedNowMs - 10_000, tokens: 12_000 },
+					],
+					running: new Map([
+						[
+							"a",
+							runningWork({
+								workKey: "a",
+								primary: "#42",
+								title: "Item 42",
+								stage: "verifying",
+								activity: "Running: bun run check",
+								lastMeaningful: "Running: bun run check",
+								check: "running",
+								tokens: { total: 8_000 },
+							}),
+						],
+						[
+							"b",
+							runningWork({
+								workKey: "b",
+								primary: "#43",
+								title: "Item 43",
+								stage: "finishing",
+								activity: "Posting review",
+								lastMeaningful: "publish result",
+								tokens: { total: 4_000 },
+							}),
+						],
+					]),
+				},
+				backoff_queue: {
+					...base,
+					status: "idle" as const,
+					pulse: {
+						tickId: 44,
+						atMs: fixedNowMs - 5_000,
+						found: 1,
+						started: 0,
+					},
+					scheduledWakes: [
+						{
+							dueAtMs: fixedNowMs + 1_250,
+							delayMs: 1_250,
+							reason: "rate limit exhausted",
+						},
+						{ dueAtMs: fixedNowMs + 10_000, delayMs: 10_000, reason: "poll" },
+					],
+					diagnostics: ["runner failed: rate limit exhausted"],
+				},
+			};
+
+			for (const [name, projection] of Object.entries(cases)) {
+				const rendered = new PlotDashboard(projection, actions)
+					.render(120)
+					.join("\n");
+				expect(`${stripAnsi(rendered)}\n`).toBe(fixture(name));
+			}
+		}));
 
 	test("renders a two-line board row per running work", () => {
 		const running = new Map([

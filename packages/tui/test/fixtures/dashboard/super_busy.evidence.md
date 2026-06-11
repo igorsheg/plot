@@ -1,0 +1,12 @@
+```text
+╭─ PLOT · workflow · anthropic/claude · epic
+│ ◉ running · tick #43 · 1s ago · found 5 · 2/4 running · 12.0k tok · $0.0345 · 275 tps ▁▁▁▁▁▁▁▁
+├─ WORK · 2 running
+│ › ⠧ #42 Item 42                                                                              verifying  5s · t3 · 8.0k
+│      Running: bun run check                                                                                     1s ago
+│   ⠧ #43 Item 43                                                                              finishing  5s · t3 · 4.0k
+│      Posting review                                                                                             1s ago
+├─ ACTIVITY
+│   nothing yet
+╰─ ↑↓ select · enter detail · o open · t tick · g refresh · c config · d debug · q quit
+```
