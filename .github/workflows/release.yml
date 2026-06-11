@@ -89,8 +89,34 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then CHANNEL="beta"; fi
           PLOT_CHANNEL="$CHANNEL" bun run release:publish:dry-run
 
-  publish:
+  github-release:
     needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-bundle
+          path: dist/release
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find dist/release -name '*.tgz' -type f | sort)
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "no release tarballs found" >&2
+            exit 1
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG"
+            gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${files[@]}" --title "$RELEASE_TAG" --generate-notes
+          fi
+
+  publish:
+    needs: github-release
     runs-on: ubuntu-latest
     environment: npm-publish
     steps:
@@ -117,10 +143,3 @@ jobs:
           CI="true" PLOT_CHANNEL="$CHANNEL" bun run release:publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: |
-            dist/release/**/*.tgz
