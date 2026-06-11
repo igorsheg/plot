@@ -49,15 +49,15 @@ try {
 	await $`npm install --bin-links=true ${platformTarball}`.cwd(tempDir);
 	await $`npm install --bin-links=true ${umbrellaTarball}`.cwd(tempDir);
 
-	if (!existsSync(join(tempDir, "node_modules", ".bin", "plot"))) {
-		await $`npm config get bin-links`.cwd(tempDir).nothrow();
+	const packageBin = join(tempDir, "node_modules", "plot-ai", "bin", "plot");
+	if (!existsSync(packageBin)) {
 		await $`find node_modules -maxdepth 4 -type f -o -type l`
 			.cwd(tempDir)
 			.nothrow();
-		throw new Error("missing plot bin after install");
+		throw new Error("missing plot package bin after install");
 	}
 
-	await $`npm exec -- plot --help`.cwd(tempDir);
+	await $`node ${packageBin} --help`.cwd(tempDir);
 	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
 		tempDir,
 	);
