@@ -5,7 +5,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { makePlotAgentLayer } from "@plot/agent/agent";
 import { workKey } from "@plot/agent/model";
-import { Type } from "typebox";
 import {
 	loadPlotExtensionRuntimeFromWorkflow,
 	makePlotExtensionSourceBundle,
@@ -228,7 +227,11 @@ describe("Plot extension source adapter", () => {
 					name: "github_pr_comment",
 					label: "Comment on PR",
 					description: `Comment on ${work.id} during ${runId} with ${String((config as { token: string }).token)}.`,
-					parameters: Type.Object({ body: Type.String() }),
+					parameters: {
+						type: "object",
+						properties: { body: { type: "string" } },
+						required: ["body"],
+					},
 					execute: async () => ({
 						content: [{ type: "text", text: `commented on ${work.id}` }],
 						details: { workId: work.id, runId },
