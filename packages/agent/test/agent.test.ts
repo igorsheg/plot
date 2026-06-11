@@ -23,6 +23,13 @@ const deferred = <A>() => {
 	return { promise, resolve };
 };
 const yieldNow = () => new Promise((resolve) => setTimeout(resolve, 0));
+const waitFor = async (condition: () => boolean | Promise<boolean>) => {
+	for (let i = 0; i < 20; i++) {
+		if (await condition()) return;
+		await yieldNow();
+	}
+	throw new Error("condition was not met");
+};
 const never = <A>() => new Promise<A>(() => {});
 const collectN = async <A>(iterable: AsyncIterable<A>, n: number) => {
 	const out: A[] = [];
@@ -199,7 +206,9 @@ describe("task-agnostic Plot agent", () => {
 		const agent = makeAgent([source]);
 		await agent.start();
 		await agent.offer({ type: "tick" });
-		await yieldNow();
+		await waitFor(async () =>
+			Boolean((await agent.snapshot()).scheduledWakes?.[0]),
+		);
 		expect((await agent.snapshot()).scheduledWakes?.[0]?.reason).toBe(
 			"retry later",
 		);
