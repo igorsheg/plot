@@ -6,6 +6,7 @@
 		"dist",
 		".turbo",
 		".references",
-		".agent-sources"
+		".agent-sources",
+		"packages/tui/src/pi-tui"
 	]
 }

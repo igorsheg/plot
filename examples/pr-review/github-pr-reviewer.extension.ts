@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { definePlotExtension } from "./packages/session/src/extension.js";
-import type { PlotExtensionWork } from "./packages/session/src/extension.js";
+import { definePlotExtension } from "../../packages/session/src/extension.js";
+import type { PlotExtensionWork } from "../../packages/session/src/extension.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,11 +20,21 @@ interface PullRequestInfo {
 	readonly authorLogin?: string;
 }
 
+interface PreviousReviewCommentInfo {
+	readonly path?: string;
+	readonly line?: number;
+	readonly body?: string;
+	readonly url?: string;
+}
+
 interface PreviousReviewInfo {
+	readonly id?: number;
 	readonly state: string;
 	readonly submittedAt?: string;
 	readonly url?: string;
 	readonly commitId?: string;
+	readonly body?: string;
+	readonly comments: readonly PreviousReviewCommentInfo[];
 }
 
 interface PreviousPlotPostInfo {
@@ -64,6 +74,12 @@ const numberField = (
 	const value = record[field];
 	return typeof value === "number" ? value : undefined;
 };
+
+const indentBlock = (value: string) =>
+	value
+		.split("\n")
+		.map((line) => `  ${line}`)
+		.join("\n");
 
 const command = async (
 	cwd: string,
@@ -147,20 +163,43 @@ const firstPullRequest = (value: unknown): PullRequestInfo | undefined => {
 	return parsePullRequest(value[0]);
 };
 
+const parsePreviousReviewComment = (
+	value: unknown,
+): PreviousReviewCommentInfo | undefined => {
+	if (!isRecord(value)) return undefined;
+	const path = stringField(value, "path");
+	const line =
+		numberField(value, "line") ?? numberField(value, "original_line");
+	const body = stringField(value, "body");
+	const url = stringField(value, "html_url");
+	return {
+		...(path === undefined ? {} : { path }),
+		...(line === undefined ? {} : { line }),
+		...(body === undefined ? {} : { body }),
+		...(url === undefined ? {} : { url }),
+	};
+};
+
 const parsePreviousReview = (
 	value: unknown,
+	comments: readonly PreviousReviewCommentInfo[],
 ): PreviousReviewInfo | undefined => {
 	if (!isRecord(value)) return undefined;
 	const state = stringField(value, "state");
 	if (state === undefined) return undefined;
+	const id = numberField(value, "id");
 	const submittedAt = stringField(value, "submitted_at");
 	const url = stringField(value, "html_url");
 	const commitId = stringField(value, "commit_id");
+	const body = stringField(value, "body");
 	return {
+		...(id === undefined ? {} : { id }),
 		state,
 		...(submittedAt === undefined ? {} : { submittedAt }),
 		...(url === undefined ? {} : { url }),
 		...(commitId === undefined ? {} : { commitId }),
+		...(body === undefined ? {} : { body }),
+		comments,
 	};
 };
 
@@ -226,16 +265,35 @@ const loadPreviousReview = async (
   .[]
   | select(.user.login == ${JSON.stringify(currentUser)} and .state != "DISMISSED")
 ] | sort_by(.submitted_at) | last`;
-	return parsePreviousReview(
-		parseJson(
-			await commandOptional(cwd, "gh", [
-				"api",
-				`repos/${repo}/pulls/${prNumber}/reviews`,
-				"--jq",
-				jq,
-			]),
-		),
+	const reviewJson = parseJson(
+		await commandOptional(cwd, "gh", [
+			"api",
+			`repos/${repo}/pulls/${prNumber}/reviews`,
+			"--jq",
+			jq,
+		]),
 	);
+	const reviewId = isRecord(reviewJson)
+		? numberField(reviewJson, "id")
+		: undefined;
+	const commentsJson =
+		reviewId === undefined
+			? undefined
+			: parseJson(
+					await commandOptional(cwd, "gh", [
+						"api",
+						`repos/${repo}/pulls/${prNumber}/reviews/${reviewId}/comments`,
+					]),
+				);
+	const comments = Array.isArray(commentsJson)
+		? commentsJson
+				.map(parsePreviousReviewComment)
+				.filter(
+					(comment): comment is PreviousReviewCommentInfo =>
+						comment !== undefined,
+				)
+		: [];
+	return parsePreviousReview(reviewJson, comments);
 };
 
 const plotCommentMarker = (headSha: string) =>
@@ -374,11 +432,30 @@ const contextBlock = (values: {
 		if (values.previousReview.commitId !== undefined) {
 			lines.push(`- Previous review commit: ${values.previousReview.commitId}`);
 		}
+		if (values.previousReview.body !== undefined) {
+			lines.push(
+				"- Previous review body excerpt:",
+				indentBlock(values.previousReview.body.slice(0, 2000)),
+			);
+		}
+		if (values.previousReview.comments.length > 0) {
+			lines.push("- Previous inline review comments:");
+			for (const comment of values.previousReview.comments.slice(0, 12)) {
+				const location = `${comment.path ?? "unknown"}${comment.line === undefined ? "" : `:${comment.line}`}`;
+				lines.push(
+					`  - ${location}: ${(comment.body ?? "").replace(/\s+/g, " ").slice(0, 500)}`,
+				);
+			}
+		}
 		if (
 			values.pr.headRefOid !== undefined &&
 			values.previousReview.commitId === values.pr.headRefOid
 		) {
 			lines.push("- Previous review already covers the current head SHA");
+		} else if (values.pr.headRefOid !== undefined) {
+			lines.push(
+				"- Review mode: incremental re-review. Check whether previous inline findings are resolved, then review new commits/changes.",
+			);
 		}
 	}
 	return lines.join("\n");
@@ -438,6 +515,28 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 						pr === undefined
 							? `github:${repo}`
 							: `github:${repo}:pr:${pr.number}`,
+					display:
+						pr === undefined
+							? {
+									kind: "github-pr-review",
+									primary: branch,
+									title: `No pull request found`,
+									subtitle: repo,
+									labels: ["no-pr"],
+								}
+							: {
+									kind: "github-pr-review",
+									primary: `#${pr.number}`,
+									title: pr.title,
+									subtitle: `${repo} · ${pr.baseRefName}...${pr.headRefName}`,
+									url: pr.url,
+									...(pr.headRefOid === undefined
+										? {}
+										: { version: pr.headRefOid.slice(0, 7) }),
+									labels: [
+										previousReview === undefined ? "fresh" : "incremental",
+									],
+								},
 					context: {
 						githubContext: contextBlock({
 							repo,

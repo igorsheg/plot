@@ -1,11 +1,8 @@
 {
 	"extends": "./packages/@repo/base.json",
 	"compilerOptions": {
-		"noEmit": true
+		"noEmit": true,
+		"allowImportingTsExtensions": true
 	},
-	"include": [
-		"packages/**/*.ts",
-		"*.extension.ts",
-		"github-pr-review-poster.ts"
-	]
+	"include": ["packages/**/*.ts", "*.extension.ts"]
 }

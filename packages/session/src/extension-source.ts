@@ -102,6 +102,7 @@ const templateContextForWork = (
 		...(work.title === undefined ? {} : { title: work.title }),
 		...(work.url === undefined ? {} : { url: work.url }),
 		...(work.subject === undefined ? {} : { subject: work.subject }),
+		...(work.display === undefined ? {} : { display: work.display }),
 	};
 	const base = { workflow: workflow.config, work: metadata };
 	if (work.context === undefined) return base;
@@ -221,6 +222,9 @@ export const makePlotExtensionSourceBundle = (options: {
 							options.workflow,
 							extensionWork,
 						),
+						...(extensionWork.display === undefined
+							? {}
+							: { display: extensionWork.display }),
 					},
 				];
 			}),

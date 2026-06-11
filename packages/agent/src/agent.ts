@@ -31,6 +31,7 @@ interface RuntimeState {
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
+	readonly scheduledWakes: readonly Domain.ScheduledWake[];
 	readonly nextRunIndex: number;
 }
 type InternalMessage =
@@ -91,6 +92,7 @@ const initialState: RuntimeState = {
 	completions: [],
 	diagnostics: [],
 	running: new Map(),
+	scheduledWakes: [],
 	nextRunIndex: 0,
 };
 const errorMessage = (error: unknown): string =>
@@ -138,6 +140,9 @@ const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	completions: [...state.completions],
 	diagnostics: [...state.diagnostics],
 	running: new Map(state.running),
+	scheduledWakes: state.scheduledWakes.filter(
+		(wake) => wake.dueAtMs > Date.now(),
+	),
 });
 const sleep = (ms: number, signal?: AbortSignal) =>
 	new Promise<void>((resolve) => {
@@ -282,17 +287,30 @@ const applyReconciled = (
 	proposals: readonly ReconcileProposal[],
 	diagnostics: readonly Diagnostic[],
 	historyLimit: number,
-): RuntimeState =>
-	boundStateHistory(
+): RuntimeState => {
+	const now = Date.now();
+	const scheduledWakes = [
+		...state.scheduledWakes.filter((wake) => wake.dueAtMs > now),
+		...proposals
+			.filter((p): p is ScheduleWakeProposal => p.type === "schedule_wake")
+			.map((proposal) => ({
+				dueAtMs: now + proposal.delayMs,
+				delayMs: proposal.delayMs,
+				...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
+			})),
+	].toSorted((a, b) => a.dueAtMs - b.dueAtMs);
+	return boundStateHistory(
 		{
 			...state,
 			facts: applyFactProposals(state.facts, proposals),
 			observations: [],
 			completions: [],
 			diagnostics: [...state.diagnostics, ...diagnostics],
+			scheduledWakes,
 		},
 		historyLimit,
 	);
+};
 const applyDiagnostics = (
 	state: RuntimeState,
 	diagnostics: readonly Diagnostic[],
@@ -387,6 +405,7 @@ const startEligibleRuns = (
 			sourceId: selection.source.id,
 			workKey: work.workKey,
 			...optionalSubject(work.subject),
+			...(work.display === undefined ? {} : { display: work.display }),
 		};
 		nextRunIndex++;
 		running.set(work.workKey, run);
@@ -818,13 +837,30 @@ export const makePlotAgentLayer = (
 		events: () => events.subscribe(),
 		offer: async (message) => mailbox.offer(message),
 		wakeAfter: async (delayMs, reason) => {
-			positive(delayMs, 1, "delayMs must be a positive integer");
+			const safeDelay = positive(
+				delayMs,
+				1,
+				"delayMs must be a positive integer",
+			);
+			const now = Date.now();
+			state = {
+				...state,
+				scheduledWakes: [
+					...state.scheduledWakes.filter((wake) => wake.dueAtMs > now),
+					{
+						dueAtMs: now + safeDelay,
+						delayMs: safeDelay,
+						...(reason === undefined ? {} : { reason }),
+					},
+				].toSorted((a, b) => a.dueAtMs - b.dueAtMs),
+			};
+			publishSnapshot(state);
 			publishEvent({
 				type: "wake_scheduled",
-				delayMs,
+				delayMs: safeDelay,
 				...(reason === undefined ? {} : { reason }),
 			});
-			timer(delayMs, { type: "wake" });
+			timer(safeDelay, { type: "wake" });
 		},
 		shutdown: async () => mailbox.offer({ type: "shutdown" }),
 	};

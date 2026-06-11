@@ -18,7 +18,8 @@
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
 		"@plot/session": "workspace:*",
-		"@plot/tui": "workspace:*"
+		"@plot/tui": "workspace:*",
+		"citty": "^0.1.6"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

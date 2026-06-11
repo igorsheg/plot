@@ -119,16 +119,27 @@ export type ReconcileProposal =
 	| InterruptWorkProposal
 	| ScheduleWakeProposal;
 
+export interface WorkDisplay {
+	readonly kind?: string;
+	readonly primary?: string;
+	readonly title?: string;
+	readonly subtitle?: string;
+	readonly url?: string;
+	readonly version?: string;
+	readonly labels?: readonly string[];
+}
 export interface WorkItem {
 	readonly workKey: WorkKey;
 	readonly subject?: SubjectKey;
 	readonly templateContext?: unknown;
+	readonly display?: WorkDisplay;
 }
 export interface WorkRun {
 	readonly runId: RunId;
 	readonly sourceId: SourceId;
 	readonly workKey: WorkKey;
 	readonly subject?: SubjectKey;
+	readonly display?: WorkDisplay;
 }
 export interface WorkResult {
 	readonly output?: unknown;
@@ -155,6 +166,11 @@ export interface Diagnostic {
 	readonly runId?: RunId;
 	readonly workKey?: WorkKey;
 }
+export interface ScheduledWake {
+	readonly dueAtMs: number;
+	readonly delayMs: PositiveInt;
+	readonly reason?: string;
+}
 export interface RuntimeSnapshot {
 	readonly tickId: TickId;
 	readonly facts: ReadonlyMap<string, unknown>;
@@ -162,6 +178,7 @@ export interface RuntimeSnapshot {
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
+	readonly scheduledWakes?: readonly ScheduledWake[];
 }
 export interface TickResult {
 	readonly tickId: TickId;

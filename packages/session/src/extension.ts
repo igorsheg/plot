@@ -1,3 +1,4 @@
+import type { WorkDisplay } from "@plot/agent/model";
 import type { PlotPaths } from "./plot-paths.js";
 import type { WorkflowDefinition } from "./workflow.js";
 
@@ -14,6 +15,8 @@ export interface PlotExtensionWork {
 	readonly url?: string;
 	/** Optional grouping key. Defaults to id when adapted into Plot internals. */
 	readonly subject?: string;
+	/** Optional generic display hints. TUI owns rendering; hints have no scheduling semantics. */
+	readonly display?: WorkDisplay;
 	/** Domain context supplied to the inner agent alongside WORKFLOW.md prompt. */
 	readonly context?: unknown;
 }
