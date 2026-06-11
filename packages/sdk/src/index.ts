@@ -30,9 +30,13 @@ export interface PlotExtensionWork {
 export interface PlotExtensionSetupContext<Config = unknown> {
 	readonly workflow: unknown;
 	readonly paths: {
-		readonly projectRoot: string;
-		readonly stateRoot: string;
-		readonly authRoot: string;
+		readonly cwd: string;
+		readonly plotDir: string;
+		readonly agentDir: string;
+		readonly sessionDir: string;
+		readonly skillsDir: string;
+		readonly extensionsDir: string;
+		readonly promptsDir: string;
 	};
 	readonly config: Config;
 	readonly work: (input: PlotExtensionWork) => PlotExtensionWork;
@@ -78,6 +82,6 @@ export interface PlotExtension<Config = unknown> {
 	) => MaybePromise<PlotExtensionRuntime>;
 }
 
-export declare const definePlotExtension: <Config>(
+export const definePlotExtension = <Config>(
 	extension: PlotExtension<Config>,
-) => PlotExtension<Config>;
+): PlotExtension<Config> => extension;

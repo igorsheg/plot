@@ -16,6 +16,7 @@ import {
 	getOptionalDependencies,
 	npmPackageDir,
 	packageTemplate,
+	sdkPackageDir,
 	releaseDir,
 	releaseTargets,
 	version,
@@ -24,6 +25,7 @@ import {
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
 
+await $`bun run build`.cwd(sdkPackageDir);
 await Promise.all(releaseTargets.map((target) => buildPlatformPackage(target)));
 await buildUmbrellaPackage();
 
@@ -78,6 +80,14 @@ async function buildUmbrellaPackage() {
 	cpSync(join(npmPackageDir, "lib"), join(packageDir, "lib"), {
 		recursive: true,
 	});
+	cpSync(
+		join(sdkPackageDir, "dist", "index.js"),
+		join(packageDir, "lib", "sdk.js"),
+	);
+	cpSync(
+		join(sdkPackageDir, "dist", "index.d.ts"),
+		join(packageDir, "lib", "sdk.d.ts"),
+	);
 	cpSync(
 		join(npmPackageDir, "postinstall.mjs"),
 		join(packageDir, "postinstall.mjs"),

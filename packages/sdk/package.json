@@ -1,0 +1,17 @@
+{
+	"name": "@plot/sdk",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"test": "echo 'no sdk tests yet'",
+		"build": "rm -rf dist && bun build src/index.ts --target=node --format=esm --outfile=dist/index.js && tsc -p tsconfig.build.json"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}
