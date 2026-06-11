@@ -15,10 +15,11 @@ You should be able to answer:
 - What is waiting for retry?
 - What looks stale?
 - What just happened?
+- How much token usage and cost has this fleet consumed?
 
 ## Display hints
 
-Extensions influence the dashboard through `display` hints on work items.
+Extensions influence the dashboard through `display` hints on work items and through generic pi agent events. The TUI stays source-agnostic.
 
 ```ts
 display: {
@@ -48,6 +49,8 @@ Extensions can provide:
 - `labels` — generic labels
 - `kind` — source kind for debugging and grouping
 
+Extension-registered tools can also emit pi tool updates. If a tool launches subagents, it can attach generic usage metadata in tool result details so the TUI can include subagent tokens and cost in the work and fleet totals.
+
 ## What extensions cannot do
 
 Extensions cannot provide:
@@ -58,7 +61,7 @@ Extensions cannot provide:
 - custom row renderers
 - workflow-specific TUI panels
 
-This keeps the dashboard generic. A GitHub PR, Linear issue, CI failure, or dependency update should all look like Plot work.
+This keeps the dashboard generic. A GitHub PR, Linear issue, CI failure, or dependency update should all look like Plot work. Extension-specific meaning should appear as titles, labels, URLs, tool output, or agent prose—not hardcoded TUI concepts.
 
 ## Raw events
 

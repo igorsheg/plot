@@ -5,10 +5,12 @@ A standalone GitHub PR review workflow for Plot.
 This example intentionally keeps orchestration thin:
 
 - `github-pr-reviewer.extension.ts` discovers the current PR and skips already-reviewed heads.
-- `WORKFLOW.md` gives the agent review posture, project invariants, and posting instructions.
+- The extension registers pi-native tools: prepare context, assess risk, spawn specialist reviewers, and post the final GitHub review.
+- `spawn_reviewers` uses Plot's SDK passthrough to run specialist pi agent sessions in parallel.
+- `WORKFLOW.md` gives the coordinator agent review posture, project invariants, and tool-use instructions.
 - `skills/pr-review` provides reusable review know-how: architecture exploration, behavioral path review, test analysis, stacked PRs, and multi-PR review.
 
-The agent is expected to use normal tools (`bash`, `git`, `gh`, `rg`, tests) and post with `gh pr review` directly.
+The coordinator agent is expected to use normal tools (`bash`, `git`, `gh`, `rg`, tests), call specialist reviewers when useful, synthesize the result, and use the registered posting tool for GitHub mutation.
 
 ## Use
 
@@ -26,7 +28,7 @@ For the dashboard/control plane:
 plot tui --workflow examples/pr-review/WORKFLOW.md
 ```
 
-The workflow expects GitHub CLI authentication and a current branch with an associated pull request.
+The workflow expects GitHub CLI authentication and a current branch with an associated pull request. Subagent token usage is surfaced through generic tool update details so the Plot TUI can include reviewer usage and cost in work/fleet totals.
 
 ## Project shape
 

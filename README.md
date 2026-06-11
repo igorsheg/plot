@@ -57,7 +57,9 @@ Plot handles the boring operational parts:
 - limiting concurrency
 - retrying later
 - timing out stale work
-- showing status in a terminal UI
+- exposing extension-registered pi tools to agents
+- letting extensions spawn specialist pi subagents
+- showing status, usage, and cost in a terminal UI
 - keeping a protocol stream for automation
 
 ## Try it
@@ -134,7 +136,7 @@ Use the repository, GitHub CLI, tests, and your judgment.
 Post one useful review.
 ```
 
-The extension finds work. The prompt tells the agent how to handle it.
+The extension finds work and may register pi-native tools for integration actions. The prompt tells the agent how to handle the work.
 
 No hidden project magic: workflow resources are explicit. `.plot/` is for runtime state, not surprise behavior.
 
@@ -143,6 +145,10 @@ No hidden project magic: workflow resources are explicit. `.plot/` is for runtim
 Extensions are trusted local code.
 
 They can talk to GitHub, Linear, a queue, a database, a filesystem, or anything else you can reach from TypeScript. They return work items. Plot runs them.
+
+Extensions can also register native pi tools with `registerTool` and `defineTool`. Use tools for API-shaped side effects where TypeScript should own correctness, such as posting a GitHub review or updating a ticket. The agent still decides when and how to use them.
+
+For coarse parallel investigation, extensions can call `runAgent` or `runAgents` to launch specialist pi agent sessions. Plot does not invent a second subagent protocol; it exposes pi-mono options and raw events through the public SDK.
 
 That means you can build workflows like:
 

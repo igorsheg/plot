@@ -4,12 +4,12 @@
 
 Paste this doc, then say what work you want Plot to run.
 
-Extensions are trusted TypeScript modules. They discover work. Plot schedules it. The agent handles it.
+Extensions are trusted TypeScript modules. They discover work, register pi-native tools, and can fan out specialist pi agent sessions. Plot schedules the outer work. The agent handles judgment inside the workflow prompt.
 
 Use the public SDK:
 
 ```ts
-import { definePlotExtension } from "plot-ai/sdk";
+import { definePlotExtension, defineTool } from "plot-ai/sdk";
 ```
 
 Do not import from Plot internals like `packages/session/src/*` or `@plot/session`.
@@ -65,6 +65,8 @@ Think in three layers:
 
 ```txt
 world -> extension -> work item -> agent
+                     ├─ registered pi tools
+                     └─ optional specialist subagents
 ```
 
 The extension should answer:
@@ -73,6 +75,8 @@ The extension should answer:
 - What stable ID identifies it?
 - What version should rerun it?
 - What context does the agent need?
+- Which integration actions should be exposed as tools?
+- Should any coarse work be delegated to specialist subagents?
 - How should it look in the dashboard?
 
 The prompt should answer:
@@ -195,6 +199,104 @@ extension:
     label: agent-ready
 ```
 
+## Registered tools
+
+Extensions can register native pi tools with `registerTool`. Use tools for integration boundaries where TypeScript should own side-effect correctness: fetching prepared context, calling an API, posting a review, updating a ticket, or reporting structured progress.
+
+Do not invent a Plot-specific tool system. Plot passes your `ToolDefinition` through to the pi agent session.
+
+```ts
+import { definePlotExtension, defineTool } from "plot-ai/sdk";
+
+export default definePlotExtension({
+	id: "demo-tools",
+	create({ registerTool }) {
+		registerTool(
+			defineTool({
+				name: "post_result",
+				description: "Post the final result to the external system.",
+				parameters: {
+					type: "object",
+					properties: { body: { type: "string" } },
+					required: ["body"],
+				},
+				execute: async ({ body }) => ({
+					content: [{ type: "text", text: `posted ${body.length} chars` }],
+				}),
+			}),
+		);
+
+		return {
+			async discover() {
+				return [];
+			},
+		};
+	},
+});
+```
+
+Tool factories can bind the current Plot work item:
+
+```ts
+registerTool(({ work }) =>
+	defineTool({
+		name: "load_context",
+		description: `Load context for ${work.id}`,
+		parameters: { type: "object", properties: {} },
+		execute: async () => ({
+			content: [{ type: "text", text: JSON.stringify(work.context) }],
+		}),
+	}),
+);
+```
+
+Keep judgment in the prompt and agent. Put durable, idempotent, API-shaped operations in tools.
+
+## Specialist subagents
+
+Extensions can run pi agent sessions through `runAgent` and `runAgents`. This is a thin passthrough to pi-mono: options use native `CreateAgentSessionOptions`, `PromptOptions`, and raw `AgentSessionEvent` values.
+
+Use subagents for coarse parallel investigation, not for micromanaging every step.
+
+```ts
+export default definePlotExtension({
+	id: "demo-subagents",
+	create({ registerTool, runAgents }) {
+		registerTool(
+			defineTool({
+				name: "spawn_reviewers",
+				description: "Run specialist reviewers in parallel.",
+				parameters: { type: "object", properties: {} },
+				execute: async () => {
+					const results = await runAgents(
+						[
+							{ prompt: "Review correctness risks." },
+							{ prompt: "Review test coverage risks." },
+						],
+						{ concurrency: 2 },
+					);
+
+					return {
+						content: [
+							{ type: "text", text: `finished ${results.length} reviewers` },
+						],
+						details: { results },
+					};
+				},
+			}),
+		);
+
+		return {
+			async discover() {
+				return [];
+			},
+		};
+	},
+});
+```
+
+If a tool runs subagents, surface useful progress through the tool update callback and return concise summaries alongside raw events. The TUI can account for generic usage metadata when tools expose it in result details.
+
 ## Lifecycle hooks
 
 Extensions can observe run lifecycle:
@@ -240,6 +342,8 @@ Do:
 - use versions to rerun changed work
 - keep context small and relevant
 - put secrets in environment variables or external CLIs
+- use registered tools for idempotent external mutations
+- use subagents for coarse specialist investigation when it helps
 - let the workflow prompt teach judgment
 - return no work when there is nothing to do
 
@@ -250,6 +354,7 @@ Avoid:
 - plugin-owned UI rendering
 - hidden writes during discovery unless clearly intentional
 - encoding every agent step as code
+- reimplementing pi tools or subagent orchestration outside the SDK helpers
 - importing private Plot modules
 
 ## LLM prompt
@@ -261,9 +366,9 @@ You are writing a Plot extension.
 
 Use only the public SDK:
 
-import { definePlotExtension } from "plot-ai/sdk";
+import { definePlotExtension, defineTool } from "plot-ai/sdk";
 
-The extension should discover work and return stable work items. The workflow prompt will tell the agent how to handle the work. Do not import Plot internals. Do not create custom TUI rendering.
+The extension should discover work and return stable work items. It may register pi-native tools with registerTool for API/integration side effects, and may use runAgent/runAgents for coarse specialist subagents. The workflow prompt will tell the agent how to handle the work and make judgments. Do not import Plot internals. Do not create custom TUI rendering.
 
 Create an extension for:
 
