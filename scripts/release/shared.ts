@@ -25,6 +25,7 @@ export const packageTemplate = readJson(
 	keywords: string[];
 	engines: { node: string };
 	publishConfig?: { access?: string };
+	exports?: Record<string, unknown>;
 };
 
 export const version = process.env["PLOT_VERSION"] ?? packageTemplate.version;

@@ -75,10 +75,9 @@ async function buildUmbrellaPackage() {
 	mkdirSync(join(packageDir, "lib"), { recursive: true });
 
 	cpSync(join(npmPackageDir, "bin", "plot"), join(packageDir, "bin", "plot"));
-	cpSync(
-		join(npmPackageDir, "lib", "platform.js"),
-		join(packageDir, "lib", "platform.js"),
-	);
+	cpSync(join(npmPackageDir, "lib"), join(packageDir, "lib"), {
+		recursive: true,
+	});
 	cpSync(
 		join(npmPackageDir, "postinstall.mjs"),
 		join(packageDir, "postinstall.mjs"),
@@ -107,6 +106,7 @@ async function buildUmbrellaPackage() {
 			"postinstall.mjs",
 			...(existsSync(readmeSrc) ? ["README.md"] : []),
 		],
+		exports: packageTemplate.exports,
 		scripts: {
 			postinstall: "node ./postinstall.mjs",
 		},

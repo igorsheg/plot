@@ -28,6 +28,12 @@
 		"README.md"
 	],
 	"type": "module",
+	"exports": {
+		"./sdk": {
+			"types": "./lib/sdk.d.ts",
+			"default": "./lib/sdk.js"
+		}
+	},
 	"publishConfig": {
 		"access": "public"
 	},

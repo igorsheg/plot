@@ -54,6 +54,9 @@ try {
 	}
 
 	await $`./node_modules/.bin/plot --help`.cwd(tempDir);
+	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
+		tempDir,
+	);
 } finally {
 	rmSync(tempDir, { recursive: true, force: true });
 }
