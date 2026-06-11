@@ -111,6 +111,24 @@ async function publishPackage(manifest: (typeof manifests)[number]) {
 	];
 	if (provenance) args.push("--provenance");
 
-	await $`npm ${args}`.cwd(manifest.packageDir);
+	const result = await $`npm ${args}`.cwd(manifest.packageDir).nothrow();
+	if (result.exitCode !== 0) {
+		const output = `${result.stdout}\n${result.stderr}`;
+		if (
+			output.includes("TLOG_CREATE_ENTRY_ERROR") &&
+			output.includes("equivalent entry already exists") &&
+			(await isAlreadyPublished(manifest.name, manifest.version))
+		) {
+			console.log(
+				`skip ${manifest.name}@${manifest.version} — npm transparency log already contains this published package\n`,
+			);
+			return;
+		}
+		throw new Error(
+			output.trim()
+				? `failed to publish ${manifest.name}@${manifest.version}\n${output}`
+				: `failed to publish ${manifest.name}@${manifest.version}`,
+		);
+	}
 	console.log();
 }
