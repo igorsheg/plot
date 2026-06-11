@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { definePlotExtension } from "../../packages/session/src/extension.js";
+import { definePlotExtension } from "plot-ai/sdk";
 import type { PlotExtensionWork } from "../../packages/session/src/extension.js";
 
 const execFileAsync = promisify(execFile);

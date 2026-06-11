@@ -1,0 +1,8 @@
+{
+	"name": "plot-pr-review-example",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"plot-ai": "latest"
+	}
+}
