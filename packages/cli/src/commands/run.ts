@@ -7,7 +7,10 @@ import { renderRunEvent } from "../render.js";
 import { runDaemon } from "../runtime.js";
 
 export const runCommand = defineCommand({
-	meta: { name: "run", description: "Run Plot daemon" },
+	meta: {
+		name: "run",
+		description: "Run a workflow without opening the dashboard.",
+	},
 	args: commonArgs,
 	async run({ args }) {
 		const io = getCliIo();

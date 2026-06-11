@@ -1,5 +1,9 @@
-import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
-import { defineCommand, runCommand as runCittyCommand } from "citty";
+import {
+	defineCommand,
+	renderUsage,
+	runCommand as runCittyCommand,
+	type CommandDef,
+} from "citty";
 import { getCliIo, setCliIo } from "./cli-context.js";
 import { authCommand } from "./commands/auth.js";
 import { docsCommand } from "./commands/docs.js";
@@ -13,26 +17,26 @@ export const version = "0.0.0";
 export { processCliIo } from "./io.js";
 export type { PlotCliIo } from "./io.js";
 
+const subCommands = {
+	"list-models": listModelsCommand,
+	auth: authCommand,
+	docs: docsCommand,
+	run: runCommand,
+	tui: tuiCommand,
+	serve: serveCommand,
+};
+
 const rootCommand = defineCommand({
 	meta: {
 		name: "plot",
 		version,
-		description: "LLM that ticks()",
+		description: "A control plane for long-running coding agents.",
 	},
-	subCommands: {
-		"list-models": listModelsCommand,
-		auth: authCommand,
-		docs: docsCommand,
-		run: runCommand,
-		tui: tuiCommand,
-		serve: serveCommand,
-	},
-	run: ({ rawArgs }) => {
+	subCommands,
+	run: async ({ rawArgs }) => {
 		if (rawArgs.some((arg) => !arg.startsWith("-"))) return undefined;
 		const io = getCliIo();
-		return io.writeStdout(
-			`plot ${version}\nCommands: list-models, auth status|login|logout, docs, run, tui, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
-		);
+		await io.writeStdout(await renderUsage(rootCommand));
 	},
 });
 
@@ -40,10 +44,9 @@ export const runPlotCli = async (
 	args: readonly string[],
 	io: PlotCliIo = processCliIo(),
 ): Promise<void> => {
-	if (args[0] === "--help" || args[0] === "help") {
-		await io.writeStdout(
-			`plot ${version}\nCommands: list-models, auth status|login|logout, docs, run, tui, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
-		);
+	const help = await renderHelp(args);
+	if (help !== undefined) {
+		await io.writeStdout(help);
 		return;
 	}
 	setCliIo(io);
@@ -56,3 +59,16 @@ export const runPlotCli = async (
 export const makePlotCommand = (_io: PlotCliIo = processCliIo()) => ({
 	version,
 });
+
+const topLevelCommands = subCommands as unknown as Record<string, CommandDef>;
+
+const renderHelp = async (args: readonly string[]) => {
+	if (args[0] === "--help" || args[0] === "help") {
+		return renderUsage(rootCommand);
+	}
+	const [command] = args;
+	if (command === undefined || !args.includes("--help")) return undefined;
+	const subCommand = topLevelCommands[command];
+	if (subCommand === undefined) return undefined;
+	return renderUsage(subCommand, rootCommand);
+};
