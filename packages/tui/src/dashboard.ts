@@ -151,25 +151,33 @@ export class PlotDashboard implements Component {
 				: runtime.skills.length <= 2
 					? runtime.skills.join(",")
 					: `${runtime.skills.length} skills`;
+		const diagnosticCount = p.diagnostics.length;
+		const statusText =
+			diagnosticCount > 0 ? `${p.status} with diagnostics` : p.status;
+		const workState =
+			runningCount === 0 && p.scheduledWakes.length === 0 ? "idle" : "active";
+		const nextWake = p.scheduledWakes[0];
+		const nextWakeText =
+			nextWake === undefined
+				? "none"
+				: `${Math.ceil(Math.max(0, nextWake.dueAtMs - Date.now()) / 1000)}s`;
 		return [
-			asLine(style.appTitle("╭─ PLOT DAEMON")),
+			asLine(style.appTitle("╭─ PLOT STATUS")),
 			row([
-				`${style.label("workflow=")}${style.value(p.workflowName)}`,
-				`${style.label("session=")}${style.value(p.sessionId)}`,
-				`${style.label("status=")}${statusStyle(p.status)(p.status)}`,
-				`${style.label("frontier=")}${style.value(String(p.frontier))}`,
+				`${style.label("Status: ")}${statusStyle(p.status)(statusText)}`,
+				`${style.label("Work: ")}${style.status.running(String(runningCount))}${style.muted(" running · ")}${style.status.success(String(p.completed.length))}${style.muted(" completed · ")}${diagnosticCount > 0 ? style.status.error(String(diagnosticCount)) : style.muted("0")}${style.muted(" diagnostics")}`,
+				`${style.label("Tokens: ")}${style.value(totalTokens)}`,
 			]),
 			row([
-				`${style.label("agent=")}${style.value(agent)}`,
-				`${style.label("thinking=")}${style.value(runtime.thinking ?? "default")}`,
-				`${style.label("skills=")}${style.value(skills)}`,
-				`${style.label("cwd=")}${style.value(runtime.cwdName)}`,
+				`${style.label("Agent: ")}${style.value(agent)}`,
+				`${style.muted("thinking ")}${style.value(runtime.thinking ?? "default")}`,
+				`${style.muted("skills ")}${style.value(skills)}`,
+				`${style.muted("cwd ")}${style.value(runtime.cwdName)}`,
 			]),
 			row([
-				`${style.label("running=")}${style.status.running(String(runningCount))}`,
-				`${style.label("completed=")}${style.status.success(String(p.completed.length))}`,
-				`${style.label("diagnostics=")}${p.diagnostics.length > 0 ? style.status.error(String(p.diagnostics.length)) : style.muted("0")}`,
-				`${style.label("tokens=")}${style.value(totalTokens)}`,
+				`${style.label("Workflow: ")}${style.value(p.workflowName)}`,
+				`${style.label("Mode: ")}${style.value(workState)}`,
+				`${style.label("Next wake: ")}${nextWake === undefined ? style.muted(nextWakeText) : style.value(nextWakeText)}`,
 			]),
 		];
 	}
