@@ -1,6 +1,7 @@
 {
-	"extends": "../@repo/base.json",
+	"extends": "@repo/tsconfig/base.json",
 	"compilerOptions": {
+		"rootDir": ".",
 		"noEmit": true,
 		"allowImportingTsExtensions": true
 	},

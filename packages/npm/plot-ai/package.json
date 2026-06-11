@@ -1,0 +1,40 @@
+{
+	"name": "plot-ai",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Plot agent control-plane CLI",
+	"keywords": [
+		"agents",
+		"ai",
+		"automation",
+		"cli"
+	],
+	"homepage": "https://github.com/igorsheg/plot",
+	"bugs": {
+		"url": "https://github.com/igorsheg/plot/issues"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/igorsheg/plot.git"
+	},
+	"bin": {
+		"plot": "bin/plot"
+	},
+	"files": [
+		"bin",
+		"lib",
+		"postinstall.mjs",
+		"README.md"
+	],
+	"type": "module",
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"postinstall": "node ./postinstall.mjs"
+	},
+	"engines": {
+		"node": ">=18"
+	}
+}

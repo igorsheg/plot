@@ -1,22 +1,28 @@
 {
 	"name": "plot",
 	"private": true,
-	"description": "LLM that ticks()",
+	"description": "Plot agent control-plane runtime and CLI",
 	"workspaces": [
 		"packages/*"
 	],
 	"type": "module",
 	"scripts": {
 		"bootstrap": "bun install",
+		"prepare": "lefthook install",
 		"typecheck": "tsc -p tsconfig.json --noEmit && turbo run typecheck",
 		"lint": "oxlint examples/pr-review/github-pr-reviewer.extension.ts --tsconfig tsconfig.json && turbo run lint",
 		"format": "oxfmt .",
 		"format:check": "oxfmt --check .",
 		"test": "turbo run test",
-		"check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
+		"check": "bun run typecheck && bun run lint && bun run format:check && bun run test",
+		"release:build": "bun run scripts/release/build.ts",
+		"release:smoke": "bun run scripts/release/smoke.ts",
+		"release:publish": "bun run scripts/release/publish.ts",
+		"release:publish:dry-run": "bun run scripts/release/publish.ts --dry-run"
 	},
 	"devDependencies": {
 		"bun-types": "^1.3.10",
+		"lefthook": "^2.1.9",
 		"oxfmt": "^0.54.0",
 		"oxlint": "^1.69.0",
 		"turbo": "^2.9.16",

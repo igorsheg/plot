@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+
+import { spawn } from "node:child_process";
+import { resolveInstalledBinary, readPackageVersion } from "../lib/platform.js";
+
+const resolved = resolveInstalledBinary();
+
+if (!resolved) {
+	console.error(`plot does not support ${process.platform}/${process.arch}`);
+	process.exit(1);
+}
+
+const child = spawn(resolved.binaryPath, process.argv.slice(2), {
+	stdio: "inherit",
+	env: {
+		...process.env,
+		PLOT_VERSION: readPackageVersion(),
+		PLOT_CLI_NAME: "plot",
+	},
+});
+
+child.on("exit", (code, signal) => {
+	if (signal) {
+		process.kill(process.pid, signal);
+		return;
+	}
+	process.exit(code ?? 1);
+});
