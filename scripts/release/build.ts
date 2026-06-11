@@ -77,6 +77,7 @@ async function buildUmbrellaPackage() {
 	mkdirSync(join(packageDir, "lib"), { recursive: true });
 
 	cpSync(join(npmPackageDir, "bin", "plot"), join(packageDir, "bin", "plot"));
+	chmodSync(join(packageDir, "bin", "plot"), 0o755);
 	cpSync(join(npmPackageDir, "lib"), join(packageDir, "lib"), {
 		recursive: true,
 	});
