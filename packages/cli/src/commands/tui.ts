@@ -1,6 +1,6 @@
 import { runPlotTui } from "@plot/tui/plot-tui";
 import { defineCommand } from "citty";
-import { commonArgs } from "../args.js";
+import { sessionCommandArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { baseOptions } from "../options.js";
 
@@ -9,7 +9,7 @@ export const tuiCommand = defineCommand({
 		name: "tui",
 		description: "Open the terminal dashboard for a workflow.",
 	},
-	args: commonArgs,
+	args: sessionCommandArgs,
 	run: ({ args }) => {
 		const io = getCliIo();
 		return runPlotTui({

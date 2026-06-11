@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { commonArgs } from "../args.js";
+import { sessionCommandArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
 import { baseOptions } from "../options.js";
@@ -11,7 +11,7 @@ export const runCommand = defineCommand({
 		name: "run",
 		description: "Run a workflow without opening the dashboard.",
 	},
-	args: commonArgs,
+	args: sessionCommandArgs,
 	async run({ args }) {
 		const io = getCliIo();
 		try {

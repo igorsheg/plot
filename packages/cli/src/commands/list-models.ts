@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { commonArgs } from "../args.js";
+import { authPathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { runHumanCommand } from "../io.js";
 import { makeAuth, str } from "../options.js";
@@ -16,7 +16,7 @@ export const listModelsCommand = defineCommand({
 			description: "Optional provider/model search text.",
 			required: false,
 		},
-		...commonArgs,
+		...authPathArgs,
 	},
 	run: ({ args }) => {
 		const io = getCliIo();

@@ -4,17 +4,25 @@ import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-sessio
 import type { ParsedArgs } from "citty";
 import type { LogFormat, LogLevelFlag } from "./runtime.js";
 
-export const str = (args: ParsedArgs, name: string): string | undefined => {
+export const str = (
+	args: Record<string, unknown>,
+	name: string,
+): string | undefined => {
 	const v = args[name];
 	return typeof v === "string" ? v : undefined;
 };
-export const bool = (args: ParsedArgs, name: string): boolean | undefined =>
-	args[name] === true ? true : undefined;
+export const bool = (
+	args: Record<string, unknown>,
+	name: string,
+): boolean | undefined => (args[name] === true ? true : undefined);
 export const int = (args: ParsedArgs, name: string): number | undefined => {
 	const v = str(args, name);
 	return v === undefined ? undefined : Number.parseInt(v, 10);
 };
-export const many = (args: ParsedArgs, name: string): readonly string[] => {
+export const many = (
+	args: Record<string, unknown>,
+	name: string,
+): readonly string[] => {
 	const v = args[name];
 	return Array.isArray(v) ? v : typeof v === "string" ? [v] : [];
 };

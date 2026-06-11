@@ -1,7 +1,7 @@
 import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
 import type { ArgsDef } from "citty";
 
-export const commonArgs = {
+export const workflowArgs = {
 	workflow: {
 		type: "string",
 		description: `Workflow file. Default: ${DEFAULT_WORKFLOW_PATH}`,
@@ -12,6 +12,9 @@ export const commonArgs = {
 		description: "Stable Plot session id.",
 		valueHint: "id",
 	},
+} satisfies ArgsDef;
+
+export const pathArgs = {
 	cwd: {
 		type: "string",
 		description: "Project root for workflow execution and Plot state.",
@@ -32,6 +35,15 @@ export const commonArgs = {
 		description: "Plot session storage directory.",
 		valueHint: "path",
 	},
+} satisfies ArgsDef;
+
+export const authPathArgs = {
+	cwd: pathArgs.cwd,
+	"plot-dir": pathArgs["plot-dir"],
+	"agent-dir": pathArgs["agent-dir"],
+} satisfies ArgsDef;
+
+export const loggingArgs = {
 	"log-level": {
 		type: "string",
 		description: "Log level: debug, info, warn, error.",
@@ -42,6 +54,9 @@ export const commonArgs = {
 		description: "Log format: text or json.",
 		valueHint: "format",
 	},
+} satisfies ArgsDef;
+
+export const runtimeArgs = {
 	"request-queue-capacity": {
 		type: "string",
 		description: "Maximum queued protocol/control requests.",
@@ -67,6 +82,9 @@ export const commonArgs = {
 		description: "Timeout for a single work run in milliseconds.",
 		valueHint: "ms",
 	},
+} satisfies ArgsDef;
+
+export const agentOverrideArgs = {
 	provider: {
 		type: "string",
 		description: "Override workflow agent provider.",
@@ -109,6 +127,9 @@ export const commonArgs = {
 		type: "boolean",
 		description: "Approve supported provider/tool prompts automatically.",
 	},
+} satisfies ArgsDef;
+
+export const resourceArgs = {
 	skill: {
 		type: "string",
 		description: "Additional skill path for the agent session.",
@@ -141,4 +162,13 @@ export const commonArgs = {
 		description: "Append text to the agent system prompt.",
 		valueHint: "text",
 	},
+} satisfies ArgsDef;
+
+export const sessionCommandArgs = {
+	...workflowArgs,
+	...pathArgs,
+	...loggingArgs,
+	...runtimeArgs,
+	...agentOverrideArgs,
+	...resourceArgs,
 } satisfies ArgsDef;
