@@ -1,55 +1,116 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun";
-import { readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { channel, dryRun, releaseDir } from "./shared.js";
+import { channel, dryRun, releaseDir, releaseTargets } from "./shared.js";
 
 const provenance = !dryRun && process.env["CI"] === "true";
 
-const entries = readdirSync(releaseDir, { withFileTypes: true })
-	.filter((entry) => entry.isDirectory())
-	.map((entry) => entry.name)
-	.toSorted();
+const packages = [
+	...releaseTargets.map((target) => ({
+		dirName: target.dirName,
+		name: target.packageName,
+	})),
+	{ dirName: "plot-ai", name: "plot-ai" },
+] as const;
 
-const platformPackages = entries.filter((entry) => entry !== "plot-ai");
+const manifests = await Promise.all(
+	packages.map(async (pkg) => {
+		const packageDir = join(releaseDir, pkg.dirName);
+		if (!existsSync(packageDir)) {
+			throw new Error(`missing release package directory: ${packageDir}`);
+		}
 
-await Promise.all(
-	platformPackages.map((entry) => publishPackage(join(releaseDir, entry))),
+		const manifest = await Bun.file(join(packageDir, "package.json")).json();
+		if (manifest.name !== pkg.name) {
+			throw new Error(
+				`${pkg.dirName}/package.json has name ${manifest.name}, expected ${pkg.name}`,
+			);
+		}
+
+		return { ...pkg, packageDir, version: String(manifest.version) };
+	}),
 );
-await publishPackage(join(releaseDir, "plot-ai"));
+
+const versions = new Set(manifests.map((manifest) => manifest.version));
+if (versions.size !== 1) {
+	throw new Error(
+		`release packages are not lockstep versioned: ${[...versions].join(", ")}`,
+	);
+}
+
+console.log(
+	`${dryRun ? "Dry-run publishing" : "Publishing"} Plot packages at ${manifests[0]?.version} (${channel})\n`,
+);
+
+for (const manifest of manifests) {
+	await publishPackage(manifest);
+}
 
 async function isAlreadyPublished(
 	packageName: string,
 	version: string,
 ): Promise<boolean> {
-	if (dryRun) return false;
-	try {
-		const result = await $`npm view ${packageName} versions --json`.quiet();
-		const parsed = JSON.parse(result.stdout.toString());
-		const versions: string[] = Array.isArray(parsed) ? parsed : [parsed];
-		return versions.includes(version);
-	} catch {
-		return false;
-	}
+	const result = await Bun.$`npm view ${packageName}@${version} version --json`
+		.quiet()
+		.nothrow();
+
+	if (result.exitCode === 0 && result.stdout.toString().trim()) return true;
+
+	const output = `${result.stdout}\n${result.stderr}`;
+	if (output.includes("E404") || output.includes("404 Not Found")) return false;
+
+	throw new Error(
+		output.trim()
+			? `failed to query ${packageName}@${version}\n${output}`
+			: `failed to query ${packageName}@${version}`,
+	);
 }
 
-async function publishPackage(packageDir: string) {
-	const manifest = await Bun.file(join(packageDir, "package.json")).json();
-	const mode = dryRun ? "dry-run" : "publish";
+async function validatePack(packageDir: string) {
+	const result = await $`npm pack --dry-run --ignore-scripts --json`
+		.cwd(packageDir)
+		.quiet();
+	const packed = JSON.parse(result.stdout.toString())[0];
+	console.log(
+		`  ${packed.filename}: ${packed.files.length} files, ${packed.size} bytes packed, ${packed.unpackedSize} bytes unpacked`,
+	);
+}
 
-	if (await isAlreadyPublished(manifest.name, manifest.version)) {
+async function publishPackage(manifest: (typeof manifests)[number]) {
+	const published = await isAlreadyPublished(manifest.name, manifest.version);
+
+	if (dryRun) {
 		console.log(
-			`skip ${manifest.name}@${manifest.version} — already published`,
+			published
+				? `${manifest.name}@${manifest.version} is already published; validating package contents only.`
+				: `${manifest.name}@${manifest.version} is not published; validating package contents before publish.`,
+		);
+		await validatePack(manifest.packageDir);
+		console.log();
+		return;
+	}
+
+	if (published) {
+		console.log(
+			`skip ${manifest.name}@${manifest.version} — already published\n`,
 		);
 		return;
 	}
 
-	console.log(`${mode} ${manifest.name}@${manifest.version} (${channel})`);
+	console.log(`publish ${manifest.name}@${manifest.version} (${channel})`);
 
-	const args = ["publish", "--access", "public", "--tag", channel];
-	if (dryRun) args.push("--dry-run");
+	const args = [
+		"publish",
+		"--access",
+		"public",
+		"--tag",
+		channel,
+		"--ignore-scripts",
+	];
 	if (provenance) args.push("--provenance");
 
-	await $`npm ${args}`.cwd(packageDir);
+	await $`npm ${args}`.cwd(manifest.packageDir);
+	console.log();
 }
