@@ -1,33 +1,144 @@
+import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
 import type { ArgsDef } from "citty";
 
 export const commonArgs = {
-	workflow: { type: "string" },
-	"session-id": { type: "string" },
-	cwd: { type: "string" },
-	"plot-dir": { type: "string" },
-	"agent-dir": { type: "string" },
-	"session-dir": { type: "string" },
-	"log-level": { type: "string" },
-	"log-format": { type: "string" },
-	"request-queue-capacity": { type: "string" },
-	"event-capacity": { type: "string" },
-	"replay-capacity": { type: "string" },
-	"tick-interval-ms": { type: "string" },
-	"max-run-duration-ms": { type: "string" },
-	provider: { type: "string" },
-	model: { type: "string" },
-	"api-key": { type: "string" },
-	thinking: { type: "string" },
-	tools: { type: "string" },
-	"exclude-tools": { type: "string" },
-	"no-tools": { type: "boolean" },
-	"no-builtin-tools": { type: "boolean" },
-	approve: { type: "boolean" },
-	skill: { type: "string" },
-	"prompt-template": { type: "string" },
-	"no-skills": { type: "boolean" },
-	"no-prompt-templates": { type: "boolean" },
-	"no-context-files": { type: "boolean" },
-	"system-prompt": { type: "string" },
-	"append-system-prompt": { type: "string" },
+	workflow: {
+		type: "string",
+		description: `Workflow file. Default: ${DEFAULT_WORKFLOW_PATH}`,
+		valueHint: "path",
+	},
+	"session-id": {
+		type: "string",
+		description: "Stable Plot session id.",
+		valueHint: "id",
+	},
+	cwd: {
+		type: "string",
+		description: "Project root for workflow execution and Plot state.",
+		valueHint: "path",
+	},
+	"plot-dir": {
+		type: "string",
+		description: "Project-local Plot state directory.",
+		valueHint: "path",
+	},
+	"agent-dir": {
+		type: "string",
+		description: "Agent auth/model state directory.",
+		valueHint: "path",
+	},
+	"session-dir": {
+		type: "string",
+		description: "Plot session storage directory.",
+		valueHint: "path",
+	},
+	"log-level": {
+		type: "string",
+		description: "Log level: debug, info, warn, error.",
+		valueHint: "level",
+	},
+	"log-format": {
+		type: "string",
+		description: "Log format: text or json.",
+		valueHint: "format",
+	},
+	"request-queue-capacity": {
+		type: "string",
+		description: "Maximum queued protocol/control requests.",
+		valueHint: "count",
+	},
+	"event-capacity": {
+		type: "string",
+		description: "Maximum retained session events.",
+		valueHint: "count",
+	},
+	"replay-capacity": {
+		type: "string",
+		description: "Maximum protocol events available for replay.",
+		valueHint: "count",
+	},
+	"tick-interval-ms": {
+		type: "string",
+		description: "Scheduled tick cadence in milliseconds.",
+		valueHint: "ms",
+	},
+	"max-run-duration-ms": {
+		type: "string",
+		description: "Timeout for a single work run in milliseconds.",
+		valueHint: "ms",
+	},
+	provider: {
+		type: "string",
+		description: "Override workflow agent provider.",
+		valueHint: "id",
+	},
+	model: {
+		type: "string",
+		description: "Override workflow agent model.",
+		valueHint: "id",
+	},
+	"api-key": {
+		type: "string",
+		description: "Provider API key override.",
+		valueHint: "key",
+	},
+	thinking: {
+		type: "string",
+		description: "Thinking level when supported by the provider.",
+		valueHint: "level",
+	},
+	tools: {
+		type: "string",
+		description: "Comma-separated allowlist of tools for the agent session.",
+		valueHint: "list",
+	},
+	"exclude-tools": {
+		type: "string",
+		description: "Comma-separated tools to remove from the agent session.",
+		valueHint: "list",
+	},
+	"no-tools": {
+		type: "boolean",
+		description: "Disable all agent tools.",
+	},
+	"no-builtin-tools": {
+		type: "boolean",
+		description: "Disable built-in agent tools.",
+	},
+	approve: {
+		type: "boolean",
+		description: "Approve supported provider/tool prompts automatically.",
+	},
+	skill: {
+		type: "string",
+		description: "Additional skill path for the agent session.",
+		valueHint: "path",
+	},
+	"prompt-template": {
+		type: "string",
+		description: "Additional prompt template path.",
+		valueHint: "path",
+	},
+	"no-skills": {
+		type: "boolean",
+		description: "Disable workflow-declared skills.",
+	},
+	"no-prompt-templates": {
+		type: "boolean",
+		description: "Disable workflow-declared prompt templates.",
+	},
+	"no-context-files": {
+		type: "boolean",
+		description: "Do not load context files into the agent session.",
+	},
+	"system-prompt": {
+		type: "string",
+		description: "Replace the agent system prompt.",
+		valueHint: "text",
+	},
+	"append-system-prompt": {
+		type: "string",
+		description: "Append text to the agent system prompt.",
+		valueHint: "text",
+	},
 } satisfies ArgsDef;

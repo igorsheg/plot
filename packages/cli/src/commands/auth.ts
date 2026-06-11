@@ -15,11 +15,26 @@ const readPrompt = (message: string): Promise<string> => {
 };
 
 export const authCommand = defineCommand({
-	meta: { name: "auth", description: "Manage provider auth" },
-	args: commonArgs,
+	meta: {
+		name: "auth",
+		description: "Manage provider authentication.",
+	},
+	args: {
+		action: {
+			type: "positional",
+			description: "status, login, or logout.",
+			required: false,
+		},
+		providerName: {
+			type: "positional",
+			description: "Provider id from `plot list-models`.",
+			required: false,
+		},
+		...commonArgs,
+	},
 	run: ({ args }) => {
 		const io = getCliIo();
-		const [sub] = args._;
+		const sub = typeof args.action === "string" ? args.action : args._[0];
 		const cwd = str(args, "cwd") ?? process.cwd();
 		const plotDir = str(args, "plot-dir");
 		const agentDir = str(args, "agent-dir");
@@ -28,7 +43,9 @@ export const authCommand = defineCommand({
 			...(plotDir === undefined ? {} : { plotDir }),
 			...(agentDir === undefined ? {} : { agentDir }),
 		});
-		const provider = args._[1] ?? str(args, "provider");
+		const provider =
+			(typeof args.providerName === "string" ? args.providerName : args._[1]) ??
+			str(args, "provider");
 		if (sub === "status")
 			return runHumanCommand(
 				io,

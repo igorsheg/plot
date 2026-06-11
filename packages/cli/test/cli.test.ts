@@ -102,6 +102,37 @@ describe("plot CLI", () => {
 		expect(output).toContain("faux-1");
 	});
 
+	test("prints citty root help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("A control plane for long-running coding agents.");
+		expect(output).toContain("list-models");
+		expect(output).toContain("docs");
+		expect(output).toContain("run");
+	});
+
+	test("prints citty subcommand help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["run", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("Run a workflow without opening the dashboard.");
+		expect(output).toContain("--workflow");
+		expect(output).toContain("--provider");
+	});
+
 	test("prints bundled extension author docs", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["docs", "extension-prompt"], {

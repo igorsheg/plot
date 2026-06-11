@@ -5,7 +5,10 @@ import { getCliIo } from "../cli-context.js";
 import { baseOptions } from "../options.js";
 
 export const tuiCommand = defineCommand({
-	meta: { name: "tui", description: "Run Plot TUI" },
+	meta: {
+		name: "tui",
+		description: "Open the terminal dashboard for a workflow.",
+	},
 	args: commonArgs,
 	run: ({ args }) => {
 		const io = getCliIo();
