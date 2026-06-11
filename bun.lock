@@ -63,6 +63,7 @@
         "@plot/sdk": "workspace:*",
         "better-result": "^2.9.2",
         "eta": "4.6.0",
+        "jiti": "^2.7.0",
         "yaml": "2.9.0",
       },
       "devDependencies": {

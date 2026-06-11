@@ -200,6 +200,35 @@ describe("Plot extension source adapter", () => {
 		expect(interrupted).toEqual(["github:acme/web:pr:42:sha-1"]);
 	});
 
+	test("loads a local extension module that imports the public SDK", async () => {
+		const dir = await makeTempDir();
+		const extensionPath = join(dir, "extension.ts");
+		await writeFile(
+			extensionPath,
+			`import { definePlotExtension } from "plot-ai/sdk";
+export default definePlotExtension({
+  id: "public-sdk-test",
+  create: ({ work }) => ({
+    discover: () => [work({ id: "work:from-sdk", version: "v1" })]
+  })
+});
+`,
+		);
+		const loaded = await loadPlotExtensionRuntimeFromWorkflow({
+			paths: { ...paths, cwd: dir },
+			workflow: {
+				...workflow,
+				path: join(dir, "WORKFLOW.md"),
+				runtime: { extension: { source: "./extension.ts" } },
+			},
+		});
+
+		expect(loaded.extension.id).toBe("public-sdk-test");
+		expect(await loaded.runtime.discover()).toEqual([
+			{ id: "work:from-sdk", version: "v1" },
+		]);
+	});
+
 	test("loads a local extension module from WORKFLOW.md config", async () => {
 		const dir = await makeTempDir();
 		const extensionPath = join(dir, "extension.ts");

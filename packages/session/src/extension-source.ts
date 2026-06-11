@@ -1,4 +1,4 @@
-import { pathToFileURL } from "node:url";
+import { createJiti } from "jiti/static";
 import { dirname, isAbsolute, resolve } from "node:path";
 import {
 	interruptWork,
@@ -22,6 +22,7 @@ import type {
 	PlotExtensionRuntime,
 	PlotExtensionWork,
 } from "./extension.js";
+import * as plotSdk from "@plot/sdk";
 
 export class PlotExtensionSourceError extends TaggedError(
 	"PlotExtensionSourceError",
@@ -256,6 +257,20 @@ export const makePlotExtensionSourceBundle = (options: {
 		},
 	};
 };
+const extensionVirtualModules: Record<string, unknown> = {
+	"plot-ai/sdk": plotSdk,
+	"@plot/sdk": plotSdk,
+};
+
+const importExtensionModule = async (source: string): Promise<unknown> => {
+	const jiti = createJiti(import.meta.url, {
+		moduleCache: false,
+		tryNative: false,
+		virtualModules: extensionVirtualModules,
+	});
+	return jiti.import(source);
+};
+
 const getModuleExtension = (module: unknown): PlotExtension | undefined => {
 	if (!isObjectRecord(module)) return undefined;
 	const candidate = module["default"] ?? module["extension"];
@@ -293,7 +308,7 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 	});
 	let module: unknown;
 	try {
-		module = await import(pathToFileURL(source).href);
+		module = await importExtensionModule(source);
 	} catch (error) {
 		throw new PlotExtensionSourceError({
 			phase: "load",
