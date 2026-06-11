@@ -13,6 +13,7 @@ import {
 } from "@plot/session/protocol";
 import { PlotDashboard } from "./dashboard.js";
 import { applySnapshot, emptyProjection, reduceRecord } from "./projection.js";
+import { RenderScheduler } from "./render-scheduler.js";
 import type { DashboardProjection } from "./projection.js";
 import { runtimeIdentityFrom } from "./runtime-identity.js";
 
@@ -41,9 +42,9 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	>();
 	const terminal = new ProcessTerminal();
 	const tui = new TUI(terminal);
-	let lastRenderFingerprint = "";
-	let lastRenderAtMs = 0;
-	let pendingRender: ReturnType<typeof setTimeout> | undefined;
+	const shimmerFrameMs = 80;
+	const hasLiveShimmer = () =>
+		[...projection.running.values()].some((work) => work.stage === "working");
 	const renderFingerprint = () =>
 		JSON.stringify({
 			status: projection.status,
@@ -61,23 +62,21 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			diagnostics: projection.diagnostics,
 			scheduledWakes: projection.scheduledWakes,
 			clockSecond: Math.floor(Date.now() / 1000),
+			...(hasLiveShimmer()
+				? { shimmerFrame: Math.floor(Date.now() / shimmerFrameMs) }
+				: {}),
 		});
-	const render = () => {
-		dashboard.setProjection(projection);
-		const fingerprint = renderFingerprint();
-		if (fingerprint === lastRenderFingerprint) return;
-		const now = Date.now();
-		const elapsed = now - lastRenderAtMs;
-		const requestRender = () => {
-			pendingRender = undefined;
-			lastRenderFingerprint = renderFingerprint();
-			lastRenderAtMs = Date.now();
+	const scheduler = new RenderScheduler({
+		minIntervalMs: 50,
+		animationFrameMs: shimmerFrameMs,
+		fingerprint: renderFingerprint,
+		isAnimationActive: hasLiveShimmer,
+		requestRender: () => {
+			dashboard.setProjection(projection);
 			tui.requestRender();
-		};
-		if (elapsed >= 50) requestRender();
-		else if (pendingRender === undefined)
-			pendingRender = setTimeout(requestRender, 50 - elapsed);
-	};
+		},
+	});
+	const render = () => scheduler.notifyChanged();
 	const setProjection = (next: DashboardProjection) => {
 		projection = next;
 		render();
@@ -208,7 +207,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		refresh();
 		await stopped;
 	} finally {
-		if (pendingRender !== undefined) clearTimeout(pendingRender);
+		scheduler.stop();
 		tui.stop();
 		await host.session.shutdown();
 		await host.shutdown();
