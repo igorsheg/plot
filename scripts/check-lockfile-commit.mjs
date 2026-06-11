@@ -7,7 +7,9 @@ const staged = git(["diff", "--cached", "--name-only"])
 	.map((line) => line.trim())
 	.filter(Boolean);
 
-const packageFiles = staged.filter((file) => file.endsWith("package.json"));
+const packageFiles = staged.filter(
+	(file) => file.endsWith("package.json") && isRootLockfileManaged(file),
+);
 const lockChanged = staged.includes("bun.lock");
 
 const packageDependencyChanged = packageFiles.some((file) =>
@@ -20,6 +22,12 @@ if (packageDependencyChanged && !lockChanged) {
 		"Run `bun install` and stage bun.lock, or stage bun.lock if already updated.",
 	);
 	process.exit(1);
+}
+
+function isRootLockfileManaged(file) {
+	return (
+		file === "package.json" || /^packages\/[^/]+\/package\.json$/.test(file)
+	);
 }
 
 function dependencyShapeChanged(file) {

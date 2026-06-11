@@ -12,10 +12,11 @@ The agent is expected to use normal tools (`bash`, `git`, `gh`, `rg`, tests) and
 
 ## Use
 
-Install Plot via the `plot-ai` package, then run this workflow from the repository root you want reviewed.
+Install Plot via the `plot-ai` package, then install this example's extension dependency. The example imports the public SDK from `plot-ai/sdk`, just like a real external extension.
 
 ```bash
 npm install -g plot-ai
+npm install --prefix examples/pr-review
 plot run --workflow examples/pr-review/WORKFLOW.md
 ```
 
