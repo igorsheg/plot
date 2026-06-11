@@ -95,11 +95,11 @@ jobs:
           fi
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG"
-            gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --draft=false --latest
           else
-            gh release create "$RELEASE_TAG" "${files[@]}" --title "$RELEASE_TAG" --generate-notes
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes --verify-tag --latest
           fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
 
   publish:
     needs: github-release
