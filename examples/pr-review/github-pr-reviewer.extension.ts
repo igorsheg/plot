@@ -684,6 +684,19 @@ const eventPreview = (event: AgentSessionEvent): string => {
 	return event.type;
 };
 
+const usageFromAgentEvent = (event: AgentSessionEvent) => {
+	const record = event as unknown;
+	if (!isRecord(record)) return undefined;
+	const message = isRecord(record["message"]) ? record["message"] : undefined;
+	const usage = isRecord(message?.["usage"])
+		? message["usage"]
+		: isRecord(record["usage"])
+			? record["usage"]
+			: undefined;
+	if (usage === undefined) return undefined;
+	return usage;
+};
+
 const spawnReviewers = async (
 	cwd: string,
 	work: PlotExtensionWork,
@@ -726,11 +739,13 @@ const spawnReviewers = async (
 				? 10 * 60_000
 				: 5 * 60_000,
 		onEvent: (event: AgentSessionEvent) => {
+			const usage = usageFromAgentEvent(event);
 			onUpdate?.(
 				toolResult(`${reviewer}: ${eventPreview(event)}`, {
 					status: "running",
 					reviewer,
 					event,
+					...(usage === undefined ? {} : { usage }),
 				}),
 			);
 		},

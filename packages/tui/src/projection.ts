@@ -174,16 +174,23 @@ const displayLabels = (display: Record<string, unknown> | undefined) => {
 const inlineText = (value: string, max = 140) =>
 	value.replace(/\s+/g, " ").trim().slice(0, max);
 
-const pathValue = (value: unknown, path: readonly string[]): unknown => {
+type FieldPath = readonly (string | number)[];
+
+const pathValue = (value: unknown, path: FieldPath): unknown => {
 	let current = value;
 	for (const key of path) {
+		if (typeof key === "number") {
+			if (!Array.isArray(current)) return undefined;
+			current = current[key];
+			continue;
+		}
 		if (!isRecord(current)) return undefined;
 		current = current[key];
 	}
 	return current;
 };
 
-const firstPath = (value: unknown, paths: readonly (readonly string[])[]) => {
+const firstPath = (value: unknown, paths: readonly FieldPath[]) => {
 	for (const path of paths) {
 		const found = pathValue(value, path);
 		if (found !== undefined) return found;
@@ -191,7 +198,7 @@ const firstPath = (value: unknown, paths: readonly (readonly string[])[]) => {
 	return undefined;
 };
 
-const deltaPaths: readonly (readonly string[])[] = [
+const deltaPaths: readonly FieldPath[] = [
 	["delta"],
 	["text"],
 	["content"],
@@ -218,6 +225,10 @@ const deltaPaths: readonly (readonly string[])[] = [
 	["params", "msg", "payload", "textDelta"],
 	["params", "msg", "payload", "outputDelta"],
 	["params", "msg", "payload", "summaryText"],
+	["partialResult", "content", 0, "text"],
+	["partialResult", "details", "text"],
+	["partialResult", "details", "message"],
+	["partialResult", "details", "summary"],
 ];
 
 const extractDeltaPreview = (event: unknown) => {
@@ -282,11 +293,19 @@ const numberAt = (
 const extractUsage = (event: unknown): UsageDelta | undefined => {
 	if (!isRecord(event)) return undefined;
 	const message = isRecord(event["message"]) ? event["message"] : undefined;
+	const partialResult = isRecord(event["partialResult"])
+		? event["partialResult"]
+		: undefined;
+	const partialDetails = isRecord(partialResult?.["details"])
+		? partialResult["details"]
+		: undefined;
 	const usage = isRecord(message?.["usage"])
 		? message["usage"]
 		: isRecord(event["usage"])
 			? event["usage"]
-			: undefined;
+			: isRecord(partialDetails?.["usage"])
+				? partialDetails["usage"]
+				: undefined;
 	if (usage === undefined) return undefined;
 	const input = numberAt(usage, "input", "inputTokens");
 	const output = numberAt(usage, "output", "outputTokens");
