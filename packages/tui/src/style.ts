@@ -55,7 +55,6 @@ const palette = {
 const ansi = {
 	reset: "\x1b[0m",
 	bold: "\x1b[1m",
-	dim: "\x1b[2m",
 	inverse: "\x1b[7m",
 };
 
@@ -151,8 +150,6 @@ const compose =
 		fns.reduce((current, fn) => fn(current), value);
 const bold = (value: string) =>
 	colorEnabled ? `${ansi.bold}${value}\x1b[22m` : value;
-const dim = (value: string) =>
-	colorEnabled ? `${ansi.dim}${value}\x1b[22m` : value;
 const inverse = (value: string) =>
 	colorEnabled ? `${ansi.inverse}${value}${ansi.reset}` : value;
 
@@ -163,7 +160,7 @@ export const style = {
 	borderAccent: fg("border"),
 	label: compose(fg("text"), bold),
 	value: fg("accent"),
-	muted: compose(fg("muted"), dim),
+	muted: fg("muted"),
 	selected: compose(bg("selectedBg"), fg("text")),
 	inverse,
 	status: {
@@ -191,6 +188,6 @@ export const style = {
 	},
 	row: {
 		selected: compose(bg("selectedBg"), fg("text")),
-		stale: fg("muted"),
+		stale: fg("dim"),
 	},
 } as const;
