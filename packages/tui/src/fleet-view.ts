@@ -64,6 +64,32 @@ const activityGlyph = (tone: "ok" | "bad" | "info") =>
 			? style.bad("✗")
 			: style.muted("·");
 
+const clampWorkViewport = (
+	workLines: readonly DashboardLine[],
+	selectedIndex: number,
+	availableRows: number,
+): readonly DashboardLine[] => {
+	if (workLines.length <= availableRows) return workLines;
+	const selectedStart = Math.max(0, selectedIndex * 3);
+	const selectedEnd = Math.min(workLines.length - 1, selectedStart + 2);
+	const maxOffset = Math.max(0, workLines.length - availableRows);
+	const preferredOffset =
+		availableRows >= 3
+			? Math.max(0, selectedEnd - availableRows + 1)
+			: selectedStart;
+	const offset = Math.min(maxOffset, preferredOffset);
+	const visible = workLines.slice(offset, offset + availableRows);
+	if (offset === 0)
+		return [...visible.slice(0, -1), item(style.muted("    … more below"))];
+	if (offset >= maxOffset)
+		return [item(style.muted("    … more above")), ...visible.slice(1)];
+	return [
+		item(style.muted("    … more above")),
+		...visible.slice(1, -1),
+		item(style.muted("    … more below")),
+	];
+};
+
 export const fleetViewLines = (input: {
 	readonly header: readonly DashboardLine[];
 	readonly model: DashboardModel;
@@ -71,6 +97,7 @@ export const fleetViewLines = (input: {
 	readonly width: number;
 	readonly footerText: string;
 	readonly footerStyle?: (value: string) => string;
+	readonly maxRows?: number;
 	readonly nowMs?: number;
 }): readonly DashboardLine[] => {
 	const { model } = input;
@@ -101,21 +128,39 @@ export const fleetViewLines = (input: {
 					),
 					...scheduled.map(scheduledRowLine),
 				];
+	const maxActivityRows = model.work.length === 0 ? 8 : 4;
 	const activityLines =
 		model.activity.length === 0
 			? [item("  nothing yet", style.muted)]
 			: model.activity
-					.slice(0, 8)
+					.slice(0, maxActivityRows)
 					.map((entry) =>
 						item(
 							`  ${cell(entry.ago, 12, style.dim)} ${activityGlyph(entry.tone)} ${entry.text}`,
 						),
 					);
+	const chromeRows =
+		input.header.length +
+		attention.length +
+		1 +
+		1 +
+		1 +
+		activityLines.length +
+		1;
+	const availableWorkRows =
+		input.maxRows === undefined
+			? workLines.length
+			: Math.max(1, input.maxRows - chromeRows);
+	const visibleWorkLines = clampWorkViewport(
+		workLines,
+		input.selectedIndex,
+		availableWorkRows,
+	);
 	return [
 		...input.header,
 		...attention,
 		section(workTitle),
-		...workLines,
+		...visibleWorkLines,
 		blank(),
 		section("Activity"),
 		...activityLines,

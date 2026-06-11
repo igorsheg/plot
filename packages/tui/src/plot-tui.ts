@@ -41,42 +41,9 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	>();
 	const terminal = new ProcessTerminal();
 	const tui = new TUI(terminal);
-	let lastRenderFingerprint = "";
-	let lastRenderAtMs = 0;
-	let pendingRender: ReturnType<typeof setTimeout> | undefined;
-	const renderFingerprint = () =>
-		JSON.stringify({
-			status: projection.status,
-			frontier: projection.frontier,
-			running: [...projection.running.values()].map((work) => [
-				work.workKey,
-				work.stage,
-				work.lastEventSeq,
-				work.check,
-				work.tokens?.total,
-			]),
-			pulse: projection.pulse,
-			activity: projection.activity[0]?.atMs,
-			completed: projection.completed.length,
-			diagnostics: projection.diagnostics,
-			scheduledWakes: projection.scheduledWakes,
-			clockSecond: Math.floor(Date.now() / 1000),
-		});
 	const render = () => {
 		dashboard.setProjection(projection);
-		const fingerprint = renderFingerprint();
-		if (fingerprint === lastRenderFingerprint) return;
-		const now = Date.now();
-		const elapsed = now - lastRenderAtMs;
-		const requestRender = () => {
-			pendingRender = undefined;
-			lastRenderFingerprint = renderFingerprint();
-			lastRenderAtMs = Date.now();
-			tui.requestRender();
-		};
-		if (elapsed >= 50) requestRender();
-		else if (pendingRender === undefined)
-			pendingRender = setTimeout(requestRender, 50 - elapsed);
+		tui.requestRender();
 	};
 	const setProjection = (next: DashboardProjection) => {
 		projection = next;
@@ -208,7 +175,6 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		refresh();
 		await stopped;
 	} finally {
-		if (pendingRender !== undefined) clearTimeout(pendingRender);
 		tui.stop();
 		await host.session.shutdown();
 		await host.shutdown();

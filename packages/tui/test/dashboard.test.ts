@@ -209,6 +209,36 @@ describe("PlotDashboard", () => {
 		expect(rendered).not.toContain("DEBUG EVENTS");
 	});
 
+	test("keeps selected fleet work visible in small terminals", () => {
+		const running = new Map(
+			Array.from({ length: 8 }, (_, index) => {
+				const id = index + 1;
+				return [
+					`source:item:${id}`,
+					runningWork({
+						workKey: `source:item:${id}`,
+						primary: `#${id}`,
+						title: `Item ${id}`,
+						activity: `Working item ${id}`,
+						lastMeaningful: `Working item ${id}`,
+					}),
+				] as const;
+			}),
+		);
+		const dashboard = new PlotDashboard(
+			{ ...emptyProjection("default", "workflow"), status: "running", running },
+			{ ...actions, height: () => 18 },
+		);
+
+		for (let i = 0; i < 7; i++) dashboard.handleInput("j");
+		const rendered = stripAnsi(dashboard.render(100).join("\n"));
+
+		expect(rendered).toContain("› ● #8 Item 8");
+		expect(rendered).toContain("… more above");
+		expect(rendered).not.toContain("#1 Item 1");
+		expect(rendered.split("\n").length).toBeLessThanOrEqual(18);
+	});
+
 	test("promotes blocked work into the attention strip", () => {
 		const running = new Map([
 			[

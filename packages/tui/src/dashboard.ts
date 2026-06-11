@@ -142,6 +142,7 @@ export class PlotDashboard implements Component {
 								model,
 								selectedIndex: this.selectedIndex,
 								width,
+								maxRows: Math.max(1, (this.actions.height?.() ?? 24) - 1),
 								...this.fleetFooter(),
 							});
 		return ["", ...renderLines(lines, width, style.row.selected)];
