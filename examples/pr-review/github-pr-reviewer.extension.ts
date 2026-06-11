@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
@@ -94,6 +94,15 @@ interface InlineReviewComment {
 	readonly line: number;
 	readonly body: string;
 	readonly side?: "LEFT" | "RIGHT";
+}
+
+interface ReviewTelemetryEvent {
+	readonly type: "prepare" | "spawn_reviewers" | "post_review";
+	readonly at: string;
+	readonly pr?: number;
+	readonly head?: string;
+	readonly durationMs?: number;
+	readonly details: Record<string, unknown>;
 }
 
 const defaultConfig: GitHubPrReviewerConfig = { includeDrafts: true };
@@ -571,10 +580,28 @@ const toolResult = <T>(text: string, details: T): AgentToolResult<T> => ({
 	details,
 });
 
+const writeTelemetry = async (
+	cwd: string,
+	event: ReviewTelemetryEvent,
+): Promise<void> => {
+	try {
+		await mkdir(join(cwd, ".plot", "review"), { recursive: true });
+		await appendFile(
+			join(cwd, ".plot", "review", "telemetry.jsonl"),
+			`${JSON.stringify(event)}\n`,
+		);
+	} catch {
+		// Telemetry must never affect review execution.
+	}
+};
+
+const nowIso = () => new Date().toISOString();
+
 const prepareReviewContext = async (
 	cwd: string,
 	work: PlotExtensionWork,
 ): Promise<AgentToolResult<unknown>> => {
+	const startedAt = Date.now();
 	const context = reviewContextFromWork(work);
 	if (context.pr === undefined) {
 		return toolResult("No pull request found for this branch.", {
@@ -612,6 +639,18 @@ const prepareReviewContext = async (
 		),
 	]);
 	const risk = assessRisk(files);
+	await writeTelemetry(cwd, {
+		type: "prepare",
+		at: nowIso(),
+		pr: context.pr.number,
+		head: context.pr.headRefOid,
+		durationMs: Date.now() - startedAt,
+		details: {
+			fileCount: files.length,
+			tier: risk.tier,
+			totalLines: risk.totalLines,
+		},
+	});
 	return toolResult(
 		`Prepared review context for ${context.repo}#${context.pr.number}. Risk tier: ${risk.tier}.`,
 		{
@@ -735,6 +774,56 @@ const reviewerOutputFromResult = (
 	};
 };
 
+const xmlText = (xml: string, tag: string): string | undefined => {
+	const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"));
+	return match?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim();
+};
+
+const parseReviewerFindings = (
+	reviewer: ReviewerName,
+	outputText: string,
+): ReviewerFinding[] =>
+	[
+		...outputText.matchAll(
+			/<finding\s+severity="([^"]+)"\s*>([\s\S]*?)<\/finding>/gi,
+		),
+	].flatMap((match) => {
+		const severity = match[1];
+		if (
+			severity !== "critical" &&
+			severity !== "warning" &&
+			severity !== "suggestion"
+		)
+			return [];
+		const body = match[2] ?? "";
+		const title = xmlText(body, "title");
+		const impact = xmlText(body, "impact");
+		const evidence = xmlText(body, "evidence");
+		const suggestedFix = xmlText(body, "suggested_fix");
+		if (
+			title === undefined ||
+			impact === undefined ||
+			evidence === undefined ||
+			suggestedFix === undefined
+		)
+			return [];
+		const lineText = xmlText(body, "line");
+		const line = lineText === undefined ? undefined : Number(lineText);
+		const path = xmlText(body, "path");
+		return [
+			{
+				reviewer,
+				severity,
+				...(path === undefined || path.length === 0 ? {} : { path }),
+				...(Number.isInteger(line) ? { line } : {}),
+				title,
+				impact,
+				evidence,
+				suggestedFix,
+			},
+		];
+	});
+
 const spawnReviewers = async (
 	cwd: string,
 	work: PlotExtensionWork,
@@ -745,6 +834,7 @@ const spawnReviewers = async (
 	) => Promise<readonly PlotRunAgentResult[]>,
 	onUpdate?: (partial: AgentToolResult<unknown>) => void,
 ) => {
+	const startedAt = Date.now();
 	const context = reviewContextFromWork(work);
 	if (context.pr === undefined) {
 		return toolResult("No PR available for specialist reviewers.", {
@@ -794,11 +884,62 @@ const spawnReviewers = async (
 	const reviewerOutputs = results.map((result, index) =>
 		reviewerOutputFromResult(reviewers[index] ?? "code_quality", result),
 	);
+	const parsedCandidateFindings = reviewerOutputs.flatMap((output) =>
+		parseReviewerFindings(output.reviewer, output.outputText),
+	);
+	await writeTelemetry(cwd, {
+		type: "spawn_reviewers",
+		at: nowIso(),
+		pr: context.pr.number,
+		head: context.pr.headRefOid,
+		durationMs: Date.now() - startedAt,
+		details: {
+			tier,
+			reviewers,
+			candidateFindingCount: parsedCandidateFindings.length,
+			eventCount: results.reduce(
+				(sum, result) => sum + result.events.length,
+				0,
+			),
+		},
+	});
 	return toolResult(
-		`Specialist reviewer agents completed. Coordinator must verify, deduplicate, and judge their outputs before posting.`,
-		{ tier, reviewers, reviewerOutputs, results },
+		`Specialist reviewer agents completed. Coordinator must verify, deduplicate, and judge their parsed candidate findings before posting.`,
+		{ tier, reviewers, reviewerOutputs, parsedCandidateFindings, results },
 	);
 };
+
+const findingKey = (
+	finding: Pick<ReviewerFinding, "path" | "line" | "title">,
+) => `${finding.path ?? "general"}:${finding.line ?? ""}:${finding.title}`;
+
+const previousFindingKeys = (body: string | undefined): Set<string> => {
+	const keys = new Set<string>();
+	if (body === undefined) return keys;
+	for (const match of body.matchAll(/`([^`]+)` — ([^.]+)\./g)) {
+		const location = match[1] ?? "general";
+		const [path, lineText] = location.split(":", 2);
+		const line = lineText === undefined ? undefined : Number(lineText);
+		keys.add(
+			findingKey({
+				path: path === "general" ? undefined : path,
+				...(Number.isInteger(line) ? { line } : {}),
+				title: match[2] ?? "",
+			}),
+		);
+	}
+	return keys;
+};
+
+const applyDispositionRubric = (
+	disposition: ReviewDisposition,
+	findings: readonly ReviewerFinding[],
+): ReviewDisposition =>
+	findings.some((finding) => finding.severity === "critical")
+		? "BLOCKING_COMMENT"
+		: disposition === "BLOCKING_COMMENT"
+			? "COMMENT"
+			: disposition;
 
 const severityBadge = (severity: ReviewerFinding["severity"]) =>
 	severity === "critical"
@@ -814,6 +955,8 @@ const buildReviewBody = (values: {
 	readonly summary: string;
 	readonly findings: readonly ReviewerFinding[];
 	readonly confidence: "High" | "Medium" | "Low";
+	readonly resolvedFindingKeys?: readonly string[];
+	readonly carriedFindingKeys?: readonly string[];
 }) => {
 	const head = values.context.pr?.headRefOid ?? values.context.branch;
 	const lines = [
@@ -841,6 +984,20 @@ const buildReviewBody = (values: {
 			);
 		}
 	}
+	if (
+		(values.resolvedFindingKeys?.length ?? 0) > 0 ||
+		(values.carriedFindingKeys?.length ?? 0) > 0
+	) {
+		lines.push("", "### Re-review lifecycle", "");
+		if ((values.resolvedFindingKeys?.length ?? 0) > 0)
+			lines.push(
+				`- Resolved previous Plot findings: ${values.resolvedFindingKeys!.length}`,
+			);
+		if ((values.carriedFindingKeys?.length ?? 0) > 0)
+			lines.push(
+				`- Re-emitted previous Plot findings: ${values.carriedFindingKeys!.length}`,
+			);
+	}
 	lines.push("", "### Confidence", "", values.confidence);
 	return lines.join("\n");
 };
@@ -857,24 +1014,36 @@ const postReview = async (
 		readonly inlineComments?: readonly InlineReviewComment[];
 	},
 ) => {
+	const startedAt = Date.now();
 	const context = reviewContextFromWork(work);
 	if (context.pr === undefined)
 		throw new Error("cannot post review without a PR");
 	if (context.pr.headRefOid === undefined)
 		throw new Error("cannot post review without PR head SHA");
+	const findings = input.findings ?? [];
+	const disposition = applyDispositionRubric(input.disposition, findings);
+	const priorKeys = previousFindingKeys(context.previousReview?.body);
+	const currentKeys = new Set(findings.map(findingKey));
+	const resolvedFindingKeys = [...priorKeys].filter(
+		(key) => !currentKeys.has(key),
+	);
+	const carriedFindingKeys = [...priorKeys].filter((key) =>
+		currentKeys.has(key),
+	);
 	const body = buildReviewBody({
 		context,
-		disposition: input.disposition,
+		disposition,
 		verification: input.verification,
 		summary: input.summary,
 		confidence: input.confidence,
-		findings: input.findings ?? [],
+		findings,
+		resolvedFindingKeys,
+		carriedFindingKeys,
 	});
 	const ownerRepo = context.repo;
 	const payload = {
 		commit_id: context.pr.headRefOid,
-		event:
-			input.disposition === "BLOCKING_COMMENT" ? "REQUEST_CHANGES" : "COMMENT",
+		event: disposition === "BLOCKING_COMMENT" ? "REQUEST_CHANGES" : "COMMENT",
 		body,
 		comments: (input.inlineComments ?? []).map((comment) => ({
 			path: comment.path,
@@ -903,11 +1072,30 @@ const postReview = async (
 			"--input",
 			payloadPath,
 		]);
+		await writeTelemetry(cwd, {
+			type: "post_review",
+			at: nowIso(),
+			pr: context.pr.number,
+			head: context.pr.headRefOid,
+			durationMs: Date.now() - startedAt,
+			details: {
+				kind: "pull_request_review",
+				disposition,
+				requestedDisposition: input.disposition,
+				findingCount: findings.length,
+				inlineCommentCount: payload.comments.length,
+				resolvedFindingCount: resolvedFindingKeys.length,
+				carriedFindingCount: carriedFindingKeys.length,
+			},
+		});
 		return toolResult("Posted GitHub pull request review.", {
 			posted: true,
 			kind: "pull_request_review",
 			inlineCommentCount: payload.comments.length,
-			disposition: input.disposition,
+			disposition,
+			requestedDisposition: input.disposition,
+			resolvedFindingKeys,
+			carriedFindingKeys,
 		});
 	} catch (error) {
 		const bodyPath = join(
@@ -926,13 +1114,32 @@ const postReview = async (
 			"--body-file",
 			bodyPath,
 		]);
+		await writeTelemetry(cwd, {
+			type: "post_review",
+			at: nowIso(),
+			pr: context.pr.number,
+			head: context.pr.headRefOid,
+			durationMs: Date.now() - startedAt,
+			details: {
+				kind: "fallback_review_comment",
+				disposition,
+				requestedDisposition: input.disposition,
+				findingCount: findings.length,
+				inlineCommentCount: 0,
+				resolvedFindingCount: resolvedFindingKeys.length,
+				carriedFindingCount: carriedFindingKeys.length,
+			},
+		});
 		return toolResult(
 			`Inline review failed (${error instanceof Error ? error.message : String(error)}); posted top-level review comment fallback.`,
 			{
 				posted: true,
 				kind: "fallback_review_comment",
 				inlineCommentCount: 0,
-				disposition: input.disposition,
+				disposition,
+				requestedDisposition: input.disposition,
+				resolvedFindingKeys,
+				carriedFindingKeys,
 			},
 		);
 	}
