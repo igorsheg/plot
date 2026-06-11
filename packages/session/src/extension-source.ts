@@ -259,7 +259,6 @@ export const makePlotExtensionSourceBundle = (options: {
 };
 const extensionVirtualModules: Record<string, unknown> = {
 	"plot-ai/sdk": plotSdk,
-	"@plot/sdk": plotSdk,
 };
 
 const importExtensionModule = async (source: string): Promise<unknown> => {
