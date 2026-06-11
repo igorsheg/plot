@@ -1,0 +1,12 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"printWidth": 80,
+	"ignorePatterns": [
+		"node_modules",
+		"dist",
+		".turbo",
+		".references",
+		".agent-sources",
+		"packages/tui/src/pi-tui"
+	]
+}

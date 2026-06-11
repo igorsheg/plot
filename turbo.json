@@ -1,25 +1,21 @@
 {
 	"$schema": "https://turbo.build/schema.json",
+	"ui": "tui",
 	"tasks": {
-		"build": {
-			"dependsOn": ["^typecheck"],
-			"outputs": ["dist/**"]
-		},
 		"typecheck": {
 			"dependsOn": ["^typecheck"],
+			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../@repo/*.json"],
 			"outputs": []
 		},
 		"lint": {
 			"dependsOn": ["^lint"],
+			"inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../../.oxlintrc.json"],
 			"outputs": []
 		},
 		"test": {
-			"dependsOn": ["^typecheck"],
+			"dependsOn": ["^test"],
+			"inputs": ["$TURBO_DEFAULT$"],
 			"outputs": []
-		},
-		"dev": {
-			"cache": false,
-			"persistent": true
 		}
 	}
 }

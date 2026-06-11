@@ -1,32 +1,20 @@
 {
 	"name": "@plot/tui",
-	"version": "0.0.1",
 	"private": true,
-	"description": "terminal ui for the plot agent dashboard",
-	"author": "Igor Sheg <igorsheg@gmail.com>",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/igorsheg/plot.git",
-		"directory": "packages/tui"
-	},
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		"./plot-tui": "./src/plot-tui.ts"
 	},
 	"scripts": {
-		"dev": "bun run src/main.tsx",
-		"build": "bun build src/main.tsx --outdir dist --target bun",
-		"typecheck": "tsc -b tsconfig.json",
-		"lint": "oxlint src --tsconfig ../../tsconfig.json"
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint src/plot-tui.ts test --tsconfig tsconfig.json",
+		"test": "bun test test"
 	},
 	"dependencies": {
-		"@opentui/core": "0.1.87",
-		"@opentui/react": "^0.1.87",
-		"@plot/sdk": "workspace:*",
-		"react": "^19.2.4"
+		"@plot/session": "workspace:*",
+		"get-east-asian-width": "1.6.0"
 	},
 	"devDependencies": {
-		"@types/react": "^19.2.14",
-		"bun-types": "catalog:"
+		"@repo/tsconfig": "workspace:*"
 	}
 }

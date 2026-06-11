@@ -1,8 +1,8 @@
 {
-	"files": [],
-	"references": [
-		{ "path": "packages/sdk" },
-		{ "path": "packages/plot" },
-		{ "path": "packages/tui" }
-	]
+	"extends": "./packages/@repo/base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"allowImportingTsExtensions": true
+	},
+	"include": ["packages/**/*.ts", "*.extension.ts"]
 }

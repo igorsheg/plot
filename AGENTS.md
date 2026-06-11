@@ -1,59 +1,37 @@
 # AGENTS.md
 
-## scope
+## Scope
 
-- this file applies to the whole monorepo.
-- no package-local `AGENTS.md` files exist yet. if a closer one is added later, prefer the closest file over this root file.
-- treat `README.md`, `WORKFLOW.md`, and package-local config as the source of truth for discoverable commands and architecture.
+This file applies to the whole repository. If a closer `AGENTS.md` is added later, prefer the closest file.
 
-## landmines
+## Reference repos
 
-- `packages/web/components/ui/*` are generated from the coss ui registry. do not hand-edit them. use `bun run ui:add` from the repo root when that surface needs to change.
-- follow the existing effect style: services use `Effect.Service`, and typed effect errors use `Schema.TaggedError`.
-- react 19 code in this repo does not use `forwardRef`. match nearby components instead of reintroducing it.
+- Symphony spec/reference implementation: `.references/symphony`
+- pi-mono SDK reference: `.references/pi-mono`
 
-## verification
+## Invariants
 
-- run verification from the repo root in this order: `bun run typecheck`, `bun run lint`, `bun run test`, `bun run build`.
+1. **Plot agent** — implement the Symphony-inspired scheduler moat: `tick -> reconcile -> act`. The Plot agent is the single runtime-state owner; reconciliation always happens before dispatch.
+2. **Do not cripple agent sessions** — scheduling must not become a rigid programmatic pipeline that micromanages agent reasoning. `@plot/agent` owns wakeups, state, reconciliation, runtime policy, lifecycle, and auditability. Sources and agent sessions own their inner reasoning, tool strategy, and task execution inside coarse runtime seams.
+3. **Sources are trusted code** — sources observe the world, reconcile facts, and write normal TypeScript code to decide what to do next. `@plot/agent` schedules selected work and tracks running attempts; sources decide whether completions mean done, retry, continuation, or new work. The agent must not invent a fine-grained capability/grant DSL for every inner tool or command the agent session may choose.
+4. **Plain TypeScript runtime** — use async/await, async iterables, explicit queues/event streams, and tagged boundary errors. Do not introduce framework-owned runtime machinery.
+5. **pi-mono SDK** — use pi-mono as the agent-session SDK behind `@plot/session`'s agent-session client/runner seam. `@plot/agent` must not depend on provider or SDK details.
+6. **TUI boundary** — Plot TUI is generic over sources/plugins. Extensions may contribute display metadata, but `@plot/tui` must not contain plugin-specific concepts such as GitHub PRs, severity badges, or review workflow labels. Use the vendored pi-mono terminal substrate in `packages/tui/src/pi-tui` for terminal mechanics; Plot-owned code should only model Plot product concepts.
+7. **Release shape** — distribute the CLI as Bun single-executable platform packages behind the npm umbrella package `plot-ai`, exposing the binary as `plot`. Releases are tag-driven from `v*` tags; keep release machinery in `scripts/release` aligned with `packages/cli/src/main.ts`.
+8. **Tests must mean something** — prefer 1-2 behavior tests that prove important contracts over 50 shallow AI-slop tests. Do not add tests just to spray green checkmarks.
+9. **Import directly** — do not add barrel modules that re-export another module's source. If a callsite needs a symbol, import it from the module that owns it.
+10. **Directories are earned** — avoid single-file directories. Start with `module.ts`; create `module/` only when the directory represents a real multi-file module boundary.
 
-## Landing the Plane (Session Completion)
+## Verification
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+For code changes, run:
 
-**MANDATORY WORKFLOW:**
+```bash
+bun run check
+```
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+For release/package changes, also run:
 
-**CRITICAL RULES:**
-
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
-## CLI Command Checklist
-
-When adding a new CLI command, verify:
-
-- [ ] Returns JSON envelope (`ok`, `command`, `timestamp`, `result`, `next_actions`)
-- [ ] `Command.withDescription()` set (shows in `--help`)
-- [ ] Error responses include `fix` field and `error.retryable` boolean
-- [ ] Root command lists this command in its `SUBCOMMANDS` array (`packages/plot/src/cli/index.ts`)
-- [ ] Output is context-safe (use `truncateForContext` for potentially large results)
-- [ ] `next_actions` are contextual to what just happened
-- [ ] `next_actions` with variable parts use template syntax (`<required>`, `[--flag <value>]`) + `params`
-- [ ] Context-specific values pre-filled via `params.*.value`
-- [ ] No plain text on stdout — all output is JSON
-- [ ] Works when piped (no TTY detection for output format)
+```bash
+bun run release:local --version 0.0.0-test --skip-check
+```

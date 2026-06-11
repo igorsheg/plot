@@ -1,0 +1,22 @@
+{
+	"name": "@plot/agent",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./agent": "./src/agent.ts",
+		"./model": "./src/model.ts",
+		"./work-runner": "./src/work-runner.ts",
+		"./work-source": "./src/work-source.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"test": "bun test test"
+	},
+	"dependencies": {
+		"@plot/common": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}

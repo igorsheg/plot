@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: false
+  commands:
+    lockfile:
+      run: node scripts/check-lockfile-commit.mjs
+    format:
+      run: bun run format:check
+    lint:
+      run: bun run lint
+    typecheck:
+      run: bun run typecheck

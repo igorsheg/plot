@@ -1,49 +1,32 @@
 {
-	"name": "@plot/monorepo",
+	"name": "plot",
 	"private": true,
-	"description": "orchestrate coding agents against an issue tracker",
-	"author": "Igor Sheg <igorsheg@gmail.com>",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/igorsheg/plot.git"
-	},
-	"workspaces": {
-		"packages": [
-			"packages/*"
-		],
-		"catalog": {
-			"effect": "4.0.0-beta.34",
-			"@effect/platform-bun": "4.0.0-beta.34",
-			"bun-types": "^1.3.10",
-			"typescript": "^5.8.2"
-		}
-	},
+	"description": "Plot agent control-plane runtime and CLI",
+	"workspaces": [
+		"packages/*"
+	],
+	"type": "module",
 	"scripts": {
-		"lint": "turbo run lint",
-		"lint:fix": "oxlint --tsconfig tsconfig.json --fix",
-		"fmt": "oxfmt",
-		"fmt:check": "oxfmt --check",
-		"typecheck": "turbo run typecheck",
-		"check": "bun run typecheck && bun run lint && bun run fmt:check",
+		"bootstrap": "bun install",
+		"prepare": "lefthook install",
+		"typecheck": "tsc -p tsconfig.json --noEmit && turbo run typecheck",
+		"lint": "oxlint examples/pr-review/github-pr-reviewer.extension.ts --tsconfig tsconfig.json && turbo run lint",
+		"format": "oxfmt .",
+		"format:check": "oxfmt --check .",
 		"test": "turbo run test",
-		"dev": "turbo run dev --filter=@plot/plot",
-		"dev:server": "turbo run dev --filter=@plot/plot",
-		"build": "turbo run build",
-		"plot": "bun run packages/plot/src/cli/index.ts",
-		"clean": "rm -rf packages/*/dist packages/*/node_modules node_modules",
+		"check": "bun run typecheck && bun run lint && bun run format:check && bun run test",
 		"release:build": "bun run scripts/release/build.ts",
+		"release:smoke": "bun run scripts/release/smoke.ts",
 		"release:publish": "bun run scripts/release/publish.ts",
 		"release:publish:dry-run": "bun run scripts/release/publish.ts --dry-run",
-		"release:smoke": "bun run scripts/release/smoke.ts"
-	},
-	"dependencies": {
-		"@opentui/core": "0.1.87"
+		"release:local": "bun run scripts/release/local.ts"
 	},
 	"devDependencies": {
-		"@effect/language-service": "^0.84.3",
-		"oxfmt": "latest",
-		"oxlint": "latest",
-		"turbo": "^2.8.13",
+		"bun-types": "^1.3.10",
+		"lefthook": "^2.1.9",
+		"oxfmt": "^0.54.0",
+		"oxlint": "^1.69.0",
+		"turbo": "^2.9.16",
 		"typescript": "^5.8.2"
 	},
 	"packageManager": "bun@1.3.5"

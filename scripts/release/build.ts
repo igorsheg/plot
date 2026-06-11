@@ -6,41 +6,26 @@ import {
 	cpSync,
 	existsSync,
 	mkdirSync,
-	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import {
+	cliEntrypoint,
+	cliTsconfig,
 	getOptionalDependencies,
-	piSkillsDir,
-	plotPackage,
-	plotPackageDir,
-	readJson,
+	npmPackageDir,
+	packageTemplate,
 	releaseDir,
 	releaseTargets,
-	repoDir,
 	version,
 } from "./shared.js";
-
-const tuiPackage = readJson(join(repoDir, "packages/tui/package.json")) as {
-	dependencies: Record<string, string>;
-};
-const opentuiVersion = tuiPackage.dependencies["@opentui/core"].replace("^", "");
-await $`bun install --os="*" --cpu="*" @opentui/core@${opentuiVersion}`.cwd(repoDir);
 
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
 
-await $`bun run --filter @plot/sdk build`.cwd(repoDir);
-
-if (!existsSync(piSkillsDir)) {
-	throw new Error(`missing pi skills at ${piSkillsDir}`);
-}
-
 await Promise.all(releaseTargets.map((target) => buildPlatformPackage(target)));
 await buildUmbrellaPackage();
-await buildSdkPackage();
 
 async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 	const packageDir = join(releaseDir, target.dirName);
@@ -48,63 +33,38 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 	mkdirSync(binDir, { recursive: true });
 
 	const result = await Bun.build({
-		entrypoints: [join(repoDir, "packages/plot/src/cli/index.ts")],
-		sourcemap: "external",
+		entrypoints: [cliEntrypoint],
 		target: "bun",
 		compile: {
 			target: target.bunTarget as never,
-			outfile: join(binDir, target.binName),
-			windows: {},
+			outfile: join(binDir, "plot"),
 		},
-		tsconfig: join(repoDir, "packages/plot/tsconfig.json"),
+		tsconfig: cliTsconfig,
 	});
 
 	if (!result.success) {
 		throw new Error(`failed to build ${target.packageName}`);
 	}
 
-	if (process.platform !== "win32") {
-		chmodSync(join(binDir, target.binName), 0o755);
-	}
-
-	cpSync(piSkillsDir, join(packageDir, "pi-resources", "skills"), {
-		recursive: true,
-	});
-
-	copyTrackerSkills(binDir);
+	chmodSync(join(binDir, "plot"), 0o755);
 
 	writeJson(join(packageDir, "package.json"), {
 		name: target.packageName,
 		version,
 		type: "module",
-		license: plotPackage.license,
-		description: plotPackage.description,
-		repository: plotPackage.repository,
-		homepage: plotPackage.homepage,
-		bugs: plotPackage.bugs,
+		license: packageTemplate.license,
+		description: packageTemplate.description,
+		repository: packageTemplate.repository,
+		homepage: packageTemplate.homepage,
+		bugs: packageTemplate.bugs,
 		os: target.os,
 		cpu: target.cpu,
 		publishConfig: { access: "public" },
-		files: ["bin", "pi-resources", "package.json"],
-	});
-
-	writeJson(join(binDir, "package.json"), {
-		name: target.packageName,
-		version,
-		piConfig: {
-			name: "plot",
-			configDir: ".plot",
+		bin: {
+			plot: "bin/plot",
 		},
+		files: ["bin", "package.json"],
 	});
-
-	const readmePath = join(plotPackageDir, "README.md");
-	if (existsSync(readmePath)) {
-		writeFileSync(join(binDir, "README.md"), await Bun.file(readmePath).text());
-	}
-	writeFileSync(
-		join(binDir, "CHANGELOG.md"),
-		`# changelog\n\n## ${version}\n\n- packaged plot-ai release\n`,
-	);
 
 	await $`npm pack`.cwd(packageDir);
 }
@@ -114,30 +74,39 @@ async function buildUmbrellaPackage() {
 	mkdirSync(join(packageDir, "bin"), { recursive: true });
 	mkdirSync(join(packageDir, "lib"), { recursive: true });
 
-	const readmeSrc = join(plotPackageDir, "README.md");
-	if (existsSync(readmeSrc)) {
-		cpSync(readmeSrc, join(packageDir, "README.md"));
-	}
-	cpSync(join(plotPackageDir, "bin", "plot-ai"), join(packageDir, "bin", "plot-ai"));
-	cpSync(join(plotPackageDir, "lib", "platform.js"), join(packageDir, "lib", "platform.js"));
-	cpSync(join(plotPackageDir, "postinstall.mjs"), join(packageDir, "postinstall.mjs"));
+	cpSync(join(npmPackageDir, "bin", "plot"), join(packageDir, "bin", "plot"));
+	cpSync(
+		join(npmPackageDir, "lib", "platform.js"),
+		join(packageDir, "lib", "platform.js"),
+	);
+	cpSync(
+		join(npmPackageDir, "postinstall.mjs"),
+		join(packageDir, "postinstall.mjs"),
+	);
+	const readmeSrc = join(npmPackageDir, "README.md");
+	if (existsSync(readmeSrc)) cpSync(readmeSrc, join(packageDir, "README.md"));
 
 	writeJson(join(packageDir, "package.json"), {
 		name: "plot-ai",
 		version,
 		type: "module",
-		license: plotPackage.license,
-		description: plotPackage.description,
-		repository: plotPackage.repository,
-		homepage: plotPackage.homepage,
-		bugs: plotPackage.bugs,
-		engines: plotPackage.engines,
-		keywords: plotPackage.keywords,
-		publishConfig: plotPackage.publishConfig,
+		license: packageTemplate.license,
+		description: packageTemplate.description,
+		repository: packageTemplate.repository,
+		homepage: packageTemplate.homepage,
+		bugs: packageTemplate.bugs,
+		keywords: packageTemplate.keywords,
+		engines: packageTemplate.engines,
+		publishConfig: packageTemplate.publishConfig,
 		bin: {
-			"plot-ai": "bin/plot-ai",
+			plot: "bin/plot",
 		},
-		files: ["bin", "lib", "postinstall.mjs", ...(existsSync(readmeSrc) ? ["README.md"] : [])],
+		files: [
+			"bin",
+			"lib",
+			"postinstall.mjs",
+			...(existsSync(readmeSrc) ? ["README.md"] : []),
+		],
 		scripts: {
 			postinstall: "node ./postinstall.mjs",
 		},
@@ -147,53 +116,6 @@ async function buildUmbrellaPackage() {
 	await $`npm pack`.cwd(packageDir);
 }
 
-async function buildSdkPackage() {
-	const sdkDir = join(repoDir, "packages/sdk");
-	const packageDir = join(releaseDir, "plot-sdk");
-	mkdirSync(packageDir, { recursive: true });
-
-	await $`bun run build`.cwd(sdkDir);
-	cpSync(join(sdkDir, "dist"), join(packageDir, "dist"), { recursive: true });
-
-	const sdkPackage = readJson(join(sdkDir, "package.json")) as Record<string, unknown>;
-	writeJson(join(packageDir, "package.json"), {
-		...sdkPackage,
-		name: "@plot-ai/sdk",
-		version,
-		exports: {
-			".": {
-				types: "./dist/index.d.ts",
-				default: "./dist/index.js",
-			},
-			"./plugin": {
-				types: "./dist/plugin/index.d.ts",
-				default: "./dist/plugin/index.js",
-			},
-		},
-		files: ["dist"],
-	});
-
-	const readmePath = join(sdkDir, "README.md");
-	if (existsSync(readmePath)) {
-		cpSync(readmePath, join(packageDir, "README.md"));
-	}
-
-	await $`npm pack`.cwd(packageDir);
-}
-
-function copyTrackerSkills(binDir: string) {
-	const trackerSrcDir = join(repoDir, "packages/plot/src/tracker");
-	if (!existsSync(trackerSrcDir)) return;
-
-	for (const entry of readdirSync(trackerSrcDir, { withFileTypes: true })) {
-		if (!entry.isDirectory()) continue;
-		const skillsDir = join(trackerSrcDir, entry.name, "skills");
-		if (!existsSync(skillsDir)) continue;
-		const dest = join(binDir, "tracker", entry.name, "skills");
-		cpSync(skillsDir, dest, { recursive: true });
-	}
-}
-
 function writeJson(path: string, data: unknown) {
-	writeFileSync(path, JSON.stringify(data, null, "\t") + "\n");
+	writeFileSync(path, `${JSON.stringify(data, null, "\t")}\n`);
 }

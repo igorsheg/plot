@@ -1,0 +1,41 @@
+{
+	"name": "@plot/session",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./agent-session-client": "./src/agent-session-client.ts",
+		"./agent-session-types": "./src/agent-session-types.ts",
+		"./extension": "./src/extension.ts",
+		"./extension-source": "./src/extension-source.ts",
+		"./pi-agent-session": "./src/pi-agent-session.ts",
+		"./pi-auth": "./src/pi-auth.ts",
+		"./plot-paths": "./src/plot-paths.ts",
+		"./plot-session": "./src/plot-session.ts",
+		"./protocol": "./src/protocol.ts",
+		"./protocol-handler": "./src/protocol-handler.ts",
+		"./protocol-jsonl": "./src/protocol-jsonl.ts",
+		"./protocol-replay-buffer": "./src/protocol-replay-buffer.ts",
+		"./protocol-stdio": "./src/protocol-stdio.ts",
+		"./session-host": "./src/session-host.ts",
+		"./testing/faux-agent-session": "./src/testing/faux-agent-session.ts",
+		"./workflow": "./src/workflow.ts",
+		"./workflow-template": "./src/workflow-template.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"test": "bun test test"
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "0.79.0",
+		"@earendil-works/pi-coding-agent": "0.79.0",
+		"@plot/agent": "workspace:*",
+		"@plot/common": "workspace:*",
+		"better-result": "^2.9.2",
+		"eta": "4.6.0",
+		"yaml": "2.9.0"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}

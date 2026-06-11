@@ -10,14 +10,19 @@ const provenance = !dryRun && process.env["CI"] === "true";
 const entries = readdirSync(releaseDir, { withFileTypes: true })
 	.filter((entry) => entry.isDirectory())
 	.map((entry) => entry.name)
-	.sort();
+	.toSorted();
 
 const platformPackages = entries.filter((entry) => entry !== "plot-ai");
 
-await Promise.all(platformPackages.map((entry) => publishPackage(join(releaseDir, entry))));
+await Promise.all(
+	platformPackages.map((entry) => publishPackage(join(releaseDir, entry))),
+);
 await publishPackage(join(releaseDir, "plot-ai"));
 
-async function isAlreadyPublished(packageName: string, version: string): Promise<boolean> {
+async function isAlreadyPublished(
+	packageName: string,
+	version: string,
+): Promise<boolean> {
 	if (dryRun) return false;
 	try {
 		const result = await $`npm view ${packageName} versions --json`.quiet();
@@ -34,7 +39,9 @@ async function publishPackage(packageDir: string) {
 	const mode = dryRun ? "dry-run" : "publish";
 
 	if (await isAlreadyPublished(manifest.name, manifest.version)) {
-		console.log(`skip ${manifest.name}@${manifest.version} — already published`);
+		console.log(
+			`skip ${manifest.name}@${manifest.version} — already published`,
+		);
 		return;
 	}
 

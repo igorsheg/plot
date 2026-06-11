@@ -8,25 +8,29 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 export const repoDir = join(scriptDir, "../..");
 export const releaseDir = join(repoDir, "dist/release");
-export const plotPackageDir = join(repoDir, "packages/plot");
-export const piSkillsDir = join(repoDir, "packages/plot/resources/skills");
+export const cliEntrypoint = join(repoDir, "packages/cli/src/main.ts");
+export const cliTsconfig = join(repoDir, "packages/cli/tsconfig.json");
+export const npmPackageDir = join(repoDir, "packages/npm/plot-ai");
 
-export const plotPackage = readJson(join(plotPackageDir, "package.json")) as {
+export const packageTemplate = readJson(
+	join(npmPackageDir, "package.json"),
+) as {
 	name: string;
 	version: string;
-	license: string;
 	description: string;
+	license: string;
 	repository: { type: string; url: string };
 	homepage: string;
 	bugs: { url: string };
-	engines: { node: string };
 	keywords: string[];
+	engines: { node: string };
 	publishConfig?: { access?: string };
 };
 
-export const version = process.env["PLOT_VERSION"] ?? plotPackage.version;
+export const version = process.env["PLOT_VERSION"] ?? packageTemplate.version;
 export const channel = process.env["PLOT_CHANNEL"] ?? "latest";
-export const dryRun = process.argv.includes("--dry-run") || process.env["PLOT_DRY_RUN"] === "1";
+export const dryRun =
+	process.argv.includes("--dry-run") || process.env["PLOT_DRY_RUN"] === "1";
 
 export const releaseTargets = [
 	{
@@ -35,8 +39,6 @@ export const releaseTargets = [
 		bunTarget: "bun-darwin-arm64",
 		os: ["darwin"],
 		cpu: ["arm64"],
-		binName: "plot-ai",
-		opentuiPlatformPackage: "@opentui/core-darwin-arm64",
 	},
 	{
 		packageName: "@plot-ai/darwin-x64",
@@ -44,8 +46,6 @@ export const releaseTargets = [
 		bunTarget: "bun-darwin-x64",
 		os: ["darwin"],
 		cpu: ["x64"],
-		binName: "plot-ai",
-		opentuiPlatformPackage: "@opentui/core-darwin-x64",
 	},
 	{
 		packageName: "@plot-ai/linux-arm64-gnu",
@@ -53,8 +53,6 @@ export const releaseTargets = [
 		bunTarget: "bun-linux-arm64",
 		os: ["linux"],
 		cpu: ["arm64"],
-		binName: "plot-ai",
-		opentuiPlatformPackage: "@opentui/core-linux-arm64",
 	},
 	{
 		packageName: "@plot-ai/linux-x64-gnu",
@@ -62,26 +60,6 @@ export const releaseTargets = [
 		bunTarget: "bun-linux-x64",
 		os: ["linux"],
 		cpu: ["x64"],
-		binName: "plot-ai",
-		opentuiPlatformPackage: "@opentui/core-linux-x64",
-	},
-	{
-		packageName: "@plot-ai/linux-x64-musl",
-		dirName: "plot-ai-linux-x64-musl",
-		bunTarget: "bun-linux-x64-musl",
-		os: ["linux"],
-		cpu: ["x64"],
-		binName: "plot-ai",
-		opentuiPlatformPackage: "@opentui/core-linux-x64",
-	},
-	{
-		packageName: "@plot-ai/win32-x64-msvc",
-		dirName: "plot-ai-win32-x64-msvc",
-		bunTarget: "bun-windows-x64",
-		os: ["win32"],
-		cpu: ["x64"],
-		binName: "plot-ai.exe",
-		opentuiPlatformPackage: "@opentui/core-win32-x64",
 	},
 ] as const;
 
@@ -92,5 +70,7 @@ export function readJson(path: string) {
 }
 
 export function getOptionalDependencies() {
-	return Object.fromEntries(releaseTargets.map((target) => [target.packageName, version]));
+	return Object.fromEntries(
+		releaseTargets.map((target) => [target.packageName, version]),
+	);
 }
