@@ -1,22 +1,33 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { packageTemplate, repoDir } from "./shared.js";
+import { packageTemplate, repoDir, releaseDir } from "./shared.js";
 
 type Options = {
 	force: boolean;
 	outDir?: string;
+	skipBunInstall: boolean;
 	skipCheck: boolean;
+	skipInstall: boolean;
 	version: string;
 	channel?: string;
 };
 
 const options = parseArgs();
 const outDir = prepareOutputDirectory(options);
-const releaseDir = join(repoDir, "dist/release");
+const artifactDir = join(outDir, "release");
+const npmInstallDir = join(outDir, "npm-install");
+const bunInstallDir = join(outDir, "bun-install");
 
 try {
 	if (!options.skipCheck) await $`bun run check`.cwd(repoDir);
@@ -25,19 +36,34 @@ try {
 		...process.env,
 		PLOT_VERSION: options.version,
 	});
-	await $`bun run release:smoke`.cwd(repoDir);
 	await $`bun run release:publish:dry-run`.cwd(repoDir).env({
 		...process.env,
 		PLOT_CHANNEL: options.channel ?? defaultChannel(options.version),
 	});
-	await $`cp -R ${releaseDir} ${outDir}`;
+	await $`cp -R ${releaseDir} ${artifactDir}`;
+
+	if (!options.skipInstall) {
+		await createIsolatedInstall("npm", npmInstallDir, artifactDir);
+		if (!options.skipBunInstall) {
+			await createIsolatedInstall("bun", bunInstallDir, artifactDir);
+		}
+	}
 
 	console.log("\nLocal release artifacts created:");
-	console.log(`  ${join(outDir, "release")}`);
+	console.log(`  ${artifactDir}`);
+	if (!options.skipInstall) {
+		console.log("\nIsolated npm install:");
+		console.log(`  ${npmInstallDir}`);
+		console.log(`  ${join(npmInstallDir, "plot")} --help`);
+		if (!options.skipBunInstall) {
+			console.log("\nIsolated Bun install:");
+			console.log(`  ${bunInstallDir}`);
+			console.log(`  ${join(bunInstallDir, "plot")} --help`);
+		}
+	}
 	console.log("\nRelease locally validated with:");
 	console.log("  bun run check");
 	console.log(`  PLOT_VERSION=${options.version} bun run release:build`);
-	console.log("  bun run release:smoke");
 	console.log(
 		`  PLOT_CHANNEL=${options.channel ?? defaultChannel(options.version)} bun run release:publish:dry-run`,
 	);
@@ -46,10 +72,81 @@ try {
 	throw error;
 }
 
+async function createIsolatedInstall(
+	manager: "npm" | "bun",
+	installDir: string,
+	artifactsDir: string,
+) {
+	mkdirSync(installDir, { recursive: true });
+	const tarballs = findReleaseTarballs(artifactsDir);
+	const dependencies = Object.fromEntries(
+		tarballs.map((tarball) => [
+			tarball.name,
+			fileSpecifier(installDir, tarball.path),
+		]),
+	);
+	writeFileSync(
+		join(installDir, "package.json"),
+		`${JSON.stringify({ private: true, dependencies, overrides: dependencies }, null, "\t")}\n`,
+	);
+
+	if (manager === "npm") {
+		await $`npm install --omit=dev --ignore-scripts`.cwd(installDir);
+	} else {
+		await $`bun install --production --ignore-scripts`.cwd(installDir);
+	}
+
+	createPlotShim(installDir);
+	await $`node ${join(installDir, "plot")} --help`.cwd(installDir);
+	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
+		installDir,
+	);
+}
+
+function findReleaseTarballs(artifactsDir: string) {
+	const currentPlatformDir =
+		process.platform === "darwin"
+			? process.arch === "arm64"
+				? "plot-ai-darwin-arm64"
+				: "plot-ai-darwin-x64"
+			: process.arch === "arm64"
+				? "plot-ai-linux-arm64-gnu"
+				: "plot-ai-linux-x64-gnu";
+	return ["plot-ai", currentPlatformDir].map((dirName) => {
+		const path = join(
+			artifactsDir,
+			dirName,
+			`${dirName}-${options.version}.tgz`,
+		);
+		if (!existsSync(path)) {
+			throw new Error(`missing release tarball: ${path}`);
+		}
+		return {
+			name:
+				dirName === "plot-ai"
+					? "plot-ai"
+					: `@plot-ai/${dirName.replace("plot-ai-", "")}`,
+			path,
+		};
+	});
+}
+
+function createPlotShim(installDir: string) {
+	const target = join("node_modules", "plot-ai", "bin", "plot");
+	symlinkSync(target, join(installDir, "plot"));
+}
+
+function fileSpecifier(fromDirectory: string, file: string) {
+	const relativePath = relative(fromDirectory, file).replaceAll("\\", "/");
+	return `file:${relativePath.startsWith(".") ? relativePath : `./${relativePath}`}`;
+}
+
 function parseArgs(): Options {
 	const options: Options = {
 		force: false,
+		skipBunInstall: false,
 		skipCheck: false,
+		skipInstall: false,
 		version: packageTemplate.version,
 	};
 	const args = process.argv.slice(2);
@@ -64,8 +161,16 @@ function parseArgs(): Options {
 			options.force = true;
 			continue;
 		}
+		if (arg === "--skip-bun-install") {
+			options.skipBunInstall = true;
+			continue;
+		}
 		if (arg === "--skip-check") {
 			options.skipCheck = true;
+			continue;
+		}
+		if (arg === "--skip-install") {
+			options.skipInstall = true;
 			continue;
 		}
 		if (arg === "--version") {
@@ -132,8 +237,9 @@ function defaultChannel(version: string) {
 function printUsage() {
 	console.log(`Usage: bun run release:local --version <x.y.z> [options]
 
-Builds, smokes, and dry-run publishes Plot release packages, then copies the
-release bundle to an isolated directory outside the repository.
+Builds and dry-run publishes Plot release packages, then installs the current
+platform package and umbrella package into isolated npm/Bun projects outside the
+repository for local release testing.
 
 Options:
   --version <x.y.z>    Version to build. A leading v is accepted.
@@ -141,6 +247,8 @@ Options:
   --out <dir>          Output directory. Defaults to a temp directory.
   --force              Remove --out first if it already exists.
   --skip-check         Do not run bun run check before building.
+  --skip-install       Only create tarballs; do not create isolated installs.
+  --skip-bun-install   Do not create the isolated Bun install.
   --help               Show this help.
 `);
 }

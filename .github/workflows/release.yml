@@ -52,45 +52,28 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.5
-      - run: bun install --frozen-lockfile
-      - name: Build release packages
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          PLOT_VERSION="$VERSION" bun run release:build
-      - uses: actions/upload-artifact@v6
-        with:
-          name: release-bundle
-          path: dist/release
-
-  smoke:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SOURCE_REF }}
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.5
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
-      - uses: actions/download-artifact@v7
-        with:
-          name: release-bundle
-          path: dist/release
-      - run: bun run release:smoke
+      - name: Build release packages
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          PLOT_VERSION="$VERSION" bun run release:build
       - name: Dry-run npm publish
         run: |
           VERSION="${RELEASE_TAG#v}"
           CHANNEL="latest"
           if [[ "$VERSION" == *-* ]]; then CHANNEL="beta"; fi
           PLOT_CHANNEL="$CHANNEL" bun run release:publish:dry-run
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-bundle
+          path: dist/release
 
   github-release:
-    needs: smoke
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v7
