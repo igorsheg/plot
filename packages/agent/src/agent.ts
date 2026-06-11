@@ -282,6 +282,22 @@ const applyObserved = (
 		},
 		historyLimit,
 	);
+const wakeFromProposal = (proposal: ScheduleWakeProposal, now: number) => ({
+	dueAtMs: now + proposal.delayMs,
+	delayMs: proposal.delayMs,
+	...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
+	...(proposal.workKey === undefined ? {} : { workKey: proposal.workKey }),
+	...(proposal.attempt === undefined ? {} : { attempt: proposal.attempt }),
+});
+
+const wakeScheduledEvent = (proposal: ScheduleWakeProposal) => ({
+	type: "wake_scheduled" as const,
+	delayMs: proposal.delayMs,
+	...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
+	...(proposal.workKey === undefined ? {} : { workKey: proposal.workKey }),
+	...(proposal.attempt === undefined ? {} : { attempt: proposal.attempt }),
+});
+
 const applyReconciled = (
 	state: RuntimeState,
 	proposals: readonly ReconcileProposal[],
@@ -293,11 +309,7 @@ const applyReconciled = (
 		...state.scheduledWakes.filter((wake) => wake.dueAtMs > now),
 		...proposals
 			.filter((p): p is ScheduleWakeProposal => p.type === "schedule_wake")
-			.map((proposal) => ({
-				dueAtMs: now + proposal.delayMs,
-				delayMs: proposal.delayMs,
-				...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
-			})),
+			.map((proposal) => wakeFromProposal(proposal, now)),
 	].toSorted((a, b) => a.dueAtMs - b.dueAtMs);
 	return boundStateHistory(
 		{
@@ -678,11 +690,7 @@ export const makePlotAgentLayer = (
 				(p): p is ScheduleWakeProposal => p.type === "schedule_wake",
 			);
 			for (const proposal of wakeProposals) {
-				publishEvent({
-					type: "wake_scheduled",
-					delayMs: proposal.delayMs,
-					...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
-				});
+				publishEvent(wakeScheduledEvent(proposal));
 				timer(proposal.delayMs, { type: "wake" });
 			}
 			const interrupted = interruptRunningWork(

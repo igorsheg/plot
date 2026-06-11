@@ -146,6 +146,8 @@ describe("PlotDashboard", () => {
 							dueAtMs: fixedNowMs + 1_250,
 							delayMs: 1_250,
 							reason: "rate limit exhausted",
+							workKey: "MT-450",
+							attempt: 4,
 						},
 						{ dueAtMs: fixedNowMs + 10_000, delayMs: 10_000, reason: "poll" },
 					],

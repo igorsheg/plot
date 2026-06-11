@@ -6,7 +6,7 @@
 │   ● runner failed: rate limit exhausted
 ├─ WORK · 0 running · 2 scheduled
 │   no active work — watching · next tick in 2s
-│   ↻ wake in 2s · rate limit exhausted
+│   ↻ MT-450 attempt=4 in 2s · rate limit exhausted
 │   ↻ wake in 10s · poll
 ├─ ACTIVITY
 │   nothing yet

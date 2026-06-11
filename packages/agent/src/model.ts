@@ -100,19 +100,36 @@ export const interruptWork = (
 	workKey: key,
 	...(reason === undefined ? {} : { reason }),
 });
+export interface ScheduleWakeOptions {
+	readonly reason?: string;
+	readonly workKey?: WorkKey;
+	readonly attempt?: PositiveInt;
+}
 export interface ScheduleWakeProposal {
 	readonly type: "schedule_wake";
 	readonly delayMs: PositiveInt;
 	readonly reason?: string;
+	readonly workKey?: WorkKey;
+	readonly attempt?: PositiveInt;
 }
 export const scheduleWake = (
 	delayMs: number,
-	reason?: string,
-): ScheduleWakeProposal => ({
-	type: "schedule_wake",
-	delayMs: positiveInt(delayMs),
-	...(reason === undefined ? {} : { reason }),
-});
+	reasonOrOptions?: string | ScheduleWakeOptions,
+): ScheduleWakeProposal => {
+	const options =
+		typeof reasonOrOptions === "string"
+			? { reason: reasonOrOptions }
+			: (reasonOrOptions ?? {});
+	return {
+		type: "schedule_wake",
+		delayMs: positiveInt(delayMs),
+		...(options.reason === undefined ? {} : { reason: options.reason }),
+		...(options.workKey === undefined ? {} : { workKey: options.workKey }),
+		...(options.attempt === undefined
+			? {}
+			: { attempt: positiveInt(options.attempt) }),
+	};
+};
 export type ReconcileProposal =
 	| SetFactProposal
 	| RemoveFactProposal
@@ -170,6 +187,8 @@ export interface ScheduledWake {
 	readonly dueAtMs: number;
 	readonly delayMs: PositiveInt;
 	readonly reason?: string;
+	readonly workKey?: WorkKey;
+	readonly attempt?: PositiveInt;
 }
 export interface RuntimeSnapshot {
 	readonly tickId: TickId;
@@ -197,6 +216,8 @@ export type PlotAgentEvent =
 			readonly type: "wake_scheduled";
 			readonly delayMs: PositiveInt;
 			readonly reason?: string;
+			readonly workKey?: WorkKey;
+			readonly attempt?: PositiveInt;
 	  }
 	| { readonly type: "work_started"; readonly run: WorkRun }
 	| { readonly type: "work_completed"; readonly completion: Completion };

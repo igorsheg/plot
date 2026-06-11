@@ -95,6 +95,8 @@ export interface ScheduledWakeProjection {
 	readonly dueAtMs: number;
 	readonly delayMs: number;
 	readonly reason?: string;
+	readonly workKey?: string;
+	readonly attempt?: number;
 }
 
 export interface DashboardProjection {
@@ -473,6 +475,8 @@ export const applySnapshot = (
 				const dueAtMs = wake["dueAtMs"];
 				const delayMs = wake["delayMs"];
 				const reason = text(wake["reason"]);
+				const workKey = text(wake["workKey"]);
+				const attempt = wake["attempt"];
 				if (typeof dueAtMs !== "number" || typeof delayMs !== "number")
 					return [];
 				return [
@@ -480,6 +484,8 @@ export const applySnapshot = (
 						dueAtMs,
 						delayMs,
 						...(reason === undefined ? {} : { reason }),
+						...(workKey === undefined ? {} : { workKey }),
+						...(typeof attempt === "number" ? { attempt } : {}),
 					},
 				];
 			})

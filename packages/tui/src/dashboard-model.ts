@@ -46,6 +46,9 @@ export interface WorkRowModel {
 export interface ScheduledRowModel {
 	readonly inSeconds: number;
 	readonly reason?: string;
+	readonly workKey?: string;
+	readonly label?: string;
+	readonly attempt?: number;
 }
 
 export interface ActivityRowModel {
@@ -227,10 +230,19 @@ export const dashboardModelFrom = (
 		},
 		attention: attentionFrom(rows, projection.diagnostics),
 		work: rows,
-		scheduled: projection.scheduledWakes.slice(0, 5).map((wake) => ({
-			inSeconds: Math.ceil(Math.max(0, wake.dueAtMs - nowMs) / 1000),
-			...(wake.reason === undefined ? {} : { reason: wake.reason }),
-		})),
+		scheduled: projection.scheduledWakes.slice(0, 5).map((wake) => {
+			const work =
+				wake.workKey === undefined
+					? undefined
+					: projection.running.get(wake.workKey);
+			return {
+				inSeconds: Math.ceil(Math.max(0, wake.dueAtMs - nowMs) / 1000),
+				...(wake.reason === undefined ? {} : { reason: wake.reason }),
+				...(wake.workKey === undefined ? {} : { workKey: wake.workKey }),
+				...(work === undefined ? {} : { label: workLabel(work) }),
+				...(wake.attempt === undefined ? {} : { attempt: wake.attempt }),
+			};
+		}),
 		activity: projection.activity.slice(0, 20).map((entry) => ({
 			ago: formatAgo(nowMs - entry.atMs),
 			tone: entry.tone,

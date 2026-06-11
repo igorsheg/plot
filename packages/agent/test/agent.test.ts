@@ -221,17 +221,38 @@ describe("task-agnostic Plot agent", () => {
 				if (ticks === 2) secondTick.resolve(ticks);
 				return [];
 			},
-			reconcile: () => (ticks === 1 ? [scheduleWake(1, "retry later")] : []),
+			reconcile: () =>
+				ticks === 1
+					? [
+							scheduleWake(1, {
+								reason: "retry later",
+								workKey: workKey("wake-source:item:1"),
+								attempt: 4,
+							}),
+						]
+					: [],
 		};
 		const agent = makeAgent([source]);
 		const wakeScheduled = waitForEvent(
 			agent.events(),
 			(event) =>
-				event.type === "wake_scheduled" && event.reason === "retry later",
+				event.type === "wake_scheduled" &&
+				event.reason === "retry later" &&
+				event.workKey === "wake-source:item:1" &&
+				event.attempt === 4,
 		);
 		await agent.start();
 		await agent.offer({ type: "tick" });
 		await wakeScheduled;
+		expect((await agent.snapshot()).scheduledWakes).toEqual([
+			{
+				dueAtMs: expect.any(Number),
+				delayMs: 1,
+				reason: "retry later",
+				workKey: "wake-source:item:1",
+				attempt: 4,
+			},
+		]);
 		const count = await secondTick.promise;
 		await agent.shutdown();
 		expect(count).toBe(2);

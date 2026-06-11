@@ -54,11 +54,17 @@ const workRowLines = (
 	return [first, second];
 };
 
-const scheduledRowLine = (wake: ScheduledRowModel): DashboardLine =>
-	item(
-		`  ↻ wake in ${wake.inSeconds}s${wake.reason === undefined ? "" : ` · ${wake.reason}`}`,
+const scheduledRowLine = (wake: ScheduledRowModel): DashboardLine => {
+	const subject = wake.label ?? wake.workKey;
+	const prefix =
+		subject === undefined
+			? `wake in ${wake.inSeconds}s`
+			: `${subject}${wake.attempt === undefined ? "" : ` attempt=${wake.attempt}`} in ${wake.inSeconds}s`;
+	return item(
+		`  ↻ ${prefix}${wake.reason === undefined ? "" : ` · ${wake.reason}`}`,
 		style.muted,
 	);
+};
 
 const emptyWorkLine = (model: DashboardModel): DashboardLine => {
 	const wake = model.pulse.nextWake;
