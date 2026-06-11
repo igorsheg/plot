@@ -10,10 +10,15 @@ export type TuiStatus =
 	| "error";
 
 export type WorkStage =
+	| "starting"
+	| "thinking"
+	| "investigating"
 	| "exploring"
 	| "reading"
 	| "testing"
+	| "running_tool"
 	| "acting"
+	| "posting"
 	| "publishing"
 	| "waiting"
 	| "blocked"
@@ -32,7 +37,13 @@ export interface RunningWorkProjection {
 	readonly startedAtMs?: number;
 	readonly lastEventAtMs?: number;
 	readonly turnCount: number;
+	readonly eventCount: number;
+	readonly toolUpdateCount: number;
+	readonly messageCount: number;
+	readonly seenTurnIds: readonly string[];
 	readonly lastMessage: string;
+	readonly activity: string;
+	readonly lastMeaningful: string;
 	readonly check: "not-run" | "running" | "passed" | "failed";
 	readonly commands: readonly string[];
 	readonly observations: readonly string[];
@@ -176,6 +187,64 @@ const extractTokens = (event: unknown) => {
 const appendBounded = (items: readonly string[], item: string, max: number) =>
 	[item, ...items.filter((existing) => existing !== item)].slice(0, max);
 
+const rawEventType = (event: unknown, fallback: string) =>
+	isRecord(event) ? (text(event["type"]) ?? fallback) : fallback;
+
+const toolCommand = (event: unknown, fallback: string) => {
+	if (!isRecord(event)) return fallback;
+	const input = isRecord(event["input"]) ? event["input"] : undefined;
+	const candidates = [
+		event["command"],
+		input?.["command"],
+		event["cmd"],
+		event["name"],
+		event["toolName"],
+		fallback,
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate === "string" && candidate.length > 0) {
+			return candidate.replace(/\s+/g, " ").slice(0, 140);
+		}
+	}
+	return fallback;
+};
+
+const turnId = (event: unknown, sequence: number) => {
+	if (!isRecord(event)) return `seq:${sequence}`;
+	const candidates = [event["turnId"], event["id"], event["turn_id"]];
+	for (const candidate of candidates) {
+		if (typeof candidate === "string" && candidate.length > 0) return candidate;
+	}
+	const turn = isRecord(event["turn"]) ? event["turn"] : undefined;
+	if (typeof turn?.["id"] === "string") return turn["id"];
+	return `seq:${sequence}`;
+};
+
+const isMessageDelta = (eventType: string, type: string) =>
+	/^message_(start|update|end)$/.test(eventType) ||
+	/^message_(start|update|end)$/.test(type);
+
+const isToolUpdate = (eventType: string, type: string) =>
+	eventType === "tool_execution_update" || type === "tool_execution_update";
+
+const isToolStart = (eventType: string, type: string) =>
+	eventType === "tool_execution_start" ||
+	type === "tool_execution_start" ||
+	eventType === "tool_call" ||
+	type === "tool_call";
+
+const isToolEnd = (eventType: string, type: string) =>
+	eventType === "tool_execution_end" ||
+	type === "tool_execution_end" ||
+	eventType === "tool_call_completed" ||
+	type === "tool_call_completed";
+
+const isTurnStart = (eventType: string, type: string) =>
+	eventType === "turn_start" || type === "turn_start";
+
+const isTurnEnd = (eventType: string, type: string) =>
+	eventType === "turn_end" || type === "turn_end";
+
 const isObservation = (message: string) =>
 	/\b(note|observation|finding|issue|warning|error)\b/i.test(message);
 const isCommand = (message: string) =>
@@ -186,6 +255,8 @@ const inferStage = (message: string, eventType: string): WorkStage => {
 	if (haystack.includes("auth")) return "blocked";
 	if (haystack.includes("error") || haystack.includes("failed"))
 		return "failed";
+	if (haystack.includes("gh pr review") || haystack.includes("/reviews"))
+		return "posting";
 	if (haystack.includes("post") || haystack.includes("publish"))
 		return "publishing";
 	if (
@@ -208,9 +279,27 @@ const inferStage = (message: string, eventType: string): WorkStage => {
 	)
 		return "exploring";
 	if (haystack.includes("tool") || haystack.includes("command"))
-		return "acting";
+		return "running_tool";
+	if (haystack.includes("turn_start") || haystack.includes("message"))
+		return "thinking";
 	return "waiting";
 };
+
+const activityFor = (message: string, eventType: string, rawType: string) => {
+	if (isTurnStart(eventType, rawType)) return "Thinking";
+	if (isTurnEnd(eventType, rawType)) return "Turn finished";
+	if (isToolStart(eventType, rawType)) return `Running: ${message}`;
+	if (isToolEnd(eventType, rawType)) return `Ran: ${message}`;
+	if (isMessageDelta(eventType, rawType)) return "Model streaming";
+	return message;
+};
+
+const shouldShowInTimeline = (eventType: string, rawType: string) =>
+	isTurnStart(eventType, rawType) ||
+	isTurnEnd(eventType, rawType) ||
+	isToolStart(eventType, rawType) ||
+	isToolEnd(eventType, rawType) ||
+	(!isMessageDelta(eventType, rawType) && !isToolUpdate(eventType, rawType));
 
 const inferCheck = (
 	previous: RunningWorkProjection["check"],
@@ -266,7 +355,13 @@ export const applySnapshot = (
 				? {}
 				: { lastEventAtMs: previous.lastEventAtMs }),
 			turnCount: previous?.turnCount ?? 0,
+			eventCount: previous?.eventCount ?? 0,
+			toolUpdateCount: previous?.toolUpdateCount ?? 0,
+			messageCount: previous?.messageCount ?? 0,
+			seenTurnIds: previous?.seenTurnIds ?? [],
 			lastMessage: previous?.lastMessage ?? (labels.join(",") || "started"),
+			activity: previous?.activity ?? "Waiting to start",
+			lastMeaningful: previous?.lastMeaningful ?? "started",
 			check: previous?.check ?? "not-run",
 			commands: previous?.commands ?? [],
 			observations: previous?.observations ?? [],
@@ -325,10 +420,6 @@ export const reduceRecord = (
 			`#${record.sequence} ${summary}`,
 			...projection.debugEvents,
 		].slice(0, 100),
-		timeline: [`#${record.sequence} ${summary}`, ...projection.timeline].slice(
-			0,
-			8,
-		),
 	};
 	const event = record.event;
 	if (!isRecord(event)) return next;
@@ -351,19 +442,29 @@ export const reduceRecord = (
 				...(subject === undefined ? {} : { subject }),
 				...(primary === undefined ? {} : { primary }),
 				title: title ?? subtitle ?? subject ?? workKey,
-				stage: "waiting",
+				stage: "starting",
 				startedAtSeq: sequence,
 				lastEventSeq: sequence,
 				startedAtMs: observedAtMs,
 				lastEventAtMs: observedAtMs,
 				turnCount: 0,
+				eventCount: 0,
+				toolUpdateCount: 0,
+				messageCount: 0,
+				seenTurnIds: [],
 				lastMessage: labels.join(",") || "started",
+				activity: "Starting work",
+				lastMeaningful: "started",
 				check: "not-run",
 				commands: [],
 				observations: [],
-				timeline: [`#${sequence} started`],
+				timeline: [`#${sequence} work started`],
 			});
-			next = { ...next, running };
+			next = {
+				...next,
+				running,
+				timeline: [`#${sequence} work started`, ...next.timeline].slice(0, 8),
+			};
 		}
 		if (
 			agentEvent["type"] === "work_completed" &&
@@ -376,6 +477,7 @@ export const reduceRecord = (
 			next = {
 				...next,
 				running,
+				timeline: [`#${sequence} work completed`, ...next.timeline].slice(0, 8),
 				completed: [
 					{
 						workKey,
@@ -390,12 +492,16 @@ export const reduceRecord = (
 	if (event["type"] === "agent_session_event") {
 		const workKey = text(event["workKey"]);
 		if (workKey === undefined) return next;
-		const message = summarizeAgentEvent(event["event"]);
+		const rawEvent = event["event"];
 		const eventType = text(event["eventType"]) ?? "agent";
+		const rawType = rawEventType(rawEvent, eventType);
+		const message =
+			isToolStart(eventType, rawType) || isToolEnd(eventType, rawType)
+				? toolCommand(rawEvent, summarizeAgentEvent(rawEvent))
+				: summarizeAgentEvent(rawEvent);
 		const running = new Map(next.running);
 		const previous = running.get(workKey);
 		const subject = text(event["subject"]) ?? previous?.subject;
-		const rawEvent = event["event"];
 		const tokens = extractTokens(rawEvent) ?? previous?.tokens;
 		const commands = isCommand(message)
 			? appendBounded(previous?.commands ?? [], message, 8)
@@ -403,11 +509,30 @@ export const reduceRecord = (
 		const observations = isObservation(message)
 			? appendBounded(previous?.observations ?? [], message, 8)
 			: (previous?.observations ?? []);
-		const timeline = appendBounded(
-			previous?.timeline ?? [],
-			`#${sequence} ${message}`,
-			12,
-		);
+		const priorTurnIds = previous?.seenTurnIds ?? [];
+		const id = isTurnStart(eventType, rawType)
+			? turnId(rawEvent, sequence)
+			: undefined;
+		const seenTurnIds =
+			id !== undefined && !priorTurnIds.includes(id)
+				? [...priorTurnIds, id]
+				: priorTurnIds;
+		const turnCount = seenTurnIds.length;
+		const eventCount = (previous?.eventCount ?? 0) + 1;
+		const toolUpdateCount =
+			(previous?.toolUpdateCount ?? 0) +
+			(isToolUpdate(eventType, rawType) ? 1 : 0);
+		const messageCount =
+			(previous?.messageCount ?? 0) +
+			(isMessageDelta(eventType, rawType) ? 1 : 0);
+		const activity = activityFor(message, eventType, rawType);
+		const meaningful = shouldShowInTimeline(eventType, rawType);
+		const lastMeaningful = meaningful
+			? activity
+			: (previous?.lastMeaningful ?? "waiting");
+		const timeline = meaningful
+			? appendBounded(previous?.timeline ?? [], `#${sequence} ${activity}`, 12)
+			: (previous?.timeline ?? []);
 		running.set(workKey, {
 			workKey,
 			runId: text(event["runId"]) ?? previous?.runId ?? "run",
@@ -415,20 +540,37 @@ export const reduceRecord = (
 			...(subject === undefined ? {} : { subject }),
 			...(previous?.primary === undefined ? {} : { primary: previous.primary }),
 			title: previous?.title ?? subject ?? workKey,
-			stage: inferStage(message, eventType),
+			stage: inferStage(message, `${eventType} ${rawType}`),
 			startedAtSeq: previous?.startedAtSeq ?? sequence,
 			lastEventSeq: sequence,
 			startedAtMs: previous?.startedAtMs ?? observedAtMs,
 			lastEventAtMs: observedAtMs,
-			turnCount: (previous?.turnCount ?? 0) + 1,
+			turnCount,
+			eventCount,
+			toolUpdateCount,
+			messageCount,
+			seenTurnIds,
 			lastMessage: message,
+			activity,
+			lastMeaningful,
 			check: inferCheck(previous?.check ?? "not-run", message),
 			commands,
 			observations,
 			timeline,
 			...(tokens === undefined ? {} : { tokens }),
 		});
-		next = { ...next, running };
+		next = {
+			...next,
+			running,
+			...(meaningful
+				? {
+						timeline: [`#${sequence} ${activity}`, ...next.timeline].slice(
+							0,
+							8,
+						),
+					}
+				: {}),
+		};
 	}
 	return next;
 };
