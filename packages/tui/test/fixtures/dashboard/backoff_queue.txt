@@ -1,12 +1,17 @@
-╭─ PLOT · workflow · anthropic/claude · epic                                                                            
-│ ◉ idle · tick #44 · 5s ago · found 1 · next wake 2s · 0/4 running · 0 tok · 0 tps ▁▁▁▁▁▁▁▁                            
+
+╭─ PLOT  workflow  ◉ idle                                                                                               
+│                                                                                                                       
+│  0/4 agents active      0 tokens      0 tps ▁▁▁▁▁▁▁▁                                                                  
+│  tick #44 · 5s ago · found 1      next wake in 2s                                                                     
+│                                                                                                                       
 │                                                                                                                       
 │ ▲ ATTENTION (1)                                                                                                       
 │   ● runner failed: rate limit exhausted                                                                               
-├─ WORK · 0 running · 2 scheduled                                                                                       
+├─ Agents · 2 scheduled                                                                                                 
 │   no active work — watching · next tick in 2s                                                                         
-│   ↻ MT-450 attempt=4 in 2s · rate limit exhausted                                                                     
-│   ↻ wake in 10s · poll                                                                                                
-├─ ACTIVITY                                                                                                             
+│     ↻ retry in 2s · attempt 4 · rate limit exhausted                                                                  
+│     ↻ wake in 10s · poll                                                                                              
+│                                                                                                                       
+├─ Activity                                                                                                             
 │   nothing yet                                                                                                         
-╰─ ↑↓ select · enter detail · o open · t tick · g refresh · c config · d debug · q quit                                 
+╰─ ↑↓ select   enter details   o open   t tick   c config   d debug   q quit                                            

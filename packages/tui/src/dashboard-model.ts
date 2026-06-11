@@ -118,17 +118,12 @@ const tokenThroughput = (
 		return { rate: 0, graph: sparkChars[0]?.repeat(throughputBuckets) ?? "" };
 	const rate = ((last.tokens - first.tokens) * 1000) / (last.atMs - first.atMs);
 	const bucketMs = throughputWindowMs / throughputBuckets;
+	const tokensAtOrBefore = (atMs: number) =>
+		recent.findLast((sample) => sample.atMs <= atMs)?.tokens ?? first.tokens;
 	const buckets = Array.from({ length: throughputBuckets }, (_, index) => {
 		const start = windowStart + index * bucketMs;
 		const end = start + bucketMs;
-		const inBucket = recent.filter(
-			(sample) => sample.atMs >= start && sample.atMs < end,
-		);
-		if (inBucket.length < 2) return 0;
-		const bucketFirst = inBucket[0];
-		const bucketLast = inBucket[inBucket.length - 1];
-		if (bucketFirst === undefined || bucketLast === undefined) return 0;
-		return Math.max(0, bucketLast.tokens - bucketFirst.tokens);
+		return Math.max(0, tokensAtOrBefore(end) - tokensAtOrBefore(start));
 	});
 	const max = Math.max(...buckets, 1);
 	const graph = buckets

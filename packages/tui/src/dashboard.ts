@@ -144,7 +144,7 @@ export class PlotDashboard implements Component {
 								width,
 								...this.fleetFooter(),
 							});
-		return renderLines(lines, width, style.row.selected);
+		return ["", ...renderLines(lines, width, style.row.selected)];
 	}
 
 	private fleetFooter(): {
@@ -158,7 +158,7 @@ export class PlotDashboard implements Component {
 			};
 		return {
 			footerText:
-				"↑↓ select · enter detail · o open · t tick · g refresh · c config · d debug · q quit",
+				"↑↓ select   enter details   o open   t tick   c config   d debug   q quit",
 		};
 	}
 
@@ -191,26 +191,17 @@ export class PlotDashboard implements Component {
 
 	private header(model: DashboardModel): readonly DashboardLine[] {
 		const p = this.projection;
-		const runtime = p.runtime;
-		const agent =
-			runtime.provider && runtime.model
-				? `${runtime.provider}/${runtime.model}`
-				: (runtime.model ?? runtime.provider ?? "unknown agent");
-		const thinking =
-			runtime.thinking === undefined ? "" : ` thinking ${runtime.thinking}`;
-		const identity = [p.workflowName, `${agent}${thinking}`, runtime.cwdName]
-			.filter((part) => part.length > 0)
-			.join(" · ");
+		const identity = p.workflowName;
 		const pulse = model.pulse;
 		const tickText =
 			pulse.tick === undefined
 				? style.muted("no ticks yet")
 				: `${style.text(`tick #${pulse.tick.id}`)}${style.muted(
-						` · ${pulse.tick.ago} · found ${pulse.tick.found}`,
-					)}`;
+						` · ${pulse.tick.ago}`,
+					)}${pulse.tick.found > 0 ? style.muted(` · found ${pulse.tick.found}`) : ""}`;
 		const wakeText =
 			pulse.nextWake !== undefined
-				? `${style.muted("next wake ")}${style.text(`${pulse.nextWake.inSeconds}s`)}`
+				? `${style.muted("next wake in ")}${style.text(`${pulse.nextWake.inSeconds}s`)}`
 				: pulse.runningCount > 0
 					? undefined
 					: style.muted("no wake scheduled");
@@ -220,22 +211,24 @@ export class PlotDashboard implements Component {
 				: `${pulse.runningCount}/${pulse.maxConcurrentRuns}`;
 		const runningText =
 			pulse.runningCount > 0
-				? style.ok(`${runningValue} running`)
-				: style.muted(`${runningValue} running`);
-		const segments = [
-			`${statusGlyph(p.status)} ${statusStyle(p.status)(p.status)}`,
-			tickText,
-			...(wakeText === undefined ? [] : [wakeText]),
+				? style.ok(`${runningValue} agents active`)
+				: style.muted(`${runningValue} agents active`);
+		const metrics = [
 			runningText,
-			style.muted(`${pulse.totalTokens} tok`),
+			style.muted(`${pulse.totalTokens} tokens`),
 			...(pulse.totalCost === undefined ? [] : [style.muted(pulse.totalCost)]),
 			style.muted(`${pulse.throughput} ${pulse.throughputGraph}`),
 		];
 		return [
 			asLine(
-				`${style.border("╭─ ")}${style.brand("PLOT")}${style.muted(` · ${identity}`)}`,
+				`${style.border("╭─ ")}${style.brand("PLOT")}  ${style.muted(identity)}${style.muted("  ")}${statusGlyph(p.status)} ${statusStyle(p.status)(p.status)}`,
 			),
-			asLine(`${style.border("│ ")}${segments.join(style.dim(" · "))}`),
+			asLine(style.border("│")),
+			asLine(`${style.border("│  ")}${metrics.join(style.dim("      "))}`),
+			asLine(
+				`${style.border("│  ")}${[tickText, ...(wakeText === undefined ? [] : [wakeText])].join(style.dim("      "))}`,
+			),
+			asLine(style.border("│")),
 		];
 	}
 

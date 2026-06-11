@@ -162,6 +162,38 @@ describe("Plot TUI projection", () => {
 		expect(work?.toolUpdateCount).toBe(1);
 	});
 
+	test("previews pi-mono streaming deltas as current activity", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			agentEvent(2, "delta", "source:item:42", "message_update", {
+				type: "message_update",
+				message: { content: "I am checking the failing p3-serve build now." },
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			agentEvent(3, "delta", "source:item:42", "tool_execution_update", {
+				type: "tool_execution_update",
+				params: {
+					msg: { payload: { outputDelta: "yarn install is missing state" } },
+				},
+			}),
+		);
+
+		const work = projection.running.get("source:item:42");
+		expect(work?.lastMessage).toBe(
+			"command output streaming: yarn install is missing state",
+		);
+		expect(work?.activity).toBe(
+			"command output streaming: yarn install is missing state",
+		);
+		expect(work?.lastMeaningful).toBe("started");
+		expect(work?.messageCount).toBe(1);
+		expect(work?.toolUpdateCount).toBe(1);
+	});
+
 	test("compacts tool updates out of the per-work timeline", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));

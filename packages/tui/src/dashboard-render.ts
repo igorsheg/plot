@@ -65,7 +65,8 @@ export const renderLines = (
 ) =>
 	lines.map((line) => {
 		const fitted = fit(line.text, width);
-		return line.selected ? selected(fitted) : fitted;
+		void selected;
+		return fitted;
 	});
 
 export const maxScroll = (items: readonly unknown[], viewportRows: number) =>

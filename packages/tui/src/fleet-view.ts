@@ -9,60 +9,45 @@ import {
 	footer,
 	item,
 	section,
-	spread,
 	type DashboardLine,
 } from "./dashboard-render.js";
+import { shimmerText, quoteActivity } from "./shimmer.js";
 import { style } from "./style.js";
 
-const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
-const rowGlyph = (row: WorkRowModel, nowMs: number) => {
-	if (row.attention) return style.bad("●");
+const rowGlyph = (row: WorkRowModel) => {
+	if (row.attention) return style.bad("▲");
 	if (row.stale) return style.dim("○");
 	if (row.stage === "waiting" || row.stage === "starting")
 		return style.muted("◌");
-	const frame =
-		spinnerFrames[
-			(Math.floor(nowMs / 1000) + row.work.eventCount) % spinnerFrames.length
-		]!;
-	return style.ok(frame);
+	return style.ok("●");
 };
 
 const workRowLines = (
 	row: WorkRowModel,
 	selected: boolean,
-	width: number,
 	nowMs: number,
 ): readonly DashboardLine[] => {
 	const marker = selected ? style.label("›") : " ";
 	const label = row.stale ? style.row.stale(row.label) : style.text(row.label);
-	const meta = `${cell(row.stage, 10, style.stage[row.stage])} ${style.muted(
-		`${row.age} · ${row.turns} · ${row.tokens}`,
-	)}`;
-	const first = spread(
-		`${marker} ${rowGlyph(row, nowMs)} ${label}`,
-		meta,
-		width,
-		selected,
+	const activeFor = row.age === "n/a" ? row.age : `${row.age} active`;
+	const first = item(`${marker} ${rowGlyph(row)} ${label}`);
+	const second = item(
+		`    ${style.stage[row.stage](row.stage)}${style.muted(` · ${activeFor} · ${row.turns}`)}`,
 	);
-	const second = spread(
-		`     ${style.muted(row.activity)}`,
-		style.dim(row.lastEventAgo),
-		width,
-		selected,
+	const activity = quoteActivity(row.activity);
+	const third = item(
+		`    ${row.stage === "working" && !row.stale && !row.attention ? shimmerText(activity, nowMs) : style.muted(activity)}`,
 	);
-	return [first, second];
+	return [first, second, third];
 };
 
 const scheduledRowLine = (wake: ScheduledRowModel): DashboardLine => {
-	const subject = wake.label ?? wake.workKey;
-	const prefix =
-		subject === undefined
-			? `wake in ${wake.inSeconds}s`
-			: `${subject}${wake.attempt === undefined ? "" : ` attempt=${wake.attempt}`} in ${wake.inSeconds}s`;
+	const retry =
+		wake.workKey === undefined && wake.label === undefined ? "wake" : "retry";
+	const attempt =
+		wake.attempt === undefined ? "" : ` · attempt ${wake.attempt}`;
 	return item(
-		`  ↻ ${prefix}${wake.reason === undefined ? "" : ` · ${wake.reason}`}`,
-		style.muted,
+		`    ${style.warn("↻")} ${style.muted(`${retry} in ${wake.inSeconds}s${attempt}${wake.reason === undefined ? "" : ` · ${wake.reason}`}`)}`,
 	);
 };
 
@@ -88,7 +73,7 @@ export const fleetViewLines = (input: {
 	readonly footerStyle?: (value: string) => string;
 	readonly nowMs?: number;
 }): readonly DashboardLine[] => {
-	const { model, width } = input;
+	const { model } = input;
 	const nowMs = input.nowMs ?? Date.now();
 	const attention =
 		model.attention.length === 0
@@ -105,14 +90,14 @@ export const fleetViewLines = (input: {
 			? model.scheduled.filter((wake) => wake.reason !== undefined)
 			: model.scheduled;
 	const workTitle =
-		`WORK · ${model.work.length} running` +
+		`Agents${model.work.length === 0 ? "" : ` · ${model.work.length} running`}` +
 		(scheduled.length > 0 ? ` · ${scheduled.length} scheduled` : "");
 	const workLines =
 		model.work.length === 0
 			? [emptyWorkLine(model), ...scheduled.map(scheduledRowLine)]
 			: [
 					...model.work.flatMap((row, index) =>
-						workRowLines(row, index === input.selectedIndex, width, nowMs),
+						workRowLines(row, index === input.selectedIndex, nowMs),
 					),
 					...scheduled.map(scheduledRowLine),
 				];
@@ -131,7 +116,8 @@ export const fleetViewLines = (input: {
 		...attention,
 		section(workTitle),
 		...workLines,
-		section("ACTIVITY"),
+		blank(),
+		section("Activity"),
 		...activityLines,
 		footer(input.footerText, input.footerStyle ?? style.muted),
 	];

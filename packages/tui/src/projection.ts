@@ -171,22 +171,92 @@ const displayLabels = (display: Record<string, unknown> | undefined) => {
 		: [];
 };
 
+const inlineText = (value: string, max = 140) =>
+	value.replace(/\s+/g, " ").trim().slice(0, max);
+
+const pathValue = (value: unknown, path: readonly string[]): unknown => {
+	let current = value;
+	for (const key of path) {
+		if (!isRecord(current)) return undefined;
+		current = current[key];
+	}
+	return current;
+};
+
+const firstPath = (value: unknown, paths: readonly (readonly string[])[]) => {
+	for (const path of paths) {
+		const found = pathValue(value, path);
+		if (found !== undefined) return found;
+	}
+	return undefined;
+};
+
+const deltaPaths: readonly (readonly string[])[] = [
+	["delta"],
+	["text"],
+	["content"],
+	["summary"],
+	["message", "delta"],
+	["message", "text"],
+	["message", "content"],
+	["message", "summary"],
+	["params", "delta"],
+	["params", "text"],
+	["params", "content"],
+	["params", "textDelta"],
+	["params", "outputDelta"],
+	["params", "summaryText"],
+	["params", "msg", "delta"],
+	["params", "msg", "text"],
+	["params", "msg", "content"],
+	["params", "msg", "textDelta"],
+	["params", "msg", "outputDelta"],
+	["params", "msg", "summaryText"],
+	["params", "msg", "payload", "delta"],
+	["params", "msg", "payload", "text"],
+	["params", "msg", "payload", "content"],
+	["params", "msg", "payload", "textDelta"],
+	["params", "msg", "payload", "outputDelta"],
+	["params", "msg", "payload", "summaryText"],
+];
+
+const extractDeltaPreview = (event: unknown) => {
+	const delta = firstPath(event, deltaPaths);
+	if (typeof delta !== "string") return undefined;
+	const trimmed = inlineText(delta);
+	return trimmed.length === 0 ? undefined : trimmed;
+};
+
+const humanizeStreamingEvent = (label: string, event: unknown) => {
+	const preview = extractDeltaPreview(event);
+	return preview === undefined ? label : `${label}: ${preview}`;
+};
+
 const summarizeAgentEvent = (event: unknown): string => {
 	if (!isRecord(event)) return "agent event";
+	const type = text(event["type"]);
+	if (type === "message_update" || type === "message_delta")
+		return humanizeStreamingEvent("agent message streaming", event);
+	if (type === "reasoning_update" || type === "reasoning_delta")
+		return humanizeStreamingEvent("reasoning streaming", event);
+	if (type === "tool_execution_update")
+		return humanizeStreamingEvent("command output streaming", event);
 	const candidates = [
 		event["message"],
 		event["text"],
 		event["summary"],
 		event["command"],
 		event["name"],
-		event["type"],
+		type,
 	];
 	for (const candidate of candidates) {
 		if (typeof candidate === "string" && candidate.length > 0) {
-			return candidate.replace(/\s+/g, " ").slice(0, 120);
+			return inlineText(candidate, 120);
 		}
 	}
-	return JSON.stringify(event).replace(/\s+/g, " ").slice(0, 120);
+	const preview = extractDeltaPreview(event);
+	if (preview !== undefined) return `agent message streaming: ${preview}`;
+	return inlineText(JSON.stringify(event), 120);
 };
 
 interface UsageDelta {
@@ -375,7 +445,8 @@ const activityFor = (message: string, eventType: string, rawType: string) => {
 	if (isTurnEnd(eventType, rawType)) return "Turn finished";
 	if (isToolStart(eventType, rawType)) return `Running: ${message}`;
 	if (isToolEnd(eventType, rawType)) return `Ran: ${message}`;
-	if (isMessageDelta(eventType, rawType)) return "Model streaming";
+	if (isMessageDelta(eventType, rawType)) return message;
+	if (isToolUpdate(eventType, rawType)) return message;
 	return message;
 };
 
