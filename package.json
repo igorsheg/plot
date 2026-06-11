@@ -18,7 +18,8 @@
 		"release:build": "bun run scripts/release/build.ts",
 		"release:smoke": "bun run scripts/release/smoke.ts",
 		"release:publish": "bun run scripts/release/publish.ts",
-		"release:publish:dry-run": "bun run scripts/release/publish.ts --dry-run"
+		"release:publish:dry-run": "bun run scripts/release/publish.ts --dry-run",
+		"release:local": "bun run scripts/release/local.ts"
 	},
 	"devDependencies": {
 		"bun-types": "^1.3.10",
