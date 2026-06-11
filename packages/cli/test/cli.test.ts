@@ -102,6 +102,21 @@ describe("plot CLI", () => {
 		expect(output).toContain("faux-1");
 	});
 
+	test("prints bundled extension author docs", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["docs", "extension-prompt"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("plot-ai/sdk");
+		expect(output).toContain("definePlotExtension");
+		expect(output).toContain("Do not import Plot internals");
+	});
+
 	test("serves plot.v1 over stdio with telemetry on stderr", async () => {
 		const workflowPath = await makeWorkflowFile();
 		const captured = await captureConsole(async () => {
