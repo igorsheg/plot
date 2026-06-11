@@ -71,13 +71,14 @@ const clampWorkViewport = (
 ): readonly DashboardLine[] => {
 	if (workLines.length <= availableRows) return workLines;
 	const selectedStart = Math.max(0, selectedIndex * 3);
+	if (availableRows <= 3)
+		return workLines.slice(selectedStart, selectedStart + availableRows);
 	const selectedEnd = Math.min(workLines.length - 1, selectedStart + 2);
 	const maxOffset = Math.max(0, workLines.length - availableRows);
-	const preferredOffset =
-		availableRows >= 3
-			? Math.max(0, selectedEnd - availableRows + 1)
-			: selectedStart;
-	const offset = Math.min(maxOffset, preferredOffset);
+	const offset = Math.min(
+		maxOffset,
+		Math.max(0, selectedEnd - availableRows + 1),
+	);
 	const visible = workLines.slice(offset, offset + availableRows);
 	if (offset === 0)
 		return [...visible.slice(0, -1), item(style.muted("    … more below"))];

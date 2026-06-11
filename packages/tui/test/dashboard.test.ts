@@ -225,10 +225,15 @@ describe("PlotDashboard", () => {
 				] as const;
 			}),
 		);
-		const dashboard = new PlotDashboard(
-			{ ...emptyProjection("default", "workflow"), status: "running", running },
-			{ ...actions, height: () => 18 },
-		);
+		const projection = {
+			...emptyProjection("default", "workflow"),
+			status: "running" as const,
+			running,
+		};
+		const dashboard = new PlotDashboard(projection, {
+			...actions,
+			height: () => 18,
+		});
 
 		for (let i = 0; i < 7; i++) dashboard.handleInput("j");
 		const rendered = stripAnsi(dashboard.render(100).join("\n"));
@@ -237,6 +242,16 @@ describe("PlotDashboard", () => {
 		expect(rendered).toContain("… more above");
 		expect(rendered).not.toContain("#1 Item 1");
 		expect(rendered.split("\n").length).toBeLessThanOrEqual(18);
+
+		const tinyDashboard = new PlotDashboard(projection, {
+			...actions,
+			height: () => 14,
+		});
+		for (let i = 0; i < 4; i++) tinyDashboard.handleInput("j");
+		const tinyRendered = stripAnsi(tinyDashboard.render(100).join("\n"));
+
+		expect(tinyRendered).toContain("› ● #5 Item 5");
+		expect(tinyRendered.split("\n").length).toBeLessThanOrEqual(14);
 	});
 
 	test("promotes blocked work into the attention strip", () => {
