@@ -60,15 +60,22 @@ export const makePlotCommand = (_io: PlotCliIo = processCliIo()) => ({
 	version,
 });
 
-const topLevelCommands = subCommands as unknown as Record<string, CommandDef>;
+const commandChildren = (command: CommandDef): Record<string, CommandDef> =>
+	(command.subCommands ?? {}) as Record<string, CommandDef>;
 
 const renderHelp = async (args: readonly string[]) => {
 	if (args[0] === "--help" || args[0] === "help") {
 		return renderUsage(rootCommand);
 	}
-	const [command] = args;
-	if (command === undefined || !args.includes("--help")) return undefined;
-	const subCommand = topLevelCommands[command];
-	if (subCommand === undefined) return undefined;
-	return renderUsage(subCommand, rootCommand);
+	if (!args.includes("--help") && !args.includes("-h")) return undefined;
+	let command: CommandDef = rootCommand;
+	let parent: CommandDef | undefined;
+	for (const arg of args) {
+		if (arg.startsWith("-")) continue;
+		const child = commandChildren(command)[arg];
+		if (child === undefined) break;
+		parent = command;
+		command = child;
+	}
+	return renderUsage(command, parent);
 };

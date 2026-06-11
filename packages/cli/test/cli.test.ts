@@ -133,6 +133,55 @@ describe("plot CLI", () => {
 		expect(output).toContain("--provider");
 	});
 
+	test("prints nested citty auth help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["auth", "login", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("Start an interactive provider login.");
+		expect(output).toContain("PROVIDERNAME");
+		expect(output).toContain("--agent-dir");
+		expect(output).not.toContain("--tick-interval-ms");
+	});
+
+	test("prints nested citty serve help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["serve", "stdio", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain(
+			"Serve plot.v1 over newline-delimited JSON on stdio.",
+		);
+		expect(output).toContain("--workflow");
+		expect(output).toContain("--tick-interval-ms");
+	});
+
+	test("list-models help only exposes auth path options", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["list-models", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("Optional provider/model search text.");
+		expect(output).toContain("--agent-dir");
+		expect(output).not.toContain("--tick-interval-ms");
+		expect(output).not.toContain("--workflow");
+	});
+
 	test("prints bundled extension author docs", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["docs", "extension-prompt"], {
