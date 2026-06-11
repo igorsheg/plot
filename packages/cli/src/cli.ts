@@ -2,6 +2,7 @@ import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
 import { defineCommand, runCommand as runCittyCommand } from "citty";
 import { getCliIo, setCliIo } from "./cli-context.js";
 import { authCommand } from "./commands/auth.js";
+import { docsCommand } from "./commands/docs.js";
 import { listModelsCommand } from "./commands/list-models.js";
 import { runCommand } from "./commands/run.js";
 import { serveCommand } from "./commands/serve.js";
@@ -21,6 +22,7 @@ const rootCommand = defineCommand({
 	subCommands: {
 		"list-models": listModelsCommand,
 		auth: authCommand,
+		docs: docsCommand,
 		run: runCommand,
 		tui: tuiCommand,
 		serve: serveCommand,
@@ -29,7 +31,7 @@ const rootCommand = defineCommand({
 		if (rawArgs.some((arg) => !arg.startsWith("-"))) return undefined;
 		const io = getCliIo();
 		return io.writeStdout(
-			`plot ${version}\nCommands: list-models, auth status|login|logout, run, tui, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
+			`plot ${version}\nCommands: list-models, auth status|login|logout, docs, run, tui, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
 		);
 	},
 });
@@ -40,7 +42,7 @@ export const runPlotCli = async (
 ): Promise<void> => {
 	if (args[0] === "--help" || args[0] === "help") {
 		await io.writeStdout(
-			`plot ${version}\nCommands: list-models, auth status|login|logout, run, tui, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
+			`plot ${version}\nCommands: list-models, auth status|login|logout, docs, run, tui, serve stdio\nDefault workflow: ${DEFAULT_WORKFLOW_PATH}\n`,
 		);
 		return;
 	}

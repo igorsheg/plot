@@ -1,0 +1,14 @@
+{
+	"navigation": [
+		{
+			"title": "Start here",
+			"items": [
+				{ "title": "Overview", "path": "index.md" },
+				{ "title": "Quickstart", "path": "quickstart.md" },
+				{ "title": "Workflows", "path": "workflows.md" },
+				{ "title": "Extensions", "path": "extensions.md" },
+				{ "title": "TUI", "path": "tui.md" }
+			]
+		}
+	]
+}

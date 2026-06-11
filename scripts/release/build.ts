@@ -16,6 +16,7 @@ import {
 	getOptionalDependencies,
 	npmPackageDir,
 	packageTemplate,
+	repoDir,
 	sdkPackageDir,
 	releaseDir,
 	releaseTargets,
@@ -95,6 +96,7 @@ async function buildUmbrellaPackage() {
 	);
 	const readmeSrc = join(npmPackageDir, "README.md");
 	if (existsSync(readmeSrc)) cpSync(readmeSrc, join(packageDir, "README.md"));
+	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), { recursive: true });
 
 	writeJson(join(packageDir, "package.json"), {
 		name: "plot-ai",
@@ -113,6 +115,7 @@ async function buildUmbrellaPackage() {
 		},
 		files: [
 			"bin",
+			"docs",
 			"lib",
 			"postinstall.mjs",
 			...(existsSync(readmeSrc) ? ["README.md"] : []),

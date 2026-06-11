@@ -23,6 +23,7 @@
 	},
 	"files": [
 		"bin",
+		"docs",
 		"lib",
 		"postinstall.mjs",
 		"README.md"

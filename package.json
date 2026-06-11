@@ -16,6 +16,7 @@
 		"test": "turbo run test",
 		"check": "bun run typecheck && bun run lint && bun run format:check && bun run test",
 		"release:build": "bun run scripts/release/build.ts",
+		"release:smoke": "bun run scripts/release/smoke.ts",
 		"release:publish": "bun run scripts/release/publish.ts",
 		"release:publish:dry-run": "bun run scripts/release/publish.ts --dry-run",
 		"release:local": "bun run scripts/release/local.ts"

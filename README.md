@@ -155,12 +155,29 @@ That means you can build workflows like:
 
 Plot should not care what kind of work it is. It should care whether the work is running, waiting, blocked, failed, or complete.
 
+## Learn Plot
+
+Public author docs live in [`docs/`](docs/):
+
+- [Quickstart](docs/quickstart.md)
+- [Workflows](docs/workflows.md)
+- [Extensions](docs/extensions.md)
+- [TUI](docs/tui.md)
+
+For LLM-assisted extension authoring:
+
+```bash
+plot docs extension-prompt | pbcopy
+```
+
 ## Commands
 
 ```bash
 plot list-models
 plot auth status
 plot auth login
+plot docs extensions
+plot docs extension-prompt
 plot run --workflow WORKFLOW.md
 plot tui --workflow WORKFLOW.md
 plot serve stdio --workflow WORKFLOW.md
