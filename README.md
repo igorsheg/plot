@@ -17,7 +17,7 @@ KEEP AGENTS RUNNING. KEEP HUMANS IN CONTROL.
 
 Plot keeps coding agents running while you do something else.
 
-It finds work, starts agents, tracks what happened, and gives you a terminal dashboard when things need attention.
+It finds work, starts agents, tracks what happened, and gives you a terminal dashboard when things need attention. The TUI is the operator cockpit for that loop.
 
 ```bash
 npm install -g plot-ai
