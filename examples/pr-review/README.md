@@ -5,12 +5,12 @@ A standalone GitHub PR review workflow for Plot.
 This example intentionally keeps orchestration thin:
 
 - `github-pr-reviewer.extension.ts` discovers the current PR and skips already-reviewed heads.
-- The extension registers pi-native tools: prepare context, assess risk, spawn specialist reviewers, and post the final GitHub review.
-- `spawn_reviewers` uses Plot's SDK passthrough to run specialist pi agent sessions in parallel.
-- `WORKFLOW.md` gives the coordinator agent review posture, project invariants, and tool-use instructions.
+- The extension registers pi-native tools: prepare context, assess risk, load/advance durable review state, and post the final GitHub review.
+- Each Plot tick runs one bounded agent phase. The agent writes durable XML to `.plot/review/pr-<number>/` and advances `state.json`; interrupted phases are resumed by the next tick.
+- `WORKFLOW.md` lays out all review hats and tells the single agent how to behave for each durable status.
 - `skills/pr-review` provides reusable review know-how: architecture exploration, behavioral path review, test analysis, stacked PRs, and multi-PR review.
 
-The coordinator agent is expected to use normal tools (`bash`, `git`, `gh`, `rg`, tests), call specialist reviewers when useful, synthesize the result, and use the registered posting tool for GitHub mutation.
+The review agent is expected to use normal tools (`bash`, `git`, `gh`, `rg`, tests), complete only the current durable phase, synthesize from prior XML artifacts when the state reaches `synthesize`, and use the registered posting tool for GitHub mutation when the state reaches `post`.
 
 ## Use
 
@@ -28,7 +28,7 @@ For the dashboard/control plane:
 plot tui --workflow examples/pr-review/WORKFLOW.md
 ```
 
-The workflow expects GitHub CLI authentication and a current branch with an associated pull request. Subagent token usage is surfaced through generic tool update details so the Plot TUI can include reviewer usage and cost in work/fleet totals.
+The workflow expects GitHub CLI authentication and a current branch with an associated pull request. Review progress is durable in `.plot/review/pr-<number>/state.json`, so the outer Plot loop can retry or continue phases without nested subagent orchestration.
 
 ## Project shape
 

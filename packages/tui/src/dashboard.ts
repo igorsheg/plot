@@ -20,6 +20,7 @@ export interface DashboardActions {
 	readonly shutdown: () => void;
 	readonly openUrl?: (url: string) => void;
 	readonly height?: () => number;
+	readonly requestRender?: () => void;
 }
 
 type ViewMode = "fleet" | "debug" | "config" | "detail";
@@ -62,6 +63,8 @@ export class PlotDashboard implements Component {
 	private selectedIndex = 0;
 	private scrollOffset = 0;
 	private confirmQuit = false;
+	private liveRenderTimer: ReturnType<typeof setInterval> | undefined;
+	private liveRenderIntervalMs: number | undefined;
 	private readonly actions: DashboardActions;
 
 	constructor(projection: DashboardProjection, actions: DashboardActions) {
@@ -71,6 +74,17 @@ export class PlotDashboard implements Component {
 
 	setProjection(projection: DashboardProjection): void {
 		this.projection = projection;
+		this.syncLiveRenderTimer();
+	}
+
+	startLiveUpdates(): void {
+		this.syncLiveRenderTimer();
+	}
+
+	stopLiveUpdates(): void {
+		if (this.liveRenderTimer !== undefined) clearInterval(this.liveRenderTimer);
+		this.liveRenderTimer = undefined;
+		this.liveRenderIntervalMs = undefined;
 	}
 
 	invalidate(): void {}
@@ -167,6 +181,27 @@ export class PlotDashboard implements Component {
 		const model = dashboardModelFrom(this.projection);
 		const url = model.work[this.selectedIndex]?.work.url;
 		if (url !== undefined) this.actions.openUrl?.(url);
+	}
+
+	private desiredLiveRenderInterval(): number | undefined {
+		if (this.projection.running.size > 0) return 125;
+		if (
+			this.projection.scheduledWakes.length > 0 ||
+			this.projection.pulse !== undefined
+		)
+			return 1_000;
+		return undefined;
+	}
+
+	private syncLiveRenderTimer(): void {
+		const next = this.desiredLiveRenderInterval();
+		if (next === this.liveRenderIntervalMs) return;
+		if (this.liveRenderTimer !== undefined) clearInterval(this.liveRenderTimer);
+		this.liveRenderIntervalMs = next;
+		this.liveRenderTimer =
+			next === undefined
+				? undefined
+				: setInterval(() => this.actions.requestRender?.(), next);
 	}
 
 	private viewportRows(): number {

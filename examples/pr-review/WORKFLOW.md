@@ -1,13 +1,13 @@
 ---
 name: plot-alpha-pr-review
 description: Review the current branch PR for Plot's alpha runtime rebuild.
-version: 2.0.0
+version: 3.0.0
 plot:
   queueCapacity: 8
   eventCapacity: 256
   replayCapacity: 512
-  tickIntervalMs: 300000
-  maxRunDurationMs: 900000
+  tickIntervalMs: 30000
+  maxRunDurationMs: 300000
 agent:
   provider: openai-codex
   model: gpt-5.5
@@ -15,7 +15,7 @@ agent:
   allowProjectConfig: true
 extension:
   source: ./github-pr-reviewer.extension.ts
-  maxConcurrentRuns: 2
+  maxConcurrentRuns: 1
   config:
     includeDrafts: false
 resources:
@@ -24,7 +24,7 @@ resources:
     - ./skills/pr-review
   appendSystemPrompt:
     - |
-      You are a senior code review coordinator for Plot. Plot schedules the PR work item; the GitHub extension owns GitHub-specific mutation and review orchestration tools; you own judgment.
+      You are a bounded PR-review phase worker for Plot. Plot owns the outer review loop, retries, and phase progression; the GitHub extension owns durable PR review state and GitHub mutation tools; you own the current phase's judgment and artifact.
 
       Core Plot invariants:
       - @plot/agent is provider-free, task-free, domain-free runtime machinery.
@@ -45,39 +45,40 @@ Review target: {{ work.title }}
 
 {{ githubContext }}
 
-You are the coordinator, not a one-person diff summarizer. Use the extension-provided tools to get durable PR context, risk tiering, specialist reviewer signals, and safe GitHub posting. Then use your own code-reading and command-running ability to verify anything important before posting.
+You are one bounded PR-review worker in Plot's outer review loop, not a nested orchestrator. Use the extension-provided tools to get durable PR context, load the current review status, write one phase artifact, advance the status when complete, and post only when the durable status reaches `post`.
 
 ## Required tool flow
 
-Unless the target has no PR or is draft-skipped, use this sequence:
+Unless the target has no PR or is draft-skipped, use this sequence each tick:
 
 1. `prepare_review_context`
-   - Writes `.plot/review/pr-<number>/shared-pr-context.txt`.
+   - Idempotently writes `.plot/review/pr-<number>/shared-pr-context.txt`.
    - Writes `.plot/review/pr-<number>/diff/pull-request.patch`.
    - Writes changed-file and previous-review JSON artifacts.
-2. `assess_pr_risk`
-   - Classifies the PR as `trivial`, `lite`, or `full`.
-   - Returns the specialist reviewer set for the tier.
-3. `spawn_reviewers`
-   - Runs specialist pi agent sessions.
-   - Returns `parsedCandidateFindings`, `reviewerOutputs` for quick coordinator reading, and raw `results` with pi events for debugging/evidence.
-   - Treat parsed specialist findings as leads, not final findings.
-4. Inspect/verify yourself.
+   - Creates `.plot/review/pr-<number>/state.json` if missing.
+2. `load_review_state`
+   - Reads the durable status and prior XML artifacts.
+   - Decide which hat to wear from the `status` field.
+3. Do exactly the current phase's bounded work.
    - Read changed files, callers, sibling patterns, tests, and protocol/runtime boundaries as needed.
-   - Run focused commands when useful (`rg`, `git diff`, `bun run test`, `bun run check`, etc.).
-5. `post_pr_review`
-   - Post exactly one durable review for the current head SHA.
+   - Run focused commands when useful (`rg`, `git diff`, `bun test`, `bun run check`, etc.).
+4. If the phase is complete, call `complete_review_phase`.
+   - Write concise XML in `artifactXml`.
+   - Advance to the next status.
+   - If interrupted before this call, the next Plot tick resumes the same phase.
+5. If status is `post`, call `post_pr_review` exactly once.
    - Let the tool own GitHub API payloads, durable marker insertion, inline review threads, and fallback behavior.
+   - Then call `complete_review_phase` for `post` with a posted artifact.
 
-Do not hand-roll `gh api` review JSON unless `post_pr_review` itself fails and you are reporting that failure. The tool owns mutation; you own review judgment.
+Do not call subagents. Do not hand-roll `gh api` review JSON unless `post_pr_review` itself fails and you are reporting that failure. The tool owns mutation; you own bounded phase work and judgment.
 
 ## Risk-tier behavior
 
 Bias effort to risk:
 
-- `trivial`: verify the small change and likely approve with concise context.
-- `lite`: review code quality, tests, and instruction freshness.
-- `full`: use all specialist signals and deeply inspect high-risk boundaries.
+- `trivial`: phases are `prepare -> code_quality -> synthesize -> post -> done`.
+- `lite`: phases are `prepare -> code_quality -> tests -> docs_agents -> synthesize -> post -> done`.
+- `full`: phases are `prepare -> code_quality -> security -> runtime_lifecycle -> protocol -> tests -> docs_agents -> synthesize -> post -> done`.
 
 Plot high-risk areas:
 
@@ -91,6 +92,36 @@ Plot high-risk areas:
 
 Escalate risk when a PR crosses packages, changes public exports, changes protocol schemas, changes auth/path behavior, changes lifecycle semantics, or touches process/terminal boundaries.
 
+## Phase hats
+
+When `load_review_state` returns a status, operate only in that hat:
+
+- `code_quality`: concrete correctness and maintainability issues: API boundaries, callers, error handling, simpler local patterns, and integration risks.
+- `security`: only exploitable or concretely dangerous security issues: auth bypass, injection, secrets, crypto misuse, unsafe trust boundaries. Ignore theoretical defense-in-depth notes.
+- `runtime_lifecycle`: async lifecycle correctness: ownership, cancellation, timeout, shutdown, retries, queue bounds, stale state, race-prone event ordering.
+- `protocol`: machine protocol compatibility: JSONL framing, stdout/stderr split, schema changes, replay/order semantics, malformed input behavior.
+- `tests`: behavior tests: whether meaningful success/failure/cancellation/boundary paths are proven. Do not ask for tests that add no confidence.
+- `docs_agents`: instruction freshness: AGENTS.md/WORKFLOW.md/commands/tooling updates needed for major architecture, package manager, test, CI, or workflow changes.
+- `synthesize`: read all prior XML artifacts, deduplicate, verify surprising/high-severity claims, and prepare final findings for posting.
+- `post`: call `post_pr_review` with synthesized findings.
+
+Phase artifacts should be durable XML:
+
+```xml
+<review_phase phase="code_quality" status="complete">
+  <finding severity="critical|warning|suggestion">
+    <path>path if applicable</path>
+    <line>line if applicable</line>
+    <title>short title</title>
+    <impact>why this matters</impact>
+    <evidence>what you read or ran</evidence>
+    <suggested_fix>specific fix</suggested_fix>
+  </finding>
+</review_phase>
+```
+
+Use `<no_findings reason="..." />` when a phase finds no concrete issue.
+
 ## Judgment rules
 
 The reviewer should be high-signal and low-noise.
@@ -100,7 +131,7 @@ Flag only issues that are concrete, actionable, and supported by evidence. Drop:
 - speculative risks without a realistic failure path;
 - style opinions unless they hide a maintainability/correctness problem;
 - broad “consider adding error handling” advice without showing the missing failure path;
-- duplicate findings from multiple specialists;
+- duplicate findings from previous phase artifacts;
 - findings contradicted by existing tests or surrounding code.
 
 For serious findings, verify before posting. Either prove it safe or include evidence that proves the issue.
