@@ -96,6 +96,8 @@ describe("Plot extension SDK", () => {
 			workflow,
 			work: (input) => input,
 			registerTool: () => {},
+			runAgent: async () => ({ events: [] }),
+			runAgents: async (runs) => runs.map(() => ({ events: [] })),
 		});
 		const work = await runtime.discover();
 

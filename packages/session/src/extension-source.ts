@@ -22,6 +22,9 @@ import type {
 	PlotExtensionRuntime,
 	PlotExtensionTool,
 	PlotExtensionWork,
+	PlotRunAgentOptions,
+	PlotRunAgentResult,
+	PlotRunAgentsOptions,
 	PlotToolContext,
 	ToolDefinition,
 } from "./extension.js";
@@ -39,6 +42,15 @@ export interface LoadedPlotExtensionRuntime {
 	readonly runtime: PlotExtensionRuntime;
 	readonly tools: readonly PlotExtensionTool[];
 	readonly config: unknown;
+}
+export interface PlotExtensionAgentRunner {
+	readonly runAgent: (
+		options: PlotRunAgentOptions,
+	) => Promise<PlotRunAgentResult>;
+	readonly runAgents: (
+		runs: readonly PlotRunAgentOptions[],
+		options?: PlotRunAgentsOptions,
+	) => Promise<readonly PlotRunAgentResult[]>;
 }
 export interface PlotExtensionSourceBundle {
 	readonly source: WorkSource;
@@ -348,9 +360,19 @@ const resolveExtensionSourcePath = (options: {
 			: dirname(options.workflow.path);
 	return resolve(base, options.source);
 };
+const unavailableAgentRunner: PlotExtensionAgentRunner = {
+	runAgent: async () => {
+		throw new Error("extension agent runner is not available in this context");
+	},
+	runAgents: async () => {
+		throw new Error("extension agent runner is not available in this context");
+	},
+};
+
 export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
+	readonly agentRunner?: PlotExtensionAgentRunner;
 }): Promise<LoadedPlotExtensionRuntime> => {
 	const extensionConfig = options.workflow.runtime.extension;
 	if (extensionConfig === undefined)
@@ -387,6 +409,7 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 			)
 		: extensionConfig.config;
 	const tools: PlotExtensionTool[] = [];
+	const agentRunner = options.agentRunner ?? unavailableAgentRunner;
 	const runtime = await runMaybePromise("create", source, () =>
 		extension.create({
 			config,
@@ -396,6 +419,8 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 			registerTool: (tool) => {
 				tools.push(tool as PlotExtensionTool);
 			},
+			runAgent: agentRunner.runAgent,
+			runAgents: agentRunner.runAgents,
 		}),
 	);
 	return { extension, runtime, tools, config };
@@ -403,6 +428,7 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
+	readonly agentRunner?: PlotExtensionAgentRunner;
 }): Promise<PlotExtensionSourceBundle> => {
 	const { extension, runtime, tools, config } =
 		await loadPlotExtensionRuntimeFromWorkflow(options);

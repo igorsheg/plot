@@ -3,7 +3,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
-import type { AgentToolResult, PlotExtensionWork } from "plot-ai/sdk";
+import type {
+	AgentSessionEvent,
+	AgentToolResult,
+	PlotExtensionWork,
+	PlotRunAgentOptions,
+	PlotRunAgentResult,
+	PlotRunAgentsOptions,
+} from "plot-ai/sdk";
 
 const execFileAsync = promisify(execFile);
 
@@ -620,124 +627,71 @@ const prepareReviewContext = async (
 	);
 };
 
-const runReviewer = async (
-	reviewer: ReviewerName,
-	cwd: string,
-	context: ReviewWorkContext,
-	files: readonly PrFileInfo[],
-): Promise<{
+const reviewerFocus = (reviewer: ReviewerName) => {
+	switch (reviewer) {
+		case "security":
+			return "Only exploitable or concretely dangerous security issues: auth bypass, injection, secrets, crypto misuse, unsafe trust boundaries. Ignore theoretical defense-in-depth notes.";
+		case "runtime_lifecycle":
+			return "Async lifecycle correctness: ownership, cancellation, timeout, shutdown, retries, queue bounds, stale state, race-prone event ordering.";
+		case "protocol":
+			return "Machine protocol compatibility: JSONL framing, stdout/stderr split, schema changes, replay/order semantics, malformed input behavior.";
+		case "tests":
+			return "Behavior tests: whether meaningful success/failure/cancellation/boundary paths are proven. Do not ask for tests that add no confidence.";
+		case "docs_agents":
+			return "Instruction freshness: AGENTS.md/WORKFLOW.md/commands/tooling updates needed for major architecture, package manager, test, CI, or workflow changes.";
+		case "code_quality":
+			return "Concrete correctness and maintainability issues: API boundaries, callers, error handling, simpler local patterns, and integration risks.";
+	}
+};
+
+const reviewerPrompt = (input: {
 	readonly reviewer: ReviewerName;
-	readonly findings: ReviewerFinding[];
-}> => {
-	const findings: ReviewerFinding[] = [];
-	const paths = files.map((file) => file.path);
-	if (reviewer === "security") {
-		for (const file of files.filter((entry) => securitySensitive(entry.path))) {
-			findings.push({
-				reviewer,
-				severity: "warning",
-				path: file.path,
-				title: "Security-sensitive file changed",
-				impact:
-					"Auth, crypto, secrets, or permission changes need concrete verification.",
-				evidence: `${file.path} changed with ${file.additions + file.deletions} lines touched.`,
-				suggestedFix:
-					"Inspect the changed trust boundary and keep only exploitable/concrete issues in the final review.",
-			});
-		}
-	}
-	if (reviewer === "runtime_lifecycle") {
-		for (const file of files.filter((entry) => runtimeSensitive(entry.path))) {
-			findings.push({
-				reviewer,
-				severity: "suggestion",
-				path: file.path,
-				title: "Runtime-sensitive Plot path changed",
-				impact:
-					"Scheduler, protocol, terminal, auth, or async lifecycle code can regress under cancellation/failure paths.",
-				evidence: `${file.path} is in Plot's high-risk runtime map.`,
-				suggestedFix:
-					"Trace success, failure, cancellation, timeout, shutdown, duplicate input, and malformed input paths before judging.",
-			});
-		}
-	}
-	if (reviewer === "protocol") {
-		for (const path of paths.filter((value) => value.includes("protocol"))) {
-			findings.push({
-				reviewer,
-				severity: "suggestion",
-				path,
-				title: "Protocol surface changed",
-				impact:
-					"Protocol changes can break JSONL clients or stdout/stderr separation.",
-				evidence: `${path} contains protocol in its path.`,
-				suggestedFix:
-					"Verify schema compatibility, event ordering, replay behavior, and stdout cleanliness.",
-			});
-		}
-	}
-	if (reviewer === "tests") {
-		const touchesTests = paths.some(
-			(path) => /(^|\/)(test|tests)\//.test(path) || /\.test\./.test(path),
-		);
-		if (!touchesTests && files.some((file) => runtimeSensitive(file.path))) {
-			findings.push({
-				reviewer,
-				severity: "suggestion",
-				title: "High-risk change without obvious test file changes",
-				impact:
-					"Runtime behavior changes need behavior coverage, not just type safety.",
-				evidence: "No changed path looked like a test file.",
-				suggestedFix:
-					"Look for existing coverage first; flag only if meaningful behavior is untested.",
-			});
-		}
-	}
-	if (reviewer === "docs_agents") {
-		const material = paths.some((path) =>
-			/(AGENTS\.md|WORKFLOW\.md|package\.json|tsconfig|turbo|lefthook|\.github\/workflows)/.test(
-				path,
-			),
-		);
-		if (material) {
-			findings.push({
-				reviewer,
-				severity: "suggestion",
-				title: "AI/operator instructions may need review",
-				impact:
-					"Tooling, workflow, or instruction changes can make AGENTS.md/WORKFLOW.md stale.",
-				evidence:
-					"Changed paths include project instructions or tooling configuration.",
-				suggestedFix:
-					"Check whether commands, boundaries, or review instructions need updating.",
-			});
-		}
-	}
-	if (reviewer === "code_quality") {
-		const largeFiles = files.filter(
-			(file) => file.additions + file.deletions > 250,
-		);
-		for (const file of largeFiles.slice(0, 5)) {
-			findings.push({
-				reviewer,
-				severity: "suggestion",
-				path: file.path,
-				title: "Large changed file needs focused inspection",
-				impact: "Large hunks hide integration and edge-case regressions.",
-				evidence: `${file.path} changed ${file.additions + file.deletions} lines.`,
-				suggestedFix:
-					"Read callers and sibling patterns; only promote concrete issues to the final review.",
-			});
-		}
-	}
-	await commandOptional(cwd, "git", ["status", "--short"]);
-	return { reviewer, findings };
+	readonly context: ReviewWorkContext;
+	readonly files: readonly PrFileInfo[];
+	readonly risk: ReturnType<typeof assessRisk>;
+}) => `# Plot PR specialist reviewer: ${input.reviewer}
+
+You are one specialist reviewer in a larger coordinated PR review. Use the CLI and repository tools freely. Do real investigation; do not summarize the diff mechanically.
+
+PR: ${input.context.repo}#${input.context.pr?.number ?? "unknown"} ${input.context.pr?.title ?? ""}
+Risk tier: ${input.risk.tier} (${input.risk.reason})
+Changed files:
+${input.files.map((file) => `- ${file.path} (+${file.additions}/-${file.deletions})`).join("\n")}
+
+Focus:
+${reviewerFocus(input.reviewer)}
+
+Return concise XML only:
+<reviewer_result reviewer="${input.reviewer}">
+  <finding severity="critical|warning|suggestion">
+    <path>path if applicable</path>
+    <line>line if applicable</line>
+    <title>short title</title>
+    <impact>why this matters</impact>
+    <evidence>what you read or ran</evidence>
+    <suggested_fix>specific fix</suggested_fix>
+  </finding>
+</reviewer_result>
+
+If no concrete issues are found, return:
+<reviewer_result reviewer="${input.reviewer}"><no_findings reason="..." /></reviewer_result>`;
+
+const eventPreview = (event: AgentSessionEvent): string => {
+	if (event.type === "tool_execution_start" && "toolName" in event)
+		return `tool ${String(event.toolName)} started`;
+	if (event.type === "tool_execution_end" && "toolName" in event)
+		return `tool ${String(event.toolName)} finished`;
+	return event.type;
 };
 
 const spawnReviewers = async (
 	cwd: string,
 	work: PlotExtensionWork,
 	tier: RiskTier,
+	runAgents: (
+		runs: readonly PlotRunAgentOptions[],
+		options?: PlotRunAgentsOptions,
+	) => Promise<readonly PlotRunAgentResult[]>,
 	onUpdate?: (partial: AgentToolResult<unknown>) => void,
 ) => {
 	const context = reviewContextFromWork(work);
@@ -764,13 +718,29 @@ const spawnReviewers = async (
 			reviewers,
 		}),
 	);
-	const results = await Promise.all(
-		reviewers.map((reviewer) => runReviewer(reviewer, cwd, context, files)),
-	);
-	const findings = results.flatMap((result) => result.findings);
+	const runs = reviewers.map((reviewer) => ({
+		prompt: reviewerPrompt({ reviewer, context, files, risk }),
+		create: { cwd },
+		timeoutMs:
+			reviewer === "code_quality" || reviewer === "runtime_lifecycle"
+				? 10 * 60_000
+				: 5 * 60_000,
+		onEvent: (event: AgentSessionEvent) => {
+			onUpdate?.(
+				toolResult(`${reviewer}: ${eventPreview(event)}`, {
+					status: "running",
+					reviewer,
+					event,
+				}),
+			);
+		},
+	}));
+	const results = await runAgents(runs, {
+		concurrency: Math.min(4, runs.length),
+	});
 	return toolResult(
-		`Specialist reviewers completed with ${findings.length} candidate signals. Treat these as leads, not final findings.`,
-		{ tier, reviewers, findings, results },
+		`Specialist reviewer agents completed. Coordinator must verify, deduplicate, and judge their raw pi events before posting.`,
+		{ tier, reviewers, results },
 	);
 };
 
@@ -912,7 +882,14 @@ const postReview = async (
 	}
 };
 
-const registeredTools = (cwd: string, currentWork: PlotExtensionWork) => [
+const registeredTools = (
+	cwd: string,
+	currentWork: PlotExtensionWork,
+	runAgents: (
+		runs: readonly PlotRunAgentOptions[],
+		options?: PlotRunAgentsOptions,
+	) => Promise<readonly PlotRunAgentResult[]>,
+) => [
 	defineTool({
 		name: "prepare_review_context",
 		label: "Prepare PR review context",
@@ -972,6 +949,7 @@ const registeredTools = (cwd: string, currentWork: PlotExtensionWork) => [
 				cwd,
 				currentWork,
 				(params as { tier: RiskTier }).tier,
+				runAgents,
 				onUpdate,
 			),
 	}),
@@ -1028,11 +1006,11 @@ const registeredTools = (cwd: string, currentWork: PlotExtensionWork) => [
 export default definePlotExtension<GitHubPrReviewerConfig>({
 	id: "plot-alpha-github-pr-reviewer",
 	parseConfig,
-	create: ({ config, paths, work, registerTool }) => {
+	create: ({ config, paths, work, registerTool, runAgents }) => {
 		for (const index of [0, 1, 2, 3]) {
 			registerTool(
 				({ work: currentWork }) =>
-					registeredTools(paths.cwd, currentWork)[index]!,
+					registeredTools(paths.cwd, currentWork, runAgents)[index]!,
 			);
 		}
 		return {

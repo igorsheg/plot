@@ -293,6 +293,46 @@ export default definePlotExtension({
 		]);
 	});
 
+	test("passes pi-native subagent runner helpers into extension setup", async () => {
+		const calls: string[] = [];
+		const dir = await makeTempDir();
+		const extensionPath = join(dir, "extension.ts");
+		await writeFile(
+			extensionPath,
+			`export default {
+  id: "subagent-sdk-test",
+  create: async ({ runAgent, runAgents }) => {
+    await runAgent({ prompt: "one" });
+    await runAgents([{ prompt: "two" }, { prompt: "three" }], { concurrency: 2 });
+    return { discover: () => [] };
+  }
+};
+`,
+		);
+		await loadPlotExtensionRuntimeFromWorkflow({
+			paths: { ...paths, cwd: dir },
+			workflow: {
+				...workflow,
+				path: join(dir, "WORKFLOW.md"),
+				runtime: { extension: { source: "./extension.ts" } },
+			},
+			agentRunner: {
+				runAgent: async (options) => {
+					calls.push(`one:${options.prompt}`);
+					return { events: [] };
+				},
+				runAgents: async (runs, options) => {
+					calls.push(
+						`many:${runs.map((run) => run.prompt).join(",")}:${options?.concurrency ?? "default"}`,
+					);
+					return runs.map(() => ({ events: [] }));
+				},
+			},
+		});
+
+		expect(calls).toEqual(["one:one", "many:two,three:2"]);
+	});
+
 	test("loads extension-registered pi tool definitions from the public SDK", async () => {
 		const dir = await makeTempDir();
 		const extensionPath = join(dir, "extension.ts");
