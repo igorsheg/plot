@@ -23,14 +23,34 @@ const deferred = <A>() => {
 	return { promise, resolve };
 };
 const yieldNow = () => new Promise((resolve) => setTimeout(resolve, 0));
-const waitFor = async (condition: () => boolean | Promise<boolean>) => {
-	for (let i = 0; i < 20; i++) {
-		if (await condition()) return;
-		await yieldNow();
-	}
-	throw new Error("condition was not met");
-};
 const never = <A>() => new Promise<A>(() => {});
+const waitForEvent = async <A>(
+	iterable: AsyncIterable<A>,
+	predicate: (item: A) => boolean,
+) => {
+	const iterator = iterable[Symbol.asyncIterator]();
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const nextMatching = (async () => {
+			for (;;) {
+				const next = await iterator.next();
+				if (next.done) break;
+				if (predicate(next.value)) return next.value;
+			}
+			throw new Error("event stream ended before matching event");
+		})();
+		const timedOut = new Promise<never>((_, reject) => {
+			timeout = setTimeout(
+				() => reject(new Error("timed out waiting for matching event")),
+				100,
+			);
+		});
+		return await Promise.race([nextMatching, timedOut]);
+	} finally {
+		if (timeout) clearTimeout(timeout);
+		await iterator.return?.();
+	}
+};
 const collectN = async <A>(iterable: AsyncIterable<A>, n: number) => {
 	const out: A[] = [];
 	for await (const item of iterable) {
@@ -204,11 +224,14 @@ describe("task-agnostic Plot agent", () => {
 			reconcile: () => (ticks === 1 ? [scheduleWake(1, "retry later")] : []),
 		};
 		const agent = makeAgent([source]);
+		const wakeScheduled = waitForEvent(
+			agent.events(),
+			(event) =>
+				event.type === "wake_scheduled" && event.reason === "retry later",
+		);
 		await agent.start();
 		await agent.offer({ type: "tick" });
-		await waitFor(async () =>
-			Boolean((await agent.snapshot()).scheduledWakes?.[0]),
-		);
+		await wakeScheduled;
 		expect((await agent.snapshot()).scheduledWakes?.[0]?.reason).toBe(
 			"retry later",
 		);
