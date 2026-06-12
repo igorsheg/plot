@@ -16,14 +16,16 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
 		this.overflow = options.overflow ?? "reject";
 	}
 
-	offer(value: T): boolean {
+	offer(value: T, options?: { readonly force?: boolean }): boolean {
 		if (this.closed) return false;
 		const waiter = this.waiters.shift();
 		if (waiter) {
 			waiter({ value, done: false });
 			return true;
 		}
-		if (this.queue.length >= this.capacity) {
+		// force bypasses the capacity bound for messages that must never be
+		// dropped (for example run-lifecycle transitions).
+		if (options?.force !== true && this.queue.length >= this.capacity) {
 			if (this.overflow === "reject") return false;
 			this.queue.shift();
 		}

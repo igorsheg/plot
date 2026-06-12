@@ -39,6 +39,14 @@ export interface PlotExtensionWork {
 	readonly url?: string;
 	/** Optional grouping key. Defaults to id when adapted into Plot internals. */
 	readonly subject?: string;
+	/**
+	 * Hold this work without releasing it. Blocked work keeps its claim and
+	 * stays visible, but is not dispatched and running attempts are not
+	 * interrupted. Pass a string to record the reason (e.g. "waiting for
+	 * author reply"). Omitting the work from discover entirely means the
+	 * opposite: the work is released and running attempts are stopped.
+	 */
+	readonly blocked?: boolean | string;
 	/** Optional generic display hints. TUI owns rendering; hints have no scheduling semantics. */
 	readonly display?: WorkDisplay;
 	/** Domain context supplied to the inner agent alongside WORKFLOW.md prompt. */

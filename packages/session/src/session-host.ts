@@ -39,6 +39,7 @@ import {
 	loadDiscoveredWorkflowFromNode,
 	type WorkflowDefinition,
 } from "./workflow.js";
+import { makeWorkspaceManager, workspaceBaseDir } from "./workspace.js";
 
 export interface PlotSessionHostOptions {
 	readonly workflowPath?: string;
@@ -52,6 +53,9 @@ export interface PlotSessionHostOptions {
 	readonly replayCapacity?: number;
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
+	readonly stallTimeoutMs?: number;
+	readonly retryInitialDelayMs?: number;
+	readonly retryMaxDelayMs?: number;
 	readonly agentSessionOverrides?: PlotAgentSessionCliOverrides;
 	readonly createAgentSession?: CreateAgentSession;
 }
@@ -147,11 +151,18 @@ export const createPlotSessionHost = async (
 	const replayCapacity = options.replayCapacity ?? plot?.replayCapacity ?? 1024;
 	const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
 	const maxRunDurationMs = options.maxRunDurationMs ?? plot?.maxRunDurationMs;
+	const stallTimeoutMs = options.stallTimeoutMs ?? plot?.stallTimeoutMs;
+	const retryInitialDelayMs =
+		options.retryInitialDelayMs ?? plot?.retryInitialDelayMs;
+	const retryMaxDelayMs = options.retryMaxDelayMs ?? plot?.retryMaxDelayMs;
 	const agentOptions = {
 		queueCapacity: requestQueueCapacity,
 		eventCapacity,
 		...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
 		...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
+		...(stallTimeoutMs === undefined ? {} : { stallTimeoutMs }),
+		...(retryInitialDelayMs === undefined ? {} : { retryInitialDelayMs }),
+		...(retryMaxDelayMs === undefined ? {} : { retryMaxDelayMs }),
 	};
 	const createAgentSession =
 		options.createAgentSession ??
@@ -230,11 +241,36 @@ export const createPlotSessionHost = async (
 			});
 		},
 	};
+	// Workspace manager (opt-in via plot.workspace): the runtime guarantees a
+	// safe, durable per-work directory and runs the agent session inside it;
+	// populating the directory stays with the agent/workflow.
+	const workspaceConfig = plot?.workspace;
+	const workspaces =
+		workspaceConfig === undefined
+			? undefined
+			: makeWorkspaceManager({
+					root: workspaceConfig.root,
+					baseDir: workspaceBaseDir(workflow.path, options.cwd),
+					namespace: workflow.runtime.name ?? "workflow",
+					...(workspaceConfig.cleanup === undefined
+						? {}
+						: { cleanup: workspaceConfig.cleanup }),
+				});
+	const workspaceKeyFor = (context: WorkRunnerContext) =>
+		extensionBundle?.workFor(context)?.id ??
+		String(context.run.subject ?? context.work.workKey);
 	const extensionBundle = workflow.runtime.extension
 		? await makePlotExtensionSourceBundleFromWorkflow({
 				workflow,
 				paths,
 				agentRunner: extensionAgentRunner,
+				...(workspaces === undefined || workspaces.cleanup !== "on_released"
+					? {}
+					: {
+							onWorkReleased: async (workId: string) => {
+								await workspaces.remove(workId);
+							},
+						}),
 			})
 		: undefined;
 	const sources = extensionBundle
@@ -242,14 +278,24 @@ export const createPlotSessionHost = async (
 		: [makeOneShotWorkflowSource(workflow)];
 	const agentRunnerCreate = async (context: WorkRunnerContext) => {
 		const extensionCreate = await extensionBundle?.createOptions(context);
+		const workspace =
+			workspaces === undefined
+				? undefined
+				: await workspaces.ensure(workspaceKeyFor(context));
 		return {
-			cwd: paths.cwd,
+			cwd: workspace?.path ?? paths.cwd,
 			...(extensionCreate === undefined ||
 			extensionCreate.customTools.length === 0
 				? {}
 				: { customTools: extensionCreate.customTools }),
 		};
 	};
+	const workspaceTemplateData =
+		workspaces === undefined
+			? undefined
+			: async (context: WorkRunnerContext) => ({
+					workspace: await workspaces.ensure(workspaceKeyFor(context)),
+				});
 	const session = makePlotSessionLayer({
 		id: plotSessionId(options.sessionId),
 		workflow,
@@ -259,6 +305,9 @@ export const createPlotSessionHost = async (
 		agentRunner: {
 			prompt: workflow.prompt,
 			create: agentRunnerCreate,
+			...(workspaceTemplateData === undefined
+				? {}
+				: { templateData: workspaceTemplateData }),
 			...(extensionBundle === undefined
 				? {}
 				: { wrapRunner: extensionBundle.wrapRunner }),

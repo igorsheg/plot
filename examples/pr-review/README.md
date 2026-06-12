@@ -2,15 +2,15 @@
 
 A standalone GitHub PR review workflow for Plot.
 
-This example intentionally keeps orchestration thin:
+This example intentionally keeps orchestration to a bare minimum — the LLM is the capable part:
 
-- `github-pr-reviewer.extension.ts` discovers the current PR and skips already-reviewed heads.
-- The extension registers pi-native tools: prepare context, assess risk, load/advance durable review state, and post the final GitHub review.
-- Each Plot tick runs one bounded agent phase. The agent writes durable XML to `.plot/review/pr-<number>/` and advances `state.json`; interrupted phases are resumed by the next tick.
-- `WORKFLOW.md` lays out all review hats and tells the single agent how to behave for each durable status.
-- `skills/pr-review` provides reusable review know-how: architecture exploration, behavioral path review, test analysis, stacked PRs, and multi-PR review.
+- `github-pr-reviewer.extension.ts` is a pure reader. It discovers the current PR, parses the anchor comment's marker (`<!-- plot-review:v1 status=... head=... tier=... -->`), and tells Plot whether work exists and at which phase. It registers no tools and performs no writes.
+- All durable review state lives on the PR itself, in one anchor comment the agent maintains. There is no local state; a crashed tick loses nothing.
+- Each Plot tick runs one bounded review phase. The agent reads the anchor with `gh`, wears the phase's hat, appends findings to the anchor, and advances the marker status. The `post` phase publishes one GitHub review with inline threads and flips the marker to `done`.
+- `WORKFLOW.md` is the product: risk tiering, phase hats with what-NOT-to-flag boundaries, the synthesize/judge pass, the disposition rubric, re-review semantics, and prompt-injection rules all live in its body as prompt engineering.
+- `skills/pr-review` provides reusable review know-how: architecture exploration, behavioral path review, test analysis, GitHub review API recipes, stacked PRs, and multi-PR review.
 
-The review agent is expected to use normal tools (`bash`, `git`, `gh`, `rg`, tests), complete only the current durable phase, synthesize from prior XML artifacts when the state reaches `synthesize`, and use the registered posting tool for GitHub mutation when the state reaches `post`.
+The review agent uses normal tools (`bash`, `git`, `gh`, `rg`, tests) for everything, including all GitHub mutation. Its writes are constrained by prompt contract to the current PR's anchor comment and reviews.
 
 ## Use
 

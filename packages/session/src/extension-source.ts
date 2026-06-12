@@ -2,6 +2,7 @@ import { createJiti } from "jiti/static";
 import { dirname, isAbsolute, resolve } from "node:path";
 import {
 	interruptWork,
+	removeFact,
 	setFact,
 	sourceId,
 	subjectKey,
@@ -57,6 +58,10 @@ export interface PlotExtensionSourceBundle {
 	readonly createOptions: (
 		context: WorkRunnerContext,
 	) => Promise<{ readonly customTools: ToolDefinition[] }>;
+	/** Resolve the extension work backing a runner context, when known. */
+	readonly workFor: (
+		context: WorkRunnerContext,
+	) => PlotExtensionWork | undefined;
 	readonly wrapRunner: (runner: WorkRunner) => WorkRunner;
 	readonly shutdown: () => Promise<void>;
 }
@@ -104,8 +109,23 @@ const workKeyForExtensionWork = (
 const completedFactKey = (key: WorkKey) => `extension.completed:${key}`;
 const discoveredFactKey = (source: SourceId) =>
 	`extension.discovered:${source}`;
-const staleReason = (source: SourceId) =>
-	`work is no longer current for source ${source}`;
+const workStatusFactKey = (source: SourceId, workId: string) =>
+	`extension.work_status:${source}:${workId}`;
+const workStatusFactPrefix = (source: SourceId) =>
+	`extension.work_status:${source}:`;
+const releasedReason = (source: SourceId) =>
+	`work is no longer discovered by source ${source}`;
+const isBlocked = (work: PlotExtensionWork) =>
+	work.blocked !== undefined && work.blocked !== false;
+/**
+ * Named claim lifecycle for one discovered work id, recorded as a fact so
+ * snapshots and the protocol always answer "why is this work not running?".
+ */
+type WorkClaimStatus =
+	| { readonly status: "pending" }
+	| { readonly status: "running" }
+	| { readonly status: "draining" }
+	| { readonly status: "blocked"; readonly reason?: string };
 const currentWorkKeys = (
 	extension: PlotExtension,
 	works: readonly PlotExtensionWork[],
@@ -203,6 +223,8 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly config: unknown;
 	readonly tools?: readonly PlotExtensionTool[];
 	readonly maxConcurrentRuns?: number;
+	/** Invoked when a work id leaves discovery entirely (released/terminal). */
+	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
 	const selectedWork = new Map<WorkKey, PlotExtensionWork>();
@@ -237,9 +259,67 @@ export const makePlotExtensionSourceBundle = (options: {
 				proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
 			}
 			const currentKeys = currentWorkKeys(options.extension, discoveredWorks);
-			for (const run of snapshot.running.values())
-				if (run.sourceId === source && !currentKeys.has(run.workKey))
-					proposals.push(interruptWork(run.workKey, staleReason(source)));
+			const currentIds = new Set(discoveredWorks.map((work) => work.id));
+			// Symphony-style claim semantics. A running work is one of:
+			// - current: its exact key is still discovered -> leave it running;
+			// - superseded: its key is gone but its work id is still discovered
+			//   (typically because the run advanced its own durable version) ->
+			//   let it drain; the id-level claim in selectWork keeps the newer
+			//   version from starting in parallel;
+			// - released: its work id is no longer discovered at all (terminal
+			//   state: PR closed, work done, target vanished) -> interrupt.
+			const drainingIds = new Set<string>();
+			for (const run of snapshot.running.values()) {
+				if (run.sourceId !== source || currentKeys.has(run.workKey)) continue;
+				const known = selectedWork.get(run.workKey);
+				if (known !== undefined && currentIds.has(known.id)) {
+					drainingIds.add(known.id);
+					continue;
+				}
+				proposals.push(interruptWork(run.workKey, releasedReason(source)));
+			}
+			// Record the named claim status per work id, and drop statuses for
+			// ids that are no longer discovered (released).
+			const runningIds = new Set<string>();
+			for (const run of snapshot.running.values()) {
+				if (run.sourceId !== source) continue;
+				const known = selectedWork.get(run.workKey);
+				if (known !== undefined && currentKeys.has(run.workKey))
+					runningIds.add(known.id);
+			}
+			for (const work of discoveredWorks) {
+				const status: WorkClaimStatus = runningIds.has(work.id)
+					? { status: "running" }
+					: drainingIds.has(work.id)
+						? { status: "draining" }
+						: isBlocked(work)
+							? {
+									status: "blocked",
+									...(typeof work.blocked === "string"
+										? { reason: work.blocked }
+										: {}),
+								}
+							: { status: "pending" };
+				const factKey = workStatusFactKey(source, work.id);
+				if (
+					JSON.stringify(snapshot.facts.get(factKey)) !== JSON.stringify(status)
+				)
+					proposals.push(setFact(factKey, status));
+			}
+			const statusPrefix = workStatusFactPrefix(source);
+			for (const factKey of snapshot.facts.keys()) {
+				if (!factKey.startsWith(statusPrefix)) continue;
+				const workId = factKey.slice(statusPrefix.length);
+				if (currentIds.has(workId)) continue;
+				proposals.push(removeFact(factKey));
+				if (options.onWorkReleased !== undefined) {
+					try {
+						await options.onWorkReleased(workId);
+					} catch (error) {
+						await logHookError(error, "work_released", source);
+					}
+				}
+			}
 			for (const completion of snapshot.completions) {
 				if (completion.sourceId !== source) continue;
 				const work = selectedWork.get(completion.workKey);
@@ -259,13 +339,24 @@ export const makePlotExtensionSourceBundle = (options: {
 			}
 			return proposals;
 		},
-		selectWork: ({ snapshot }) =>
-			decodeDiscoveredWorks(
+		selectWork: ({ snapshot }) => {
+			// Id-level claims: while any version of a work id is still running
+			// (including a superseded version draining out), do not dispatch
+			// another version of the same id.
+			const claimedIds = new Set<string>();
+			for (const run of snapshot.running.values()) {
+				if (run.sourceId !== source) continue;
+				const known = selectedWork.get(run.workKey);
+				if (known !== undefined) claimedIds.add(known.id);
+			}
+			return decodeDiscoveredWorks(
 				snapshot.facts.get(discoveredFactKey(source)),
 			).flatMap((extensionWork) => {
 				const key = workKeyForExtensionWork(options.extension, extensionWork);
 				if (
 					snapshot.running.has(key) ||
+					claimedIds.has(extensionWork.id) ||
+					isBlocked(extensionWork) ||
 					snapshot.facts.has(completedFactKey(key))
 				)
 					return [];
@@ -283,10 +374,12 @@ export const makePlotExtensionSourceBundle = (options: {
 							: { display: extensionWork.display }),
 					},
 				];
-			}),
+			});
+		},
 	};
 	return {
 		source: workSource,
+		workFor: (context) => selectedWork.get(context.work.workKey),
 		createOptions: async (context) => {
 			const work = selectedWork.get(context.work.workKey);
 			if (work === undefined || !options.tools?.length)
@@ -429,6 +522,7 @@ export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
 	readonly agentRunner?: PlotExtensionAgentRunner;
+	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
 }): Promise<PlotExtensionSourceBundle> => {
 	const { extension, runtime, tools, config } =
 		await loadPlotExtensionRuntimeFromWorkflow(options);
@@ -439,6 +533,9 @@ export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 		paths: options.paths,
 		config,
 		tools,
+		...(options.onWorkReleased === undefined
+			? {}
+			: { onWorkReleased: options.onWorkReleased }),
 		...(options.workflow.runtime.extension?.maxConcurrentRuns === undefined
 			? {}
 			: {
