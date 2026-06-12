@@ -65,6 +65,7 @@ export class PlotDashboard implements Component {
 	private confirmQuit = false;
 	private liveRenderTimer: ReturnType<typeof setInterval> | undefined;
 	private liveRenderIntervalMs: number | undefined;
+	private liveUpdatesActive = false;
 	private readonly actions: DashboardActions;
 
 	constructor(projection: DashboardProjection, actions: DashboardActions) {
@@ -78,10 +79,12 @@ export class PlotDashboard implements Component {
 	}
 
 	startLiveUpdates(): void {
+		this.liveUpdatesActive = true;
 		this.syncLiveRenderTimer();
 	}
 
 	stopLiveUpdates(): void {
+		this.liveUpdatesActive = false;
 		if (this.liveRenderTimer !== undefined) clearInterval(this.liveRenderTimer);
 		this.liveRenderTimer = undefined;
 		this.liveRenderIntervalMs = undefined;
@@ -194,14 +197,22 @@ export class PlotDashboard implements Component {
 	}
 
 	private syncLiveRenderTimer(): void {
+		// Projection updates can arrive from late async callbacks after the
+		// TUI begins shutting down; the render clock may only exist between
+		// startLiveUpdates and stopLiveUpdates.
+		if (!this.liveUpdatesActive) return;
 		const next = this.desiredLiveRenderInterval();
 		if (next === this.liveRenderIntervalMs) return;
 		if (this.liveRenderTimer !== undefined) clearInterval(this.liveRenderTimer);
 		this.liveRenderIntervalMs = next;
-		this.liveRenderTimer =
-			next === undefined
-				? undefined
-				: setInterval(() => this.actions.requestRender?.(), next);
+		if (next === undefined) {
+			this.liveRenderTimer = undefined;
+			return;
+		}
+		const timer = setInterval(() => this.actions.requestRender?.(), next);
+		// A stray render clock must never hold the process open.
+		timer.unref?.();
+		this.liveRenderTimer = timer;
 	}
 
 	private viewportRows(): number {
