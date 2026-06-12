@@ -146,7 +146,7 @@ const workRow = (work: RunningWorkProjection, nowMs: number): WorkRowModel => ({
 			: formatDuration(nowMs - work.startedAtMs),
 	turns: `t${work.turnCount}`,
 	tokens: formatTokens(tokenTotal(work)),
-	activity: work.activity,
+	activity: work.lastMeaningful,
 	lastEventAgo:
 		work.lastEventAtMs === undefined
 			? ""

@@ -126,7 +126,7 @@ describe("PlotDashboard", () => {
 								title: "Item 43",
 								stage: "finishing",
 								activity: "Posting review",
-								lastMeaningful: "publish result",
+								lastMeaningful: "Posting review",
 								tokens: { total: 4_000 },
 							}),
 						],
@@ -163,6 +163,33 @@ describe("PlotDashboard", () => {
 			}
 		}));
 
+	test("keeps granular event churn out of fleet rows", () => {
+		const dashboard = new PlotDashboard(
+			{
+				...emptyProjection("default", "workflow"),
+				status: "running",
+				running: new Map([
+					[
+						"source:item:42",
+						runningWork({
+							workKey: "source:item:42",
+							primary: "#42",
+							title: "Item 42",
+							activity: "code_quality: message_update",
+							lastMeaningful: "reviewing changed files",
+						}),
+					],
+				]),
+			},
+			actions,
+		);
+
+		const rendered = stripAnsi(dashboard.render(120).join("\n"));
+
+		expect(rendered).toContain("reviewing changed files");
+		expect(rendered).not.toContain("message_update");
+	});
+
 	test("renders a two-line board row per running work", () => {
 		const running = new Map([
 			[
@@ -185,7 +212,7 @@ describe("PlotDashboard", () => {
 					title: "Item 43",
 					stage: "finishing",
 					activity: "Posting review",
-					lastMeaningful: "publish result",
+					lastMeaningful: "Posting review",
 				}),
 			],
 		]);

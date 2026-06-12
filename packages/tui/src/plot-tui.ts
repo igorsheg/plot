@@ -135,6 +135,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		},
 		openUrl,
 		height: () => terminal.rows,
+		requestRender: () => tui.requestRender(),
 	});
 	tui.addChild(dashboard);
 	tui.setFocus(dashboard);
@@ -159,6 +160,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		}
 	})().catch(fail);
 	try {
+		dashboard.startLiveUpdates();
 		tui.start();
 		const hello = await host.protocol.hello();
 		setProjection({
@@ -175,6 +177,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		refresh();
 		await stopped;
 	} finally {
+		dashboard.stopLiveUpdates();
 		tui.stop();
 		await host.session.shutdown();
 		await host.shutdown();

@@ -1,16 +1,9 @@
 import { execFile } from "node:child_process";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
-import type {
-	AgentSessionEvent,
-	AgentToolResult,
-	PlotExtensionWork,
-	PlotRunAgentOptions,
-	PlotRunAgentResult,
-	PlotRunAgentsOptions,
-} from "plot-ai/sdk";
+import type { AgentToolResult, PlotExtensionWork } from "plot-ai/sdk";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +16,7 @@ type ReviewerName =
 	| "protocol"
 	| "tests"
 	| "docs_agents";
+type ReviewPhase = ReviewerName | "prepare" | "synthesize" | "post" | "done";
 
 interface GitHubPrReviewerConfig {
 	readonly includeDrafts: boolean;
@@ -97,12 +91,21 @@ interface InlineReviewComment {
 }
 
 interface ReviewTelemetryEvent {
-	readonly type: "prepare" | "spawn_reviewers" | "post_review";
+	readonly type: "prepare" | "review_phase" | "post_review";
 	readonly at: string;
 	readonly pr?: number;
 	readonly head?: string;
 	readonly durationMs?: number;
 	readonly details: Record<string, unknown>;
+}
+
+interface ReviewState {
+	readonly status: ReviewPhase;
+	readonly tier?: RiskTier;
+	readonly phases: readonly ReviewPhase[];
+	readonly completed: readonly ReviewPhase[];
+	readonly artifacts: Record<string, string>;
+	readonly updatedAt: string;
 }
 
 const defaultConfig: GitHubPrReviewerConfig = { includeDrafts: true };
@@ -597,6 +600,97 @@ const writeTelemetry = async (
 
 const nowIso = () => new Date().toISOString();
 
+const reviewRoot = (cwd: string, prNumber: number) =>
+	join(cwd, ".plot", "review", `pr-${prNumber}`);
+
+const reviewStatePath = (cwd: string, prNumber: number) =>
+	join(reviewRoot(cwd, prNumber), "state.json");
+
+const artifactPath = (cwd: string, prNumber: number, phase: ReviewPhase) =>
+	join(reviewRoot(cwd, prNumber), `${phase}.xml`);
+
+const phasesForTier = (tier: RiskTier): readonly ReviewPhase[] =>
+	tier === "trivial"
+		? (["prepare", "code_quality", "synthesize", "post", "done"] as const)
+		: tier === "lite"
+			? ([
+					"prepare",
+					"code_quality",
+					"tests",
+					"docs_agents",
+					"synthesize",
+					"post",
+					"done",
+				] as const)
+			: ([
+					"prepare",
+					"code_quality",
+					"security",
+					"runtime_lifecycle",
+					"protocol",
+					"tests",
+					"docs_agents",
+					"synthesize",
+					"post",
+					"done",
+				] as const);
+
+const parseReviewState = (value: unknown): ReviewState | undefined => {
+	if (!isRecord(value)) return undefined;
+	const status = stringField(value, "status") as ReviewPhase | undefined;
+	const phases = Array.isArray(value["phases"])
+		? value["phases"].filter(
+				(phase): phase is ReviewPhase => typeof phase === "string",
+			)
+		: [];
+	const completed = Array.isArray(value["completed"])
+		? value["completed"].filter(
+				(phase): phase is ReviewPhase => typeof phase === "string",
+			)
+		: [];
+	const artifacts = isRecord(value["artifacts"]) ? value["artifacts"] : {};
+	if (status === undefined || phases.length === 0) return undefined;
+	return {
+		status,
+		...(stringField(value, "tier") === undefined
+			? {}
+			: { tier: stringField(value, "tier") as RiskTier }),
+		phases,
+		completed,
+		artifacts: Object.fromEntries(
+			Object.entries(artifacts).filter(
+				(entry): entry is [string, string] => typeof entry[1] === "string",
+			),
+		),
+		updatedAt: stringField(value, "updatedAt") ?? nowIso(),
+	};
+};
+
+const readReviewState = async (
+	cwd: string,
+	prNumber: number,
+): Promise<ReviewState | undefined> => {
+	try {
+		return parseReviewState(
+			JSON.parse(await readFile(reviewStatePath(cwd, prNumber), "utf8")),
+		);
+	} catch {
+		return undefined;
+	}
+};
+
+const writeReviewState = async (
+	cwd: string,
+	prNumber: number,
+	state: ReviewState,
+): Promise<void> => {
+	await mkdir(reviewRoot(cwd, prNumber), { recursive: true });
+	await writeFile(
+		reviewStatePath(cwd, prNumber),
+		JSON.stringify(state, null, "\t"),
+	);
+};
+
 const prepareReviewContext = async (
 	cwd: string,
 	work: PlotExtensionWork,
@@ -614,7 +708,7 @@ const prepareReviewContext = async (
 			pr: context.pr.number,
 		});
 	}
-	const root = join(cwd, ".plot", "review", `pr-${context.pr.number}`);
+	const root = reviewRoot(cwd, context.pr.number);
 	const diffDir = join(root, "diff");
 	await mkdir(diffDir, { recursive: true });
 	const files = await loadPrFiles(cwd, context.pr.number);
@@ -639,6 +733,17 @@ const prepareReviewContext = async (
 		),
 	]);
 	const risk = assessRisk(files);
+	const existingState = await readReviewState(cwd, context.pr.number);
+	const phases = phasesForTier(risk.tier);
+	const state: ReviewState = existingState ?? {
+		status: "code_quality",
+		tier: risk.tier,
+		phases,
+		completed: ["prepare"],
+		artifacts: {},
+		updatedAt: nowIso(),
+	};
+	await writeReviewState(cwd, context.pr.number, state);
 	await writeTelemetry(cwd, {
 		type: "prepare",
 		at: nowIso(),
@@ -660,252 +765,11 @@ const prepareReviewContext = async (
 			diffPath,
 			filesPath,
 			previousReviewPath,
+			statePath: reviewStatePath(cwd, context.pr.number),
 			files,
 			risk,
+			state,
 		},
-	);
-};
-
-const reviewerFocus = (reviewer: ReviewerName) => {
-	switch (reviewer) {
-		case "security":
-			return "Only exploitable or concretely dangerous security issues: auth bypass, injection, secrets, crypto misuse, unsafe trust boundaries. Ignore theoretical defense-in-depth notes.";
-		case "runtime_lifecycle":
-			return "Async lifecycle correctness: ownership, cancellation, timeout, shutdown, retries, queue bounds, stale state, race-prone event ordering.";
-		case "protocol":
-			return "Machine protocol compatibility: JSONL framing, stdout/stderr split, schema changes, replay/order semantics, malformed input behavior.";
-		case "tests":
-			return "Behavior tests: whether meaningful success/failure/cancellation/boundary paths are proven. Do not ask for tests that add no confidence.";
-		case "docs_agents":
-			return "Instruction freshness: AGENTS.md/WORKFLOW.md/commands/tooling updates needed for major architecture, package manager, test, CI, or workflow changes.";
-		case "code_quality":
-			return "Concrete correctness and maintainability issues: API boundaries, callers, error handling, simpler local patterns, and integration risks.";
-	}
-};
-
-const reviewerPrompt = (input: {
-	readonly reviewer: ReviewerName;
-	readonly context: ReviewWorkContext;
-	readonly files: readonly PrFileInfo[];
-	readonly risk: ReturnType<typeof assessRisk>;
-}) => `# Plot PR specialist reviewer: ${input.reviewer}
-
-You are one specialist reviewer in a larger coordinated PR review. Use the CLI and repository tools freely. Do real investigation; do not summarize the diff mechanically.
-
-PR: ${input.context.repo}#${input.context.pr?.number ?? "unknown"} ${input.context.pr?.title ?? ""}
-Risk tier: ${input.risk.tier} (${input.risk.reason})
-Changed files:
-${input.files.map((file) => `- ${file.path} (+${file.additions}/-${file.deletions})`).join("\n")}
-
-Focus:
-${reviewerFocus(input.reviewer)}
-
-Return concise XML only:
-<reviewer_result reviewer="${input.reviewer}">
-  <finding severity="critical|warning|suggestion">
-    <path>path if applicable</path>
-    <line>line if applicable</line>
-    <title>short title</title>
-    <impact>why this matters</impact>
-    <evidence>what you read or ran</evidence>
-    <suggested_fix>specific fix</suggested_fix>
-  </finding>
-</reviewer_result>
-
-If no concrete issues are found, return:
-<reviewer_result reviewer="${input.reviewer}"><no_findings reason="..." /></reviewer_result>`;
-
-const eventPreview = (event: AgentSessionEvent): string => {
-	if (event.type === "tool_execution_start" && "toolName" in event)
-		return `tool ${String(event.toolName)} started`;
-	if (event.type === "tool_execution_end" && "toolName" in event)
-		return `tool ${String(event.toolName)} finished`;
-	return event.type;
-};
-
-const usageFromAgentEvent = (event: AgentSessionEvent) => {
-	const record = event as unknown;
-	if (!isRecord(record)) return undefined;
-	const message = isRecord(record["message"]) ? record["message"] : undefined;
-	const usage = isRecord(message?.["usage"])
-		? message["usage"]
-		: isRecord(record["usage"])
-			? record["usage"]
-			: undefined;
-	if (usage === undefined) return undefined;
-	return usage;
-};
-
-const textFromContent = (content: unknown): string | undefined => {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return undefined;
-	const parts = content.flatMap((part) => {
-		if (typeof part === "string") return [part];
-		if (!isRecord(part)) return [];
-		const text = part["text"] ?? part["content"];
-		return typeof text === "string" ? [text] : [];
-	});
-	const joined = parts.join("");
-	return joined.length === 0 ? undefined : joined;
-};
-
-const textFromAgentEvent = (event: AgentSessionEvent): string | undefined => {
-	const record = event as unknown;
-	if (!isRecord(record)) return undefined;
-	const message = isRecord(record["message"]) ? record["message"] : undefined;
-	if (message === undefined) return undefined;
-	const role = message["role"];
-	if (role !== undefined && role !== "assistant") return undefined;
-	return textFromContent(message["content"]);
-};
-
-const reviewerOutputFromResult = (
-	reviewer: ReviewerName,
-	result: PlotRunAgentResult,
-) => {
-	const outputText = result.events
-		.map(textFromAgentEvent)
-		.filter((text): text is string => text !== undefined)
-		.at(-1);
-	return {
-		reviewer,
-		outputText: outputText ?? "",
-		eventCount: result.events.length,
-	};
-};
-
-const xmlText = (xml: string, tag: string): string | undefined => {
-	const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"));
-	return match?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim();
-};
-
-const parseReviewerFindings = (
-	reviewer: ReviewerName,
-	outputText: string,
-): ReviewerFinding[] =>
-	[
-		...outputText.matchAll(
-			/<finding\s+severity="([^"]+)"\s*>([\s\S]*?)<\/finding>/gi,
-		),
-	].flatMap((match) => {
-		const severity = match[1];
-		if (
-			severity !== "critical" &&
-			severity !== "warning" &&
-			severity !== "suggestion"
-		)
-			return [];
-		const body = match[2] ?? "";
-		const title = xmlText(body, "title");
-		const impact = xmlText(body, "impact");
-		const evidence = xmlText(body, "evidence");
-		const suggestedFix = xmlText(body, "suggested_fix");
-		if (
-			title === undefined ||
-			impact === undefined ||
-			evidence === undefined ||
-			suggestedFix === undefined
-		)
-			return [];
-		const lineText = xmlText(body, "line");
-		const line = lineText === undefined ? undefined : Number(lineText);
-		const path = xmlText(body, "path");
-		return [
-			{
-				reviewer,
-				severity,
-				...(path === undefined || path.length === 0 ? {} : { path }),
-				...(Number.isInteger(line) ? { line } : {}),
-				title,
-				impact,
-				evidence,
-				suggestedFix,
-			},
-		];
-	});
-
-const spawnReviewers = async (
-	cwd: string,
-	work: PlotExtensionWork,
-	tier: RiskTier,
-	runAgents: (
-		runs: readonly PlotRunAgentOptions[],
-		options?: PlotRunAgentsOptions,
-	) => Promise<readonly PlotRunAgentResult[]>,
-	onUpdate?: (partial: AgentToolResult<unknown>) => void,
-) => {
-	const startedAt = Date.now();
-	const context = reviewContextFromWork(work);
-	if (context.pr === undefined) {
-		return toolResult("No PR available for specialist reviewers.", {
-			tier,
-			reviewers: [],
-			findings: [],
-		});
-	}
-	const files = await loadPrFiles(cwd, context.pr.number);
-	const risk = assessRisk(files);
-	const reviewers =
-		tier === risk.tier
-			? risk.reviewAgents
-			: tier === "trivial"
-				? (["code_quality"] as const)
-				: tier === "lite"
-					? (["code_quality", "tests", "docs_agents"] as const)
-					: risk.reviewAgents;
-	onUpdate?.(
-		toolResult(`Starting ${reviewers.length} specialist reviewers.`, {
-			status: "running",
-			reviewers,
-		}),
-	);
-	const runs = reviewers.map((reviewer) => ({
-		prompt: reviewerPrompt({ reviewer, context, files, risk }),
-		create: { cwd },
-		timeoutMs:
-			reviewer === "code_quality" || reviewer === "runtime_lifecycle"
-				? 10 * 60_000
-				: 5 * 60_000,
-		onEvent: (event: AgentSessionEvent) => {
-			const usage = usageFromAgentEvent(event);
-			onUpdate?.(
-				toolResult(`${reviewer}: ${eventPreview(event)}`, {
-					status: "running",
-					reviewer,
-					event,
-					...(usage === undefined ? {} : { usage }),
-				}),
-			);
-		},
-	}));
-	const results = await runAgents(runs, {
-		concurrency: Math.min(4, runs.length),
-	});
-	const reviewerOutputs = results.map((result, index) =>
-		reviewerOutputFromResult(reviewers[index] ?? "code_quality", result),
-	);
-	const parsedCandidateFindings = reviewerOutputs.flatMap((output) =>
-		parseReviewerFindings(output.reviewer, output.outputText),
-	);
-	await writeTelemetry(cwd, {
-		type: "spawn_reviewers",
-		at: nowIso(),
-		pr: context.pr.number,
-		head: context.pr.headRefOid,
-		durationMs: Date.now() - startedAt,
-		details: {
-			tier,
-			reviewers,
-			candidateFindingCount: parsedCandidateFindings.length,
-			eventCount: results.reduce(
-				(sum, result) => sum + result.events.length,
-				0,
-			),
-		},
-	});
-	return toolResult(
-		`Specialist reviewer agents completed. Coordinator must verify, deduplicate, and judge their parsed candidate findings before posting.`,
-		{ tier, reviewers, reviewerOutputs, parsedCandidateFindings, results },
 	);
 };
 
@@ -1145,14 +1009,90 @@ const postReview = async (
 	}
 };
 
-const registeredTools = (
+const readPhaseArtifacts = async (
 	cwd: string,
-	currentWork: PlotExtensionWork,
-	runAgents: (
-		runs: readonly PlotRunAgentOptions[],
-		options?: PlotRunAgentsOptions,
-	) => Promise<readonly PlotRunAgentResult[]>,
-) => [
+	prNumber: number,
+	state: ReviewState,
+): Promise<Record<string, string>> => {
+	const entries = await Promise.all(
+		Object.entries(state.artifacts).map(async ([phase, path]) => {
+			try {
+				return [phase, await readFile(path, "utf8")] as const;
+			} catch {
+				return [phase, ""] as const;
+			}
+		}),
+	);
+	return Object.fromEntries(entries);
+};
+
+const loadReviewState = async (
+	cwd: string,
+	work: PlotExtensionWork,
+): Promise<AgentToolResult<unknown>> => {
+	const context = reviewContextFromWork(work);
+	if (context.pr === undefined)
+		return toolResult("No PR found for review state.", { status: "no_pr" });
+	const state = await readReviewState(cwd, context.pr.number);
+	if (state === undefined)
+		return toolResult("Review state is not prepared yet.", {
+			status: "unprepared",
+		});
+	return toolResult(`Current review phase: ${state.status}.`, {
+		status: "loaded",
+		state,
+		artifacts: await readPhaseArtifacts(cwd, context.pr.number, state),
+	});
+};
+
+const completeReviewPhase = async (
+	cwd: string,
+	work: PlotExtensionWork,
+	input: {
+		readonly phase: ReviewPhase;
+		readonly artifactXml: string;
+		readonly nextStatus?: ReviewPhase;
+	},
+): Promise<AgentToolResult<unknown>> => {
+	const context = reviewContextFromWork(work);
+	if (context.pr === undefined)
+		throw new Error("cannot complete review phase without a PR");
+	const state = await readReviewState(cwd, context.pr.number);
+	if (state === undefined)
+		throw new Error("prepare_review_context must create review state first");
+	if (state.status !== input.phase)
+		throw new Error(
+			`cannot complete phase ${input.phase}; current phase is ${state.status}`,
+		);
+	const path = artifactPath(cwd, context.pr.number, input.phase);
+	await writeFile(path, input.artifactXml);
+	const currentIndex = state.phases.indexOf(input.phase);
+	const nextStatus =
+		input.nextStatus ?? state.phases[currentIndex + 1] ?? "done";
+	const nextState: ReviewState = {
+		...state,
+		status: nextStatus,
+		completed: state.completed.includes(input.phase)
+			? state.completed
+			: [...state.completed, input.phase],
+		artifacts: { ...state.artifacts, [input.phase]: path },
+		updatedAt: nowIso(),
+	};
+	await writeReviewState(cwd, context.pr.number, nextState);
+	await writeTelemetry(cwd, {
+		type: "review_phase",
+		at: nowIso(),
+		pr: context.pr.number,
+		head: context.pr.headRefOid,
+		details: { phase: input.phase, nextStatus, artifactPath: path },
+	});
+	return toolResult(`Completed ${input.phase}; next phase: ${nextStatus}.`, {
+		state: nextState,
+		artifactPath: path,
+	});
+};
+
+const registeredTools = (cwd: string, currentWork: PlotExtensionWork) => [
 	defineTool({
 		name: "prepare_review_context",
 		label: "Prepare PR review context",
@@ -1161,7 +1101,7 @@ const registeredTools = (
 		promptSnippet:
 			"prepare_review_context: writes shared PR context and diff artifacts to .plot/review for this PR.",
 		promptGuidelines: [
-			"Call prepare_review_context before spawning reviewers or posting a review.",
+			"Call prepare_review_context before loading state, completing phases, or posting a review.",
 			"Read the returned files instead of duplicating large PR metadata in every prompt.",
 		],
 		parameters: objectSchema({}),
@@ -1192,28 +1132,45 @@ const registeredTools = (
 		},
 	}),
 	defineTool({
-		name: "spawn_reviewers",
-		label: "Spawn specialist reviewers",
+		name: "load_review_state",
+		label: "Load review state",
 		description:
-			"Run concurrent specialist PR-review passes and return structured candidate findings for the coordinator to verify, deduplicate, and judge.",
+			"Load the durable PR review phase state and previously written phase XML artifacts.",
 		promptSnippet:
-			"spawn_reviewers: runs tier-selected specialist reviewers and returns structured candidate findings.",
+			"load_review_state: returns current durable review phase and prior XML artifacts.",
 		promptGuidelines: [
-			"Treat spawn_reviewers findings as leads, not final truth.",
-			"Verify high-severity or surprising findings yourself before posting.",
+			"Use the current status to choose which role/hat to operate under from WORKFLOW.md.",
+			"Continue the current phase if it was interrupted; do not skip ahead without writing an artifact.",
+		],
+		parameters: objectSchema({}),
+		executionMode: "sequential" as const,
+		execute: async () => loadReviewState(cwd, currentWork),
+	}),
+	defineTool({
+		name: "complete_review_phase",
+		label: "Complete review phase",
+		description:
+			"Persist this tick's phase XML artifact and advance the durable PR review status.",
+		promptSnippet:
+			"complete_review_phase: writes phase XML and advances review status.",
+		promptGuidelines: [
+			"Call only after writing useful phase evidence/findings in artifactXml.",
+			"Do not advance status if the phase is incomplete; leave it for the next tick.",
 		],
 		parameters: objectSchema(
-			{ tier: enumSchema(["trivial", "lite", "full"] as const) },
-			["tier"],
+			{
+				phase: stringSchema,
+				artifactXml: stringSchema,
+				nextStatus: stringSchema,
+			},
+			["phase", "artifactXml"],
 		),
 		executionMode: "sequential" as const,
-		execute: async (_id, params, _signal, onUpdate) =>
-			spawnReviewers(
+		execute: async (_id, params) =>
+			completeReviewPhase(
 				cwd,
 				currentWork,
-				(params as { tier: RiskTier }).tier,
-				runAgents,
-				onUpdate,
+				params as Parameters<typeof completeReviewPhase>[2],
 			),
 	}),
 	defineTool({
@@ -1269,11 +1226,11 @@ const registeredTools = (
 export default definePlotExtension<GitHubPrReviewerConfig>({
 	id: "plot-alpha-github-pr-reviewer",
 	parseConfig,
-	create: ({ config, paths, work, registerTool, runAgents }) => {
-		for (const index of [0, 1, 2, 3]) {
+	create: ({ config, paths, work, registerTool }) => {
+		for (const index of [0, 1, 2, 3, 4]) {
 			registerTool(
 				({ work: currentWork }) =>
-					registeredTools(paths.cwd, currentWork, runAgents)[index]!,
+					registeredTools(paths.cwd, currentWork)[index]!,
 			);
 		}
 		return {
