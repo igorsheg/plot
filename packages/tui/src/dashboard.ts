@@ -182,7 +182,9 @@ export class PlotDashboard implements Component {
 
 	private openSelectedUrl(): void {
 		const model = dashboardModelFrom(this.projection);
-		const url = model.work[this.selectedIndex]?.work.url;
+		const url =
+			model.work[this.selectedIndex]?.work.url ??
+			(this.mode === "fleet" ? model.completed[0]?.url : undefined);
 		if (url !== undefined) this.actions.openUrl?.(url);
 	}
 
