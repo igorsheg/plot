@@ -26,6 +26,10 @@ export interface WorkflowAgentConfig {
 	readonly noTools?: AgentToolMode | undefined;
 	readonly allowProjectConfig?: boolean | undefined;
 }
+export interface WorkflowWorkspaceConfig {
+	readonly root: string;
+	readonly cleanup?: "on_released" | "never" | undefined;
+}
 export interface WorkflowPlotConfig {
 	readonly tickIntervalMs?: number | undefined;
 	readonly maxRunDurationMs?: number | undefined;
@@ -35,6 +39,7 @@ export interface WorkflowPlotConfig {
 	readonly queueCapacity?: number | undefined;
 	readonly eventCapacity?: number | undefined;
 	readonly replayCapacity?: number | undefined;
+	readonly workspace?: WorkflowWorkspaceConfig | undefined;
 }
 export interface WorkflowResourcesConfig {
 	readonly skills?: readonly string[] | undefined;
@@ -153,6 +158,22 @@ const decodeRuntimeConfig = (
 							queueCapacity: plot["queueCapacity"] as number | undefined,
 							eventCapacity: plot["eventCapacity"] as number | undefined,
 							replayCapacity: plot["replayCapacity"] as number | undefined,
+							...(plot["workspace"] === undefined
+								? {}
+								: {
+										workspace: (() => {
+											const workspace = object(plot["workspace"], "workspace");
+											if (typeof workspace["root"] !== "string")
+												throw new Error("workspace.root must be a string");
+											return {
+												root: workspace["root"],
+												cleanup: workspace["cleanup"] as
+													| "on_released"
+													| "never"
+													| undefined,
+											};
+										})(),
+									}),
 						},
 					}
 				: {}),

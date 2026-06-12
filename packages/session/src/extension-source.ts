@@ -58,6 +58,10 @@ export interface PlotExtensionSourceBundle {
 	readonly createOptions: (
 		context: WorkRunnerContext,
 	) => Promise<{ readonly customTools: ToolDefinition[] }>;
+	/** Resolve the extension work backing a runner context, when known. */
+	readonly workFor: (
+		context: WorkRunnerContext,
+	) => PlotExtensionWork | undefined;
 	readonly wrapRunner: (runner: WorkRunner) => WorkRunner;
 	readonly shutdown: () => Promise<void>;
 }
@@ -219,6 +223,8 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly config: unknown;
 	readonly tools?: readonly PlotExtensionTool[];
 	readonly maxConcurrentRuns?: number;
+	/** Invoked when a work id leaves discovery entirely (released/terminal). */
+	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
 	const selectedWork = new Map<WorkKey, PlotExtensionWork>();
@@ -303,8 +309,16 @@ export const makePlotExtensionSourceBundle = (options: {
 			const statusPrefix = workStatusFactPrefix(source);
 			for (const factKey of snapshot.facts.keys()) {
 				if (!factKey.startsWith(statusPrefix)) continue;
-				if (!currentIds.has(factKey.slice(statusPrefix.length)))
-					proposals.push(removeFact(factKey));
+				const workId = factKey.slice(statusPrefix.length);
+				if (currentIds.has(workId)) continue;
+				proposals.push(removeFact(factKey));
+				if (options.onWorkReleased !== undefined) {
+					try {
+						await options.onWorkReleased(workId);
+					} catch (error) {
+						await logHookError(error, "work_released", source);
+					}
+				}
 			}
 			for (const completion of snapshot.completions) {
 				if (completion.sourceId !== source) continue;
@@ -365,6 +379,7 @@ export const makePlotExtensionSourceBundle = (options: {
 	};
 	return {
 		source: workSource,
+		workFor: (context) => selectedWork.get(context.work.workKey),
 		createOptions: async (context) => {
 			const work = selectedWork.get(context.work.workKey);
 			if (work === undefined || !options.tools?.length)
@@ -507,6 +522,7 @@ export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
 	readonly agentRunner?: PlotExtensionAgentRunner;
+	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
 }): Promise<PlotExtensionSourceBundle> => {
 	const { extension, runtime, tools, config } =
 		await loadPlotExtensionRuntimeFromWorkflow(options);
@@ -517,6 +533,9 @@ export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 		paths: options.paths,
 		config,
 		tools,
+		...(options.onWorkReleased === undefined
+			? {}
+			: { onWorkReleased: options.onWorkReleased }),
 		...(options.workflow.runtime.extension?.maxConcurrentRuns === undefined
 			? {}
 			: {

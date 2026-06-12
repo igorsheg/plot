@@ -34,6 +34,10 @@ type ReviewPhase = (typeof REVIEW_PHASES)[number];
 
 interface GitHubPrReviewerConfig {
 	readonly includeDrafts: boolean;
+	/** owner/name. When omitted, inferred once from the launch directory. */
+	readonly repo?: string;
+	/** Maximum open PRs discovered per tick. */
+	readonly maxOpenPrs: number;
 }
 
 interface PullRequestInfo {
@@ -63,11 +67,16 @@ const booleanField = (record: Record<string, unknown>, field: string) =>
 const numberField = (record: Record<string, unknown>, field: string) =>
 	typeof record[field] === "number" ? (record[field] as number) : undefined;
 
-const commandOptional = async (
+/**
+ * Strict by default: a failed `gh` call throws, so the runtime keeps the
+ * last-known discovery instead of mistaking an observation failure for
+ * "the work disappeared" (which would release and interrupt live reviews).
+ */
+const command = async (
 	cwd: string,
 	file: string,
 	args: readonly string[],
-): Promise<string | undefined> => {
+): Promise<string> => {
 	try {
 		const { stdout } = await execFileAsync(file, [...args], {
 			cwd,
@@ -76,8 +85,15 @@ const commandOptional = async (
 			env: { ...process.env, NO_COLOR: "1" },
 		});
 		return stdout.trim();
-	} catch {
-		return undefined;
+	} catch (error) {
+		const stderr =
+			typeof (error as { stderr?: unknown }).stderr === "string"
+				? ((error as { stderr: string }).stderr.trim().split("\n")[0] ?? "")
+				: "";
+		throw new Error(
+			`${file} ${args.slice(0, 3).join(" ")} failed${stderr === "" ? "" : `: ${stderr}`}`,
+			{ cause: error },
+		);
 	}
 };
 
@@ -91,8 +107,13 @@ const parseJson = (text: string | undefined): unknown | undefined => {
 };
 
 const parseConfig = (input: unknown): GitHubPrReviewerConfig => {
-	if (!isRecord(input)) return { includeDrafts: true };
-	return { includeDrafts: booleanField(input, "includeDrafts") ?? true };
+	if (!isRecord(input)) return { includeDrafts: true, maxOpenPrs: 10 };
+	const repo = stringField(input, "repo");
+	return {
+		includeDrafts: booleanField(input, "includeDrafts") ?? true,
+		...(repo === undefined ? {} : { repo }),
+		maxOpenPrs: numberField(input, "maxOpenPrs") ?? 10,
+	};
 };
 
 const parsePullRequest = (value: unknown): PullRequestInfo | undefined => {
@@ -129,26 +150,37 @@ const parsePullRequest = (value: unknown): PullRequestInfo | undefined => {
 	};
 };
 
-const loadCurrentPullRequest = async (cwd: string, branch: string) => {
+/**
+ * Discover open PRs by repository API only. The daemon's filesystem and git
+ * state are never consulted: this extension can run from any directory.
+ */
+const loadOpenPullRequests = async (
+	cwd: string,
+	repo: string,
+	limit: number,
+): Promise<PullRequestInfo[]> => {
 	const fields =
 		"number,title,isDraft,baseRefName,headRefName,url,author,headRefOid";
-	const byView = parsePullRequest(
-		parseJson(
-			await commandOptional(cwd, "gh", ["pr", "view", "--json", fields]),
-		),
-	);
-	if (byView !== undefined) return byView;
 	const listed = parseJson(
-		await commandOptional(cwd, "gh", [
+		await command(cwd, "gh", [
 			"pr",
 			"list",
-			"--head",
-			branch,
+			"--repo",
+			repo,
+			"--state",
+			"open",
+			"--limit",
+			String(limit),
 			"--json",
 			fields,
 		]),
 	);
-	return Array.isArray(listed) ? parsePullRequest(listed[0]) : undefined;
+	if (!Array.isArray(listed))
+		throw new Error(`unexpected gh pr list output for ${repo}`);
+	return listed.flatMap((item) => {
+		const pr = parsePullRequest(item);
+		return pr === undefined ? [] : [pr];
+	});
 };
 
 const MARKER_PATTERN = /<!-- plot-review:v1 ([^>]*?) -->/;
@@ -178,27 +210,27 @@ const parseMarker = (body: string): Omit<AnchorMarker, "url"> | undefined => {
 	};
 };
 
+let cachedLogin: string | undefined;
+const currentLogin = async (cwd: string): Promise<string> => {
+	if (cachedLogin === undefined)
+		cachedLogin = await command(cwd, "gh", ["api", "user", "-q", ".login"]);
+	return cachedLogin;
+};
+
 const findAnchorMarker = async (
 	cwd: string,
 	repo: string,
 	prNumber: number,
 ): Promise<AnchorMarker | undefined> => {
-	const currentUser = await commandOptional(cwd, "gh", [
-		"api",
-		"user",
-		"-q",
-		".login",
-	]);
-	if (currentUser === undefined || currentUser.length === 0) return undefined;
+	const currentUser = await currentLogin(cwd);
 	const jq = `[ .[] | select(.user.login == ${JSON.stringify(currentUser)} and ((.body // "") | contains("<!-- plot-review:v1 "))) | {body, html_url, created_at} ] | sort_by(.created_at) | tostring`;
-	const output = await commandOptional(cwd, "gh", [
+	const output = await command(cwd, "gh", [
 		"api",
 		`repos/${repo}/issues/${prNumber}/comments`,
 		"--paginate",
 		"--jq",
 		jq,
 	]);
-	if (output === undefined) return undefined;
 	const comments = output
 		.split("\n")
 		.map((line) => parseJson(line.trim()))
@@ -216,33 +248,22 @@ const findAnchorMarker = async (
 
 const contextBlock = (values: {
 	readonly repo: string;
-	readonly branch: string;
-	readonly includeDrafts: boolean;
-	readonly pr?: PullRequestInfo;
+	readonly pr: PullRequestInfo;
 	readonly anchor?: AnchorMarker;
 	readonly phase: ReviewPhase;
 }) => {
 	const lines = [
 		"## Extension-discovered target",
 		`- Repository: ${values.repo}`,
-		`- Current branch: ${values.branch}`,
-	];
-	if (values.pr === undefined)
-		return [...lines, "- Pull request: not found for the current branch"].join(
-			"\n",
-		);
-	lines.push(
 		`- Pull request: #${values.pr.number} ${values.pr.title}`,
 		`- URL: ${values.pr.url}`,
 		`- Draft: ${String(values.pr.isDraft)}`,
 		`- Base/head: ${values.pr.baseRefName}...${values.pr.headRefName}`,
-	);
+	];
 	if (values.pr.authorLogin !== undefined)
 		lines.push(`- Author: ${values.pr.authorLogin}`);
 	if (values.pr.headRefOid !== undefined)
 		lines.push(`- Head SHA: ${values.pr.headRefOid}`);
-	if (values.pr.isDraft && !values.includeDrafts)
-		lines.push("- Draft policy: stop after reporting that the PR is draft");
 	lines.push(`- Current review phase for this tick: ${values.phase}`);
 	if (values.anchor === undefined) {
 		lines.push("- Anchor comment: none yet; this tick creates it");
@@ -263,94 +284,79 @@ const contextBlock = (values: {
 export default definePlotExtension<GitHubPrReviewerConfig>({
 	id: "plot-alpha-github-pr-reviewer",
 	parseConfig,
-	create: ({ config, paths, work }) => ({
-		discover: async (): Promise<readonly PlotExtensionWork[]> => {
-			const cwd = paths.cwd;
-			const repo =
-				(await commandOptional(cwd, "gh", [
+	create: ({ config, paths, work }) => {
+		// The target repository comes from config, or is inferred exactly once
+		// from the launch directory as a convenience. Discovery never reads
+		// the daemon's git state again: the loop can run from anywhere, and
+		// nothing the dispatched agents do to any checkout can retarget it.
+		let pinnedRepo: string | undefined = config.repo;
+		const resolveRepo = async (cwd: string) => {
+			if (pinnedRepo === undefined)
+				pinnedRepo = await command(cwd, "gh", [
 					"repo",
 					"view",
 					"--json",
 					"nameWithOwner",
 					"-q",
 					".nameWithOwner",
-				])) ?? "unknown/unknown";
-			const branch =
-				(await commandOptional(cwd, "git", ["branch", "--show-current"])) ??
-				"unknown";
-			const pr = await loadCurrentPullRequest(cwd, branch);
-			// Draft PRs hold their claim without dispatching: the work stays
-			// visible as blocked and review starts when the draft is marked
-			// ready, instead of silently vanishing.
-			const draftBlocked =
-				pr !== undefined && pr.isDraft && !config.includeDrafts;
-			const anchor =
-				pr === undefined
-					? undefined
-					: await findAnchorMarker(cwd, repo, pr.number);
-			const headMatches =
-				anchor !== undefined && anchor.head === pr?.headRefOid;
-			// Reconcile: a done anchor for the current head means nothing to do.
-			// A missing/unparseable marker or a moved head restarts at prepare.
-			if (headMatches && anchor.status === "done") return [];
-			const phase: ReviewPhase = headMatches ? anchor.status : "prepare";
-			const version =
-				pr === undefined
-					? branch
-					: `${pr.headRefOid ?? pr.headRefName}:${phase}`;
-			return [
-				work({
-					id:
-						pr === undefined
-							? `github:${repo}:branch:${branch}:no-pr`
-							: `github:${repo}:pr:${pr.number}`,
-					version,
-					...(draftBlocked ? { blocked: "draft pull request" } : {}),
-					title:
-						pr === undefined
-							? `No pull request found for ${branch}`
-							: `Review ${repo} PR #${pr.number}: ${pr.title} (${phase})`,
-					...(pr === undefined ? {} : { url: pr.url }),
-					subject:
-						pr === undefined
-							? `github:${repo}`
-							: `github:${repo}:pr:${pr.number}`,
-					display:
-						pr === undefined
-							? {
-									kind: "github-pr-review",
-									primary: branch,
-									title: "No pull request found",
-									subtitle: repo,
-									labels: ["no-pr"],
-								}
-							: {
-									kind: "github-pr-review",
-									primary: `#${pr.number}`,
-									title: pr.title,
-									subtitle: `${repo} · ${pr.baseRefName}...${pr.headRefName}`,
-									url: pr.url,
-									...(pr.headRefOid === undefined
-										? {}
-										: { version: pr.headRefOid.slice(0, 7) }),
-									labels: [
-										...(draftBlocked ? ["blocked:draft"] : []),
-										anchor === undefined ? "fresh" : "incremental",
-										`phase:${phase}`,
-									],
-								},
-					context: {
-						githubContext: contextBlock({
-							repo,
-							branch,
-							includeDrafts: config.includeDrafts,
-							...(pr === undefined ? {} : { pr }),
-							...(anchor === undefined ? {} : { anchor }),
-							phase,
+				]);
+			return pinnedRepo;
+		};
+		return {
+			discover: async (): Promise<readonly PlotExtensionWork[]> => {
+				const cwd = paths.cwd;
+				const repo = await resolveRepo(cwd);
+				const prs = await loadOpenPullRequests(cwd, repo, config.maxOpenPrs);
+				const works: PlotExtensionWork[] = [];
+				for (const pr of prs) {
+					// Draft PRs hold their claim without dispatching: the work
+					// stays visible as blocked and the review starts when the
+					// draft is marked ready, instead of silently vanishing.
+					const draftBlocked = pr.isDraft && !config.includeDrafts;
+					const anchor = await findAnchorMarker(cwd, repo, pr.number);
+					const headMatches =
+						anchor !== undefined && anchor.head === pr.headRefOid;
+					// A done anchor for the current head means nothing to do for
+					// this PR. A missing/unparseable marker or a moved head
+					// restarts at prepare.
+					if (headMatches && anchor.status === "done") continue;
+					const phase: ReviewPhase = headMatches ? anchor.status : "prepare";
+					works.push(
+						work({
+							id: `github:${repo}:pr:${pr.number}`,
+							version: `${pr.headRefOid ?? pr.headRefName}:${phase}`,
+							...(draftBlocked ? { blocked: "draft pull request" } : {}),
+							title: `Review ${repo} PR #${pr.number}: ${pr.title} (${phase})`,
+							url: pr.url,
+							subject: `github:${repo}:pr:${pr.number}`,
+							display: {
+								kind: "github-pr-review",
+								primary: `#${pr.number}`,
+								title: pr.title,
+								subtitle: `${repo} · ${pr.baseRefName}...${pr.headRefName}`,
+								url: pr.url,
+								...(pr.headRefOid === undefined
+									? {}
+									: { version: pr.headRefOid.slice(0, 7) }),
+								labels: [
+									...(draftBlocked ? ["blocked:draft"] : []),
+									anchor === undefined ? "fresh" : "incremental",
+									`phase:${phase}`,
+								],
+							},
+							context: {
+								githubContext: contextBlock({
+									repo,
+									pr,
+									...(anchor === undefined ? {} : { anchor }),
+									phase,
+								}),
+							},
 						}),
-					},
-				}),
-			];
-		},
-	}),
+					);
+				}
+				return works;
+			},
+		};
+	},
 });

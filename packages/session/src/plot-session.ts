@@ -19,7 +19,10 @@ import type {
 } from "./agent-session-client.js";
 import type { AgentSessionWorkRunnerOptions } from "./agent-session-runner.js";
 import type { WorkflowDefinition } from "./workflow.js";
-import { renderPromptTemplateForRunnerContext } from "./workflow-template.js";
+import {
+	makePromptTemplateData,
+	renderPromptTemplate,
+} from "./workflow-template.js";
 
 export type PlotSessionId = string;
 export const plotSessionId = (value: string): PlotSessionId => {
@@ -118,6 +121,10 @@ interface AgentSessionRunnerConfig extends Omit<
 > {
 	readonly onEvent?: (event: AgentSessionEvent) => Promise<void> | void;
 	readonly wrapRunner?: (runner: WorkRunner) => WorkRunner;
+	/** Extra prompt-template data merged over the work's template context. */
+	readonly templateData?: (
+		context: WorkRunnerContext,
+	) => Promise<Record<string, unknown>> | Record<string, unknown>;
 }
 export interface PlotSessionShape {
 	readonly id: PlotSessionId;
@@ -186,10 +193,14 @@ const makeAgentRunner = (
 ): WorkRunner => ({
 	run: async (context): Promise<WorkResult> => {
 		const promptTemplate = await resolveValue(config.prompt, context);
-		const prompt = await renderPromptTemplateForRunnerContext(
-			promptTemplate,
-			context,
-		);
+		const extraTemplateData =
+			config.templateData === undefined
+				? {}
+				: await config.templateData(context);
+		const prompt = await renderPromptTemplate(promptTemplate, {
+			...makePromptTemplateData(context),
+			...extraTemplateData,
+		});
 		const create =
 			config.create === undefined
 				? undefined

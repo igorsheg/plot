@@ -39,6 +39,7 @@ import {
 	loadDiscoveredWorkflowFromNode,
 	type WorkflowDefinition,
 } from "./workflow.js";
+import { makeWorkspaceManager, workspaceBaseDir } from "./workspace.js";
 
 export interface PlotSessionHostOptions {
 	readonly workflowPath?: string;
@@ -240,11 +241,36 @@ export const createPlotSessionHost = async (
 			});
 		},
 	};
+	// Workspace manager (opt-in via plot.workspace): the runtime guarantees a
+	// safe, durable per-work directory and runs the agent session inside it;
+	// populating the directory stays with the agent/workflow.
+	const workspaceConfig = plot?.workspace;
+	const workspaces =
+		workspaceConfig === undefined
+			? undefined
+			: makeWorkspaceManager({
+					root: workspaceConfig.root,
+					baseDir: workspaceBaseDir(workflow.path, options.cwd),
+					namespace: workflow.runtime.name ?? "workflow",
+					...(workspaceConfig.cleanup === undefined
+						? {}
+						: { cleanup: workspaceConfig.cleanup }),
+				});
+	const workspaceKeyFor = (context: WorkRunnerContext) =>
+		extensionBundle?.workFor(context)?.id ??
+		String(context.run.subject ?? context.work.workKey);
 	const extensionBundle = workflow.runtime.extension
 		? await makePlotExtensionSourceBundleFromWorkflow({
 				workflow,
 				paths,
 				agentRunner: extensionAgentRunner,
+				...(workspaces === undefined || workspaces.cleanup !== "on_released"
+					? {}
+					: {
+							onWorkReleased: async (workId: string) => {
+								await workspaces.remove(workId);
+							},
+						}),
 			})
 		: undefined;
 	const sources = extensionBundle
@@ -252,14 +278,24 @@ export const createPlotSessionHost = async (
 		: [makeOneShotWorkflowSource(workflow)];
 	const agentRunnerCreate = async (context: WorkRunnerContext) => {
 		const extensionCreate = await extensionBundle?.createOptions(context);
+		const workspace =
+			workspaces === undefined
+				? undefined
+				: await workspaces.ensure(workspaceKeyFor(context));
 		return {
-			cwd: paths.cwd,
+			cwd: workspace?.path ?? paths.cwd,
 			...(extensionCreate === undefined ||
 			extensionCreate.customTools.length === 0
 				? {}
 				: { customTools: extensionCreate.customTools }),
 		};
 	};
+	const workspaceTemplateData =
+		workspaces === undefined
+			? undefined
+			: async (context: WorkRunnerContext) => ({
+					workspace: await workspaces.ensure(workspaceKeyFor(context)),
+				});
 	const session = makePlotSessionLayer({
 		id: plotSessionId(options.sessionId),
 		workflow,
@@ -269,6 +305,9 @@ export const createPlotSessionHost = async (
 		agentRunner: {
 			prompt: workflow.prompt,
 			create: agentRunnerCreate,
+			...(workspaceTemplateData === undefined
+				? {}
+				: { templateData: workspaceTemplateData }),
 			...(extensionBundle === undefined
 				? {}
 				: { wrapRunner: extensionBundle.wrapRunner }),

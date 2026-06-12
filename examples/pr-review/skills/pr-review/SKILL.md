@@ -125,7 +125,16 @@ For medium/large/high-risk PRs:
 
 ### Findings
 
-- ![P0](https://img.shields.io/badge/P0-red?style=flat) `path:line` — [title]. [Impact.] Evidence: [what proved it]. Fix: [concrete fix].
+#### ![P0](https://img.shields.io/badge/P0-red?style=flat) [Short finding title] — `path:line`
+
+**Impact:** [one sentence: what breaks and when.]
+**Fix:** [one concrete sentence.]
+
+<details><summary>Evidence</summary>
+
+[What you read or ran that proves it, with line references.]
+
+</details>
 
 ### Confidence
 
