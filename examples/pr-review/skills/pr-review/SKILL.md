@@ -146,11 +146,7 @@ Default:
 gh pr review <number> --comment --body-file /tmp/review.md
 ```
 
-Include a durable marker in the body when the workflow asks for one:
-
-```md
-<!-- plot-pr-review:<head-sha> -->
-```
+When the workflow maintains a durable anchor comment, follow the workflow's marker contract exactly and edit the anchor in place — never create a duplicate anchor.
 
 For line-specific findings, prefer creating one GitHub review with inline comments in the same API call:
 
@@ -160,8 +156,6 @@ PR=<number>
 HEAD=$(gh pr view "$PR" --json headRefOid -q .headRefOid)
 
 cat > /tmp/review-body.md <<EOF
-<!-- plot-pr-review:$HEAD -->
-
 ## PR Review
 
 **Disposition:** COMMENT

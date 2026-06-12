@@ -531,4 +531,178 @@ describe("task-agnostic Plot agent", () => {
 			expect.objectContaining({ level: "error", workKey: key }),
 		);
 	});
+
+	test("run lifecycle messages survive a saturated mailbox", async () => {
+		const key = workKey("chatty:1");
+		const doneFact = "chatty:done";
+		const source: WorkSource = {
+			id: sourceId("chatty"),
+			reconcile: ({ snapshot }) =>
+				snapshot.completions.some((completion) => completion.workKey === key)
+					? [setFact(doneFact, true)]
+					: [],
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) || snapshot.facts.get(doneFact) === true
+					? []
+					: [{ workKey: key }],
+		};
+		const runner: WorkRunner = {
+			run: async ({ emitObservation }) => {
+				for (let i = 0; i < 16; i++)
+					await emitObservation({ type: "noise", data: i });
+				return {};
+			},
+		};
+		const agent = makeAgent([source], runner, { queueCapacity: 2 });
+		await agent.tickOnce();
+		await yieldNow();
+		const result = await agent.tickOnce();
+		expect(result.completions).toContainEqual(
+			expect.objectContaining({ status: "succeeded", workKey: key }),
+		);
+		expect(result.snapshot.running.has(key)).toBe(false);
+	});
+
+	test("failed work backs off instead of retrying at tick cadence", async () => {
+		const key = workKey("flaky:1");
+		const source: WorkSource = {
+			id: sourceId("flaky"),
+			selectWork: () => [{ workKey: key }],
+		};
+		const runner: WorkRunner = {
+			run: () => {
+				throw new Error("boom");
+			},
+		};
+		const agent = makeAgent([source], runner, {
+			retryInitialDelayMs: 60_000,
+		});
+		await agent.tickOnce();
+		await yieldNow();
+		const second = await agent.tickOnce();
+		expect(second.completions).toContainEqual(
+			expect.objectContaining({ status: "failed", workKey: key }),
+		);
+		expect(second.started).toHaveLength(0);
+		expect(second.skipped).toContainEqual(
+			expect.objectContaining({ workKey: key, reason: "retry_backoff" }),
+		);
+		expect(second.snapshot.retries?.get(key)).toEqual(
+			expect.objectContaining({ attempt: 1, lastError: "boom" }),
+		);
+	});
+
+	test("backed-off work becomes eligible again and success clears attempts", async () => {
+		const key = workKey("recovers:1");
+		let failures = 1;
+		const source: WorkSource = {
+			id: sourceId("recovers"),
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) ? [] : [{ workKey: key }],
+		};
+		const runner: WorkRunner = {
+			run: () => {
+				if (failures-- > 0) throw new Error("boom");
+				return {};
+			},
+		};
+		const agent = makeAgent([source], runner, { retryInitialDelayMs: 1 });
+		await agent.tickOnce();
+		await yieldNow();
+		await agent.tickOnce(); // records the failure; retry due in 1ms
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const third = await agent.tickOnce();
+		expect(third.started).toHaveLength(1);
+		await yieldNow();
+		const fourth = await agent.tickOnce();
+		expect(fourth.completions).toContainEqual(
+			expect.objectContaining({ status: "succeeded", workKey: key }),
+		);
+		expect(fourth.snapshot.retries?.has(key)).toBe(false);
+	});
+
+	test("stalled runs are interrupted after the inactivity timeout", async () => {
+		const key = workKey("stalls:1");
+		const source: WorkSource = {
+			id: sourceId("stalls"),
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) ? [] : [{ workKey: key }],
+		};
+		const runner: WorkRunner = { run: () => never() };
+		const agent = makeAgent([source], runner, { stallTimeoutMs: 5 });
+		await agent.tickOnce();
+		await new Promise((resolve) => setTimeout(resolve, 15));
+		const second = await agent.tickOnce();
+		expect(second.completions).toContainEqual(
+			expect.objectContaining({
+				status: "timed_out",
+				workKey: key,
+				error: expect.stringContaining("stalled"),
+			}),
+		);
+		expect(second.snapshot.running.has(key)).toBe(false);
+	});
+
+	test("emitted observations keep an active run alive past the stall timeout", async () => {
+		const key = workKey("alive:1");
+		const source: WorkSource = {
+			id: sourceId("alive"),
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) ? [] : [{ workKey: key }],
+		};
+		const runner: WorkRunner = {
+			run: async ({ emitObservation, signal }) => {
+				for (;;) {
+					if (signal.aborted) return {};
+					await emitObservation({ type: "heartbeat" });
+					await new Promise((resolve) => setTimeout(resolve, 2));
+				}
+			},
+		};
+		const agent = makeAgent([source], runner, { stallTimeoutMs: 50 });
+		await agent.tickOnce();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const second = await agent.tickOnce();
+		expect(second.snapshot.running.has(key)).toBe(true);
+		await agent.shutdown();
+		await agent.tickOnce();
+	});
+
+	test("tick result records why selected work was not started", async () => {
+		const slow = workKey("skip:slow");
+		const other = workKey("skip:other");
+		const sources: WorkSource[] = [
+			{
+				id: sourceId("skip-a"),
+				selectWork: () => [{ workKey: slow }, { workKey: slow }],
+			},
+			{ id: sourceId("skip-b"), selectWork: () => [{ workKey: other }] },
+		];
+		const runner: WorkRunner = { run: () => never() };
+		const agent = makeAgent(sources, runner, {
+			policy: { maxConcurrentRuns: 1 },
+		});
+		const first = await agent.tickOnce();
+		expect(first.started).toHaveLength(1);
+		expect(first.skipped).toContainEqual(
+			expect.objectContaining({ workKey: slow, reason: "duplicate_in_tick" }),
+		);
+		expect(first.skipped).toContainEqual(
+			expect.objectContaining({ reason: "capacity_exhausted" }),
+		);
+		const second = await agent.tickOnce();
+		expect(second.skipped).toContainEqual(
+			expect.objectContaining({ reason: "already_running" }),
+		);
+	});
+
+	test("wakeAfter survives a concurrent tick and appears in the snapshot", async () => {
+		const agent = makeAgent([makeWorkSource("waker", "wake:1")]);
+		await agent.wakeAfter(60_000, "external");
+		await agent.tickOnce();
+		const snapshot = await agent.snapshot();
+		expect(snapshot.scheduledWakes).toContainEqual(
+			expect.objectContaining({ reason: "external", delayMs: 60_000 }),
+		);
+	});
 });

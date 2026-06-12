@@ -190,6 +190,24 @@ export interface ScheduledWake {
 	readonly workKey?: WorkKey;
 	readonly attempt?: PositiveInt;
 }
+export interface RetryState {
+	readonly attempt: PositiveInt;
+	readonly nextEligibleAtMs: number;
+	readonly lastError?: string;
+}
+export type WorkSkipReason =
+	| "already_running"
+	| "duplicate_in_tick"
+	| "interrupted_this_tick"
+	| "capacity_exhausted"
+	| "source_concurrency"
+	| "retry_backoff";
+export interface SkippedWork {
+	readonly workKey: WorkKey;
+	readonly sourceId: SourceId;
+	readonly reason: WorkSkipReason;
+	readonly detail?: string;
+}
 export interface RuntimeSnapshot {
 	readonly tickId: TickId;
 	readonly facts: ReadonlyMap<string, unknown>;
@@ -198,6 +216,7 @@ export interface RuntimeSnapshot {
 	readonly diagnostics: readonly Diagnostic[];
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
 	readonly scheduledWakes?: readonly ScheduledWake[];
+	readonly retries?: ReadonlyMap<WorkKey, RetryState>;
 }
 export interface TickResult {
 	readonly tickId: TickId;
@@ -205,6 +224,7 @@ export interface TickResult {
 	readonly proposals: readonly ReconcileProposal[];
 	readonly selected: readonly WorkItem[];
 	readonly started: readonly WorkRun[];
+	readonly skipped: readonly SkippedWork[];
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
 	readonly snapshot: RuntimeSnapshot;

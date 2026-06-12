@@ -209,7 +209,15 @@ const makeAgentRunner = (
 				tick_id: context.tickId,
 			},
 		};
+		// Throttled activity ping so the runtime's stall detection sees a
+		// streaming agent session as alive without flooding the mailbox.
+		let lastActivityPingMs = 0;
 		for await (const event of client.prompt(request)) {
+			const now = Date.now();
+			if (now - lastActivityPingMs >= 10_000) {
+				lastActivityPingMs = now;
+				await context.emitObservation({ type: "agent_session.activity" });
+			}
 			await publishAgentEvent(context, event);
 			if (config.onEvent) {
 				try {

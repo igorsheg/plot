@@ -117,12 +117,12 @@ describe("Plot extension source adapter", () => {
 		]);
 	});
 
-	test("interrupts stale running extension work when discovery changes version", async () => {
+	test("superseded version drains; the id-level claim defers the next version", async () => {
 		let version = "sha-1";
 		const interrupted: string[] = [];
 		const firstStarted = deferred<void>();
 		const secondStarted = deferred<void>();
-		const firstInterrupted = deferred<void>();
+		const releaseFirst = deferred<string>();
 		const bundle = makePlotExtensionSourceBundle({
 			workflow,
 			paths,
@@ -145,13 +145,10 @@ describe("Plot extension source adapter", () => {
 			},
 		});
 		const runner: WorkRunner = bundle.wrapRunner({
-			run: ({ work, signal }) => {
+			run: async ({ work }) => {
 				if (String(work.workKey).endsWith(":sha-1")) {
 					firstStarted.resolve();
-					signal.addEventListener("abort", () => firstInterrupted.resolve(), {
-						once: true,
-					});
-					return new Promise(() => {});
+					return { output: await releaseFirst.promise };
 				}
 				secondStarted.resolve();
 				return new Promise(() => {});
@@ -161,30 +158,37 @@ describe("Plot extension source adapter", () => {
 		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
 		const first = await agent.tickOnce();
 		await firstStarted.promise;
+		// The run advances its own durable version (e.g. anchor marker edit).
 		version = "sha-2";
 		const second = await agent.tickOnce();
-		await firstInterrupted.promise;
-		await secondStarted.promise;
+		// Superseded run is not interrupted and the new version does not start
+		// in parallel: the work id is still claimed by the draining run.
+		expect(second.completions).toHaveLength(0);
+		expect(second.started).toHaveLength(0);
+		expect(second.skipped).toEqual([]);
+		releaseFirst.resolve("phase complete");
+		await new Promise((resolve) => setTimeout(resolve, 0));
 		const third = await agent.tickOnce();
+		await secondStarted.promise;
 		const snapshot = await agent.snapshot();
-		const result = { first, second, third, snapshot };
 
-		expect(result.first.started).toEqual([
+		expect(first.started).toEqual([
 			expect.objectContaining({
 				workKey: workKey(
 					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
 				),
 			}),
 		]);
-		expect(result.second.completions).toContainEqual(
+		expect(third.completions).toContainEqual(
 			expect.objectContaining({
-				status: "interrupted",
+				status: "succeeded",
 				workKey: workKey(
 					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
 				),
+				output: "phase complete",
 			}),
 		);
-		expect(result.second.started).toEqual([
+		expect(third.started).toEqual([
 			expect.objectContaining({
 				workKey: workKey(
 					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-2",
@@ -192,15 +196,160 @@ describe("Plot extension source adapter", () => {
 			}),
 		]);
 		expect(
-			result.snapshot.running.has(
-				workKey("extension:github-pr-reviewer:github:acme/web:pr:42:sha-1"),
-			),
-		).toBe(false);
-		expect(
-			result.snapshot.running.has(
+			snapshot.running.has(
 				workKey("extension:github-pr-reviewer:github:acme/web:pr:42:sha-2"),
 			),
 		).toBe(true);
+		expect(interrupted).toEqual([]);
+	});
+
+	test("blocked work holds its claim: no dispatch, no interrupt, status fact", async () => {
+		let blocked: string | false = false;
+		const started = deferred<void>();
+		const releaseRun = deferred<string>();
+		let aborts = 0;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "github-pr-reviewer",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => [
+					{
+						id: "github:acme/web:pr:7",
+						version: "sha-1",
+						title: "Review PR #7",
+						...(blocked === false ? {} : { blocked }),
+					},
+				],
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: async ({ signal }) => {
+				started.resolve();
+				signal.addEventListener(
+					"abort",
+					() => {
+						aborts += 1;
+					},
+					{ once: true },
+				);
+				return { output: await releaseRun.promise };
+			},
+		});
+
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		await agent.tickOnce();
+		await started.promise;
+		// Work becomes blocked while an attempt is running: hold, don't kill.
+		blocked = "waiting for author reply";
+		const second = await agent.tickOnce();
+		expect(second.completions).toHaveLength(0);
+		expect(aborts).toBe(0);
+		releaseRun.resolve("done");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const third = await agent.tickOnce();
+		expect(third.completions).toContainEqual(
+			expect.objectContaining({ status: "succeeded", output: "done" }),
+		);
+		// Still blocked: the work is not redispatched, and the named claim
+		// status is visible in facts with its reason.
+		const fourth = await agent.tickOnce();
+		expect(fourth.started).toHaveLength(0);
+		const snapshot = await agent.snapshot();
+		expect(
+			snapshot.facts.get(
+				"extension.work_status:extension:github-pr-reviewer:github:acme/web:pr:7",
+			),
+		).toEqual({ status: "blocked", reason: "waiting for author reply" });
+	});
+
+	test("claim status facts track running and released transitions", async () => {
+		let works: readonly { id: string; version: string }[] = [
+			{ id: "github:acme/web:pr:9", version: "sha-1" },
+		];
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "github-pr-reviewer",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: { discover: () => works },
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: () => new Promise(() => {}),
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const factKey =
+			"extension.work_status:extension:github-pr-reviewer:github:acme/web:pr:9";
+		await agent.tickOnce();
+		await agent.tickOnce();
+		expect((await agent.snapshot()).facts.get(factKey)).toEqual({
+			status: "running",
+		});
+		works = [];
+		await agent.tickOnce();
+		await agent.tickOnce();
+		expect((await agent.snapshot()).facts.has(factKey)).toBe(false);
+	});
+
+	test("released work id interrupts the running attempt", async () => {
+		let works: readonly { id: string; version: string; title: string }[] = [
+			{ id: "github:acme/web:pr:42", version: "sha-1", title: "Review PR #42" },
+		];
+		const interrupted: string[] = [];
+		const started = deferred<void>();
+		const aborted = deferred<void>();
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "github-pr-reviewer",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => works,
+				interrupted: ({ work }) => {
+					interrupted.push(`${work.id}:${work.version ?? "unversioned"}`);
+				},
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: ({ signal }) => {
+				started.resolve();
+				signal.addEventListener("abort", () => aborted.resolve(), {
+					once: true,
+				});
+				return new Promise(() => {});
+			},
+		});
+
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		await agent.tickOnce();
+		await started.promise;
+		// Terminal state: the PR is closed/merged and discovery stops
+		// returning the work id entirely.
+		works = [];
+		const second = await agent.tickOnce();
+		await aborted.promise;
+		// The interrupted-completion hook is invoked by the next reconcile.
+		await agent.tickOnce();
+
+		expect(second.completions).toContainEqual(
+			expect.objectContaining({
+				status: "interrupted",
+				workKey: workKey(
+					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
+				),
+				error: expect.stringContaining("no longer discovered"),
+			}),
+		);
 		expect(interrupted).toEqual(["github:acme/web:pr:42:sha-1"]);
 	});
 

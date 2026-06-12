@@ -29,6 +29,9 @@ export interface WorkflowAgentConfig {
 export interface WorkflowPlotConfig {
 	readonly tickIntervalMs?: number | undefined;
 	readonly maxRunDurationMs?: number | undefined;
+	readonly stallTimeoutMs?: number | undefined;
+	readonly retryInitialDelayMs?: number | undefined;
+	readonly retryMaxDelayMs?: number | undefined;
 	readonly queueCapacity?: number | undefined;
 	readonly eventCapacity?: number | undefined;
 	readonly replayCapacity?: number | undefined;
@@ -142,6 +145,11 @@ const decodeRuntimeConfig = (
 						plot: {
 							tickIntervalMs: plot["tickIntervalMs"] as number | undefined,
 							maxRunDurationMs: plot["maxRunDurationMs"] as number | undefined,
+							stallTimeoutMs: plot["stallTimeoutMs"] as number | undefined,
+							retryInitialDelayMs: plot["retryInitialDelayMs"] as
+								| number
+								| undefined,
+							retryMaxDelayMs: plot["retryMaxDelayMs"] as number | undefined,
 							queueCapacity: plot["queueCapacity"] as number | undefined,
 							eventCapacity: plot["eventCapacity"] as number | undefined,
 							replayCapacity: plot["replayCapacity"] as number | undefined,
