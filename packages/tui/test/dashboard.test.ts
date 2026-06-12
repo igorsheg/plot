@@ -13,6 +13,13 @@ const fixture = (name: string) =>
 		"utf8",
 	);
 
+const waitFor = async (condition: () => boolean, timeoutMs = 2_000) => {
+	const deadline = Date.now() + timeoutMs;
+	while (!condition() && Date.now() < deadline)
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	return condition();
+};
+
 const escape = String.fromCharCode(27);
 const stripAnsi = (text: string) =>
 	text.replace(new RegExp(`${escape}\\[[0-9;]*m`, "g"), "");
@@ -396,5 +403,66 @@ describe("PlotDashboard", () => {
 		expect(toggled).toBe(true);
 		expect(rendered).toContain("DEBUG EVENTS");
 		expect(rendered).toContain("#2 agent_session_event");
+	});
+
+	describe("live render clock", () => {
+		const runningProjection = () => ({
+			...emptyProjection("default", "workflow"),
+			running: new Map([["work-1", runningWork({ workKey: "work-1" })]]),
+		});
+
+		test("running work drives render requests between start and stop", async () => {
+			let renders = 0;
+			const dashboard = new PlotDashboard(runningProjection(), {
+				...actions,
+				requestRender: () => {
+					renders += 1;
+				},
+			});
+			dashboard.startLiveUpdates();
+			try {
+				expect(await waitFor(() => renders > 0)).toBe(true);
+			} finally {
+				dashboard.stopLiveUpdates();
+			}
+		});
+
+		test("projection updates cannot restart the clock after stopLiveUpdates", async () => {
+			let renders = 0;
+			const dashboard = new PlotDashboard(runningProjection(), {
+				...actions,
+				requestRender: () => {
+					renders += 1;
+				},
+			});
+			dashboard.startLiveUpdates();
+			await waitFor(() => renders > 0);
+			dashboard.stopLiveUpdates();
+			// A late async projection update arriving mid-shutdown.
+			dashboard.setProjection(runningProjection());
+			const after = renders;
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			expect(renders).toBe(after);
+		});
+
+		test("an idle projection retunes the clock off while live", async () => {
+			let renders = 0;
+			const dashboard = new PlotDashboard(runningProjection(), {
+				...actions,
+				requestRender: () => {
+					renders += 1;
+				},
+			});
+			dashboard.startLiveUpdates();
+			try {
+				await waitFor(() => renders > 0);
+				dashboard.setProjection(emptyProjection("default", "workflow"));
+				const after = renders;
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				expect(renders).toBe(after);
+			} finally {
+				dashboard.stopLiveUpdates();
+			}
+		});
 	});
 });
