@@ -482,6 +482,46 @@ describe("PlotDashboard", () => {
 		expect(opened).toEqual([]);
 	});
 
+	test("open clamps stale selection before falling back to completions", () => {
+		const opened: string[] = [];
+		const dashboard = new PlotDashboard(
+			{
+				...emptyProjection("default", "workflow"),
+				running: new Map([
+					[
+						"source:item:41",
+						runningWork({
+							workKey: "source:item:41",
+							primary: "#41",
+							title: "Item 41",
+							url: "https://example.com/pr/41",
+						}),
+					],
+				]),
+				completed: [
+					{
+						workKey: "source:item:42",
+						label: "#42 Item 42",
+						status: "succeeded",
+						message: "review posted",
+						atMs: fixedNowMs - 3_000,
+						url: "https://example.com/pr/42",
+					},
+				],
+			},
+			{
+				...actions,
+				openUrl: (url) => {
+					opened.push(url);
+				},
+			},
+		);
+
+		dashboard.handleInput("j");
+		dashboard.handleInput("o");
+		expect(opened).toEqual(["https://example.com/pr/41"]);
+	});
+
 	test("debug mode exposes retained raw events", () => {
 		let toggled = false;
 		const dashboard = new PlotDashboard(
