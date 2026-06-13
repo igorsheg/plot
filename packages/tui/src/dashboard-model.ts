@@ -110,6 +110,25 @@ const isStale = (work: RunningWorkProjection, nowMs: number) =>
 
 const tokenTotal = (work: RunningWorkProjection) => work.tokens?.total ?? 0;
 
+const isRawEventChurn = (activity: string) =>
+	/\b(message_(update|delta)|reasoning_(update|delta)|tool_execution_update)\b/.test(
+		activity,
+	);
+
+const displayActivity = (work: RunningWorkProjection) => {
+	const activity = work.activity.trim();
+	if (activity.length === 0 || isRawEventChurn(activity))
+		return work.lastMeaningful;
+	if (
+		activity === "Thinking" &&
+		work.lastMeaningful !== "started" &&
+		work.lastMeaningful !== "waiting" &&
+		work.lastMeaningful !== "Thinking"
+	)
+		return work.lastMeaningful;
+	return activity;
+};
+
 const sparkChars = "▁▂▃▄▅▆▇█";
 const throughputWindowMs = 60 * 1000;
 const throughputBuckets = 8;
@@ -156,7 +175,7 @@ const workRow = (work: RunningWorkProjection, nowMs: number): WorkRowModel => ({
 			: formatDuration(nowMs - work.startedAtMs),
 	turns: `t${work.turnCount}`,
 	tokens: formatTokens(tokenTotal(work)),
-	activity: work.lastMeaningful,
+	activity: displayActivity(work),
 	lastEventAgo:
 		work.lastEventAtMs === undefined
 			? ""

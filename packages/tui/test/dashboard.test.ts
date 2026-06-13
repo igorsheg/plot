@@ -197,6 +197,34 @@ describe("PlotDashboard", () => {
 		expect(rendered).not.toContain("message_update");
 	});
 
+	test("shows humanized streaming activity in fleet rows", () => {
+		const dashboard = new PlotDashboard(
+			{
+				...emptyProjection("default", "workflow"),
+				status: "running",
+				running: new Map([
+					[
+						"source:item:42",
+						runningWork({
+							workKey: "source:item:42",
+							primary: "#42",
+							title: "Item 42",
+							activity:
+								"agent message streaming: checking the selected-row URL behavior",
+							lastMeaningful: "started",
+						}),
+					],
+				]),
+			},
+			actions,
+		);
+
+		const rendered = stripAnsi(dashboard.render(120).join("\n"));
+
+		expect(rendered).toContain("“checking the selected-row URL behavior”");
+		expect(rendered).not.toContain("│     started");
+	});
+
 	test("renders a two-line board row per running work", () => {
 		const running = new Map([
 			[
