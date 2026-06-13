@@ -51,6 +51,15 @@ export interface ScheduledRowModel {
 	readonly attempt?: number;
 }
 
+export interface CompletedRowModel {
+	readonly label: string;
+	readonly status: string;
+	readonly message: string;
+	readonly ago: string;
+	readonly tone: ActivityTone;
+	readonly url?: string;
+}
+
 export interface ActivityRowModel {
 	readonly ago: string;
 	readonly tone: ActivityTone;
@@ -62,6 +71,7 @@ export interface DashboardModel {
 	readonly attention: readonly AttentionItemModel[];
 	readonly work: readonly WorkRowModel[];
 	readonly scheduled: readonly ScheduledRowModel[];
+	readonly completed: readonly CompletedRowModel[];
 	readonly activity: readonly ActivityRowModel[];
 }
 
@@ -238,6 +248,14 @@ export const dashboardModelFrom = (
 				...(wake.attempt === undefined ? {} : { attempt: wake.attempt }),
 			};
 		}),
+		completed: projection.completed.slice(0, 5).map((entry) => ({
+			label: entry.label,
+			status: entry.status,
+			message: entry.message,
+			ago: formatAgo(nowMs - entry.atMs),
+			tone: entry.status === "succeeded" ? "ok" : "bad",
+			...(entry.url === undefined ? {} : { url: entry.url }),
+		})),
 		activity: projection.activity.slice(0, 20).map((entry) => ({
 			ago: formatAgo(nowMs - entry.atMs),
 			tone: entry.tone,

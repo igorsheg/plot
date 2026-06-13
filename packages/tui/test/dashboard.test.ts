@@ -382,6 +382,40 @@ describe("PlotDashboard", () => {
 		expect(opened).toEqual(["https://example.com/pr/42"]);
 	});
 
+	test("shows recent completions and opens the latest completed url", () =>
+		withFixedNow(() => {
+			const opened: string[] = [];
+			const dashboard = new PlotDashboard(
+				{
+					...emptyProjection("default", "workflow"),
+					completed: [
+						{
+							workKey: "source:item:42",
+							label: "#42 Item 42",
+							status: "succeeded",
+							message: "review posted",
+							atMs: fixedNowMs - 3_000,
+							url: "https://example.com/pr/42",
+						},
+					],
+				},
+				{
+					...actions,
+					openUrl: (url) => {
+						opened.push(url);
+					},
+				},
+			);
+
+			const rendered = stripAnsi(dashboard.render(120).join("\n"));
+			expect(rendered).toContain("Completed");
+			expect(rendered).toContain("3s ago");
+			expect(rendered).toContain("#42 Item 42 succeeded · review posted");
+
+			dashboard.handleInput("o");
+			expect(opened).toEqual(["https://example.com/pr/42"]);
+		}));
+
 	test("debug mode exposes retained raw events", () => {
 		let toggled = false;
 		const dashboard = new PlotDashboard(

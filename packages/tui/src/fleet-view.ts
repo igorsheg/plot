@@ -1,7 +1,8 @@
 import type {
+	CompletedRowModel,
 	DashboardModel,
-	WorkRowModel,
 	ScheduledRowModel,
+	WorkRowModel,
 } from "./dashboard-model.js";
 import {
 	blank,
@@ -48,6 +49,17 @@ const scheduledRowLine = (wake: ScheduledRowModel): DashboardLine => {
 		wake.attempt === undefined ? "" : ` · attempt ${wake.attempt}`;
 	return item(
 		`    ${style.warn("↻")} ${style.muted(`${retry} in ${wake.inSeconds}s${attempt}${wake.reason === undefined ? "" : ` · ${wake.reason}`}`)}`,
+	);
+};
+
+const completionRowLine = (row: CompletedRowModel): DashboardLine => {
+	const glyph = row.tone === "ok" ? style.ok("✓") : style.bad("✗");
+	const message =
+		row.message === "completed" || row.message === row.status
+			? ""
+			: ` · ${row.message}`;
+	return item(
+		`  ${cell(row.ago, 12, style.dim)} ${glyph} ${style.text(row.label)} ${style.muted(`${row.status}${message}`)}`,
 	);
 };
 
@@ -129,7 +141,13 @@ export const fleetViewLines = (input: {
 					),
 					...scheduled.map(scheduledRowLine),
 				];
-	const maxActivityRows = model.work.length === 0 ? 8 : 4;
+	const completionLines = model.completed.map(completionRowLine);
+	const completionBlock =
+		completionLines.length === 0
+			? []
+			: [blank(), section("Completed"), ...completionLines];
+	const maxActivityRows =
+		model.work.length === 0 && completionLines.length === 0 ? 8 : 4;
 	const activityLines =
 		model.activity.length === 0
 			? [item("  nothing yet", style.muted)]
@@ -145,6 +163,7 @@ export const fleetViewLines = (input: {
 		attention.length +
 		1 +
 		1 +
+		completionBlock.length +
 		1 +
 		activityLines.length +
 		1;
@@ -162,6 +181,7 @@ export const fleetViewLines = (input: {
 		...attention,
 		section(workTitle),
 		...visibleWorkLines,
+		...completionBlock,
 		blank(),
 		section("Activity"),
 		...activityLines,
