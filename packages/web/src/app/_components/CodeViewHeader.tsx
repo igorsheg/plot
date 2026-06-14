@@ -369,7 +369,7 @@ function ThemeDropdown({
 		darkThemeName !== docsThemeCatalog.defaultDarkThemeName;
 	return (
 		// `modal={false}` lets the user scroll and click the code view while the
-		// theme picker is open. The default Radix DropdownMenu blocks pointer
+		// theme picker is open. The default dropdown menu blocks pointer
 		// events outside its content (incl. wheel/scroll), which made the diff
 		// feel frozen while previewing themes.
 		<DropdownMenu
@@ -520,7 +520,7 @@ function ThemeList({
 	const HeaderIcon = isLight ? IconColorLight : IconColorDark;
 	// Auto-scroll so the currently-selected row sits at the second visible
 	// position when the list opens. The current theme lands right under the
-	// user's cursor (Radix opens the menu under the trigger) and the row
+	// user's cursor (the menu opens under the trigger) and the row
 	// above it makes the previous theme easy to reach with one tap of the
 	// up arrow — sequential browsing through themes feels natural without
 	// the user having to hunt for the active row first.

@@ -10,14 +10,12 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
+		"@base-ui/react": "^1.5.0",
 		"@pierre/diffs": "^1.2.10",
 		"@pierre/icons": "^0.6.1",
 		"@pierre/theme": "^1.0.3",
 		"@pierre/theming": "^0.0.1",
 		"@pierre/trees": "^1.0.0-beta.4",
-		"@radix-ui/react-dropdown-menu": "^2.1.16",
-		"@radix-ui/react-slot": "^1.2.4",
-		"@radix-ui/react-switch": "^1.2.6",
 		"@tailwindcss/vite": "^4.1.18",
 		"@vitejs/plugin-react": "latest",
 		"class-variance-authority": "^0.7.1",

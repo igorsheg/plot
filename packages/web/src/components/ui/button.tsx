@@ -1,4 +1,4 @@
-import { Slot } from "@radix-ui/react-slot";
+import { Button as BaseButton } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 
@@ -54,16 +54,20 @@ function Button({
 	variant,
 	size,
 	asChild = false,
+	children,
 	...props
 }: ButtonProps) {
-	const Comp = asChild ? Slot : "button";
-
 	return (
-		<Comp
+		<BaseButton
 			data-slot="button"
 			className={cn(buttonVariants({ variant, size, className }))}
-			{...props}
-		/>
+			{...(asChild && React.isValidElement(children)
+				? { render: children as React.ReactElement<Record<string, unknown>> }
+				: {})}
+			{...(props as React.ComponentProps<typeof BaseButton>)}
+		>
+			{asChild && React.isValidElement(children) ? undefined : children}
+		</BaseButton>
 	);
 }
 
