@@ -4,5 +4,6 @@
 		"noEmit": true,
 		"allowImportingTsExtensions": true
 	},
-	"include": ["packages/**/*.ts", "*.extension.ts"]
+	"include": ["packages/**/*.ts", "*.extension.ts"],
+	"exclude": ["packages/web/src/app/**"]
 }

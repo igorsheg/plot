@@ -1,0 +1,29 @@
+{
+	"extends": "@repo/tsconfig/base.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["src/*"],
+			"next/link": ["src/next-compat/link.tsx"],
+			"next/navigation": ["src/next-compat/navigation.ts"]
+		},
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"exactOptionalPropertyTypes": false
+	},
+	"include": [
+		"src/main.tsx",
+		"src/globals.css",
+		"src/components/**/*.ts",
+		"src/components/**/*.tsx",
+		"src/lib/**/*.ts",
+		"src/next-compat/**/*.ts",
+		"src/next-compat/**/*.tsx",
+		"src/types/**/*.d.ts",
+		"test/**/*.ts"
+	]
+}
