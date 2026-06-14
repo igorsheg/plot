@@ -8,8 +8,8 @@ export const mockDashboardState: PlotDashboardState = {
 		model: "claude-sonnet-4.5",
 	},
 	loop: {
-		lastTick: "12s ago",
-		nextWake: "38s",
+		nextWakeSeconds: 38,
+		cadenceSeconds: 50,
 		observations: 8,
 		selected: 4,
 		dispatched: 2,

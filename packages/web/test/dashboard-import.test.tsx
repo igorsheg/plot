@@ -9,7 +9,8 @@ test("plot dashboard mock renders the product model", () => {
 		<DashboardPage state={mockDashboardState} />,
 	);
 
-	expect(html).toContain("Plot operations cockpit");
-	expect(html).toContain("tick → reconcile → act");
+	expect(html).toContain("needs you");
+	expect(html).toContain("in flight");
+	expect(html).toContain("WORKFLOW.md");
 	expect(html).toContain("Review web substrate PR");
 });

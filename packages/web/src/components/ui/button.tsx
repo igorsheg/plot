@@ -1,74 +1,187 @@
-import { Button as BaseButton } from "@base-ui/react/button";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
-import * as React from "react";
+import { type ButtonHTMLAttributes, isValidElement, type Ref } from "react";
 
+import type { IconComponent } from "@/lib/icon";
+import { useShape } from "@/lib/shape-context";
 import { cn } from "@/lib/utils";
 
+// Ported from fluid-functionalism (registry/base/button), modernized to React
+// 19 ref-as-prop. Background lives on an absolutely-positioned layer so hover /
+// active / press can animate independently of the label.
 const buttonVariants = cva(
-	"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none [&_svg]:pointer-events-none flex-shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer select-none",
+	[
+		"group relative isolate inline-flex items-center justify-center outline-none cursor-pointer",
+		"transition-colors duration-80",
+		"disabled:opacity-50 disabled:pointer-events-none",
+		"focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
+	],
 	{
 		variants: {
 			variant: {
-				default: "bg-primary text-primary-foreground hover:bg-primary/90",
-				success:
-					"bg-teal-500 text-white hover:bg-teal-500/90 focus-visible:ring-teal-500/20 dark:focus-visible:ring-green-500/40 dark:bg-green-500/60",
-				destructive:
-					"bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
-				outline:
-					"border bg-background hover:bg-secondary hover:text-accent-foreground dark:hover:bg-input/50 dark:border-neutral-800 shadow-xs",
-				secondary:
-					"bg-secondary text-secondary-foreground hover:bg-secondary/80",
-				tertiary: "bg-neutral-900/10 shadow-none",
-				muted:
-					"bg-secondary text-accent-foreground/75 hover:text-accent-foreground",
-				ghost:
-					"border bg-transparent border-transparent hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-				link: "text-primary underline-offset-4 hover:underline",
+				primary: "text-background",
+				secondary: "text-foreground",
+				tertiary: "border border-border text-foreground",
+				ghost: "text-muted-foreground hover:text-foreground",
 			},
 			size: {
-				xs: "h-5.5 rounded-sm gap-1.5 px-1.5 text-xs",
-				default: "h-9 px-3.5 py-2 rounded-lg",
-				sm: "h-8 rounded-md gap-1.5 px-3",
-				lg: "h-10 rounded-md px-6",
-				xl: "h-11 rounded-md px-7",
-				icon: "size-9",
-				"icon-md": "size-8 rounded-md",
-				"icon-sm": "size-5 rounded-sm",
-				"icon-only": "size-4 rounded-0 p-0",
+				sm: "h-7 px-3 text-[12px] gap-1",
+				md: "h-8 px-4 text-[13px] gap-1.5",
+				lg: "h-9 px-5 text-[14px] gap-1.5",
+				"icon-sm": "h-8 w-8 p-0 [&_svg]:h-3.5 [&_svg]:w-3.5",
+				icon: "h-9 w-9 p-0 [&_svg]:h-4 [&_svg]:w-4",
+				"icon-lg": "h-10 w-10 p-0 [&_svg]:h-5 [&_svg]:w-5",
 			},
+			iconLeft: { true: "" },
+			iconRight: { true: "" },
 		},
-		defaultVariants: {
-			variant: "default",
-			size: "default",
-		},
+		compoundVariants: [
+			{ size: "sm", iconLeft: true, className: "pl-[6px]" },
+			{ size: "md", iconLeft: true, className: "pl-[10px]" },
+			{ size: "lg", iconLeft: true, className: "pl-[14px]" },
+			{ size: "sm", iconRight: true, className: "pr-[6px]" },
+			{ size: "md", iconRight: true, className: "pr-[10px]" },
+			{ size: "lg", iconRight: true, className: "pr-[14px]" },
+		],
+		defaultVariants: { variant: "primary", size: "md" },
 	},
 );
 
-export type ButtonProps = React.ComponentProps<"button"> &
-	VariantProps<typeof buttonVariants> & {
-		asChild?: boolean;
-	};
+interface ButtonProps
+	extends
+		ButtonHTMLAttributes<HTMLButtonElement>,
+		VariantProps<typeof buttonVariants> {
+	/** Route the single element child through Base UI's render (slot-style). */
+	asChild?: boolean;
+	loading?: boolean;
+	leadingIcon?: IconComponent;
+	trailingIcon?: IconComponent;
+	/** Force the pressed/held look (e.g. while it drives an open popover). */
+	active?: boolean;
+	ref?: Ref<HTMLButtonElement>;
+}
 
-function Button({
+const bgVariants: Record<string, string> = {
+	primary:
+		"bg-foreground group-hover:bg-foreground/90 group-active:bg-foreground/80",
+	secondary: "bg-accent group-hover:bg-accent/80 group-active:bg-accent",
+	tertiary: "bg-transparent group-hover:bg-hover group-active:bg-active",
+	ghost: "bg-transparent group-hover:bg-hover group-active:bg-active",
+};
+
+const activeBgVariants: Record<string, string> = {
+	primary: "bg-foreground/80",
+	secondary: "bg-accent",
+	tertiary: "bg-active",
+	ghost: "bg-active",
+};
+
+export function Button({
 	className,
 	variant,
 	size,
 	asChild = false,
+	loading = false,
+	leadingIcon: LeadingIcon,
+	trailingIcon: TrailingIcon,
+	active = false,
+	disabled,
 	children,
+	style,
+	ref,
 	...props
 }: ButtonProps) {
+	const isIconOnly =
+		size === "icon" || size === "icon-sm" || size === "icon-lg";
+	const iconSize = size === "sm" ? 14 : size === "lg" ? 20 : 16;
+	const shape = useShape();
+	const bgClass = active
+		? activeBgVariants[variant ?? "primary"]
+		: bgVariants[variant ?? "primary"];
+
+	const renderProp = asChild && isValidElement(children) ? children : undefined;
+
 	return (
-		<BaseButton
-			data-slot="button"
-			className={cn(buttonVariants({ variant, size, className }))}
-			{...(asChild && React.isValidElement(children)
-				? { render: children as React.ReactElement<Record<string, unknown>> }
-				: {})}
-			{...(props as React.ComponentProps<typeof BaseButton>)}
+		<ButtonPrimitive
+			ref={ref}
+			render={renderProp}
+			className={cn(
+				buttonVariants({
+					variant,
+					size,
+					iconLeft: !isIconOnly && Boolean(LeadingIcon),
+					iconRight: !isIconOnly && Boolean(TrailingIcon),
+				}),
+				shape.button,
+				className,
+			)}
+			disabled={disabled || loading}
+			style={style}
+			{...props}
 		>
-			{asChild && React.isValidElement(children) ? undefined : children}
-		</BaseButton>
+			<span
+				aria-hidden
+				className={cn(
+					"absolute inset-0 rounded-[inherit] transition-[background-color,transform] duration-80 group-active:scale-[0.98]",
+					bgClass,
+				)}
+			/>
+			<span className="relative inline-flex items-center justify-center gap-[inherit]">
+				{loading ? (
+					<>
+						<span className="flex items-center justify-center gap-[inherit] opacity-0">
+							{LeadingIcon && !isIconOnly ? (
+								<LeadingIcon size={iconSize} strokeWidth={2} />
+							) : null}
+							{children}
+							{TrailingIcon && !isIconOnly ? (
+								<TrailingIcon size={iconSize} strokeWidth={2} />
+							) : null}
+						</span>
+						<span className="absolute inset-0 flex items-center justify-center">
+							<svg className="h-8 w-8" viewBox="0 0 24 24" fill="none">
+								<path
+									d="M 12 12 C 14 8.5 19 8.5 19 12 C 19 15.5 14 15.5 12 12 C 10 8.5 5 8.5 5 12 C 5 15.5 10 15.5 12 12 Z"
+									stroke="currentColor"
+									strokeWidth="1.125"
+									strokeLinecap="round"
+									pathLength="100"
+									style={{
+										strokeDasharray: "15 85",
+										animation:
+											"spinner-move 2s linear infinite, spinner-dash 4s ease-in-out infinite",
+									}}
+								/>
+							</svg>
+						</span>
+					</>
+				) : isIconOnly ? (
+					<span className="[&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 group-hover:[&_svg]:stroke-[2]">
+						{children}
+					</span>
+				) : (
+					<>
+						{LeadingIcon ? (
+							<LeadingIcon
+								size={iconSize}
+								strokeWidth={1.5}
+								className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
+							/>
+						) : null}
+						<span>{children}</span>
+						{TrailingIcon ? (
+							<TrailingIcon
+								size={iconSize}
+								strokeWidth={1.5}
+								className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
+							/>
+						) : null}
+					</>
+				)}
+			</span>
+		</ButtonPrimitive>
 	);
 }
 
-export { Button, buttonVariants };
+export { buttonVariants };
+export type { ButtonProps };

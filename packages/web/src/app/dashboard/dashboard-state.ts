@@ -20,8 +20,11 @@ export interface SessionSummary {
 }
 
 export interface LoopSummary {
-	lastTick: string;
-	nextWake: string;
+	// Seconds until the next scheduled wake, and the nominal tick cadence the
+	// countdown resets to. Numeric so the UI can tick them down live instead of
+	// rendering a frozen "38s" string.
+	nextWakeSeconds: number;
+	cadenceSeconds: number;
 	observations: number;
 	selected: number;
 	dispatched: number;

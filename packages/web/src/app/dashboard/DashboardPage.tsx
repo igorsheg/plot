@@ -1,480 +1,358 @@
-import {
-	Activity,
-	AlertTriangle,
-	ArrowUpRight,
-	Bot,
-	CheckCircle2,
-	CircleDot,
-	Clock3,
-	GitBranch,
-	PauseCircle,
-	Radio,
-	ShieldAlert,
-	Sparkles,
-} from "lucide-react";
-import { useMemo, useState } from "react";
+import { Check } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Disclosure } from "@/components/ui/disclosure";
+import { ListRow } from "@/components/ui/list-row";
+import { Stat } from "@/components/ui/stat";
+import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
 import type {
+	LoopSummary,
 	PlotDashboardState,
-	SourceSummary,
-	TimelineKind,
 	WorkItemSummary,
 	WorkStatus,
-	WorkTimelineEvent,
 } from "./dashboard-state";
 import { mockDashboardState } from "./mock-dashboard-state";
+import { RunningDot, STATUS_DOT } from "./status";
 
-const statusOrder: WorkStatus[] = [
-	"running",
-	"blocked",
-	"ready",
-	"backoff",
-	"completed",
-];
+const accent = "text-amber-600 dark:text-amber-500";
+const restingOrder: WorkStatus[] = ["backoff", "ready", "completed"];
 
-const statusLabels: Record<WorkStatus, string> = {
-	running: "Running",
-	blocked: "Blocked",
-	ready: "Ready",
-	backoff: "Backoff",
-	completed: "Completed",
+const restingNote: Record<WorkStatus, (work: WorkItemSummary) => string> = {
+	backoff: (work) => work.activity,
+	ready: () => "queued",
+	completed: (work) => work.activity,
+	running: (work) => work.activity,
+	blocked: (work) => work.activity,
 };
 
-const statusStyles: Record<WorkStatus, string> = {
-	running: "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-	blocked:
-		"border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-	ready:
-		"border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-	backoff:
-		"border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-	completed:
-		"border-neutral-500/20 bg-neutral-500/10 text-muted-foreground dark:text-neutral-300",
-};
-
-const timelineIcons: Record<TimelineKind, typeof CircleDot> = {
-	tick: Radio,
-	observation: GitBranch,
-	decision: ShieldAlert,
-	run: Bot,
-	diagnostic: AlertTriangle,
-};
-
-interface DashboardPageProps {
-	state?: PlotDashboardState;
+// Count the next wake down once a second, wrapping to the cadence on each tick.
+// The interval genuinely needs an effect — it isn't render logic.
+function useLoopCountdown(loop: LoopSummary) {
+	const [remaining, setRemaining] = useState(loop.nextWakeSeconds);
+	useEffect(() => {
+		const id = window.setInterval(() => {
+			setRemaining((value) => (value <= 1 ? loop.cadenceSeconds : value - 1));
+		}, 1000);
+		return () => window.clearInterval(id);
+	}, [loop.cadenceSeconds]);
+	return remaining;
 }
 
 export function DashboardPage({
 	state = mockDashboardState,
-}: DashboardPageProps) {
-	const [selectedWorkId, setSelectedWorkId] = useState(state.selectedWorkId);
-	const selectedWork =
-		state.work.find((work) => work.id === selectedWorkId) ?? state.work[0];
-	const counts = useMemo(
-		() =>
-			Object.fromEntries(
-				statusOrder.map((status) => [
-					status,
-					state.work.filter((work) => work.status === status).length,
-				]),
-			) as Record<WorkStatus, number>,
-		[state.work],
+}: {
+	state?: PlotDashboardState;
+}) {
+	const remaining = useLoopCountdown(state.loop);
+	const sinceTick = state.loop.cadenceSeconds - remaining;
+
+	// One heartbeat beat per tick: derive a counter from a render-time ref compare
+	// (no extra effect) and key the pulse element so it remounts and replays.
+	const beatCount = useRef(0);
+	const previousRemaining = useRef(remaining);
+	if (remaining > previousRemaining.current) beatCount.current += 1;
+	previousRemaining.current = remaining;
+
+	// Resolved blocked items lift to page state so the card can animate out and
+	// the heartbeat's "needs you" count drops — no external toast needed.
+	const [resolved, setResolved] = useState<ReadonlySet<string>>(new Set());
+	const resolve = (id: string) => setResolved((prev) => new Set(prev).add(id));
+
+	const needsYou = state.work.filter(
+		(work) => work.status === "blocked" && !resolved.has(work.id),
 	);
+	const inFlight = state.work.filter((work) => work.status === "running");
+	const resting = state.work
+		.filter((work) => restingOrder.includes(work.status))
+		.toSorted(
+			(a, b) => restingOrder.indexOf(a.status) - restingOrder.indexOf(b.status),
+		);
 
 	return (
-		<main className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_10%,transparent),transparent_36rem),var(--background)] text-foreground">
-			<div className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-4 px-4 py-4 md:px-6 md:py-6">
-				<Header state={state} />
-				<section className="grid gap-3 md:grid-cols-4">
-					<Metric
-						label="Last tick"
-						value={state.loop.lastTick}
-						detail="reconcile complete"
+		<main className="min-h-dvh bg-background text-foreground">
+			<div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col px-6 pb-16">
+				<TopBar workflowPath={state.session.workflowPath} />
+				<div className="flex flex-1 flex-col gap-10 py-12 md:py-16">
+					<Heartbeat
+						beatKey={beatCount.current}
+						inFlight={inFlight.length}
+						needsYou={needsYou.length}
+						remaining={remaining}
+						sessionState={state.session.state}
 					/>
-					<Metric
-						label="Next wake"
-						value={state.loop.nextWake}
-						detail="source timer"
-					/>
-					<Metric
-						label="Dispatch"
-						value={`${state.loop.dispatched}/${state.loop.selected}`}
-						detail="selected work started"
-					/>
-					<Metric
-						label="Deferred"
-						value={String(state.loop.deferred)}
-						detail="capacity or policy"
-					/>
-				</section>
-				<section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[22rem_minmax(0,1fr)_20rem]">
-					<aside className="min-h-0 rounded-2xl border border-border/70 bg-card/80 shadow-[0_24px_80px_rgb(0_0_0_/_0.08)] backdrop-blur">
-						<WorkList
-							counts={counts}
-							onSelectWork={setSelectedWorkId}
-							selectedWorkId={selectedWork?.id}
-							work={state.work}
-						/>
-					</aside>
-					<section className="min-w-0 rounded-2xl border border-border/70 bg-card/80 shadow-[0_24px_80px_rgb(0_0_0_/_0.08)] backdrop-blur">
-						{selectedWork == null ? (
-							<EmptyDetail />
-						) : (
-							<WorkDetail work={selectedWork} />
-						)}
-					</section>
-					<aside className="grid min-h-0 gap-4 lg:grid-rows-[auto_1fr]">
-						<SourcesPanel sources={state.sources} />
-						<EventsPanel
-							events={state.recentEvents}
-							diagnostics={state.diagnostics}
-						/>
-					</aside>
-				</section>
+					<NeedsYou items={needsYou} onResolve={resolve} />
+					{inFlight.length > 0 ? <InFlight items={inFlight} /> : null}
+					{resting.length > 0 ? <Resting items={resting} /> : null}
+				</div>
+				<Footer
+					loop={state.loop}
+					sinceTick={sinceTick}
+					sources={state.sources}
+				/>
 			</div>
 		</main>
 	);
 }
 
-function Header({ state }: { state: PlotDashboardState }) {
+function TopBar({ workflowPath }: { workflowPath: string }) {
 	return (
-		<header className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-card/80 p-4 shadow-[0_24px_80px_rgb(0_0_0_/_0.08)] backdrop-blur md:flex-row md:items-center md:justify-between">
-			<div className="min-w-0">
-				<div className="mb-2 flex flex-wrap items-center gap-2">
-					<span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-						<span className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_12px_var(--color-emerald-500)]" />
-						{state.session.state}
-					</span>
-					<span className="font-mono text-xs text-muted-foreground">
-						{state.session.workflowPath}
-					</span>
-				</div>
-				<h1 className="truncate text-2xl font-semibold tracking-[-0.04em] md:text-3xl">
-					Plot operations cockpit
+		<div className="flex items-center justify-between py-5 text-[12px] text-muted-foreground">
+			<span className="font-medium text-foreground">plot</span>
+			<span>{workflowPath}</span>
+		</div>
+	);
+}
+
+function Heartbeat({
+	beatKey,
+	inFlight,
+	needsYou,
+	remaining,
+	sessionState,
+}: {
+	beatKey: number;
+	inFlight: number;
+	needsYou: number;
+	remaining: number;
+	sessionState: string;
+}) {
+	return (
+		<section className="flex flex-col items-center gap-5 text-center">
+			<Pulse beatKey={beatKey} />
+			<div className="flex flex-col items-center gap-1">
+				<p className="text-[13px] text-muted-foreground">{sessionState}</p>
+				<h1 className="text-4xl font-semibold">
+					next act in <span className="tabular-nums">{remaining}s</span>
 				</h1>
-				<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-					A product-model-first view of tick → reconcile → act. This mock
-					exposes what the web app should project from plot.v1 before we wire
-					live transport.
-				</p>
 			</div>
-			<div className="flex flex-wrap items-center gap-2">
-				<Button variant="outline" size="sm">
-					<Clock3 className="size-4" /> Tick once
-				</Button>
-				<Button size="sm">
-					<Sparkles className="size-4" /> Live mock
-				</Button>
-			</div>
-		</header>
-	);
-}
-
-function Metric({
-	label,
-	value,
-	detail,
-}: {
-	label: string;
-	value: string;
-	detail: string;
-}) {
-	return (
-		<div className="rounded-2xl border border-border/70 bg-card/70 p-4 shadow-[0_16px_50px_rgb(0_0_0_/_0.06)] backdrop-blur">
-			<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-				{label}
-			</p>
-			<div className="mt-2 flex items-end justify-between gap-3">
-				<p className="text-2xl font-semibold tracking-[-0.04em]">{value}</p>
-				<p className="pb-1 text-xs text-muted-foreground">{detail}</p>
-			</div>
-		</div>
-	);
-}
-
-function WorkList({
-	counts,
-	onSelectWork,
-	selectedWorkId,
-	work,
-}: {
-	counts: Record<WorkStatus, number>;
-	onSelectWork(id: string): void;
-	selectedWorkId: string | undefined;
-	work: WorkItemSummary[];
-}) {
-	return (
-		<div className="flex h-full min-h-0 flex-col">
-			<div className="border-b border-border/70 p-4">
-				<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-					Work
-				</p>
-				<div className="mt-3 grid grid-cols-5 gap-1">
-					{statusOrder.map((status) => (
-						<div
-							key={status}
-							className="rounded-lg border border-border/60 p-2 text-center"
-						>
-							<p className="text-sm font-semibold">{counts[status]}</p>
-							<p className="truncate text-[10px] text-muted-foreground">
-								{statusLabels[status]}
-							</p>
-						</div>
-					))}
-				</div>
-			</div>
-			<div className="min-h-0 flex-1 overflow-auto p-2">
-				{statusOrder.map((status) => {
-					const items = work.filter((item) => item.status === status);
-					if (items.length === 0) return null;
-					return (
-						<div key={status} className="mb-3">
-							<div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-								{statusLabels[status]}
-							</div>
-							<div className="space-y-1">
-								{items.map((item) => (
-									<button
-										key={item.id}
-										type="button"
-										onClick={() => onSelectWork(item.id)}
-										className={cn(
-											"group w-full rounded-xl border p-3 text-left transition hover:bg-accent/60",
-											selectedWorkId === item.id
-												? "border-primary/30 bg-accent shadow-sm"
-												: "border-transparent",
-										)}
-									>
-										<div className="flex items-center justify-between gap-2">
-											<p className="line-clamp-1 text-sm font-medium">
-												{item.title}
-											</p>
-											<StatusPill status={item.status} />
-										</div>
-										<p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-											{item.activity}
-										</p>
-										<p className="mt-2 truncate font-mono text-[11px] text-muted-foreground/80">
-											{item.key}
-										</p>
-									</button>
-								))}
-							</div>
-						</div>
-					);
-				})}
-			</div>
-		</div>
-	);
-}
-
-function WorkDetail({ work }: { work: WorkItemSummary }) {
-	return (
-		<div className="flex h-full min-h-0 flex-col">
-			<div className="border-b border-border/70 p-5">
-				<div className="flex flex-wrap items-center gap-2">
-					<StatusPill status={work.status} />
-					<span className="rounded-full border border-border/70 px-2 py-1 text-xs text-muted-foreground">
-						attempt {work.attempt}
-					</span>
-					{work.runId == null ? null : (
-						<span className="rounded-full border border-border/70 px-2 py-1 font-mono text-xs text-muted-foreground">
-							{work.runId}
-						</span>
-					)}
-				</div>
-				<div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-					<div className="min-w-0">
-						<h2 className="text-2xl font-semibold tracking-[-0.04em]">
-							{work.title}
-						</h2>
-						<p className="mt-1 font-mono text-xs text-muted-foreground">
-							{work.key}
-						</p>
-					</div>
-					{work.url == null ? null : (
-						<Button asChild variant="outline" size="sm">
-							<a href={work.url} target="_blank" rel="noreferrer">
-								Open <ArrowUpRight className="size-3.5" />
-							</a>
-						</Button>
-					)}
-				</div>
-			</div>
-			<div className="grid min-h-0 flex-1 gap-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_18rem]">
-				<div className="min-h-0 overflow-auto p-5">
-					<section className="rounded-2xl border border-border/70 bg-background/40 p-4">
-						<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-							Why this state?
-						</p>
-						<p className="mt-3 text-sm leading-6">{work.reason}</p>
-					</section>
-					<section className="mt-4 rounded-2xl border border-border/70 bg-background/40 p-4">
-						<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-							Timeline
-						</p>
-						<div className="mt-4 space-y-4">
-							{work.timeline.map((event) => (
-								<TimelineEventRow key={event.id} event={event} />
-							))}
-						</div>
-					</section>
-				</div>
-				<div className="border-t border-border/70 bg-[var(--diffshub-sidebar-bg)] p-4 lg:border-t-0 lg:border-l">
-					<Fact label="Source" value={work.sourceLabel} />
-					<Fact label="Current activity" value={work.activity} />
-					<Fact label="Owner" value="Plot agent" />
-					<Fact label="Runtime seam" value="source selects, runner executes" />
-				</div>
-			</div>
-		</div>
-	);
-}
-
-function SourcesPanel({ sources }: { sources: SourceSummary[] }) {
-	return (
-		<section className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-[0_24px_80px_rgb(0_0_0_/_0.08)] backdrop-blur">
-			<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-				Sources
-			</p>
-			<div className="mt-3 space-y-2">
-				{sources.map((source) => (
-					<div
-						key={source.id}
-						className="rounded-xl border border-border/70 p-3"
-					>
-						<div className="flex items-center justify-between gap-2">
-							<p className="line-clamp-1 text-sm font-medium">{source.label}</p>
-							<span className="text-xs text-muted-foreground">
-								{source.status}
-							</span>
-						</div>
-						<p className="mt-2 font-mono text-[11px] text-muted-foreground">
-							{source.id}
-						</p>
-						<p className="mt-2 text-xs text-muted-foreground">
-							{source.runningWork} running · {source.readyWork} ready
-						</p>
-					</div>
-				))}
+			<div className="flex items-center gap-4">
+				<Stat>
+					<Stat.Value>{inFlight}</Stat.Value>
+					<Stat.Label>in flight</Stat.Label>
+				</Stat>
+				<span className="h-3 w-px bg-border" aria-hidden />
+				<Stat>
+					<Stat.Value className={cn(needsYou > 0 && accent)}>
+						{needsYou}
+					</Stat.Value>
+					<Stat.Label className={cn(needsYou > 0 && accent)}>
+						needs you
+					</Stat.Label>
+				</Stat>
 			</div>
 		</section>
 	);
 }
 
-function EventsPanel({
-	diagnostics,
-	events,
-}: {
-	diagnostics: PlotDashboardState["diagnostics"];
-	events: WorkTimelineEvent[];
-}) {
+function Pulse({ beatKey }: { beatKey: number }) {
 	return (
-		<section className="min-h-0 rounded-2xl border border-border/70 bg-card/80 p-4 shadow-[0_24px_80px_rgb(0_0_0_/_0.08)] backdrop-blur">
-			<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-				Recent protocol projection
-			</p>
-			<div className="mt-4 space-y-4">
-				{events.map((event) => (
-					<TimelineEventRow key={event.id} event={event} compact />
-				))}
-			</div>
-			{diagnostics.length === 0 ? null : (
-				<div className="mt-5 border-t border-border/70 pt-4">
-					<p className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-						Diagnostics
-					</p>
-					{diagnostics.map((diagnostic) => (
-						<div
-							key={diagnostic.id}
-							className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm"
-						>
-							<p className="font-medium text-amber-700 dark:text-amber-300">
-								{diagnostic.title}
-							</p>
-							<p className="mt-1 text-xs text-muted-foreground">
-								{diagnostic.detail}
-							</p>
-						</div>
-					))}
-				</div>
-			)}
-		</section>
-	);
-}
-
-function TimelineEventRow({
-	compact = false,
-	event,
-}: {
-	compact?: boolean;
-	event: WorkTimelineEvent;
-}) {
-	const Icon = timelineIcons[event.kind];
-	return (
-		<div className="flex gap-3">
-			<div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background">
-				<Icon className="size-3.5 text-muted-foreground" />
-			</div>
-			<div className="min-w-0 flex-1">
-				<div className="flex items-center justify-between gap-3">
-					<p className="text-sm font-medium">{event.title}</p>
-					<span className="shrink-0 text-xs text-muted-foreground">
-						{event.time}
-					</span>
-				</div>
-				<p
-					className={cn(
-						"mt-1 text-sm text-muted-foreground",
-						compact && "line-clamp-2 text-xs",
-					)}
-				>
-					{event.detail}
-				</p>
-			</div>
-		</div>
-	);
-}
-
-function StatusPill({ status }: { status: WorkStatus }) {
-	const Icon =
-		status === "completed"
-			? CheckCircle2
-			: status === "blocked"
-				? PauseCircle
-				: status === "running"
-					? Activity
-					: CircleDot;
-	return (
-		<span
-			className={cn(
-				"inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-				statusStyles[status],
-			)}
-		>
-			<Icon className="size-3" />
-			{status}
+		<span className="relative flex size-2.5 items-center justify-center">
+			<span
+				key={beatKey}
+				aria-hidden
+				className="pulse-beat absolute size-full rounded-full bg-foreground"
+			/>
+			<span className="relative size-1.5 rounded-full bg-foreground" />
 		</span>
 	);
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function SectionLabel({
+	children,
+	className,
+}: {
+	children: ReactNode;
+	className?: string;
+}) {
 	return (
-		<div className="border-b border-border/60 py-3 last:border-0">
-			<p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-				{label}
-			</p>
-			<p className="mt-1 text-sm">{value}</p>
-		</div>
+		<p
+			className={cn(
+				"mb-3 text-[12px] font-medium text-muted-foreground",
+				className,
+			)}
+		>
+			{children}
+		</p>
 	);
 }
 
-function EmptyDetail() {
+function NeedsYou({
+	items,
+	onResolve,
+}: {
+	items: WorkItemSummary[];
+	onResolve: (id: string) => void;
+}) {
 	return (
-		<div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-			No work selected.
+		<AnimatePresence initial={false}>
+			{items.length > 0 ? (
+				<motion.section
+					key="needs-you"
+					initial={{ opacity: 0, height: 0 }}
+					animate={{ opacity: 1, height: "auto" }}
+					exit={{ opacity: 0, height: 0 }}
+					transition={{ ...spring.moderate, bounce: 0 }}
+					className="overflow-hidden"
+				>
+					<SectionLabel className={accent}>needs you</SectionLabel>
+					<div className="flex flex-col gap-3">
+						<AnimatePresence initial={false}>
+							{items.map((item) => (
+								<motion.div
+									key={item.id}
+									layout
+									initial={{ opacity: 0, y: 8 }}
+									animate={{ opacity: 1, y: 0 }}
+									exit={{ opacity: 0, scale: 0.97 }}
+									transition={spring.moderate}
+								>
+									<NeedsCard item={item} onResolve={onResolve} />
+								</motion.div>
+							))}
+						</AnimatePresence>
+					</div>
+				</motion.section>
+			) : null}
+		</AnimatePresence>
+	);
+}
+
+function NeedsCard({
+	item,
+	onResolve,
+}: {
+	item: WorkItemSummary;
+	onResolve: (id: string) => void;
+}) {
+	return (
+		<Card>
+			<Card.Header>
+				<div className="flex items-center justify-between gap-3">
+					<p className="text-[13px] font-medium">{item.title}</p>
+					<Badge variant="dot" color="amber" size="sm">
+						blocked
+					</Badge>
+				</div>
+			</Card.Header>
+			<Card.Body>
+				<p className="text-[13px] text-muted-foreground">{item.reason}</p>
+				<p className="mt-2 truncate text-[12px] text-muted-foreground">
+					{item.key}
+				</p>
+			</Card.Body>
+			<Card.Footer>
+				<Button
+					size="sm"
+					leadingIcon={Check}
+					onClick={() => onResolve(item.id)}
+				>
+					Approve
+				</Button>
+				<Button size="sm" variant="ghost" onClick={() => onResolve(item.id)}>
+					Hold
+				</Button>
+			</Card.Footer>
+		</Card>
+	);
+}
+
+function InFlight({ items }: { items: WorkItemSummary[] }) {
+	return (
+		<section>
+			<SectionLabel>in flight</SectionLabel>
+			<div className="flex flex-col divide-y divide-border">
+				{items.map((item) => (
+					<ListRow key={item.id}>
+						<ListRow.Leading>
+							<RunningDot />
+						</ListRow.Leading>
+						<ListRow.Body>
+							<ListRow.Title>{item.title}</ListRow.Title>
+							<ListRow.Subtitle>{item.activity}</ListRow.Subtitle>
+						</ListRow.Body>
+						{item.runId == null ? null : (
+							<ListRow.Trailing>{item.runId}</ListRow.Trailing>
+						)}
+					</ListRow>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function Resting({ items }: { items: WorkItemSummary[] }) {
+	return (
+		<Disclosure>
+			<Disclosure.Trigger>
+				<span>
+					<span className="tabular-nums">{items.length}</span> resting
+				</span>
+			</Disclosure.Trigger>
+			<Disclosure.Panel>
+				<div className="mt-1 flex flex-col divide-y divide-border">
+					{items.map((item) => {
+						const StatusDot = STATUS_DOT[item.status];
+						return (
+							<ListRow key={item.id}>
+								<ListRow.Leading>
+									<StatusDot />
+								</ListRow.Leading>
+								<ListRow.Body>
+									<ListRow.Title className="text-muted-foreground">
+										{item.title}
+									</ListRow.Title>
+								</ListRow.Body>
+								<ListRow.Trailing>
+									{restingNote[item.status](item)}
+								</ListRow.Trailing>
+							</ListRow>
+						);
+					})}
+				</div>
+			</Disclosure.Panel>
+		</Disclosure>
+	);
+}
+
+function Footer({
+	loop,
+	sinceTick,
+	sources,
+}: {
+	loop: LoopSummary;
+	sinceTick: number;
+	sources: PlotDashboardState["sources"];
+}) {
+	const blockedSources = sources.filter(
+		(source) => source.status === "blocked",
+	).length;
+	const parts: Array<{ label: string; value: string }> = [
+		{ label: "last tick", value: `${sinceTick}s ago` },
+		{ label: "observed", value: String(loop.observations) },
+		{ label: "selected", value: String(loop.selected) },
+		{ label: "dispatched", value: String(loop.dispatched) },
+		{ label: "deferred", value: String(loop.deferred) },
+		{
+			label: "sources",
+			value:
+				blockedSources > 0
+					? `${sources.length} · ${blockedSources} blocked`
+					: String(sources.length),
+		},
+	];
+	return (
+		<div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-5">
+			{parts.map((part) => (
+				<Stat key={part.label}>
+					<Stat.Label className="text-[12px]">{part.label}</Stat.Label>
+					<Stat.Value className="text-[12px]">{part.value}</Stat.Value>
+				</Stat>
+			))}
 		</div>
 	);
 }

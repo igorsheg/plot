@@ -1,15 +1,20 @@
-import React from "react";
 import { createRoot } from "react-dom/client";
 // oxlint-disable-next-line import/no-unassigned-import -- Vite CSS entry import.
 import "./globals.css";
 import { DashboardPage } from "./app/dashboard/DashboardPage";
-import { ThemeProvider } from "./components/theme-provider";
-import { Toaster } from "./components/ui/sonner";
+import { ShapeProvider } from "./lib/shape-context";
+import { SurfaceProvider } from "./lib/surface-context";
+import { ThemeProvider } from "./lib/theme-context";
 
+// Fluid Functionalism providers: theme (light/dark), shape (corner radius), and
+// the surface substrate the elevation ladder steps up from.
 const App = () => (
 	<ThemeProvider>
-		<DashboardPage />
-		<Toaster />
+		<ShapeProvider>
+			<SurfaceProvider value={1}>
+				<DashboardPage />
+			</SurfaceProvider>
+		</ShapeProvider>
 	</ThemeProvider>
 );
 
