@@ -6,7 +6,7 @@ import {
 	IconSearch,
 	IconXSquircle,
 } from "@pierre/icons";
-import { FileTree } from "@pierre/trees";
+import type { FileTree } from "@pierre/trees";
 import { useFileTreeSearch } from "@pierre/trees/react";
 import {
 	type CSSProperties,

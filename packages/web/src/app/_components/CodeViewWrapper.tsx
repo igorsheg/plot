@@ -224,20 +224,20 @@ export const CodeViewWrapper = memo(function CodeViewWrapper({
 						)
 					: undefined;
 
-			updateViewerDiffItem(viewer, itemId, (item) => {
-				if (item.annotations == null) {
+			updateViewerDiffItem(viewer, itemId, (diffItem) => {
+				if (diffItem.annotations == null) {
 					return false;
 				}
 
-				const nextAnnotations = item.annotations.filter(
+				const nextAnnotations = diffItem.annotations.filter(
 					(annotation) => annotation.metadata.key !== key,
 				);
 
-				if (nextAnnotations.length === item.annotations.length) {
+				if (nextAnnotations.length === diffItem.annotations.length) {
 					return false;
 				}
 
-				item.annotations = nextAnnotations;
+				diffItem.annotations = nextAnnotations;
 				return true;
 			});
 
@@ -274,13 +274,13 @@ export const CodeViewWrapper = memo(function CodeViewWrapper({
 				return;
 			}
 
-			const updatedItem = updateViewerDiffItem(viewer, itemId, (item) => {
-				if (item.annotations == null) {
+			const updatedItem = updateViewerDiffItem(viewer, itemId, (diffItem) => {
+				if (diffItem.annotations == null) {
 					return false;
 				}
 
 				const nextAnnotations: DiffLineAnnotation<CommentMetadata>[] =
-					item.annotations.map((annotation) => {
+					diffItem.annotations.map((annotation) => {
 						if (
 							annotation.metadata.key !== key ||
 							!isDraftAnnotation(annotation)
@@ -302,7 +302,7 @@ export const CodeViewWrapper = memo(function CodeViewWrapper({
 
 				let didChange = false;
 				for (let index = 0; index < nextAnnotations.length; index++) {
-					if (nextAnnotations[index] !== item.annotations[index]) {
+					if (nextAnnotations[index] !== diffItem.annotations[index]) {
 						didChange = true;
 						break;
 					}
@@ -312,7 +312,7 @@ export const CodeViewWrapper = memo(function CodeViewWrapper({
 					return false;
 				}
 
-				item.annotations = nextAnnotations;
+				diffItem.annotations = nextAnnotations;
 				return true;
 			});
 

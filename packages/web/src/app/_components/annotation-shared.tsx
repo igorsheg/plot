@@ -50,7 +50,9 @@ function buildPersona(name: AvatarName): Persona {
 // Picks a random persona from the avatar list. Intended for use as a useState
 // lazy initializer so each new draft form gets a fresh identity on mount.
 export function getRandomPersona(): Persona {
-	const name = AVATAR_NAMES[Math.floor(Math.random() * AVATAR_NAMES.length)];
+	const name =
+		AVATAR_NAMES[Math.floor(Math.random() * AVATAR_NAMES.length)] ??
+		AVATAR_NAMES[0];
 	return buildPersona(name);
 }
 
@@ -66,7 +68,9 @@ export function getCommentPersona(seed: string): Persona {
 	for (let i = 0; i < seed.length; i++) {
 		hash = ((hash << 5) + hash + seed.charCodeAt(i)) >>> 0;
 	}
-	return buildPersona(AVATAR_NAMES[hash % AVATAR_NAMES.length]);
+	return buildPersona(
+		AVATAR_NAMES[hash % AVATAR_NAMES.length] ?? AVATAR_NAMES[0],
+	);
 }
 
 interface CommentAuthorAvatarProps {

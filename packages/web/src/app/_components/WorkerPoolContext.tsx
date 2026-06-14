@@ -9,14 +9,14 @@ import {
 import type { ReactNode } from "react";
 
 function isMobileBrowser(): boolean {
-	const navigator = global.navigator;
+	const navigator = globalThis.navigator;
 	if (navigator == null) {
 		return false;
 	}
 
 	return (
 		navigator.maxTouchPoints > 0 &&
-		global.matchMedia?.("(max-width: 767px), (pointer: coarse)").matches ===
+		globalThis.matchMedia?.("(max-width: 767px), (pointer: coarse)").matches ===
 			true
 	);
 }
@@ -35,7 +35,7 @@ const WorkerResourceLimits = getWorkerResourceLimits();
 const PoolOptions: WorkerPoolOptions = {
 	// We really shouldn't let the pool get too big...
 	poolSize: Math.min(
-		Math.max(1, (global.navigator?.hardwareConcurrency ?? 1) - 1),
+		Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) - 1),
 		WorkerResourceLimits.poolSize,
 	),
 	totalASTLRUCacheSize: WorkerResourceLimits.totalASTLRUCacheSize,

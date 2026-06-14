@@ -268,12 +268,10 @@ export function usePatchLoader({
 					}
 				}
 
-				console.time("--     request time");
 				const response = await fetch(`/api/diff?${patchSearchParams}`, {
 					cache: "no-store",
 					signal: controller.signal,
 				});
-				console.timeEnd("--     request time");
 
 				// This only catches route setup errors. GitHub fetch failures are
 				// delivered while consuming the stream so the UI can enter the
@@ -286,9 +284,7 @@ export function usePatchLoader({
 				}
 
 				if (response.body == null) {
-					console.time("--     reading patch");
 					const patchContent = await response.text();
-					console.timeEnd("--     reading patch");
 					await commitFullPatch(patchContent);
 					return;
 				}
@@ -404,7 +400,6 @@ export function usePatchLoader({
 				const appendStreamedFile = async (fileText: string) => {
 					if (!hasReceivedFirstStreamedFile) {
 						hasReceivedFirstStreamedFile = true;
-						console.timeEnd("--     first streamed file");
 					}
 
 					const patchMetadata = getStreamedPatchMetadata(fileText);
@@ -450,13 +445,10 @@ export function usePatchLoader({
 					publishTreeSourceIfNeeded();
 				};
 
-				console.time("--     first streamed file");
-				console.time("--     reading patch stream");
 				const fallbackPatchContent = await streamGitPatchFiles(
 					response.body,
 					appendStreamedFile,
 				);
-				console.timeEnd("--     reading patch stream");
 				if (!isCurrentRequest()) {
 					return;
 				}
@@ -471,11 +463,10 @@ export function usePatchLoader({
 				setCommentFileByItemId(new Map(accumulator.itemIdToFile));
 				setDiffStats({ ...accumulator.diffStats });
 				setLoadState("ready");
-			} catch (error) {
+			} catch {
 				if (!isCurrentRequest()) {
 					return;
 				}
-				console.warn("Failed to load diff", error);
 				setErrorMessage(GENERIC_PATCH_LOAD_ERROR_MESSAGE);
 				setLoadState("error");
 			}

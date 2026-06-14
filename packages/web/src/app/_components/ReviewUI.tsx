@@ -314,10 +314,10 @@ function useIsWorkerPoolReadyOrDisabled() {
 		// The callback will always be fired immediately with the new state, so we
 		// don't need to check for it in the effect
 		return workerPool?.subscribeToStatChanges((stats) => {
-			const isReady = stats.managerState === "initialized";
-			if (isReady !== isReadyRef.current) {
-				setIsReady(isReady);
-				isReadyRef.current = isReady;
+			const nextIsReady = stats.managerState === "initialized";
+			if (nextIsReady !== isReadyRef.current) {
+				setIsReady(nextIsReady);
+				isReadyRef.current = nextIsReady;
 			}
 		});
 	}, [workerPool]);

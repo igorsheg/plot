@@ -18,12 +18,15 @@
 	"include": [
 		"src/main.tsx",
 		"src/globals.css",
+		"src/app/**/*.ts",
+		"src/app/**/*.tsx",
 		"src/components/**/*.ts",
 		"src/components/**/*.tsx",
 		"src/lib/**/*.ts",
 		"src/next-compat/**/*.ts",
 		"src/next-compat/**/*.tsx",
 		"src/types/**/*.d.ts",
-		"test/**/*.ts"
+		"test/**/*.ts",
+		"test/**/*.tsx"
 	]
 }

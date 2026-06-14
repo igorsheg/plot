@@ -77,6 +77,7 @@ const DEFAULT_SELECTED_ITEM_SELECTOR =
 const DropdownMenuContent = React.forwardRef<
 	React.ElementRef<typeof Menu.Popup>,
 	React.ComponentPropsWithoutRef<typeof Menu.Popup> & {
+		align?: "start" | "center" | "end";
 		sideOffset?: number;
 		scrollSelectedIntoView?: boolean;
 		selectedItemSelector?: string;
@@ -85,6 +86,7 @@ const DropdownMenuContent = React.forwardRef<
 >(
 	(
 		{
+			align: _align,
 			className,
 			sideOffset = 4,
 			scrollSelectedIntoView = false,

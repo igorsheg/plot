@@ -341,15 +341,12 @@ export function buildCodeViewData(
 	patchContent: string,
 	githubPath: string,
 ): LoadedCodeViewData {
-	console.time("--  parsing patches");
 	const parsedPatches = parsePatchFiles(
 		patchContent,
 		// Use the url as a cache key
 		encodeURIComponent(githubPath),
 	);
-	console.timeEnd("--  parsing patches");
 
-	console.time("-- computing layout");
 	const accumulator = createCodeViewDataAccumulator();
 	const shouldPrefixTreePaths = parsedPatches.length > 1;
 	for (const [patchIndex, patch] of parsedPatches.entries()) {
@@ -360,7 +357,5 @@ export function buildCodeViewData(
 			appendFileDiffToCodeViewData(accumulator, fileDiff, treePathPrefix);
 		}
 	}
-	console.timeEnd("-- computing layout");
-
 	return snapshotCodeViewData(accumulator);
 }

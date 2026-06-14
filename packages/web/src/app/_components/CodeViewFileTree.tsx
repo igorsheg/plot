@@ -9,7 +9,7 @@ import type {
 import { useFileTree } from "@pierre/trees/react";
 import { type CSSProperties, memo, useEffect, useRef, useState } from "react";
 
-import type { FileTreePublicId } from "../../../../packages/trees/dist/model/publicTypes";
+type FileTreePublicId = string;
 import { ThemedFileTree } from "./_theming/react/ThemedFileTree";
 import {
 	BASE_FILE_TREE_OPTIONS,
@@ -68,6 +68,9 @@ export const CodeViewFileTree = memo(function CodeViewFileTree({
 				return;
 			}
 			const [path] = selectedPaths;
+			if (path === undefined) {
+				return;
+			}
 			const itemId = sourceRef.current.pathToItemId.get(path);
 			if (itemId != null) {
 				onSelectItem(itemId);
@@ -112,14 +115,23 @@ export const CodeViewFileTree = memo(function CodeViewFileTree({
 			if (source.pathCount > previousPathCount) {
 				const operations: FileTreeBatchOperation[] = [];
 				for (let index = previousPathCount; index < source.pathCount; index++) {
-					operations.push({ type: "add", path: source.paths[index] });
+					const path = source.paths[index];
+					if (path !== undefined) {
+						operations.push({ type: "add", path });
+					}
 				}
 				if (operations.length > 0) {
 					model.batch(operations);
 				}
 			}
 			if (source.gitStatusPatch != null) {
-				model.applyGitStatusPatch(source.gitStatusPatch);
+				(
+					model as FileTreeModel & {
+						applyGitStatusPatch(
+							patch: CodeViewFileTreeSource["gitStatusPatch"],
+						): void;
+					}
+				).applyGitStatusPatch(source.gitStatusPatch);
 			}
 		} else {
 			model.resetPaths(source.paths.slice(0, source.pathCount));

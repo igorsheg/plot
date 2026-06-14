@@ -213,9 +213,11 @@ export function fixedSource(
 						selection = { ...selection, colorScheme: reportedScheme };
 					}
 					notify();
+					return undefined;
 				})
 				.catch(() => {
 					// Resolution failures leave the previous value in place.
+					return undefined;
 				});
 		}
 	}
