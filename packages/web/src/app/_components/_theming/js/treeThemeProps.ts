@@ -39,7 +39,7 @@ export function treeThemeProps(
 			primaryFg !== c["sideBar.foreground"] &&
 			primaryFg !== ""
 		) {
-			treeStyles.color = primaryFg;
+			treeStyles["color"] = primaryFg;
 			treeStyles["--trees-theme-sidebar-fg"] = primaryFg;
 			if (c["sideBarSectionHeader.foreground"] == null) {
 				treeStyles["--trees-theme-sidebar-header-fg"] = primaryFg;

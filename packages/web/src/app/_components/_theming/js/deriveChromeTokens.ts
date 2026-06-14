@@ -23,8 +23,8 @@ export interface ChromeTokens {
 	fg: string;
 	mutedFg: string;
 	ring: string;
-	scrollbarThumb?: string;
-	scrollbarTrack?: string;
+	scrollbarThumb?: string | undefined;
+	scrollbarTrack?: string | undefined;
 	separator: string;
 	surface: string;
 	surfaceBorder: string;

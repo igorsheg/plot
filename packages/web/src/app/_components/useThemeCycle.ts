@@ -67,7 +67,7 @@ export function useThemeCycle({
 			const idx = THEME_CYCLE_DURATIONS_SECONDS.indexOf(prev);
 			return THEME_CYCLE_DURATIONS_SECONDS[
 				(idx + 1) % THEME_CYCLE_DURATIONS_SECONDS.length
-			];
+			] as ThemeCycleDurationSeconds;
 		});
 	}, []);
 
@@ -82,8 +82,10 @@ export function useThemeCycle({
 		// captured sequence.
 		const lightThemes = docsThemeCatalog.getThemeNames({
 			colorScheme: "light",
-		});
-		const darkThemes = docsThemeCatalog.getThemeNames({ colorScheme: "dark" });
+		}) as LightThemeName[];
+		const darkThemes = docsThemeCatalog.getThemeNames({
+			colorScheme: "dark",
+		}) as DarkThemeName[];
 		const lightStartIdx = Math.max(
 			0,
 			lightThemes.indexOf(lightThemeNameRef.current),
@@ -119,7 +121,8 @@ export function useThemeCycle({
 		// entry so the first interval fires onto something new.
 		let idx = 1;
 		const tick = () => {
-			const step = order[idx % order.length];
+			if (order.length === 0) return;
+			const step = order[idx % order.length] as Step;
 			if (step.mode === "light") {
 				setLightThemeName(step.theme);
 				setColorMode("light");

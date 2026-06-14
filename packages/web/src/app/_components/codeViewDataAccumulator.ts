@@ -4,7 +4,7 @@ import {
 	type FileDiffMetadata,
 	parsePatchFiles,
 } from "@pierre/diffs";
-import type { FileTreeGitStatusPatch, GitStatusEntry } from "@pierre/trees";
+import type { GitStatusEntry } from "@pierre/trees";
 
 import { getPatchTreePathPrefix } from "./gitPatchMetadata";
 import type {
@@ -13,6 +13,7 @@ import type {
 	CodeViewDiffStats,
 	CodeViewFileTreeSource,
 	CommentMetadata,
+	FileTreeGitStatusPatch,
 } from "./types";
 import { mapChangeTypeToGitStatus } from "./utils";
 
@@ -168,11 +169,11 @@ export function snapshotCodeViewTreeSource(
 	const gitStatusPatch = takePendingGitStatusPatch(accumulator);
 	const snapshot: CodeViewFileTreeSource = {
 		gitStatus: Array.from(accumulator.gitStatusByPath.values()),
-		gitStatusPatch: previousSource == null ? undefined : gitStatusPatch,
+		...(previousSource == null ? {} : { gitStatusPatch }),
 		pathCount: accumulator.paths.length,
 		paths: accumulator.paths,
 		pathToItemId: accumulator.pathToItemId,
-		previousSource,
+		...(previousSource === undefined ? {} : { previousSource }),
 	};
 	accumulator.lastTreeSource = snapshot;
 	return snapshot;

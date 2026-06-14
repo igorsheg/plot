@@ -156,7 +156,10 @@ describe("controllerSource", () => {
 		});
 		const source = controllerSource(controller);
 		expect(source.getSnapshot().theme).toBe(lightTheme);
-		controller.set({ resolvedTheme: undefined, resolvedColorScheme: "dark" });
+		controller.set({
+			resolvedTheme: undefined,
+			resolvedColorScheme: "dark",
+		} as unknown as Parameters<typeof controller.set>[0]);
 		// Scheme follows immediately, but the theme object stays on the last
 		// resolved value so chrome/tree don't flash the default palette.
 		const mid = source.getSnapshot();

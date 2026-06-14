@@ -12,7 +12,7 @@ import type {
 export interface ActiveThemeSnapshot {
 	// The resolved active theme object (full: colors + tokenColors). Undefined
 	// until the first resolve settles.
-	theme?: ThemeLike;
+	theme?: ThemeLike | undefined;
 	colorScheme: ColorScheme;
 }
 

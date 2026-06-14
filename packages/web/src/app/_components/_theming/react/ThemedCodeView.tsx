@@ -43,7 +43,7 @@ export const ThemedCodeView: ThemedCodeViewComponent = <
 	return (
 		<CodeView<LAnnotation>
 			{...props}
-			ref={ref}
+			{...(ref === undefined ? {} : { ref })}
 			disableWorkerPool={disableWorkerPool}
 			options={themedOptions}
 		/>
