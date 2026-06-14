@@ -10,11 +10,7 @@ import {
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makeAgentSessionClientLayer } from "./agent-session-client.js";
-import type { AgentSessionEvent } from "./agent-session-types.js";
-import {
-	makePlotExtensionSourceBundleFromWorkflow,
-	type PlotExtensionAgentRunner,
-} from "./extension-source.js";
+import { makePlotExtensionSourceBundleFromWorkflow } from "./extension-source.js";
 import type { CreateAgentSession } from "./agent-session-types.js";
 import {
 	makePlotCreateAgentSession,
@@ -174,73 +170,6 @@ export const createPlotSessionHost = async (
 				: { overrides: options.agentSessionOverrides }),
 		});
 	const client = makeAgentSessionClientLayer({ createAgentSession });
-	const runExtensionAgent: PlotExtensionAgentRunner["runAgent"] = async (
-		request,
-	) => {
-		const events: AgentSessionEvent[] = [];
-		const timeout = request.timeoutMs;
-		let timedOut = false;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const iterable = client.prompt({
-			prompt: request.prompt,
-			...(request.create === undefined ? {} : { create: request.create }),
-			...(request.promptOptions === undefined
-				? {}
-				: { promptOptions: request.promptOptions }),
-			log: { source_id: "extension-subagent" },
-		});
-		if (timeout !== undefined) {
-			timer = setTimeout(() => {
-				timedOut = true;
-			}, timeout);
-		}
-		try {
-			for await (const event of iterable) {
-				if (timedOut)
-					throw new Error(`extension agent timed out after ${timeout}ms`);
-				events.push(event);
-				await request.onEvent?.(event);
-			}
-			return { events };
-		} finally {
-			if (timer !== undefined) clearTimeout(timer);
-		}
-	};
-	const extensionAgentRunner: PlotExtensionAgentRunner = {
-		runAgent: runExtensionAgent,
-		runAgents: async (runs, runOptions) => {
-			const concurrency = Math.max(1, runOptions?.concurrency ?? runs.length);
-			const results = Array.from<
-				{ length: number },
-				Awaited<ReturnType<typeof runExtensionAgent>> | undefined
-			>({ length: runs.length }, () => undefined);
-			let next = 0;
-			await Promise.all(
-				Array.from({ length: Math.min(concurrency, runs.length) }, async () => {
-					while (next < runs.length) {
-						const index = next++;
-						const run = runs[index];
-						if (run === undefined) continue;
-						results[index] = await runExtensionAgent({
-							...run,
-							...(runOptions?.timeoutMs === undefined
-								? {}
-								: { timeoutMs: run.timeoutMs ?? runOptions.timeoutMs }),
-							onEvent: async (event) => {
-								await run.onEvent?.(event);
-								await runOptions?.onEvent?.(index, event);
-							},
-						});
-					}
-				}),
-			);
-			return results.map((result) => {
-				if (result === undefined)
-					throw new Error("extension agent run did not produce a result");
-				return result;
-			});
-		},
-	};
 	// Workspace manager (opt-in via plot.workspace): the runtime guarantees a
 	// safe, durable per-work directory and runs the agent session inside it;
 	// populating the directory stays with the agent/workflow.
@@ -263,7 +192,6 @@ export const createPlotSessionHost = async (
 		? await makePlotExtensionSourceBundleFromWorkflow({
 				workflow,
 				paths,
-				agentRunner: extensionAgentRunner,
 				...(workspaces === undefined || workspaces.cleanup !== "on_released"
 					? {}
 					: {

@@ -1,16 +1,8 @@
-import type {
-	AgentSessionEvent,
-	CreateAgentSessionOptions,
-	PromptOptions,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export type {
-	AgentSessionEvent,
 	AgentToolResult,
 	AgentToolUpdateCallback,
-	CreateAgentSessionOptions,
-	PromptOptions,
 	ToolDefinition,
 	ToolExecutionMode,
 } from "@earendil-works/pi-coding-agent";
@@ -73,40 +65,12 @@ export type PlotExtensionTool<Config = unknown> =
 	| ToolDefinition
 	| ((context: PlotToolContext<Config>) => MaybePromise<ToolDefinition>);
 
-export interface PlotRunAgentOptions {
-	readonly prompt: string;
-	readonly create?: CreateAgentSessionOptions;
-	readonly promptOptions?: PromptOptions;
-	readonly timeoutMs?: number;
-	readonly onEvent?: (event: AgentSessionEvent) => MaybePromise<void>;
-}
-
-export interface PlotRunAgentResult {
-	readonly events: readonly AgentSessionEvent[];
-}
-
-export interface PlotRunAgentsOptions {
-	readonly concurrency?: number;
-	readonly timeoutMs?: number;
-	readonly onEvent?: (
-		index: number,
-		event: AgentSessionEvent,
-	) => MaybePromise<void>;
-}
-
 export interface PlotExtensionSetupContext<Config = unknown> {
 	readonly workflow: unknown;
 	readonly paths: PlotToolContext<Config>["paths"];
 	readonly config: Config;
 	readonly work: (input: PlotExtensionWork) => PlotExtensionWork;
 	readonly registerTool: (tool: PlotExtensionTool<Config>) => void;
-	readonly runAgent: (
-		options: PlotRunAgentOptions,
-	) => MaybePromise<PlotRunAgentResult>;
-	readonly runAgents: (
-		runs: readonly PlotRunAgentOptions[],
-		options?: PlotRunAgentsOptions,
-	) => MaybePromise<readonly PlotRunAgentResult[]>;
 }
 
 export interface PlotExtensionWorkEvent {

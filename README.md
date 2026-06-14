@@ -96,9 +96,7 @@ Extensions are trusted TypeScript.
 
 They can read GitHub, Linear, CI, logs, queues, files, or databases. They return work items. Plot runs them.
 
-Extensions can also register pi-native tools for API-shaped side effects where TypeScript should own correctness, such as posting a review or updating a ticket.
-
-For coarse parallel investigation, extensions can launch specialist pi agent sessions. Plot does not invent a second subagent protocol; it exposes pi-mono through the public SDK.
+Extensions can also register pi-native tools for API-shaped side effects where TypeScript should own correctness, such as posting a review or updating a ticket. Those tools are passed directly to the Agent Run Plot schedules for the Work Item.
 
 Build workflows like:
 

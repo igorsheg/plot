@@ -49,7 +49,7 @@ Extensions can provide:
 - `labels` — generic labels
 - `kind` — source kind for debugging and grouping
 
-Extension-registered tools can also emit pi tool updates. If a tool launches subagents, it can attach generic usage metadata in tool result details so the TUI can include subagent tokens and cost in the work and fleet totals.
+Extension-registered tools can also emit pi tool updates. Token usage and cost totals come from the Agent Runs Plot schedules, keeping the dashboard centered on one execution unit.
 
 ## What extensions cannot do
 

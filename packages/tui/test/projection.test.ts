@@ -194,18 +194,17 @@ describe("Plot TUI projection", () => {
 		expect(work?.toolUpdateCount).toBe(1);
 	});
 
-	test("counts subagent usage surfaced through tool updates", () => {
+	test("ignores tool-result usage so totals stay scoped to Agent Runs", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(
 			projection,
-			agentEvent(2, "spawn", "source:item:42", "tool_execution_update", {
+			agentEvent(2, "tool", "source:item:42", "tool_execution_update", {
 				type: "tool_execution_update",
-				toolName: "spawn_reviewers",
+				toolName: "load_review_context",
 				partialResult: {
-					content: [{ type: "text", text: "security: message_end" }],
+					content: [{ type: "text", text: "loaded context" }],
 					details: {
-						reviewer: "security",
 						usage: {
 							input: 100,
 							output: 25,
@@ -218,10 +217,9 @@ describe("Plot TUI projection", () => {
 		);
 
 		const work = projection.running.get("source:item:42");
-		expect(work?.tokens?.total).toBe(125);
-		expect(work?.tokens?.cost).toBe(0.0125);
-		expect(projection.usageTotals.tokens).toBe(125);
-		expect(projection.usageTotals.cost).toBe(0.0125);
+		expect(work?.tokens).toBeUndefined();
+		expect(projection.usageTotals.tokens).toBe(0);
+		expect(projection.usageTotals.cost).toBeUndefined();
 	});
 
 	test("compacts tool updates out of the per-work timeline", () => {

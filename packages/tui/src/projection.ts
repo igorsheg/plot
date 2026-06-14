@@ -293,19 +293,11 @@ const numberAt = (
 const extractUsage = (event: unknown): UsageDelta | undefined => {
 	if (!isRecord(event)) return undefined;
 	const message = isRecord(event["message"]) ? event["message"] : undefined;
-	const partialResult = isRecord(event["partialResult"])
-		? event["partialResult"]
-		: undefined;
-	const partialDetails = isRecord(partialResult?.["details"])
-		? partialResult["details"]
-		: undefined;
 	const usage = isRecord(message?.["usage"])
 		? message["usage"]
 		: isRecord(event["usage"])
 			? event["usage"]
-			: isRecord(partialDetails?.["usage"])
-				? partialDetails["usage"]
-				: undefined;
+			: undefined;
 	if (usage === undefined) return undefined;
 	const input = numberAt(usage, "input", "inputTokens");
 	const output = numberAt(usage, "output", "outputTokens");
