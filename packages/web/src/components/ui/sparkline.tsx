@@ -2,6 +2,28 @@ import { useId } from "react";
 
 import { cn } from "@/lib/utils";
 
+// Smooth a polyline into a curve that passes through every point, via a
+// Catmull-Rom spline expressed as cubic béziers — rounded corners instead of
+// sharp polyline joins. The same `d` drives the glow's offset-path, so the
+// pulse follows the curve too.
+function smoothPath(points: readonly [number, number][]): string {
+	const first = points[0];
+	if (first === undefined) return "";
+	let d = `M${first[0].toFixed(1)} ${first[1].toFixed(1)}`;
+	for (let i = 0; i < points.length - 1; i++) {
+		const p0 = points[i - 1] ?? points[i]!;
+		const p1 = points[i]!;
+		const p2 = points[i + 1]!;
+		const p3 = points[i + 2] ?? p2;
+		const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+		const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+		const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+		const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+		d += ` C${cp1x.toFixed(1)} ${cp1y.toFixed(1)} ${cp2x.toFixed(1)} ${cp2y.toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+	}
+	return d;
+}
+
 // A token-driven sparkline with a glowing "pulse of light" travelling the line —
 // the offset-path motion trick, but the path is generated from data (set inline,
 // not a static CSS class) so the trail follows whatever the series draws. The
@@ -32,12 +54,11 @@ export function Sparkline({
 	const x = (index: number) => (index / (data.length - 1)) * width;
 	const y = (value: number) =>
 		height - pad - (value / max) * (height - pad * 2);
-	const d = data
-		.map(
-			(value, index) =>
-				`${index === 0 ? "M" : "L"}${x(index).toFixed(1)} ${y(value).toFixed(1)}`,
-		)
-		.join(" ");
+	const points = data.map((value, index): [number, number] => [
+		x(index),
+		y(value),
+	]);
+	const d = smoothPath(points);
 
 	return (
 		<svg
