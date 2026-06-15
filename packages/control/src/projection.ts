@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { operatorActionSchema } from "./operator.js";
 import type { PlotServerRecord } from "./protocol.js";
+import type { SessionHistoryEvent } from "./session-history.js";
 import { nonNegativeIntegerSchema } from "./session-summary.js";
 
 export const dashboardStatusSchema = z.enum([
@@ -659,16 +660,29 @@ export const applySnapshot = (
 			})
 		: projection.scheduledWakes;
 	const diagnostics = Array.isArray(snapshot["diagnostics"])
-		? snapshot["diagnostics"]
-				.slice(-5)
-				.map((d) =>
-					isRecord(d)
-						? `${text(d["level"]) ?? "diagnostic"}/${text(d["phase"]) ?? "unknown"}: ${text(d["message"]) ?? JSON.stringify(d)}`
-						: String(d),
-				)
+		? snapshot["diagnostics"].slice(-5).map(diagnosticText)
 		: projection.diagnostics;
 	return { ...projection, running, diagnostics, scheduledWakes };
 };
+
+const diagnosticText = (diagnostic: unknown) =>
+	isRecord(diagnostic)
+		? `${text(diagnostic["level"]) ?? "diagnostic"}/${text(diagnostic["phase"]) ?? "unknown"}: ${text(diagnostic["message"]) ?? JSON.stringify(diagnostic)}`
+		: String(diagnostic);
+
+const reduceTickStarted = (
+	projection: DashboardProjection,
+	tickId: unknown,
+	observedAtMs: number,
+): DashboardProjection => ({
+	...projection,
+	status: "running",
+	activity: prependActivity(projection.activity, {
+		atMs: observedAtMs,
+		tone: "info",
+		text: `tick #${typeof tickId === "number" ? tickId : 0} started`,
+	}),
+});
 
 const reduceTickCompleted = (
 	projection: DashboardProjection,
@@ -692,7 +706,13 @@ const reduceTickCompleted = (
 					text: `tick #${tickId} found ${found} work, started ${started}`,
 				})
 			: projection.activity;
-	return { ...projection, pulse, activity };
+	const diagnostics = Array.isArray(result["diagnostics"])
+		? [
+				...result["diagnostics"].map(diagnosticText),
+				...projection.diagnostics,
+			].slice(0, 5)
+		: projection.diagnostics;
+	return { ...projection, status: "idle", pulse, activity, diagnostics };
 };
 
 const reduceWorkStarted = (
@@ -784,6 +804,204 @@ const reduceWorkCompleted = (
 	};
 };
 
+const reduceWakeScheduled = (
+	projection: DashboardProjection,
+	wake: Record<string, unknown>,
+	observedAtMs: number,
+): DashboardProjection => {
+	const delayMs = wake["delayMs"];
+	if (typeof delayMs !== "number") return projection;
+	const dueAtMs =
+		typeof wake["dueAtMs"] === "number"
+			? wake["dueAtMs"]
+			: observedAtMs + delayMs;
+	const reason = text(wake["reason"]);
+	const workKey = text(wake["workKey"]);
+	const attempt = wake["attempt"];
+	return {
+		...projection,
+		scheduledWakes: [
+			...projection.scheduledWakes,
+			{
+				dueAtMs,
+				delayMs,
+				...(reason === undefined ? {} : { reason }),
+				...(workKey === undefined ? {} : { workKey }),
+				...(typeof attempt === "number" ? { attempt } : {}),
+			},
+		].toSorted((a, b) => a.dueAtMs - b.dueAtMs),
+	};
+};
+
+const reduceAgentSessionEvent = (
+	projection: DashboardProjection,
+	event: Record<string, unknown>,
+	sequence: number,
+	observedAtMs: number,
+): DashboardProjection => {
+	const workKey = text(event["workKey"]);
+	if (workKey === undefined) return projection;
+	const rawEvent = event["event"];
+	const eventType = text(event["eventType"]) ?? "agent";
+	const rawType = rawEventType(rawEvent, eventType);
+	const message =
+		isToolStart(eventType, rawType) || isToolEnd(eventType, rawType)
+			? toolCommand(rawEvent, summarizeAgentEvent(rawEvent))
+			: summarizeAgentEvent(rawEvent);
+	const running = new Map(projection.running);
+	const previous = running.get(workKey);
+	const subject = text(event["subject"]) ?? previous?.subject;
+	const usage = extractUsage(rawEvent);
+	const tokens =
+		usage === undefined ? previous?.tokens : addUsage(previous?.tokens, usage);
+	const usageTotals =
+		usage === undefined
+			? projection.usageTotals
+			: {
+					tokens: projection.usageTotals.tokens + usage.total,
+					cost: (projection.usageTotals.cost ?? 0) + (usage.cost ?? 0),
+				};
+	const tokenSamples =
+		usage === undefined
+			? projection.tokenSamples
+			: appendSample(projection.tokenSamples, {
+					atMs: observedAtMs,
+					tokens: usageTotals.tokens,
+				});
+	const commands = isCommand(message)
+		? appendBounded(previous?.commands ?? [], message, 8)
+		: (previous?.commands ?? []);
+	const observations = isObservation(message)
+		? appendBounded(previous?.observations ?? [], message, 8)
+		: (previous?.observations ?? []);
+	const priorTurnIds = previous?.seenTurnIds ?? [];
+	const id = isTurnStart(eventType, rawType)
+		? turnId(rawEvent, sequence)
+		: undefined;
+	const seenTurnIds =
+		id !== undefined && !priorTurnIds.includes(id)
+			? [...priorTurnIds, id]
+			: priorTurnIds;
+	const activity = activityFor(message, eventType, rawType);
+	const meaningful = isMeaningful(eventType, rawType);
+	const lastMeaningful = meaningful
+		? activity
+		: (previous?.lastMeaningful ?? "waiting");
+	const timeline = meaningful
+		? prependTimeline(
+				previous?.timeline ?? [],
+				{ atMs: observedAtMs, text: activity },
+				12,
+			)
+		: (previous?.timeline ?? []);
+	running.set(workKey, {
+		workKey,
+		runId: text(event["runId"]) ?? previous?.runId ?? "run",
+		sourceId: text(event["sourceId"]) ?? previous?.sourceId ?? "source",
+		...(subject === undefined ? {} : { subject }),
+		...(previous?.primary === undefined ? {} : { primary: previous.primary }),
+		title: previous?.title ?? subject ?? workKey,
+		...(previous?.subtitle === undefined
+			? {}
+			: { subtitle: previous.subtitle }),
+		...(previous?.url === undefined ? {} : { url: previous.url }),
+		stage: inferStage(message, `${eventType} ${rawType}`),
+		startedAtSeq: previous?.startedAtSeq ?? sequence,
+		lastEventSeq: sequence,
+		startedAtMs: previous?.startedAtMs ?? observedAtMs,
+		lastEventAtMs: observedAtMs,
+		turnCount: seenTurnIds.length,
+		eventCount: (previous?.eventCount ?? 0) + 1,
+		toolUpdateCount:
+			(previous?.toolUpdateCount ?? 0) +
+			(isToolUpdate(eventType, rawType) ? 1 : 0),
+		messageCount:
+			(previous?.messageCount ?? 0) +
+			(isMessageDelta(eventType, rawType) ? 1 : 0),
+		seenTurnIds,
+		lastMessage: message,
+		activity,
+		lastMeaningful,
+		check: inferCheck(previous?.check ?? "not-run", message),
+		commands,
+		observations,
+		timeline,
+		...(tokens === undefined ? {} : { tokens }),
+	});
+	return { ...projection, usageTotals, tokenSamples, running };
+};
+
+const reduceEventPayload = (
+	projection: DashboardProjection,
+	type: string,
+	payload: unknown,
+	sequence: number,
+	observedAtMs: number,
+): DashboardProjection => {
+	if (type === "session_started") return { ...projection, status: "running" };
+	if (type === "session_shutdown") return { ...projection, status: "stopped" };
+	if (type === "tick_started")
+		return reduceTickStarted(
+			projection,
+			isRecord(payload) ? payload["tickId"] : undefined,
+			observedAtMs,
+		);
+	if (type === "tick_completed")
+		return reduceTickCompleted(
+			projection,
+			isRecord(payload) && payload["result"] !== undefined
+				? payload["result"]
+				: payload,
+			observedAtMs,
+		);
+	if (
+		(type === "work_started" || type === "agent_run_started") &&
+		isRecord(payload)
+	) {
+		const run = isRecord(payload["run"]) ? payload["run"] : payload;
+		return reduceWorkStarted(projection, run, sequence, observedAtMs);
+	}
+	if (
+		(type === "work_completed" ||
+			type === "agent_run_completed" ||
+			type === "agent_run_interrupted") &&
+		isRecord(payload)
+	) {
+		const completion = isRecord(payload["completion"])
+			? payload["completion"]
+			: payload;
+		return reduceWorkCompleted(projection, completion, observedAtMs);
+	}
+	if (
+		(type === "agent_session_event" || type === "agent_run_event") &&
+		isRecord(payload)
+	)
+		return reduceAgentSessionEvent(projection, payload, sequence, observedAtMs);
+	if (type === "wake_scheduled" && isRecord(payload))
+		return reduceWakeScheduled(projection, payload, observedAtMs);
+	if (
+		(type === "diagnostic_recorded" || type === "diagnostic") &&
+		isRecord(payload)
+	)
+		return {
+			...projection,
+			diagnostics: [diagnosticText(payload), ...projection.diagnostics].slice(
+				0,
+				5,
+			),
+		};
+	if (type === "operator_observation_recorded" && isRecord(payload))
+		return {
+			...projection,
+			activity: prependActivity(projection.activity, {
+				atMs: observedAtMs,
+				tone: "info",
+				text: `operator action ${text(payload["actionLabel"]) ?? text(payload["actionId"]) ?? "recorded"}`,
+			}),
+		};
+	return projection;
+};
+
 export const reduceRecord = (
 	projection: DashboardProjection,
 	record: PlotServerRecord,
@@ -792,7 +1010,7 @@ export const reduceRecord = (
 	const sequence = Number(record.sequence);
 	const observedAtMs = Date.now();
 	const summary = eventSummary(record);
-	let next: DashboardProjection = {
+	const next: DashboardProjection = {
 		...projection,
 		frontier: sequence,
 		debugEvents: [
@@ -804,110 +1022,55 @@ export const reduceRecord = (
 	if (!isRecord(event)) return next;
 	if (event["type"] === "plot_agent_event" && isRecord(event["event"])) {
 		const agentEvent = event["event"];
-		if (agentEvent["type"] === "tick_completed")
-			return reduceTickCompleted(next, agentEvent["result"], observedAtMs);
-		if (agentEvent["type"] === "work_started" && isRecord(agentEvent["run"]))
-			return reduceWorkStarted(next, agentEvent["run"], sequence, observedAtMs);
-		if (
-			agentEvent["type"] === "work_completed" &&
-			isRecord(agentEvent["completion"])
-		)
-			return reduceWorkCompleted(next, agentEvent["completion"], observedAtMs);
-		return next;
+		return reduceEventPayload(
+			next,
+			text(agentEvent["type"]) ?? "plot_agent_event",
+			agentEvent,
+			sequence,
+			observedAtMs,
+		);
 	}
-	if (event["type"] === "agent_session_event") {
-		const workKey = text(event["workKey"]);
-		if (workKey === undefined) return next;
-		const rawEvent = event["event"];
-		const eventType = text(event["eventType"]) ?? "agent";
-		const rawType = rawEventType(rawEvent, eventType);
-		const message =
-			isToolStart(eventType, rawType) || isToolEnd(eventType, rawType)
-				? toolCommand(rawEvent, summarizeAgentEvent(rawEvent))
-				: summarizeAgentEvent(rawEvent);
-		const running = new Map(next.running);
-		const previous = running.get(workKey);
-		const subject = text(event["subject"]) ?? previous?.subject;
-		const usage = extractUsage(rawEvent);
-		const tokens =
-			usage === undefined
-				? previous?.tokens
-				: addUsage(previous?.tokens, usage);
-		const usageTotals =
-			usage === undefined
-				? next.usageTotals
-				: {
-						tokens: next.usageTotals.tokens + usage.total,
-						cost: (next.usageTotals.cost ?? 0) + (usage.cost ?? 0),
-					};
-		const tokenSamples =
-			usage === undefined
-				? next.tokenSamples
-				: appendSample(next.tokenSamples, {
-						atMs: observedAtMs,
-						tokens: usageTotals.tokens,
-					});
-		const commands = isCommand(message)
-			? appendBounded(previous?.commands ?? [], message, 8)
-			: (previous?.commands ?? []);
-		const observations = isObservation(message)
-			? appendBounded(previous?.observations ?? [], message, 8)
-			: (previous?.observations ?? []);
-		const priorTurnIds = previous?.seenTurnIds ?? [];
-		const id = isTurnStart(eventType, rawType)
-			? turnId(rawEvent, sequence)
-			: undefined;
-		const seenTurnIds =
-			id !== undefined && !priorTurnIds.includes(id)
-				? [...priorTurnIds, id]
-				: priorTurnIds;
-		const activity = activityFor(message, eventType, rawType);
-		const meaningful = isMeaningful(eventType, rawType);
-		const lastMeaningful = meaningful
-			? activity
-			: (previous?.lastMeaningful ?? "waiting");
-		const timeline = meaningful
-			? prependTimeline(
-					previous?.timeline ?? [],
-					{ atMs: observedAtMs, text: activity },
-					12,
-				)
-			: (previous?.timeline ?? []);
-		running.set(workKey, {
-			workKey,
-			runId: text(event["runId"]) ?? previous?.runId ?? "run",
-			sourceId: text(event["sourceId"]) ?? previous?.sourceId ?? "source",
-			...(subject === undefined ? {} : { subject }),
-			...(previous?.primary === undefined ? {} : { primary: previous.primary }),
-			title: previous?.title ?? subject ?? workKey,
-			...(previous?.subtitle === undefined
-				? {}
-				: { subtitle: previous.subtitle }),
-			...(previous?.url === undefined ? {} : { url: previous.url }),
-			stage: inferStage(message, `${eventType} ${rawType}`),
-			startedAtSeq: previous?.startedAtSeq ?? sequence,
-			lastEventSeq: sequence,
-			startedAtMs: previous?.startedAtMs ?? observedAtMs,
-			lastEventAtMs: observedAtMs,
-			turnCount: seenTurnIds.length,
-			eventCount: (previous?.eventCount ?? 0) + 1,
-			toolUpdateCount:
-				(previous?.toolUpdateCount ?? 0) +
-				(isToolUpdate(eventType, rawType) ? 1 : 0),
-			messageCount:
-				(previous?.messageCount ?? 0) +
-				(isMessageDelta(eventType, rawType) ? 1 : 0),
-			seenTurnIds,
-			lastMessage: message,
-			activity,
-			lastMeaningful,
-			check: inferCheck(previous?.check ?? "not-run", message),
-			commands,
-			observations,
-			timeline,
-			...(tokens === undefined ? {} : { tokens }),
-		});
-		return { ...next, usageTotals, tokenSamples, running };
-	}
-	return next;
+	return reduceEventPayload(
+		next,
+		text(event["type"]) ?? "event",
+		event,
+		sequence,
+		observedAtMs,
+	);
 };
+
+const timestampMs = (timestamp: string) => {
+	const ms = Date.parse(timestamp);
+	return Number.isFinite(ms) ? ms : Date.now();
+};
+
+export const reduceSessionHistoryEvent = (
+	projection: DashboardProjection,
+	event: SessionHistoryEvent,
+): DashboardProjection => {
+	const sequence = Number(event.sequence);
+	const next: DashboardProjection = {
+		...projection,
+		frontier: sequence,
+		debugEvents: [
+			`#${event.sequence} ${event.type}`,
+			...projection.debugEvents,
+		].slice(0, 100),
+	};
+	return reduceEventPayload(
+		next,
+		event.type,
+		event.payload,
+		sequence,
+		timestampMs(event.timestamp),
+	);
+};
+
+export const rebuildProjectionFromSessionHistory = (
+	events: readonly SessionHistoryEvent[],
+	projection: DashboardProjection,
+): DashboardProjection =>
+	events.reduce(
+		(current, event) => reduceSessionHistoryEvent(current, event),
+		projection,
+	);

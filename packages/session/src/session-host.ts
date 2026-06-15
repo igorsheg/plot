@@ -24,6 +24,10 @@ import {
 	type PlotSessionEvent,
 	type PlotSessionShape,
 } from "./plot-session.js";
+import {
+	createSessionHistoryStore,
+	type SessionHistoryStore,
+} from "./session-history.js";
 import { makePlotProtocolLayer } from "./protocol-handler.js";
 import {
 	defaultPlotProtocolLimits,
@@ -75,6 +79,7 @@ export interface PlotSessionHost {
 	readonly paths: PlotPaths;
 	readonly requestQueueCapacity: number;
 	readonly replayCapacity: number;
+	readonly sessionHistory: SessionHistoryStore;
 	readonly session: PlotSessionShape;
 	readonly shutdown: () => Promise<void>;
 }
@@ -170,6 +175,10 @@ export const createPlotSessionHost = async (
 				: { overrides: options.agentSessionOverrides }),
 		});
 	const client = makeAgentSessionClientLayer({ createAgentSession });
+	const sessionHistory = await createSessionHistoryStore({
+		sessionDir: paths.sessionDir,
+		sessionId: options.sessionId,
+	});
 	// Workspace manager (opt-in via plot.workspace): the runtime guarantees a
 	// safe, durable per-work directory and runs the agent session inside it;
 	// populating the directory stays with the agent/workflow.
@@ -229,6 +238,7 @@ export const createPlotSessionHost = async (
 		workflow,
 		sources,
 		eventCapacity,
+		sessionHistory,
 		agent: agentOptions,
 		agentRunner: {
 			prompt: workflow.prompt,
@@ -247,6 +257,7 @@ export const createPlotSessionHost = async (
 		paths,
 		requestQueueCapacity,
 		replayCapacity,
+		sessionHistory,
 		session,
 		shutdown: extensionBundle?.shutdown ?? (async () => {}),
 	};

@@ -18,6 +18,10 @@ import type {
 	PromptAgentSessionOptions,
 } from "./agent-session-client.js";
 import type { AgentSessionWorkRunnerOptions } from "./agent-session-runner.js";
+import type {
+	SessionHistoryAppendInput,
+	SessionHistoryStore,
+} from "./session-history.js";
 import type { WorkflowDefinition } from "./workflow.js";
 import {
 	makePromptTemplateData,
@@ -75,6 +79,15 @@ export class SessionShutdownEvent {
 		return this.input.sequence;
 	}
 }
+export class ObservationSubmittedEvent {
+	readonly type = "observation_submitted";
+	readonly sessionId!: PlotSessionId;
+	readonly sequence!: PlotSessionEventSequence;
+	readonly observation!: Observation;
+	constructor(input: Omit<ObservationSubmittedEvent, "type">) {
+		Object.assign(this, input);
+	}
+}
 export class PlotAgentEventEnvelope {
 	readonly type = "plot_agent_event";
 	readonly sessionId!: PlotSessionId;
@@ -105,6 +118,7 @@ export class AgentSessionEventEnvelope {
 export type PlotSessionEvent =
 	| SessionStartedEvent
 	| SessionShutdownEvent
+	| ObservationSubmittedEvent
 	| PlotAgentEventEnvelope
 	| AgentSessionEventEnvelope;
 export class PlotSessionError extends Error {
@@ -145,6 +159,7 @@ interface BasePlotSessionLayerOptions {
 	readonly sources: readonly WorkSource[];
 	readonly agent?: Omit<PlotAgentLayerOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
+	readonly sessionHistory?: SessionHistoryStore;
 }
 export interface ExplicitRunnerPlotSessionLayerOptions extends BasePlotSessionLayerOptions {
 	readonly runner: WorkRunner;
@@ -175,6 +190,19 @@ const nextSequence = (get: () => number, set: (n: number) => void) => {
 	const next = get() + 1;
 	set(next);
 	return plotSessionEventSequence(next);
+};
+const historyForPlotAgentEvent = (
+	event: PlotAgentEvent,
+): SessionHistoryAppendInput => {
+	if (event.type === "tick_started")
+		return { type: "tick_started", payload: { tickId: event.tickId } };
+	if (event.type === "tick_completed")
+		return { type: "tick_completed", payload: { result: event.result } };
+	if (event.type === "wake_scheduled")
+		return { type: "wake_scheduled", payload: event };
+	if (event.type === "work_started")
+		return { type: "work_started", payload: { run: event.run } };
+	return { type: "work_completed", payload: { completion: event.completion } };
 };
 const resolveValue = async <A>(
 	value: A | ((context: WorkRunnerContext) => Promise<A> | A),
@@ -271,6 +299,21 @@ export function makePlotSessionLayer(
 	const events = new EventHub<PlotSessionEvent>(eventCapacity);
 	let sequence = 0;
 	const publish = (event: PlotSessionEvent) => events.publish(event);
+	const claimMemorySequence = () =>
+		nextSequence(
+			() => sequence,
+			(n) => {
+				sequence = n;
+			},
+		);
+	const claimHistorySequence = async (
+		historyEvent: SessionHistoryAppendInput,
+	) => {
+		if (!options.sessionHistory) return claimMemorySequence();
+		const appended = await options.sessionHistory.append(historyEvent);
+		sequence = Number(appended.sequence);
+		return plotSessionEventSequence(sequence);
+	};
 	const publishAgentEvent = async (
 		context: WorkRunnerContext,
 		event: AgentSessionEvent,
@@ -278,12 +321,19 @@ export function makePlotSessionLayer(
 		publish(
 			new AgentSessionEventEnvelope({
 				sessionId,
-				sequence: nextSequence(
-					() => sequence,
-					(n) => {
-						sequence = n;
-					},
-				),
+				sequence: options.sessionHistory
+					? await claimHistorySequence({
+							type: "agent_run_event",
+							payload: {
+								sourceId: context.sourceId,
+								runId: context.run.runId,
+								workKey: context.work.workKey,
+								...optionalSubject(context.work.subject),
+								eventType: event.type,
+								event,
+							},
+						})
+					: claimMemorySequence(),
 				sourceId: context.sourceId,
 				runId: context.run.runId,
 				workKey: context.work.workKey,
@@ -316,12 +366,9 @@ export function makePlotSessionLayer(
 			publish(
 				new PlotAgentEventEnvelope({
 					sessionId,
-					sequence: nextSequence(
-						() => sequence,
-						(n) => {
-							sequence = n;
-						},
-					),
+					sequence: options.sessionHistory
+						? await claimHistorySequence(historyForPlotAgentEvent(event))
+						: claimMemorySequence(),
 					event,
 				}),
 			);
@@ -337,12 +384,12 @@ export function makePlotSessionLayer(
 					publish(
 						new SessionStartedEvent({
 							sessionId,
-							sequence: nextSequence(
-								() => sequence,
-								(n) => {
-									sequence = n;
-								},
-							),
+							sequence: options.sessionHistory
+								? await claimHistorySequence({
+										type: "session_started",
+										payload: {},
+									})
+								: claimMemorySequence(),
 						}),
 					);
 					await plotAgent.start();
@@ -358,7 +405,26 @@ export function makePlotSessionLayer(
 			withWideEvent(
 				"plot_session.submit_observation",
 				{ session_id: sessionId, observation_type: observation.type },
-				plotAgent.offer({ type: "observation", observation }),
+				async () => {
+					const accepted = await plotAgent.offer({
+						type: "observation",
+						observation,
+					});
+					if (accepted)
+						publish(
+							new ObservationSubmittedEvent({
+								sessionId,
+								sequence: options.sessionHistory
+									? await claimHistorySequence({
+											type: "observation_submitted",
+											payload: { observation },
+										})
+									: claimMemorySequence(),
+								observation,
+							}),
+						);
+					return accepted;
+				},
 			),
 		snapshot: async () =>
 			withWideEvent(
@@ -367,7 +433,12 @@ export function makePlotSessionLayer(
 				plotAgent.snapshot(),
 			),
 		events: () => events.subscribe(),
-		lastEventSequence: async () => plotSessionEventCursor(sequence),
+		lastEventSequence: async () =>
+			plotSessionEventCursor(
+				options.sessionHistory
+					? (await options.sessionHistory.frontier()).lastSequence
+					: sequence,
+			),
 		shutdown: async () =>
 			withWideEvent(
 				"plot_session.shutdown",
@@ -377,12 +448,12 @@ export function makePlotSessionLayer(
 					publish(
 						new SessionShutdownEvent({
 							sessionId,
-							sequence: nextSequence(
-								() => sequence,
-								(n) => {
-									sequence = n;
-								},
-							),
+							sequence: options.sessionHistory
+								? await claimHistorySequence({
+										type: "session_shutdown",
+										payload: {},
+									})
+								: claimMemorySequence(),
 						}),
 					);
 					return accepted;
