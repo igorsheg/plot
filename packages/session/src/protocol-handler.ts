@@ -76,6 +76,7 @@ export interface PlotProtocolShape {
 	readonly welcome: () => Promise<PlotWelcomeRecord>;
 	readonly submit: (request: PlotClientRecord) => Promise<boolean>;
 	readonly output: () => AsyncIterable<PlotServerRecord>;
+	readonly close: () => Promise<void>;
 }
 interface QueuedProtocolRequest {
 	readonly request: PlotClientRecord;
@@ -278,7 +279,24 @@ export const makePlotProtocolLayer = (
 	);
 	const attachments = new Map<string, "observer" | "controller">();
 	const eventPumps = new Set<string>();
+	let closed = false;
 	const publishOutput = (record: PlotServerRecord) => output.publish(record);
+	const attachSession = async (
+		runtime: ControlSessionRuntime,
+		role: "observer" | "controller",
+	) => {
+		attachments.set(runtime.sessionId, role);
+		startPump(runtime);
+		await registry.attach({
+			sessionId: runtime.sessionId,
+			connectionId,
+			role,
+		});
+	};
+	const detachSession = async (sessionId: string) => {
+		attachments.delete(sessionId);
+		await registry.detach({ sessionId, connectionId });
+	};
 
 	if (options.session) {
 		void registry.register(
@@ -322,11 +340,7 @@ export const makePlotProtocolLayer = (
 			case "list_sessions":
 				return [
 					makeSuccessForRequest(request, {
-						data: {
-							sessions: await Promise.all(
-								registry.list().map((runtime) => runtime.summary()),
-							),
-						},
+						data: { sessions: await registry.summaries() },
 					}),
 				];
 			case "open_session": {
@@ -346,34 +360,37 @@ export const makePlotProtocolLayer = (
 						? undefined
 						: registry.get(params.sessionId);
 				if (existing !== undefined) {
-					attachments.set(existing.sessionId, params.role ?? "controller");
-					startPump(existing);
+					await attachSession(existing, params.role ?? "controller");
 					const lastSequence = await existing.frontier();
 					return [
 						makeSuccessForRequest(request, {
 							lastSequence,
-							data: { session: await existing.summary(), lastSequence },
+							data: {
+								session: await registry.summary(existing.sessionId),
+								lastSequence,
+							},
 						}),
 					];
 				}
 				const runtime = await options.openSession(params);
 				await registry.register(runtime);
 				await runtime.session.start();
-				attachments.set(runtime.sessionId, params.role ?? "controller");
-				startPump(runtime);
+				await attachSession(runtime, params.role ?? "controller");
 				const lastSequence = await runtime.frontier();
 				return [
 					makeSuccessForRequest(request, {
 						lastSequence,
-						data: { session: await runtime.summary(), lastSequence },
+						data: {
+							session: await registry.summary(runtime.sessionId),
+							lastSequence,
+						},
 					}),
 				];
 			}
 			case "attach_session": {
 				const params = decodeAttachSessionParams(request.params);
 				const runtime = getSession(registry, params.sessionId);
-				attachments.set(params.sessionId, params.role ?? "observer");
-				startPump(runtime);
+				await attachSession(runtime, params.role ?? "observer");
 				const snapshot = wireSnapshot(await runtime.snapshot());
 				const lastSequence = await runtime.frontier();
 				const response = makeSuccessForRequest(request, {
@@ -389,7 +406,7 @@ export const makePlotProtocolLayer = (
 			case "detach_session": {
 				const params = decodeDetachSessionParams(request.params);
 				getSession(registry, params.sessionId);
-				attachments.delete(params.sessionId);
+				await detachSession(params.sessionId);
 				return [makeSuccessForRequest(request, { data: { detached: true } })];
 			}
 			case "get_snapshot": {
@@ -607,7 +624,16 @@ export const makePlotProtocolLayer = (
 
 	void (async () => {
 		while (true) {
-			const queued = await requests.take();
+			let queued: QueuedProtocolRequest;
+			try {
+				queued = await requests.take();
+			} catch {
+				break;
+			}
+			if (closed) {
+				queued.resolve(false);
+				break;
+			}
 			await processRequest(queued.request);
 			queued.resolve(true);
 		}
@@ -629,8 +655,9 @@ export const makePlotProtocolLayer = (
 			withWideEvent(
 				"plot_protocol.submit",
 				{ request_id: request.id, command: request.command },
-				async () =>
-					new Promise<boolean>((resolve) => {
+				async () => {
+					if (closed) return false;
+					return new Promise<boolean>((resolve) => {
 						if (!requests.offer({ request, resolve })) {
 							publishOutput(
 								makePlotErrorResponse({
@@ -642,8 +669,16 @@ export const makePlotProtocolLayer = (
 							);
 							resolve(false);
 						}
-					}),
+					});
+				},
 			),
 		output: () => output.subscribe(),
+		close: async () => {
+			if (closed) return;
+			closed = true;
+			attachments.clear();
+			await registry.detachConnection(connectionId);
+			requests.close();
+		},
 	};
 };
