@@ -12,7 +12,7 @@ import {
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -86,7 +86,14 @@ function ProcessTable({
 }) {
 	const model = dashboardModelFrom(projection);
 	const counts = projectionReadyDoneCounts(projection);
-	const tps = throughputSeries(projection.tokenSamples, Date.now());
+	// Recompute the series only when the samples actually change, anchored to the
+	// latest sample's time rather than a sliding Date.now() — otherwise the path
+	// shifts every render and the glow's offset-path animation hitches.
+	const samples = projection.tokenSamples;
+	const tps = useMemo(() => {
+		const last = samples[samples.length - 1];
+		return last === undefined ? [] : throughputSeries(samples, last.atMs);
+	}, [samples]);
 	const work = [...projection.running.values()].toSorted(
 		(a, b) => a.startedAtSeq - b.startedAtSeq,
 	);
