@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import type { LocalPlotServerPaths } from "./local-server-paths.js";
 
 export const defaultLocalPlotServerPort = 3927;
@@ -60,6 +60,13 @@ export const writeLocalPlotServerMetadata = async (
 			mode: 0o600,
 		},
 	);
+};
+
+/** Remove the server metadata file so probes stop seeing a stopped server. */
+export const removeLocalPlotServerMetadata = async (
+	paths: Pick<LocalPlotServerPaths, "metadataPath">,
+): Promise<void> => {
+	await rm(paths.metadataPath, { force: true });
 };
 
 export interface LocalPlotServerHealth {

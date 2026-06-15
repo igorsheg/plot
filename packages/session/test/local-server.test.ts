@@ -107,6 +107,17 @@ describe("Local Plot Server", () => {
 		}
 	});
 
+	test("stop() removes the server metadata so probes see it gone", async () => {
+		const paths = await tmpPaths();
+		const server = await startLocalPlotServer({
+			serverDir: paths.serverDir,
+			port: 0,
+		});
+		await expect(stat(paths.metadataPath)).resolves.toBeDefined();
+		await server.stop();
+		await expect(stat(paths.metadataPath)).rejects.toThrow();
+	});
+
 	test("recovers stale local metadata by health check instead of PID trust", async () => {
 		const paths = await tmpPaths();
 		const token = await ensureLocalControlToken(paths);

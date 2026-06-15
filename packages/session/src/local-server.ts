@@ -28,6 +28,7 @@ import {
 	defaultLocalPlotServerPort,
 	discoverHealthyLocalPlotServer,
 	healthCheckLocalPlotServer,
+	removeLocalPlotServerMetadata,
 	writeLocalPlotServerMetadata,
 	type LocalPlotServerMetadata,
 } from "./local-server-metadata.js";
@@ -574,15 +575,45 @@ export const startLocalPlotServer = async (
 		server,
 		alreadyRunning: false,
 		stop: async () => {
+			// Graceful shutdown of a foreground server: remove the metadata first so
+			// probes immediately see it gone, close the in-process sessions it hosts
+			// (flush close events to history, end their agent runs) rather than
+			// orphaning them, then drop the listening socket.
+			await removeLocalPlotServerMetadata(paths).catch(() => undefined);
+			await Promise.all(
+				registry
+					.list()
+					.map((runtime) => runtime.close().catch(() => undefined)),
+			);
 			server.stop(true);
 		},
 	};
 };
+
+/**
+ * Resolve on the first SIGINT/SIGTERM. Lets a foreground server hold the
+ * terminal and then run its cleanup before exiting, instead of being
+ * hard-killed mid-flight.
+ */
+export const awaitShutdownSignal = (): Promise<void> =>
+	new Promise((resolve) => {
+		const onSignal = () => {
+			process.off("SIGINT", onSignal);
+			process.off("SIGTERM", onSignal);
+			resolve();
+		};
+		process.once("SIGINT", onSignal);
+		process.once("SIGTERM", onSignal);
+	});
 
 export const runLocalPlotServer = async (
 	options: LocalPlotServerOptions = {},
 ): Promise<void> => {
 	const handle = await startLocalPlotServer(options);
 	if (handle.alreadyRunning) return;
-	await new Promise<void>(() => undefined);
+	try {
+		await awaitShutdownSignal();
+	} finally {
+		await handle.stop();
+	}
 };

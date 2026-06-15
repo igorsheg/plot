@@ -8,6 +8,7 @@ import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-sessio
 import type { PlotSessionEvent } from "@plot/session/plot-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 import {
+	awaitShutdownSignal,
 	runLocalPlotServer,
 	startLocalPlotServer,
 	type LocalPlotServerHandle,
@@ -359,8 +360,15 @@ export const runWebDashboard = (
 				role: options.role ?? "controller",
 			},
 			async () => {
-				await startWebDashboard(options);
-				await new Promise<void>(() => undefined);
+				// Hold the foreground until Ctrl-C, then run the server's cleanup
+				// (close sessions, remove metadata, drop the socket) before exiting —
+				// rather than leaving the process to be hard-killed.
+				const dashboard = await startWebDashboard(options);
+				try {
+					await awaitShutdownSignal();
+				} finally {
+					await dashboard.stop();
+				}
 			},
 		),
 	);
