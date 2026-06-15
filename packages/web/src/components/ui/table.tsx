@@ -18,7 +18,7 @@ function TableElement({
 }: ComponentPropsWithoutRef<"table">) {
 	return (
 		<table
-			className={cn("w-full border-collapse text-left text-[12px]", className)}
+			className={cn("w-full border-collapse text-left text-xs", className)}
 			{...props}
 		/>
 	);

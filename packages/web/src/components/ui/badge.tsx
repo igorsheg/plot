@@ -38,9 +38,9 @@ const badgeVariants = cva(
 				dot: "border border-border text-foreground",
 			},
 			size: {
-				sm: "h-5 px-2 text-[11px] gap-1",
-				md: "h-6 px-2.5 text-[12px] gap-1.5",
-				lg: "h-7 px-3 text-[13px] gap-1.5",
+				sm: "h-5 px-2 text-2xs gap-1",
+				md: "h-6 px-2.5 text-xs gap-1.5",
+				lg: "h-7 px-3 text-sm gap-1.5",
 			},
 		},
 		defaultVariants: { variant: "solid", size: "md" },

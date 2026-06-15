@@ -303,6 +303,8 @@
 	--text-sm--line-height: 1.125rem;
 	--text-base: 0.875rem; /* 14px — emphasized body */
 	--text-base--line-height: 1.25rem;
+	--text-lg: 1rem; /* 16px — section titles, large values */
+	--text-lg--line-height: 1.5rem;
 
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);

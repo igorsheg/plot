@@ -64,7 +64,7 @@ function DisclosureTrigger({
 			aria-controls={state.panelId}
 			onClick={actions.toggle}
 			className={cn(
-				"flex w-full items-center justify-between gap-2 rounded-lg py-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
+				"flex w-full items-center justify-between gap-2 rounded-lg py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
 				className,
 			)}
 			{...props}

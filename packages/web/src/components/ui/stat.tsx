@@ -12,7 +12,7 @@ function StatRoot({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 function StatValue({ className, ...props }: ComponentPropsWithoutRef<"span">) {
 	return (
 		<span
-			className={cn("text-[13px] tabular-nums text-foreground", className)}
+			className={cn("text-sm tabular-nums text-foreground", className)}
 			{...props}
 		/>
 	);
@@ -21,7 +21,7 @@ function StatValue({ className, ...props }: ComponentPropsWithoutRef<"span">) {
 function StatLabel({ className, ...props }: ComponentPropsWithoutRef<"span">) {
 	return (
 		<span
-			className={cn("text-[13px] text-muted-foreground", className)}
+			className={cn("text-sm text-muted-foreground", className)}
 			{...props}
 		/>
 	);

@@ -2,23 +2,5 @@
 	"app/dashboard/DashboardPage.tsx": {
 		"adHocTextSize": 15,
 		"nativeDialog": 3
-	},
-	"components/ui/disclosure.tsx": {
-		"adHocTextSize": 1
-	},
-	"components/ui/list-row.tsx": {
-		"adHocTextSize": 3
-	},
-	"components/ui/badge.tsx": {
-		"adHocTextSize": 3
-	},
-	"components/ui/table.tsx": {
-		"adHocTextSize": 1
-	},
-	"components/ui/button.tsx": {
-		"adHocTextSize": 3
-	},
-	"components/ui/stat.tsx": {
-		"adHocTextSize": 2
 	}
 }

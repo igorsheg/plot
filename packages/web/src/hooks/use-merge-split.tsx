@@ -64,6 +64,7 @@ function bridgePair(outer: Run, runs: Run[]) {
 		.toSorted((a, b) => a.start - b.start);
 	if (inside.length !== 2) return null;
 	const [up, lo] = inside;
+	if (!up || !lo) return null;
 	return lo.start === up.end + 2 ? { up, lo, gap: up.end + 1 } : null;
 }
 

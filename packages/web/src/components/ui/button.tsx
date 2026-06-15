@@ -25,9 +25,9 @@ const buttonVariants = cva(
 				ghost: "text-muted-foreground hover:text-foreground",
 			},
 			size: {
-				sm: "h-7 px-3 text-[12px] gap-1",
-				md: "h-8 px-4 text-[13px] gap-1.5",
-				lg: "h-9 px-5 text-[14px] gap-1.5",
+				sm: "h-7 px-3 text-xs gap-1",
+				md: "h-8 px-4 text-sm gap-1.5",
+				lg: "h-9 px-5 text-base gap-1.5",
 				"icon-sm": "h-8 w-8 p-0 [&_svg]:h-3.5 [&_svg]:w-3.5",
 				icon: "h-9 w-9 p-0 [&_svg]:h-4 [&_svg]:w-4",
 				"icon-lg": "h-10 w-10 p-0 [&_svg]:h-5 [&_svg]:w-5",

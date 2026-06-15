@@ -30,7 +30,7 @@ function ListRowBody({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 function ListRowTitle({ className, ...props }: ComponentPropsWithoutRef<"p">) {
 	return (
 		<p
-			className={cn("truncate text-[13px] text-foreground", className)}
+			className={cn("truncate text-sm text-foreground", className)}
 			{...props}
 		/>
 	);
@@ -42,7 +42,7 @@ function ListRowSubtitle({
 }: ComponentPropsWithoutRef<"p">) {
 	return (
 		<p
-			className={cn("truncate text-[12px] text-muted-foreground", className)}
+			className={cn("truncate text-xs text-muted-foreground", className)}
 			{...props}
 		/>
 	);
@@ -55,7 +55,7 @@ function ListRowTrailing({
 	return (
 		<div
 			className={cn(
-				"shrink-0 text-[12px] tabular-nums text-muted-foreground",
+				"shrink-0 text-xs tabular-nums text-muted-foreground",
 				className,
 			)}
 			{...props}
