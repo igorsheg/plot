@@ -287,7 +287,7 @@ export const dashboardModelFrom = (
 			...(projection.usageTotals.cost === undefined
 				? {}
 				: { totalCost: formatCost(projection.usageTotals.cost) }),
-			throughput: `${formatTokens(Math.round(throughput.rate))} tps`,
+			throughput: `${formatTokens(Math.round(throughput.rate))} tok/s`,
 			throughputGraph: throughput.graph,
 		},
 		attention: attentionFrom(rows, projection.diagnostics),

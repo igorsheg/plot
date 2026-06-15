@@ -204,6 +204,21 @@ const latestDeclaredActions = (
 	return [];
 };
 
+const needsYouCountFrom = (events: readonly SessionHistoryEvent[]) => {
+	const latest = new Map<string, readonly OperatorAction[]>();
+	for (const event of events) {
+		if (event.type !== "operator_actions_declared") continue;
+		if (!isRecord(event.payload)) continue;
+		const workKey = event.payload["workKey"];
+		const actions = event.payload["actions"];
+		if (typeof workKey !== "string" || !Array.isArray(actions)) continue;
+		latest.set(workKey, actions as readonly OperatorAction[]);
+	}
+	return [...latest.values()].filter((actions) =>
+		actions.some((action) => !action.disabledReason),
+	).length;
+};
+
 export const makeControlSessionRuntime = (
 	options: ControlSessionRuntimeOptions,
 ): ControlSessionRuntime => {
@@ -297,6 +312,9 @@ export const makeControlSessionRuntime = (
 			const labels = labelsFromWorkflow(options.session);
 			const snapshot = await options.session.snapshot();
 			const running = [...snapshot.running.values()];
+			const events = options.history
+				? (await options.history.readAll()).events
+				: memoryEvents;
 			return {
 				id: sessionId,
 				epoch,
@@ -313,7 +331,7 @@ export const makeControlSessionRuntime = (
 				cwd: options.cwd ?? labels.cwd,
 				cwdName: basename(options.cwd ?? labels.cwd) || labels.cwdName,
 				agents: { active: running.length, max: 100 },
-				needsYouCount: 0,
+				needsYouCount: needsYouCountFrom(events),
 				tokenThroughputPerSecond: null,
 				totalTokens: 0,
 				lastActivityAt: null,

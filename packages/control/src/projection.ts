@@ -254,6 +254,16 @@ const displayLabels = (display: Record<string, unknown> | undefined) => {
 		: [];
 };
 
+const mapValues = (value: unknown): readonly unknown[] => {
+	if (value instanceof Map) return [...value.values()];
+	if (Array.isArray(value))
+		return value.map((entry) =>
+			Array.isArray(entry) && entry.length >= 2 ? entry[1] : entry,
+		);
+	if (isRecord(value)) return Object.values(value);
+	return [];
+};
+
 const inlineText = (value: string, max = 140) =>
 	value.replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -580,8 +590,7 @@ export const applySnapshot = (
 	const snapshot =
 		isRecord(data) && isRecord(data["snapshot"]) ? data["snapshot"] : undefined;
 	if (!snapshot) return projection;
-	const runningValues =
-		snapshot["running"] instanceof Map ? [...snapshot["running"].values()] : [];
+	const runningValues = mapValues(snapshot["running"]);
 	const running = new Map(projection.running);
 	for (const run of runningValues) {
 		if (!isRecord(run)) continue;
@@ -625,6 +634,9 @@ export const applySnapshot = (
 			observations: previous?.observations ?? [],
 			timeline: previous?.timeline ?? [],
 			...(previous?.tokens === undefined ? {} : { tokens: previous.tokens }),
+			...(previous?.operatorActions === undefined
+				? {}
+				: { operatorActions: previous.operatorActions }),
 		});
 	}
 	for (const key of running.keys()) {
@@ -923,8 +935,34 @@ const reduceAgentSessionEvent = (
 		observations,
 		timeline,
 		...(tokens === undefined ? {} : { tokens }),
+		...(previous?.operatorActions === undefined
+			? {}
+			: { operatorActions: previous.operatorActions }),
 	});
 	return { ...projection, usageTotals, tokenSamples, running };
+};
+
+const reduceOperatorActionsDeclared = (
+	projection: DashboardProjection,
+	payload: Record<string, unknown>,
+): DashboardProjection => {
+	const workKey = text(payload["workKey"]);
+	if (workKey === undefined) return projection;
+	const parsed = z.array(operatorActionSchema).safeParse(payload["actions"]);
+	if (!parsed.success) return projection;
+	const running = new Map(projection.running);
+	const previous = running.get(workKey);
+	if (previous === undefined) return projection;
+	running.set(workKey, {
+		...previous,
+		operatorActions: parsed.data,
+		stage: parsed.data.length > 0 ? "blocked" : previous.stage,
+		lastMeaningful:
+			parsed.data.length > 0
+				? "operator action declared"
+				: previous.lastMeaningful,
+	});
+	return { ...projection, running };
 };
 
 const reduceEventPayload = (
@@ -986,6 +1024,8 @@ const reduceEventPayload = (
 				5,
 			),
 		};
+	if (type === "operator_actions_declared" && isRecord(payload))
+		return reduceOperatorActionsDeclared(projection, payload);
 	if (type === "operator_observation_recorded" && isRecord(payload))
 		return {
 			...projection,

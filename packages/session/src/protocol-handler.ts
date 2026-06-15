@@ -224,6 +224,20 @@ const validateOperatorAction = (
 		});
 };
 
+const wireMap = (value: unknown): unknown =>
+	value instanceof Map ? Object.fromEntries(value.entries()) : value;
+
+const wireSnapshot = (snapshot: unknown): unknown => {
+	if (typeof snapshot !== "object" || snapshot === null) return snapshot;
+	const record = snapshot as Record<string, unknown>;
+	return {
+		...record,
+		running: wireMap(record["running"]),
+		retries: wireMap(record["retries"]),
+		facts: wireMap(record["facts"]),
+	};
+};
+
 const makeSuccessForRequest = (
 	request: PlotClientRecord,
 	input: {
@@ -340,7 +354,7 @@ export const makePlotProtocolLayer = (
 				const runtime = getSession(registry, params.sessionId);
 				attachments.set(params.sessionId, params.role ?? "observer");
 				startPump(runtime);
-				const snapshot = await runtime.snapshot();
+				const snapshot = wireSnapshot(await runtime.snapshot());
 				const lastSequence = await runtime.frontier();
 				const response = makeSuccessForRequest(request, {
 					lastSequence,
@@ -371,7 +385,10 @@ export const makePlotProtocolLayer = (
 					makeSuccessForRequest(request, {
 						asOfSequence,
 						lastSequence: asOfSequence,
-						data: { snapshot: await runtime.snapshot(), asOfSequence },
+						data: {
+							snapshot: wireSnapshot(await runtime.snapshot()),
+							asOfSequence,
+						},
 					}),
 				];
 			}
