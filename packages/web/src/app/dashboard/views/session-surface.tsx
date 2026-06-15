@@ -27,14 +27,8 @@ import { Disclosure } from "@/components/ui/disclosure";
 import { NotAvailable } from "@/components/ui/not-available";
 import { PageHeader, SectionLabel } from "@/components/ui/page-header";
 import { Switch } from "@/components/ui/switch";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
+import { TextShimmer } from "@/components/ui/text-shimmer";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { cn } from "@/lib/utils";
 import {
 	useDashboardActions,
@@ -43,7 +37,7 @@ import {
 } from "../dashboard-context";
 import { projectionReadyDoneCounts } from "../fleet-model";
 import { OperatorActionButtons, InterruptRunButton } from "./operator-actions";
-import { WorkStageDot } from "./status";
+import { toneForStage, WorkStageDot } from "./status";
 
 const tabular = "font-mono tabular-nums";
 const muted = "text-muted-foreground";
@@ -113,37 +107,19 @@ function ProcessTable({
 					<SectionLabel>work</SectionLabel>
 				</Card.Header>
 				<Card.Body className="p-0">
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead></TableHead>
-								<TableHead>Work Item</TableHead>
-								<TableHead>Stage</TableHead>
-								<TableHead>Age / attempt</TableHead>
-								<TableHead>Tokens</TableHead>
-								<TableHead>Agent Run</TableHead>
-								<TableHead>Event / activity</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{work.length === 0 ? (
-								<TableRow>
-									<TableCell colSpan={7} className={muted}>
-										No active work.
-									</TableCell>
-								</TableRow>
-							) : (
-								work.map((item, index) => (
-									<WorkRow
-										key={item.workKey}
-										work={item}
-										index={index}
-										sessionId={projection.sessionId}
-									/>
-								))
-							)}
-						</TableBody>
-					</Table>
+					{work.length === 0 ? (
+						<p className={cn("px-4 py-3 text-sm", muted)}>No active work.</p>
+					) : (
+						<div className="flex flex-col divide-y divide-border">
+							{work.map((item) => (
+								<WorkItem
+									key={item.workKey}
+									work={item}
+									sessionId={projection.sessionId}
+								/>
+							))}
+						</div>
+					)}
 				</Card.Body>
 			</Card>
 			<RetrySection projection={projection} />
@@ -284,15 +260,19 @@ function NeedsYouZone({
 	);
 }
 
-function WorkRow({
+// A work item as a stable process row, not a reflowing table cell. The volatile
+// stream is isolated to one shimmering, truncating line (TextShimmer) so its
+// length never moves the layout; actions live in their own row below it; the
+// full event feed is an opt-in, auto-scrolling panel. Adapted from opencode's
+// activity model onto our timeline-grained data.
+function WorkItem({
 	work,
-	index,
 	sessionId,
 }: {
 	work: RunningWorkProjection;
-	index: number;
 	sessionId: string;
 }) {
+	const isLive = toneForStage(work.stage) === "active";
 	const age =
 		work.startedAtMs === undefined
 			? "n/a"
@@ -302,57 +282,71 @@ function WorkRow({
 			? undefined
 			: formatTokens(work.tokens.total);
 	return (
-		<TableRow index={index}>
-			<TableCell>
-				<WorkStageDot stage={work.stage} />
-			</TableCell>
-			<TableCell>
-				<div className="font-medium">{workLabel(work)}</div>
-				<div className="max-w-72 truncate font-mono text-muted-foreground">
-					{work.workKey}
+		<div className="flex flex-col gap-1.5 px-4 py-3">
+			<div className="flex items-start justify-between gap-3">
+				<div className="flex min-w-0 items-center gap-2">
+					<WorkStageDot stage={work.stage} />
+					<span className="truncate text-sm font-medium">
+						{workLabel(work)}
+					</span>
+					<span className="truncate font-mono text-xs text-muted-foreground">
+						{work.workKey}
+					</span>
 				</div>
-			</TableCell>
-			<TableCell>{work.stage}</TableCell>
-			<TableCell className={tabular}>
-				{age} / #{Math.max(1, work.turnCount || 1)}
-			</TableCell>
-			<TableCell className={tabular}>{tokens ?? <NotAvailable />}</TableCell>
-			<TableCell className={tabular}>
-				{work.runId || <NotAvailable />}
-			</TableCell>
-			<TableCell>
-				<div className="max-w-xl text-foreground">
-					{work.activity || <NotAvailable />}
+				<div className={cn("flex shrink-0 items-center gap-3", tabular, muted)}>
+					<span>{work.stage}</span>
+					<span>
+						{age} · #{Math.max(1, work.turnCount || 1)}
+					</span>
+					<span>{tokens ?? <NotAvailable />}</span>
+					<span>{work.runId || <NotAvailable />}</span>
 				</div>
-				<div className="mt-2">
+			</div>
+			{/* Live head: the one volatile line, isolated + truncated. */}
+			<TextShimmer
+				text={work.activity || "idle"}
+				active={isLive}
+				className="text-sm"
+			/>
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<div className="flex flex-wrap items-center gap-2">
 					<OperatorActionButtons item={work} sessionId={sessionId} />
-				</div>
-				<div className="mt-2">
 					<InterruptRunButton item={work} sessionId={sessionId} />
 				</div>
-				<Timeline entries={work.timeline} />
-			</TableCell>
-		</TableRow>
+				<ActivityFeed entries={work.timeline} />
+			</div>
+		</div>
 	);
 }
 
-function Timeline({ entries }: { entries: RunningWorkProjection["timeline"] }) {
-	if (entries.length === 0) return null;
+function ActivityFeed({
+	entries,
+}: {
+	entries: RunningWorkProjection["timeline"];
+}) {
+	const ordered = [...entries].toSorted((a, b) => a.atMs - b.atMs);
+	const scrollRef = useAutoScroll<HTMLDivElement>(ordered.length);
+	if (ordered.length === 0) return null;
 	return (
 		<Disclosure>
-			<Disclosure.Trigger className="mt-2 justify-start gap-1 py-0 text-xs">
-				<span>timeline ({entries.length})</span>
+			<Disclosure.Trigger className="gap-1 py-0 text-xs">
+				<span>feed ({ordered.length})</span>
 			</Disclosure.Trigger>
 			<Disclosure.Panel>
-				<div className="mt-2 flex flex-col gap-1 border-l border-border pl-3 font-mono text-xs text-muted-foreground">
-					{entries.map((entry) => (
-						<div key={`${entry.atMs}-${entry.text}`}>
-							<span className={tabular}>
-								{formatAgo(Date.now() - entry.atMs)}
-							</span>{" "}
-							· {entry.text}
-						</div>
-					))}
+				<div
+					ref={scrollRef}
+					className="mt-2 max-h-64 overflow-y-auto border-l border-border pl-3 font-mono text-xs"
+				>
+					<div className="flex flex-col gap-1">
+						{ordered.map((entry) => (
+							<div key={`${entry.atMs}-${entry.text}`} className="flex gap-2">
+								<span className="shrink-0 tabular-nums text-muted-foreground">
+									{formatAgo(Date.now() - entry.atMs)}
+								</span>
+								<span className="text-foreground">{entry.text}</span>
+							</div>
+						))}
+					</div>
 				</div>
 			</Disclosure.Panel>
 		</Disclosure>

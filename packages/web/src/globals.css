@@ -474,8 +474,44 @@ p {
 	animation: pulse-beat 600ms ease-out;
 }
 
+/* Live-text shimmer (TextShimmer): a foreground highlight sweeps across muted
+   base text, clipped to the glyphs. Conveys "streaming/working" without
+   reflow. Tokens only; falls back to static muted under reduced motion. */
+@keyframes text-shimmer {
+	from {
+		background-position: 200% 0;
+	}
+	to {
+		background-position: -200% 0;
+	}
+}
+
+.text-shimmer {
+	background: linear-gradient(
+		90deg,
+		var(--muted-foreground) 0%,
+		var(--muted-foreground) 35%,
+		var(--foreground) 50%,
+		var(--muted-foreground) 65%,
+		var(--muted-foreground) 100%
+	);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: text-shimmer 1.6s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.pulse-beat {
 		animation: none;
+	}
+
+	.text-shimmer {
+		animation: none;
+		background: none;
+		-webkit-background-clip: border-box;
+		background-clip: border-box;
+		color: var(--muted-foreground);
 	}
 }
