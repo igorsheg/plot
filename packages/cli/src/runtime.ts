@@ -321,7 +321,10 @@ export const startWebDashboard = async (
 		...(options.hostname === undefined ? {} : { hostname: options.hostname }),
 		...(options.port === undefined ? {} : { port: options.port }),
 		webAssets,
-		reuseExisting: false,
+		// Reuse a Local Plot Server that is already running (e.g. one a TUI
+		// autostarted) so the web attaches to the shared fleet instead of starting
+		// a competing server. Only starts one when none exists yet.
+		reuseExisting: true,
 	});
 	const token = await ensureLocalControlToken(server.paths);
 	const url = webDashboardUrl({
