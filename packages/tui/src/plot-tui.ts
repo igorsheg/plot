@@ -6,6 +6,7 @@ import {
 } from "@plot/session/session-host";
 import {
 	plotProtocolRequestId,
+	plotProtocolVersion,
 	type PlotClientRecord,
 	type PlotCommand,
 	type PlotProtocolRequestId,
@@ -69,7 +70,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	): Promise<PlotServerRecord> => {
 		const id = plotProtocolRequestId(`tui-${++requestIndex}`);
 		const record: PlotClientRecord = {
-			protocol: "plot.v1",
+			protocol: plotProtocolVersion,
 			kind: "request",
 			id,
 			command,
@@ -89,7 +90,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			return;
 		}
 		refreshInFlight = true;
-		void request("get_snapshot")
+		void request("get_snapshot", { sessionId: options.sessionId })
 			.then((record) => {
 				if (record.kind === "response" && record.ok)
 					setProjection(applySnapshot(projection, record.data));
@@ -128,14 +129,18 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
-			void request("tick_once").then(refresh).catch(fail);
+			void request("request_tick", { sessionId: options.sessionId })
+				.then(refresh)
+				.catch(fail);
 		},
 		refresh,
 		toggleDebug: render,
 		shutdown: () => {
 			resolveStopped();
 			setStatus("shutting_down");
-			void request("shutdown").finally(() => tui.stop());
+			void request("close_session", { sessionId: options.sessionId }).finally(
+				() => tui.stop(),
+			);
 		},
 		openUrl,
 		height: () => terminal.rows,
@@ -156,7 +161,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 				pending.get(record.id)?.(record);
 			if (record.kind === "response" && record.id !== undefined)
 				pending.delete(record.id);
-			if (record.kind === "event") {
+			if (record.kind === "session_event") {
 				projection = reduceRecord(projection, record);
 				render();
 				scheduleRefresh();
@@ -166,15 +171,21 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	try {
 		dashboard.startLiveUpdates();
 		tui.start();
-		const hello = await host.protocol.hello();
+		const welcome = await host.protocol.welcome();
 		setProjection({
 			...projection,
 			status: "starting",
-			frontier: Number(hello.lastEventSeq),
+			frontier: 0,
 		});
-		const startResponse = await request("start");
+		void welcome;
+		await host.session.start();
+		const attachResponse = await request("attach_session", {
+			sessionId: options.sessionId,
+			role: "controller",
+			afterSequence: 0,
+		});
 		setStatus(
-			startResponse.kind === "response" && startResponse.ok
+			attachResponse.kind === "response" && attachResponse.ok
 				? "running"
 				: "error",
 		);

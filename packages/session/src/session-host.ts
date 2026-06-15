@@ -31,7 +31,6 @@ import {
 import { makePlotProtocolLayer } from "./protocol-handler.js";
 import {
 	defaultPlotProtocolLimits,
-	plotProtocolEpoch,
 	type PlotProtocolLimits,
 } from "./protocol.js";
 import { runPlotProtocolStdio, type StdioChunk } from "./protocol-stdio.js";
@@ -295,11 +294,11 @@ export const createPlotProtocolSessionHost = async (
 		...host,
 		limits,
 		protocol: makePlotProtocolLayer({
-			epoch: plotProtocolEpoch(options.sessionId),
 			limits,
 			outputCapacity: host.requestQueueCapacity,
 			auth: makePlotAuth(host.paths),
 			session: host.session,
+			sessionHistory: host.sessionHistory,
 		}),
 	};
 };

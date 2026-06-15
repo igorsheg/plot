@@ -11,6 +11,7 @@
 		"./pi-auth": "./src/pi-auth.ts",
 		"./plot-paths": "./src/plot-paths.ts",
 		"./plot-session": "./src/plot-session.ts",
+		"./control-server": "./src/control-server.ts",
 		"./protocol": "./src/protocol.ts",
 		"./protocol-handler": "./src/protocol-handler.ts",
 		"./protocol-jsonl": "./src/protocol-jsonl.ts",

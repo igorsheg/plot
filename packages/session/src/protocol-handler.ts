@@ -2,50 +2,78 @@ import { AsyncQueue } from "@plot/common/async-queue";
 import { EventHub } from "@plot/common/event-stream";
 import { withWideEvent } from "@plot/common/observability";
 import {
+	safeParseAttachSessionParams,
 	safeParseAuthLoginParams,
 	safeParseAuthProviderParams,
 	safeParseAuthStatusParams,
-	safeParseSubmitObservationParams,
-	safeParseSubscribeParams,
+	safeParseCloseSessionParams,
+	safeParseDetachSessionParams,
+	safeParseGetSnapshotParams,
+	safeParseInterruptAgentRunParams,
+	safeParseOpenSessionParams,
+	safeParsePauseSessionParams,
+	safeParsePerformOperatorActionParams,
+	safeParseRequestTickParams,
+	safeParseResumeSessionParams,
 } from "@plot/control/protocol";
+import type {
+	OperatorAction,
+	OperatorObservation,
+} from "@plot/control/operator";
 import type { PlotSessionShape } from "./plot-session.js";
-import { plotSessionEventSequence } from "./plot-session.js";
 import type { PlotAuthShape } from "./pi-auth.js";
 import {
+	PlotRosterEventRecord,
+	PlotWelcomeRecord,
 	defaultPlotProtocolLimits,
 	formatProtocolParseIssues,
 	makePlotErrorResponse,
+	makePlotSessionEventRecord,
 	makePlotSuccessResponse,
-	PlotErrorResponseRecord,
-	PlotEventRecord,
-	PlotHelloRecord,
 	PlotProtocolFailure,
-	plotProtocolEpoch,
+	plotProtocolRequestId,
 	plotProtocolSequence,
+	type AttachSessionParams,
 	type AuthLoginParams,
 	type AuthProviderParams,
 	type AuthStatusParams,
+	type CloseSessionParams,
+	type DetachSessionParams,
+	type GetSnapshotParams,
+	type InterruptAgentRunParams,
+	type OpenSessionParams,
+	type PauseSessionParams,
+	type PerformOperatorActionParams,
 	type PlotClientRecord,
 	type PlotCommand,
-	type PlotProtocolEpoch,
 	type PlotProtocolLimits,
-	type PlotProtocolSequence,
 	type PlotServerRecord,
-	type SubmitObservationParams,
-	type SubscribeParams,
+	type RequestTickParams,
+	type ResumeSessionParams,
 } from "./protocol.js";
-import { makePlotProtocolReplayBuffer } from "./protocol-replay-buffer.js";
+import {
+	makeControlSessionRegistry,
+	makeControlSessionRuntime,
+	type ControlSessionRegistry,
+	type ControlSessionRuntime,
+} from "./control-server.js";
+import type { SessionHistoryStore } from "./session-history.js";
 
 export interface PlotProtocolLayerOptions {
-	readonly epoch?: PlotProtocolEpoch;
 	readonly limits?: PlotProtocolLimits;
 	readonly capabilities?: readonly string[];
 	readonly outputCapacity?: number;
 	readonly auth?: PlotAuthShape;
 	readonly session?: PlotSessionShape;
+	readonly sessionHistory?: SessionHistoryStore;
+	readonly registry?: ControlSessionRegistry;
+	readonly openSession?: (
+		params: OpenSessionParams,
+	) => Promise<ControlSessionRuntime>;
+	readonly connectionId?: string;
 }
 export interface PlotProtocolShape {
-	readonly hello: () => Promise<PlotHelloRecord>;
+	readonly welcome: () => Promise<PlotWelcomeRecord>;
 	readonly submit: (request: PlotClientRecord) => Promise<boolean>;
 	readonly output: () => AsyncIterable<PlotServerRecord>;
 }
@@ -55,8 +83,10 @@ interface QueuedProtocolRequest {
 }
 export type PlotProtocol = PlotProtocolShape;
 export const PlotProtocol = Symbol("PlotProtocol");
+
 const errorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
+
 const invalidParams = (
 	issues: Parameters<typeof formatProtocolParseIssues>[0],
 ) =>
@@ -64,186 +94,384 @@ const invalidParams = (
 		code: "invalid_request",
 		message: formatProtocolParseIssues(issues),
 	});
-const decodeSubscribeParams = (value: unknown): SubscribeParams => {
-	const parsed = safeParseSubscribeParams(value);
-	if (!parsed.success) throw invalidParams(parsed.error.issues);
-	return parsed.data as SubscribeParams;
-};
-const decodeSubmitObservationParams = (
+
+const decodeWith = <A>(
+	parse: (value: unknown) =>
+		| { readonly success: true; readonly data: A }
+		| {
+				readonly success: false;
+				readonly error: {
+					readonly issues: Parameters<typeof formatProtocolParseIssues>[0];
+				};
+		  },
 	value: unknown,
-): SubmitObservationParams => {
-	const parsed = safeParseSubmitObservationParams(value);
+): A => {
+	const parsed = parse(value);
 	if (!parsed.success) throw invalidParams(parsed.error.issues);
-	return parsed.data as SubmitObservationParams;
+	return parsed.data;
 };
-const decodeAuthProviderParams = (value: unknown): AuthProviderParams => {
-	const parsed = safeParseAuthProviderParams(value);
-	if (!parsed.success) throw invalidParams(parsed.error.issues);
-	return parsed.data as AuthProviderParams;
-};
-const decodeAuthStatusParams = (value: unknown): AuthStatusParams => {
-	const parsed = safeParseAuthStatusParams(value);
-	if (!parsed.success) throw invalidParams(parsed.error.issues);
-	return parsed.data as AuthStatusParams;
-};
-const decodeAuthLoginParams = (value: unknown): AuthLoginParams => {
-	const parsed = safeParseAuthLoginParams(value);
-	if (!parsed.success) throw invalidParams(parsed.error.issues);
-	return parsed.data as AuthLoginParams;
-};
-const byteLength = (value: string) => new TextEncoder().encode(value).length;
-const checkObservationPayloadLimit = (
-	params: SubmitObservationParams,
-	limits: PlotProtocolLimits,
-) => {
-	const bytes = byteLength(JSON.stringify(params.observation));
-	if (bytes > limits.maxObservationPayloadBytes)
+
+const decodeAttachSessionParams = (value: unknown): AttachSessionParams =>
+	decodeWith(safeParseAttachSessionParams, value);
+const decodeDetachSessionParams = (value: unknown): DetachSessionParams =>
+	decodeWith(safeParseDetachSessionParams, value);
+const decodeCloseSessionParams = (value: unknown): CloseSessionParams =>
+	decodeWith(safeParseCloseSessionParams, value);
+const decodePauseSessionParams = (value: unknown): PauseSessionParams =>
+	decodeWith(safeParsePauseSessionParams, value);
+const decodeResumeSessionParams = (value: unknown): ResumeSessionParams =>
+	decodeWith(safeParseResumeSessionParams, value);
+const decodeRequestTickParams = (value: unknown): RequestTickParams =>
+	decodeWith(safeParseRequestTickParams, value);
+const decodeInterruptAgentRunParams = (
+	value: unknown,
+): InterruptAgentRunParams =>
+	decodeWith(safeParseInterruptAgentRunParams, value);
+const decodePerformOperatorActionParams = (
+	value: unknown,
+): PerformOperatorActionParams =>
+	decodeWith(safeParsePerformOperatorActionParams, value);
+const decodeGetSnapshotParams = (value: unknown): GetSnapshotParams =>
+	decodeWith(safeParseGetSnapshotParams, value);
+const decodeOpenSessionParams = (value: unknown): OpenSessionParams =>
+	decodeWith(safeParseOpenSessionParams, value);
+const decodeAuthProviderParams = (value: unknown): AuthProviderParams =>
+	decodeWith(safeParseAuthProviderParams, value);
+const decodeAuthStatusParams = (value: unknown): AuthStatusParams =>
+	decodeWith(safeParseAuthStatusParams, value);
+const decodeAuthLoginParams = (value: unknown): AuthLoginParams =>
+	decodeWith(safeParseAuthLoginParams, value);
+
+const getSession = (registry: ControlSessionRegistry, sessionId: string) => {
+	const runtime = registry.get(sessionId);
+	if (!runtime)
 		throw new PlotProtocolFailure({
-			code: "payload_too_large",
-			message: "observation exceeds maxObservationPayloadBytes",
-			details: {
-				maxObservationPayloadBytes: limits.maxObservationPayloadBytes,
-				actualBytes: bytes,
-			},
+			code: "session_not_found",
+			message: `unknown Plot Session: ${sessionId}`,
 		});
+	return runtime;
 };
-const currentSessionSequence = async (session: PlotSessionShape) =>
-	plotProtocolSequence(Number(await session.lastEventSequence()));
-const makeSuccessForRequest = (params: {
-	readonly request: PlotClientRecord;
-	readonly lastEventSeq: PlotProtocolSequence;
-	readonly data?: unknown;
-}) =>
-	makePlotSuccessResponse({
-		id: params.request.id,
-		command: params.request.command,
-		lastEventSeq: params.lastEventSeq,
-		...(params.data === undefined ? {} : { data: params.data }),
-	});
+
+const mapUnknownError = (error: unknown) =>
+	error instanceof PlotProtocolFailure
+		? error
+		: new PlotProtocolFailure({
+				code: "internal_error",
+				message: errorMessage(error),
+			});
+
 const makeFailureForRequest = (
 	request: PlotClientRecord,
 	error: PlotProtocolFailure,
-	lastEventSeq?: PlotProtocolSequence,
+	lastSequence?: number,
 ) =>
 	makePlotErrorResponse({
 		id: request.id,
 		command: request.command,
 		code: error.code,
 		message: error.message,
-		...(lastEventSeq === undefined ? {} : { lastEventSeq }),
+		...(lastSequence === undefined
+			? {}
+			: { lastSequence: plotProtocolSequence(lastSequence) }),
 		...(error.details === undefined ? {} : { details: error.details }),
 	});
+
+const requireController = (
+	attachments: ReadonlyMap<string, "observer" | "controller">,
+	sessionId: string,
+) => {
+	const role = attachments.get(sessionId);
+	if (role === undefined)
+		throw new PlotProtocolFailure({
+			code: "session_not_attached",
+			message: `client is not attached to Plot Session ${sessionId}`,
+		});
+	if (role !== "controller")
+		throw new PlotProtocolFailure({
+			code: "unauthorized",
+			message: "controller role is required for this command",
+		});
+};
+
+const waitForRuntimeFrontier = async (runtime: ControlSessionRuntime) => {
+	const target = Number(await runtime.session.lastEventSequence());
+	for (let i = 0; i < 100; i++) {
+		const current = await runtime.frontier();
+		if (current >= target) return current;
+		await Promise.resolve();
+	}
+	return runtime.frontier();
+};
+
+const validateOperatorAction = (
+	action: OperatorAction | undefined,
+	params: PerformOperatorActionParams,
+) => {
+	if (!action)
+		throw new PlotProtocolFailure({
+			code: "invalid_operator_action",
+			message: "operator action is not currently declared for this Work Item",
+		});
+	if (action.disabledReason)
+		throw new PlotProtocolFailure({
+			code: "invalid_operator_action",
+			message: action.disabledReason,
+		});
+	if (action.requiresComment && (params.comment?.trim() ?? "") === "")
+		throw new PlotProtocolFailure({
+			code: "invalid_operator_action",
+			message: "operator action requires a comment",
+		});
+};
+
+const makeSuccessForRequest = (
+	request: PlotClientRecord,
+	input: {
+		readonly lastSequence?: number;
+		readonly asOfSequence?: number;
+		readonly data?: unknown;
+	},
+) =>
+	makePlotSuccessResponse({
+		id: request.id,
+		command: request.command,
+		...(input.asOfSequence === undefined
+			? {}
+			: { asOfSequence: plotProtocolSequence(input.asOfSequence) }),
+		...(input.lastSequence === undefined
+			? {}
+			: { lastSequence: plotProtocolSequence(input.lastSequence) }),
+		...(input.data === undefined ? {} : { data: input.data }),
+	});
+
 export const makePlotProtocolLayer = (
 	options: PlotProtocolLayerOptions = {},
 ): PlotProtocolShape => {
-	if (!options.session) throw new Error("PlotProtocol requires session");
-	const session = options.session;
-	const epoch = options.epoch ?? plotProtocolEpoch("default");
 	const limits = options.limits ?? defaultPlotProtocolLimits;
-	const capabilities = options.capabilities ?? ["stdio_jsonl"];
+	const capabilities = options.capabilities ?? [
+		"stdio_jsonl",
+		"session_history_replay",
+	];
 	const output = new EventHub<PlotServerRecord>(
 		options.outputCapacity ?? limits.maxPendingRequests,
 	);
 	const requests = new AsyncQueue<QueuedProtocolRequest>({
 		capacity: limits.maxPendingRequests,
 	});
-	let sequence = 0;
-	let lastSessionSequence = 0;
-	const replayPromise = makePlotProtocolReplayBuffer(limits);
+	const registry = options.registry ?? makeControlSessionRegistry();
+	const connectionId = plotProtocolRequestId(
+		options.connectionId ?? "connection-1",
+	);
+	const attachments = new Map<string, "observer" | "controller">();
+	const eventPumps = new Set<string>();
 	const publishOutput = (record: PlotServerRecord) => output.publish(record);
-	const nextProtocolSequence = () => plotSessionEventSequence(++sequence);
-	const appendAndPublishEvent = async (event: unknown) => {
-		const replay = await replayPromise;
-		const record = new PlotEventRecord({
-			sessionId: session.id,
-			epoch,
-			sequence: nextProtocolSequence(),
-			event,
-		});
-		await replay.append(record);
-		publishOutput(record);
+
+	if (options.session) {
+		void registry.register(
+			makeControlSessionRuntime({
+				session: options.session,
+				...(options.sessionHistory === undefined
+					? {}
+					: { history: options.sessionHistory }),
+				onChanged: async () => registry.publishChanged(options.session!.id),
+			}),
+		);
+	}
+
+	void (async () => {
+		for await (const event of registry.rosterEvents())
+			publishOutput(
+				new PlotRosterEventRecord({
+					event: event.type,
+					session: event.session,
+				}),
+			);
+	})();
+
+	const startPump = (runtime: ControlSessionRuntime) => {
+		if (eventPumps.has(runtime.sessionId)) return;
+		eventPumps.add(runtime.sessionId);
+		void (async () => {
+			for await (const event of runtime.events()) {
+				if (!attachments.has(runtime.sessionId)) continue;
+				publishOutput(makePlotSessionEventRecord(event));
+			}
+		})();
 	};
-	const publishAuthEvent = (type: string, payload: unknown) =>
-		appendAndPublishEvent({ type, source: "plot_auth", payload });
-	const waitForSessionFrontier = async () => {
-		const target = Number(await currentSessionSequence(session));
-		while (true) {
-			if (lastSessionSequence >= target)
-				return (await replayPromise).lastSequence();
-			await Promise.resolve();
-		}
-	};
-	const mapUnknownError = (error: unknown) =>
-		error instanceof PlotProtocolFailure
-			? error
-			: new PlotProtocolFailure({
-					code: "internal_error",
-					message: errorMessage(error),
-				});
+
 	const handleRequest = async (
 		request: PlotClientRecord,
 	): Promise<readonly PlotServerRecord[]> => {
 		switch (request.command as PlotCommand) {
 			case "ping":
+				return [makeSuccessForRequest(request, { data: { pong: true } })];
+			case "list_sessions":
 				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await (await replayPromise).lastSequence(),
-						data: { pong: true },
-					}),
-				];
-			case "start":
-				await session.start();
-				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await waitForSessionFrontier(),
-					}),
-				];
-			case "tick_once": {
-				const result = await session.tickOnce();
-				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await waitForSessionFrontier(),
-						data: { result },
-					}),
-				];
-			}
-			case "get_snapshot":
-				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await (await replayPromise).lastSequence(),
+					makeSuccessForRequest(request, {
 						data: {
-							snapshot: await session.snapshot(),
-							asOfSequence: await (await replayPromise).lastSequence(),
+							sessions: await Promise.all(
+								registry.list().map((runtime) => runtime.summary()),
+							),
 						},
 					}),
 				];
-			case "subscribe": {
-				const params = decodeSubscribeParams(request.params);
-				const replay = await replayPromise;
-				const afterSequence =
-					params.afterSequence ?? (await replay.lastSequence());
-				const replayed = await replay.replayAfter(afterSequence);
+			case "open_session": {
+				if (!options.openSession)
+					throw new PlotProtocolFailure({
+						code: "invalid_request",
+						message: "open_session is not configured for this server",
+					});
+				const params = decodeOpenSessionParams(request.params);
+				const runtime = await options.openSession(params);
+				await registry.register(runtime);
+				await runtime.session.start();
+				attachments.set(runtime.sessionId, params.role ?? "controller");
+				startPump(runtime);
+				const lastSequence = await runtime.frontier();
 				return [
-					...replayed,
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await replay.lastSequence(),
-						data: { replayed: replayed.length },
+					makeSuccessForRequest(request, {
+						lastSequence,
+						data: { session: await runtime.summary(), lastSequence },
 					}),
 				];
 			}
-			case "shutdown":
+			case "attach_session": {
+				const params = decodeAttachSessionParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				attachments.set(params.sessionId, params.role ?? "observer");
+				startPump(runtime);
+				const snapshot = await runtime.snapshot();
+				const lastSequence = await runtime.frontier();
+				const response = makeSuccessForRequest(request, {
+					lastSequence,
+					asOfSequence: lastSequence,
+					data: { snapshot, lastSequence },
+				});
+				const replayed = await runtime.replayAfter(
+					params.afterSequence ?? lastSequence,
+				);
+				return [response, ...replayed.map(makePlotSessionEventRecord)];
+			}
+			case "detach_session": {
+				const params = decodeDetachSessionParams(request.params);
+				getSession(registry, params.sessionId);
+				attachments.delete(params.sessionId);
+				return [makeSuccessForRequest(request, { data: { detached: true } })];
+			}
+			case "get_snapshot": {
+				const params = decodeGetSnapshotParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				if (!attachments.has(params.sessionId))
+					throw new PlotProtocolFailure({
+						code: "session_not_attached",
+						message: `client is not attached to Plot Session ${params.sessionId}`,
+					});
+				const asOfSequence = await runtime.frontier();
 				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await waitForSessionFrontier(),
-						data: { accepted: await session.shutdown() },
+					makeSuccessForRequest(request, {
+						asOfSequence,
+						lastSequence: asOfSequence,
+						data: { snapshot: await runtime.snapshot(), asOfSequence },
 					}),
 				];
+			}
+			case "pause_session": {
+				const params = decodePauseSessionParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				requireController(attachments, params.sessionId);
+				const event = await runtime.pause();
+				return [
+					makeSuccessForRequest(request, {
+						lastSequence: Number(event.sequence),
+						data: { paused: true },
+					}),
+				];
+			}
+			case "resume_session": {
+				const params = decodeResumeSessionParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				requireController(attachments, params.sessionId);
+				const event = await runtime.resume();
+				return [
+					makeSuccessForRequest(request, {
+						lastSequence: Number(event.sequence),
+						data: { resumed: true },
+					}),
+				];
+			}
+			case "request_tick": {
+				const params = decodeRequestTickParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				requireController(attachments, params.sessionId);
+				if (runtime.isPaused())
+					throw new PlotProtocolFailure({
+						code: "session_paused",
+						message: "cannot request tick while Plot Session is paused",
+					});
+				const result = await runtime.requestTick();
+				const lastSequence = await waitForRuntimeFrontier(runtime);
+				return [
+					makeSuccessForRequest(request, { lastSequence, data: { result } }),
+				];
+			}
+			case "interrupt_agent_run": {
+				const params = decodeInterruptAgentRunParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				requireController(attachments, params.sessionId);
+				const accepted = await runtime.interruptAgentRun({
+					runId: params.runId,
+					...(params.workKey === undefined ? {} : { workKey: params.workKey }),
+				});
+				if (!accepted)
+					throw new PlotProtocolFailure({
+						code: "run_not_found",
+						message: "no matching active Agent Run was interrupted",
+					});
+				const lastSequence = await waitForRuntimeFrontier(runtime);
+				return [
+					makeSuccessForRequest(request, {
+						lastSequence,
+						data: { interrupted: true },
+					}),
+				];
+			}
+			case "perform_operator_action": {
+				const params = decodePerformOperatorActionParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				requireController(attachments, params.sessionId);
+				const action = await runtime.currentOperatorAction(params);
+				validateOperatorAction(action, params);
+				const timestamp = new Date().toISOString();
+				const observation: OperatorObservation = {
+					sessionId: params.sessionId,
+					workKey: params.workKey,
+					actionId: params.actionId,
+					actionLabel: action!.label,
+					timestamp,
+					...(params.comment === undefined ? {} : { comment: params.comment }),
+					actor: { role: "controller" },
+					clientId: connectionId,
+				};
+				const event = await runtime.recordOperatorObservation(observation);
+				return [
+					makeSuccessForRequest(request, {
+						lastSequence: Number(event.sequence),
+						asOfSequence: Number(event.sequence),
+						data: { observation },
+					}),
+				];
+			}
+			case "close_session": {
+				const params = decodeCloseSessionParams(request.params);
+				const runtime = getSession(registry, params.sessionId);
+				requireController(attachments, params.sessionId);
+				const accepted = await runtime.close();
+				const lastSequence = await waitForRuntimeFrontier(runtime);
+				await registry.publishChanged(params.sessionId);
+				return [
+					makeSuccessForRequest(request, { lastSequence, data: { accepted } }),
+				];
+			}
 			case "auth_providers": {
 				if (!options.auth)
 					throw new PlotProtocolFailure({
@@ -251,9 +479,7 @@ export const makePlotProtocolLayer = (
 						message: "auth service is not configured",
 					});
 				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await (await replayPromise).lastSequence(),
+					makeSuccessForRequest(request, {
 						data: { providers: await options.auth.providers() },
 					}),
 				];
@@ -266,9 +492,7 @@ export const makePlotProtocolLayer = (
 					});
 				const params = decodeAuthStatusParams(request.params);
 				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await (await replayPromise).lastSequence(),
+					makeSuccessForRequest(request, {
 						data: { status: await options.auth.status(params.provider) },
 					}),
 				];
@@ -280,55 +504,20 @@ export const makePlotProtocolLayer = (
 						message: "auth service is not configured",
 					});
 				const params = decodeAuthLoginParams(request.params);
-				await publishAuthEvent("auth_login_started", {
+				await options.auth.login({
 					provider: params.provider,
-				});
-				try {
-					await options.auth.login({
-						provider: params.provider,
-						...(params.promptResponses === undefined
-							? {}
-							: { promptResponses: params.promptResponses }),
-						...(params.selectResponse === undefined
-							? {}
-							: { selectResponse: params.selectResponse }),
-						...(params.manualCode === undefined
-							? {}
-							: { manualCode: params.manualCode }),
-						events: {
-							auth: (info) => {
-								void publishAuthEvent("auth_open_url", info);
-							},
-							deviceCode: (info) => {
-								void publishAuthEvent("auth_device_code", info);
-							},
-							prompt: (prompt) => {
-								void publishAuthEvent("auth_prompt", prompt);
-							},
-							select: (prompt) => {
-								void publishAuthEvent("auth_select", prompt);
-							},
-							progress: (message) => {
-								void publishAuthEvent("auth_progress", { message });
-							},
-						},
-					});
-				} catch (error) {
-					const message = errorMessage(error);
-					if (message.includes("requires prompt input"))
-						throw new PlotProtocolFailure({
-							code: "auth_input_required",
-							message,
-						});
-					throw mapUnknownError(error);
-				}
-				await publishAuthEvent("auth_login_succeeded", {
-					provider: params.provider,
+					...(params.promptResponses === undefined
+						? {}
+						: { promptResponses: params.promptResponses }),
+					...(params.selectResponse === undefined
+						? {}
+						: { selectResponse: params.selectResponse }),
+					...(params.manualCode === undefined
+						? {}
+						: { manualCode: params.manualCode }),
 				});
 				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await (await replayPromise).lastSequence(),
+					makeSuccessForRequest(request, {
 						data: { provider: params.provider, loggedIn: true },
 					}),
 				];
@@ -342,45 +531,32 @@ export const makePlotProtocolLayer = (
 				const params = decodeAuthProviderParams(request.params);
 				await options.auth.logout(params.provider);
 				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await (await replayPromise).lastSequence(),
+					makeSuccessForRequest(request, {
 						data: { provider: params.provider, loggedOut: true },
-					}),
-				];
-			}
-			case "submit_observation": {
-				const params = decodeSubmitObservationParams(request.params);
-				checkObservationPayloadLimit(params, limits);
-				const accepted = await session.submitObservation(params.observation);
-				if (!accepted)
-					throw new PlotProtocolFailure({
-						code: "internal_error",
-						message: "observation was not accepted by the Plot loop mailbox",
-					});
-				return [
-					makeSuccessForRequest({
-						request,
-						lastEventSeq: await (await replayPromise).lastSequence(),
-						data: { accepted },
 					}),
 				];
 			}
 		}
 	};
+
 	const processRequest = async (request: PlotClientRecord) => {
-		const lastBefore = await (await replayPromise).lastSequence();
+		const runtimeForRequest =
+			typeof request.params === "object" &&
+			request.params !== null &&
+			"sessionId" in request.params
+				? registry.get(
+						String(
+							(request.params as { readonly sessionId?: unknown }).sessionId,
+						),
+					)
+				: undefined;
+		const lastBefore = await runtimeForRequest?.frontier();
 		const records = await handleRequest(request).catch((error) => [
 			makeFailureForRequest(request, mapUnknownError(error), lastBefore),
 		]);
 		for (const record of records) publishOutput(record);
 	};
-	void (async () => {
-		for await (const event of session.events()) {
-			await appendAndPublishEvent(event);
-			lastSessionSequence = Number(event.sequence);
-		}
-	})();
+
 	void (async () => {
 		while (true) {
 			const queued = await requests.take();
@@ -388,19 +564,19 @@ export const makePlotProtocolLayer = (
 			queued.resolve(true);
 		}
 	})();
+
 	return {
-		hello: async () =>
-			withWideEvent("plot_protocol.hello", { epoch }, async () => {
-				const snapshot = await (await replayPromise).snapshot();
-				return new PlotHelloRecord({
-					sessionId: session.id,
-					epoch,
-					firstEventSeq: snapshot.firstEventSeq,
-					lastEventSeq: snapshot.lastEventSeq,
-					capabilities: [...capabilities],
-					limits,
-				});
-			}),
+		welcome: async () =>
+			withWideEvent(
+				"plot_protocol.welcome",
+				{ connection_id: connectionId },
+				async () =>
+					new PlotWelcomeRecord({
+						connectionId,
+						capabilities: [...capabilities],
+						limits,
+					}),
+			),
 		submit: async (request) =>
 			withWideEvent(
 				"plot_protocol.submit",
@@ -408,18 +584,14 @@ export const makePlotProtocolLayer = (
 				async () =>
 					new Promise<boolean>((resolve) => {
 						if (!requests.offer({ request, resolve })) {
-							void (async () =>
-								publishOutput(
-									new PlotErrorResponseRecord({
-										id: request.id,
-										command: request.command,
-										lastEventSeq: await (await replayPromise).lastSequence(),
-										error: {
-											code: "request_queue_full",
-											message: "protocol request queue is full",
-										},
-									}),
-								))();
+							publishOutput(
+								makePlotErrorResponse({
+									id: request.id,
+									command: request.command,
+									code: "request_queue_full",
+									message: "protocol request queue is full",
+								}),
+							);
 							resolve(false);
 						}
 					}),

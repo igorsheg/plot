@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { LoggerLive } from "@plot/common/observability";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { makePlotSessionLayer } from "../src/plot-session.js";
-import { decodePlotServerRecord } from "../src/protocol.js";
+import {
+	decodePlotServerRecord,
+	plotProtocolVersion,
+} from "../src/protocol.js";
 import { makePlotProtocolLayer } from "../src/protocol-handler.js";
 import { runPlotProtocolStdio } from "../src/protocol-stdio.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
@@ -18,7 +21,7 @@ const runner: WorkRunner = {
 };
 
 async function* stdin() {
-	yield '{"protocol":"plot.v1","kind":"request","id":"req-1","command":"ping"}\n';
+	yield `{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`;
 }
 
 const makeProtocol = () => {
@@ -95,13 +98,11 @@ describe("stdio protocol boundary", () => {
 			),
 		);
 
-		expect(stdoutRecords.map((record) => record.kind)).toEqual([
-			"hello",
-			"response",
-		]);
-		expect(captured.stdout).not.toContain("plot_protocol.hello");
+		expect(stdoutRecords.map((record) => record.kind)).toContain("welcome");
+		expect(stdoutRecords.map((record) => record.kind)).toContain("response");
+		expect(captured.stdout).not.toContain("plot_protocol.welcome");
 		expect(captured.stdout).not.toContain("plot_protocol.submit");
-		expect(captured.stderr).toContain("plot_protocol.hello");
+		expect(captured.stderr).toContain("plot_protocol.welcome");
 		expect(captured.stderr).toContain("plot_protocol.submit");
 	});
 });

@@ -2,7 +2,7 @@ import type { PlotDashboardState } from "./dashboard-state";
 
 export const mockDashboardState: PlotDashboardState = {
 	session: {
-		name: "plot.v1 local session",
+		name: "local Plot Session",
 		workflowPath: "WORKFLOW.md",
 		state: "watching",
 		model: "claude-sonnet-4.5",

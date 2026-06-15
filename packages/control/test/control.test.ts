@@ -1,29 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import {
+	plotProtocolVersion,
+	safeParseAttachSessionParams,
 	safeParsePlotClientRecord,
-	safeParseSubmitObservationParams,
+	safeParseRequestTickParams,
 } from "../src/protocol.js";
 import { safeParseSessionHistoryEvent } from "../src/session-history.js";
 
 const request = {
-	protocol: "plot.v1",
+	protocol: plotProtocolVersion,
 	kind: "request",
 	id: "req-1",
-	command: "submit_observation",
-	params: {
-		observation: {
-			type: "operator.note",
-			data: { message: "continue" },
-		},
-	},
+	command: "request_tick",
+	params: { sessionId: "session-1" },
 };
 
 describe("@plot/control browser-safe schemas", () => {
-	test("validates protocol and history boundaries with safeParse", () => {
+	test("validates explicit protocol and history boundaries with safeParse", () => {
 		const parsedRequest = safeParsePlotClientRecord(request);
 		expect(parsedRequest.success).toBe(true);
 
-		const parsedParams = safeParseSubmitObservationParams(request.params);
+		const parsedParams = safeParseRequestTickParams(request.params);
 		expect(parsedParams.success).toBe(true);
 
 		const parsedHistory = safeParseSessionHistoryEvent({
@@ -53,14 +50,17 @@ describe("@plot/control browser-safe schemas", () => {
 		).toBe(false);
 	});
 
-	test("rejects invalid protocol envelopes before runtime handling", () => {
-		const parsed = safeParsePlotClientRecord({
-			protocol: "plot.v1",
-			kind: "request",
-			id: "req-1",
-			command: "prompt",
-		});
-
-		expect(parsed.success).toBe(false);
+	test("rejects old implicit envelopes and missing session ids", () => {
+		expect(
+			safeParsePlotClientRecord({
+				protocol: plotProtocolVersion,
+				kind: "request",
+				id: "req-1",
+				command: "tick_once",
+			}).success,
+		).toBe(false);
+		expect(safeParseAttachSessionParams({ afterSequence: 0 }).success).toBe(
+			false,
+		);
 	});
 });

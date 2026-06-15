@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { decodePlotServerRecord } from "@plot/session/protocol";
+import {
+	decodePlotServerRecord,
+	plotProtocolVersion,
+} from "@plot/session/protocol";
 import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -160,7 +163,7 @@ describe("plot CLI", () => {
 
 		const output = stdout.join("");
 		expect(output).toContain(
-			"Serve plot.v1 over newline-delimited JSON on stdio.",
+			"Serve Plot control protocol over newline-delimited JSON on stdio.",
 		);
 		expect(output).toContain("--workflow");
 		expect(output).toContain("--tick-interval-ms");
@@ -197,7 +200,7 @@ describe("plot CLI", () => {
 		expect(output).toContain("Do not import Plot internals");
 	});
 
-	test("serves plot.v1 over stdio with telemetry on stderr", async () => {
+	test("serves explicit control protocol over stdio with telemetry on stderr", async () => {
 		const workflowPath = await makeWorkflowFile();
 		const captured = await captureConsole(async () => {
 			const stdout: string[] = [];
@@ -214,7 +217,7 @@ describe("plot CLI", () => {
 				],
 				{
 					stdin: chunks([
-						'{"protocol":"plot.v1","kind":"request","id":"req-1","command":"ping"}\n',
+						`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
 					]),
 					writeStdout: (line) => {
 						stdout.push(line);
@@ -225,14 +228,15 @@ describe("plot CLI", () => {
 		});
 
 		const records = await decodeLines(captured.stdout);
-		expect(records.map((record) => record.kind)).toEqual(["hello", "response"]);
+		expect(records.map((record) => record.kind)).toContain("welcome");
+		expect(records.map((record) => record.kind)).toContain("response");
 		expect(records[0]).toEqual(
 			expect.objectContaining({
-				kind: "hello",
+				kind: "welcome",
 				limits: expect.objectContaining({ maxEventBufferEvents: 7 }),
 			}),
 		);
-		expect(records[1]).toEqual(
+		expect(records.find((record) => record.kind === "response")).toEqual(
 			expect.objectContaining({
 				kind: "response",
 				id: "req-1",

@@ -116,7 +116,7 @@ export const runPlotProtocolStdio = async (
 	void (async () => {
 		for await (const record of protocol.output()) await writeRecord(record);
 	})();
-	if (options.emitHello !== false) await writeRecord(await protocol.hello());
+	if (options.emitHello !== false) await writeRecord(await protocol.welcome());
 	for await (const chunk of options.stdin)
 		await processText(decoder.decode(chunk));
 	const remainingText = decoder.flush();

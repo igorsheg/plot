@@ -1,18 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { positiveInt } from "@plot/agent/model";
+import type { SessionHistoryEvent } from "@plot/control/session-history";
 import {
-	PlotEventRecord,
+	PlotSessionEventRecord,
 	decodePlotServerRecord,
 	defaultPlotProtocolLimits,
 	makePlotSuccessResponse,
 	plotProtocolEpoch,
 	plotProtocolRequestId,
-	plotProtocolSequence,
+	plotProtocolVersion,
 } from "../src/protocol.js";
-import {
-	plotSessionEventSequence,
-	plotSessionId,
-} from "../src/plot-session.js";
 import {
 	flushJsonlDecoder,
 	initialJsonlDecoderState,
@@ -22,19 +19,27 @@ import {
 	splitJsonlChunk,
 } from "../src/protocol-jsonl.js";
 
-describe("plot protocol JSONL framing", () => {
+const event: SessionHistoryEvent = {
+	sessionId: "session-1",
+	epoch: "epoch-1",
+	sequence: 1,
+	timestamp: "2026-06-15T00:00:00.000Z",
+	type: "tick_completed",
+	payload: { result: { snapshot: { facts: new Map([["a", 1]]) } } },
+};
+
+describe("plot control protocol JSONL framing", () => {
 	test("serializes server records as one JSON line", () => {
 		const line = serializeJsonLine(
 			makePlotSuccessResponse({
 				id: plotProtocolRequestId("req-1"),
 				command: "ping",
-				lastEventSeq: plotProtocolSequence(0),
 			}),
 		);
 
 		expect(line.endsWith("\n")).toBe(true);
 		expect(JSON.parse(line)).toMatchObject({
-			protocol: "plot.v1",
+			protocol: plotProtocolVersion,
 			kind: "response",
 			id: "req-1",
 			command: "ping",
@@ -44,24 +49,18 @@ describe("plot protocol JSONL framing", () => {
 
 	test("serializes map-shaped event payloads into JSON-safe arrays", async () => {
 		const line = serializeJsonLine(
-			new PlotEventRecord({
-				sessionId: plotSessionId("default"),
-				epoch: plotProtocolEpoch("default"),
-				sequence: plotSessionEventSequence(1),
-				event: {
-					type: "plot_agent_event",
-					event: {
-						type: "tick_completed",
-						result: { snapshot: { facts: new Map([["a", 1]]) } },
-					},
-				},
+			new PlotSessionEventRecord({
+				sessionId: "session-1",
+				epoch: plotProtocolEpoch("epoch-1"),
+				sequence: 1,
+				event,
 			}),
 		);
 		const parsed = JSON.parse(line) as {
-			event: { event: { result: { snapshot: { facts: unknown } } } };
+			event: { payload: { result: { snapshot: { facts: unknown } } } };
 		};
 
-		expect(parsed.event.event.result.snapshot.facts).toEqual([["a", 1]]);
+		expect(parsed.event.payload.result.snapshot.facts).toEqual([["a", 1]]);
 		await decodePlotServerRecord(parsed);
 	});
 
@@ -71,7 +70,6 @@ describe("plot protocol JSONL framing", () => {
 				makePlotSuccessResponse({
 					id: plotProtocolRequestId("req-1"),
 					command: "ping",
-					lastEventSeq: plotProtocolSequence(0),
 				}),
 				{
 					...defaultPlotProtocolLimits,
@@ -88,18 +86,18 @@ describe("plot protocol JSONL framing", () => {
 	test("splits LF JSONL chunks and strips trailing carriage returns", async () => {
 		const first = await splitJsonlChunk(
 			initialJsonlDecoderState,
-			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}\r\n{"protocol"',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"r1","command":"ping"}\r\n{"protocol"`,
 		);
 		const second = await splitJsonlChunk(
 			first.state,
-			':"plot.v1","kind":"request","id":"r2","command":"shutdown"}\n',
+			`:"${plotProtocolVersion}","kind":"request","id":"r2","command":"list_sessions"}\n`,
 		);
 
 		expect(first.lines).toEqual([
-			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"r1","command":"ping"}`,
 		]);
 		expect(second.lines).toEqual([
-			'{"protocol":"plot.v1","kind":"request","id":"r2","command":"shutdown"}',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"r2","command":"list_sessions"}`,
 		]);
 		expect(second.state.pending).toBe("");
 	});
@@ -107,23 +105,26 @@ describe("plot protocol JSONL framing", () => {
 	test("flushes final unterminated line", async () => {
 		const split = await splitJsonlChunk(
 			initialJsonlDecoderState,
-			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"r1","command":"ping"}`,
 		);
 		const lines = await flushJsonlDecoder(split.state);
 
 		expect(split.lines).toEqual([]);
 		expect(lines).toEqual([
-			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"ping"}',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"r1","command":"ping"}`,
 		]);
 	});
 
 	test("parses and validates client JSON lines", async () => {
 		const request = await parsePlotClientJsonLine(
-			'{"protocol":"plot.v1","kind":"request","id":"r1","command":"subscribe","params":{"afterSequence":3}}',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"r1","command":"attach_session","params":{"sessionId":"session-1","afterSequence":3}}`,
 		);
 
-		expect(request.command).toBe("subscribe");
-		expect(request.params).toEqual({ afterSequence: 3 });
+		expect(request.command).toBe("attach_session");
+		expect(request.params).toEqual({
+			sessionId: "session-1",
+			afterSequence: 3,
+		});
 	});
 
 	test("reports parse errors distinctly from schema errors", async () => {
@@ -136,7 +137,7 @@ describe("plot protocol JSONL framing", () => {
 		}
 		try {
 			await parsePlotClientJsonLine(
-				'{"protocol":"plot.v1","kind":"request","id":"r1","command":"prompt"}',
+				`{"protocol":"${plotProtocolVersion}","kind":"request","id":"r1","command":"prompt"}`,
 			);
 		} catch (error) {
 			schemaFailure = error as { code: string };

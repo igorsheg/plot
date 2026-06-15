@@ -1,46 +1,49 @@
 import { describe, expect, test } from "bun:test";
-import { tickId } from "@plot/agent/model";
 import {
-	SessionStartedEvent,
-	plotSessionEventSequence,
-	plotSessionId,
-} from "../src/plot-session.js";
-import {
-	PlotHelloRecord,
+	PlotWelcomeRecord,
 	decodePlotClientRecord,
 	defaultPlotProtocolLimits,
 	makePlotErrorResponse,
-	makePlotEventRecord,
+	makePlotSessionEventRecord,
 	makePlotSuccessResponse,
 	plotProtocolEpoch,
 	plotProtocolRequestId,
 	plotProtocolSequence,
+	plotProtocolVersion,
 } from "../src/protocol.js";
+import type { SessionHistoryEvent } from "@plot/control/session-history";
 
-const sessionId = plotSessionId("default");
-const epoch = plotProtocolEpoch("epoch-1");
+const historyEvent: SessionHistoryEvent = {
+	sessionId: "session-1",
+	epoch: "epoch-1",
+	sequence: 1,
+	timestamp: "2026-06-15T00:00:00.000Z",
+	type: "session_started",
+	payload: {},
+};
 
-describe("plot protocol schema", () => {
-	test("decodes client request envelopes", async () => {
+describe("plot control protocol schema", () => {
+	test("decodes explicit client request envelopes", async () => {
 		const request = await decodePlotClientRecord({
-			protocol: "plot.v1",
+			protocol: plotProtocolVersion,
 			kind: "request",
 			id: "req-1",
-			command: "tick_once",
+			command: "request_tick",
+			params: { sessionId: "session-1" },
 		});
 
 		expect(String(request.id)).toBe("req-1");
-		expect(request.command).toBe("tick_once");
+		expect(request.command).toBe("request_tick");
 	});
 
-	test("rejects unknown commands before handling", async () => {
+	test("rejects old implicit commands before handling", async () => {
 		let failure: { code: string } | undefined;
 		try {
 			await decodePlotClientRecord({
-				protocol: "plot.v1",
+				protocol: plotProtocolVersion,
 				kind: "request",
 				id: "req-1",
-				command: "prompt",
+				command: "tick_once",
 			});
 		} catch (error) {
 			failure = error as { code: string };
@@ -49,52 +52,44 @@ describe("plot protocol schema", () => {
 		expect(failure?.code).toBe("invalid_request");
 	});
 
-	test("wraps existing PlotSessionEvent without changing payload", () => {
-		const event = new SessionStartedEvent({
-			sessionId,
-			sequence: plotSessionEventSequence(1),
-		});
-
-		const record = makePlotEventRecord(epoch, event);
+	test("wraps Session History events without changing payload", () => {
+		const record = makePlotSessionEventRecord(historyEvent);
 
 		expect(record).toEqual(
 			expect.objectContaining({
-				protocol: "plot.v1",
-				kind: "event",
-				sessionId,
-				epoch,
-				sequence: plotSessionEventSequence(1),
+				protocol: plotProtocolVersion,
+				kind: "session_event",
+				sessionId: "session-1",
+				epoch: plotProtocolEpoch("epoch-1"),
+				sequence: 1,
 			}),
 		);
-		expect(record.event).toBe(event);
+		expect(record.event).toBe(historyEvent);
 	});
 
-	test("constructs hello and response records", () => {
-		const hello = new PlotHelloRecord({
-			sessionId,
-			epoch,
-			firstEventSeq: plotProtocolSequence(0),
-			lastEventSeq: plotProtocolSequence(3),
+	test("constructs welcome and response records", () => {
+		const welcome = new PlotWelcomeRecord({
+			connectionId: "connection-1",
 			capabilities: ["stdio_jsonl"],
 			limits: defaultPlotProtocolLimits,
 		});
 		const success = makePlotSuccessResponse({
 			id: plotProtocolRequestId("req-2"),
-			command: "tick_once",
-			lastEventSeq: plotProtocolSequence(3),
-			data: { tickId: tickId(1) },
+			command: "request_tick",
+			lastSequence: plotProtocolSequence(3),
+			data: { accepted: true },
 		});
 		const failure = makePlotErrorResponse({
 			id: plotProtocolRequestId("req-3"),
-			command: "subscribe",
-			lastEventSeq: plotProtocolSequence(3),
+			command: "attach_session",
+			lastSequence: plotProtocolSequence(3),
 			code: "cursor_expired",
 			message: "event cursor is no longer retained",
 		});
 
-		expect(hello.kind).toBe("hello");
+		expect(welcome.kind).toBe("welcome");
 		expect(success.ok).toBe(true);
-		expect(success.data).toEqual({ tickId: tickId(1) });
+		expect(success.data).toEqual({ accepted: true });
 		expect(failure.ok).toBe(false);
 		expect(failure.error.code).toBe("cursor_expired");
 	});

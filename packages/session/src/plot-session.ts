@@ -147,6 +147,12 @@ export interface PlotSessionShape {
 	readonly tickOnce: () => Promise<TickResult>;
 	readonly submitObservation: (observation: Observation) => Promise<boolean>;
 	readonly snapshot: () => Promise<RuntimeSnapshot>;
+	readonly interruptAgentRun: (input: {
+		readonly runId: string;
+		readonly workKey?: string;
+	}) => Promise<boolean>;
+	readonly pauseDispatch: () => Promise<void>;
+	readonly resumeDispatch: () => Promise<void>;
 	readonly events: () => AsyncIterable<PlotSessionEvent>;
 	readonly lastEventSequence: () => Promise<PlotSessionEventCursor>;
 	readonly shutdown: () => Promise<boolean>;
@@ -432,6 +438,14 @@ export function makePlotSessionLayer(
 				{ session_id: sessionId },
 				plotAgent.snapshot(),
 			),
+		interruptAgentRun: async (input) =>
+			withWideEvent(
+				"plot_session.interrupt_agent_run",
+				{ session_id: sessionId, run_id: input.runId },
+				plotAgent.interruptAgentRun(input),
+			),
+		pauseDispatch: async () => plotAgent.pauseDispatch(),
+		resumeDispatch: async () => plotAgent.resumeDispatch(),
 		events: () => events.subscribe(),
 		lastEventSequence: async () =>
 			plotSessionEventCursor(

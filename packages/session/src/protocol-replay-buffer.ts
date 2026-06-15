@@ -2,13 +2,13 @@ import {
 	PlotProtocolFailure,
 	defaultPlotProtocolLimits,
 	plotProtocolSequence,
-	type PlotEventRecord,
+	type PlotSessionEventRecord,
 	type PlotProtocolLimits,
 	type PlotProtocolSequence,
 } from "./protocol.js";
 
 interface ReplayEntry {
-	readonly record: PlotEventRecord;
+	readonly record: PlotSessionEventRecord;
 	readonly bytes: number;
 }
 interface ReplayWaiter {
@@ -26,16 +26,16 @@ export interface PlotProtocolReplaySnapshot {
 	readonly lastEventSeq: PlotProtocolSequence;
 }
 export interface PlotProtocolReplayBuffer {
-	readonly append: (record: PlotEventRecord) => Promise<void>;
+	readonly append: (record: PlotSessionEventRecord) => Promise<void>;
 	readonly replayAfter: (
 		sequence: PlotProtocolSequence,
-	) => Promise<readonly PlotEventRecord[]>;
+	) => Promise<readonly PlotSessionEventRecord[]>;
 	readonly snapshot: () => Promise<PlotProtocolReplaySnapshot>;
 	readonly lastSequence: () => Promise<PlotProtocolSequence>;
 	readonly waitUntil: (sequence: PlotProtocolSequence) => Promise<void>;
 }
 const byteLength = (value: string) => new TextEncoder().encode(value).length;
-const eventSequenceNumber = (record: PlotEventRecord) =>
+const eventSequenceNumber = (record: PlotSessionEventRecord) =>
 	Number(record.sequence);
 const cursorExpired = (sequence: PlotProtocolSequence) =>
 	new PlotProtocolFailure({

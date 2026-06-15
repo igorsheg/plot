@@ -1,27 +1,36 @@
 import { describe, expect, test } from "bun:test";
-import type { PlotServerRecord } from "@plot/control/protocol";
+import {
+	plotProtocolVersion,
+	type PlotServerRecord,
+} from "@plot/control/protocol";
 import {
 	applySnapshot,
 	emptyProjection,
 	reduceRecord,
 } from "@plot/control/projection";
 
-const eventRecord = (sequence: number, event: unknown): PlotServerRecord => ({
-	protocol: "plot.v1",
-	kind: "event",
+const eventRecord = (
+	sequence: number,
+	type: string,
+	payload: unknown,
+): PlotServerRecord => ({
+	protocol: plotProtocolVersion,
+	kind: "session_event",
 	sessionId: "default",
 	epoch: "epoch-1",
 	sequence,
-	event,
+	event: {
+		sessionId: "default",
+		epoch: "epoch-1",
+		sequence,
+		timestamp: "2026-06-15T00:00:00.000Z",
+		type,
+		payload,
+	},
 });
 
 const plotAgentEvent = (sequence: number, event: Record<string, unknown>) =>
-	eventRecord(sequence, {
-		type: "plot_agent_event",
-		sessionId: "default",
-		sequence,
-		event,
-	});
+	eventRecord(sequence, String(event["type"]), event);
 
 const workStarted = (sequence: number, workKey = "source:item:42") =>
 	plotAgentEvent(sequence, {
@@ -46,10 +55,7 @@ const agentEvent = (
 	eventType = "tool_call",
 	event: Record<string, unknown> = { type: eventType, command: message },
 ) =>
-	eventRecord(sequence, {
-		type: "agent_session_event",
-		sessionId: "default",
-		sequence,
+	eventRecord(sequence, "agent_run_event", {
 		sourceId: "extension:worker",
 		runId: "run-1",
 		workKey,

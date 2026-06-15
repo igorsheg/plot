@@ -7,13 +7,14 @@ import { serveStdio } from "../runtime.js";
 export const serveCommand = defineCommand({
 	meta: {
 		name: "serve",
-		description: "Serve the plot.v1 protocol for automation.",
+		description: "Serve the Plot control protocol for automation.",
 	},
 	subCommands: {
 		stdio: defineCommand({
 			meta: {
 				name: "stdio",
-				description: "Serve plot.v1 over newline-delimited JSON on stdio.",
+				description:
+					"Serve Plot control protocol over newline-delimited JSON on stdio.",
 			},
 			args: sessionCommandArgs,
 			run: ({ args }) => {

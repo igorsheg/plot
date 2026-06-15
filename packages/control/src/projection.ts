@@ -234,16 +234,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const text = (value: unknown): string | undefined =>
 	typeof value === "string" ? value : undefined;
 
-const eventSummary = (record: Extract<PlotServerRecord, { kind: "event" }>) => {
-	const event = record.event;
-	if (!isRecord(event)) return "event";
-	if (event["type"] === "plot_agent_event" && isRecord(event["event"])) {
-		return text(event["event"]["type"]) ?? "plot_agent_event";
-	}
-	if (event["type"] === "agent_session_event") {
-		return text(event["eventType"]) ?? "agent_session_event";
-	}
-	return text(event["type"]) ?? "event";
+const eventSummary = (
+	record: Extract<PlotServerRecord, { kind: "session_event" }>,
+) => {
+	if (record.event.type === "agent_run_event" && isRecord(record.event.payload))
+		return text(record.event.payload["eventType"]) ?? "agent_run_event";
+	return record.event.type;
 };
 
 const displayFrom = (value: unknown) => (isRecord(value) ? value : undefined);
@@ -1006,7 +1002,7 @@ export const reduceRecord = (
 	projection: DashboardProjection,
 	record: PlotServerRecord,
 ): DashboardProjection => {
-	if (record.kind !== "event") return projection;
+	if (record.kind !== "session_event") return projection;
 	const sequence = Number(record.sequence);
 	const observedAtMs = Date.now();
 	const summary = eventSummary(record);
@@ -1019,21 +1015,10 @@ export const reduceRecord = (
 		].slice(0, 100),
 	};
 	const event = record.event;
-	if (!isRecord(event)) return next;
-	if (event["type"] === "plot_agent_event" && isRecord(event["event"])) {
-		const agentEvent = event["event"];
-		return reduceEventPayload(
-			next,
-			text(agentEvent["type"]) ?? "plot_agent_event",
-			agentEvent,
-			sequence,
-			observedAtMs,
-		);
-	}
 	return reduceEventPayload(
 		next,
-		text(event["type"]) ?? "event",
-		event,
+		event.type,
+		event.payload,
 		sequence,
 		observedAtMs,
 	);
