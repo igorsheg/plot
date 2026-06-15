@@ -58,6 +58,7 @@ describe("Plot extension source adapter", () => {
 
 	test("adapts discovery and lifecycle hooks into Plot WorkSource semantics", async () => {
 		const lifecycle: string[] = [];
+		let done = false;
 		const bundle = makePlotExtensionSourceBundle({
 			workflow,
 			paths,
@@ -67,18 +68,22 @@ describe("Plot extension source adapter", () => {
 				create: () => ({ discover: () => [] }),
 			},
 			runtime: {
-				discover: () => [
-					{
-						id: "github:acme/web:pr:42",
-						version: "sha-1",
-						title: "Review PR #42",
-						context: { repo: "acme/web", prNumber: 42 },
-					},
-				],
+				discover: () =>
+					done
+						? []
+						: [
+								{
+									id: "github:acme/web:pr:42",
+									version: "sha-1",
+									title: "Review PR #42",
+									context: { repo: "acme/web", prNumber: 42 },
+								},
+							],
 				started: ({ work, runId }) => {
 					lifecycle.push(`started:${work.id}:${runId}`);
 				},
 				completed: ({ work, output }) => {
+					done = true;
 					lifecycle.push(`completed:${work.id}:${String(output)}`);
 				},
 				shutdown: () => {
@@ -109,11 +114,55 @@ describe("Plot extension source adapter", () => {
 
 		expect(result.first.started).toHaveLength(1);
 		expect(result.second.completions).toHaveLength(1);
+		expect(result.second.started).toHaveLength(0);
 		expect(result.third.started).toHaveLength(0);
 		expect(lifecycle).toEqual([
 			"started:github:acme/web:pr:42:run-0",
 			"completed:github:acme/web:pr:42:ok",
 			"shutdown",
+		]);
+	});
+
+	test("rediscovers a completed key when the source still declares work", async () => {
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "github-pr-reviewer",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => [
+					{
+						id: "github:acme/web:pr:42",
+						version: "sha-1",
+						title: "Review PR #42",
+					},
+				],
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: () => ({ output: "ok" }),
+		});
+
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const first = await agent.tickOnce();
+		await Promise.resolve();
+		const second = await agent.tickOnce();
+		const third = await agent.tickOnce();
+
+		expect(first.started).toEqual([
+			expect.objectContaining({ runId: "run-0" }),
+		]);
+		expect(second.completions).toEqual([
+			expect.objectContaining({ runId: "run-0", status: "succeeded" }),
+		]);
+		// Completion suppresses only the stale discovery from this same tick.
+		expect(second.started).toHaveLength(0);
+		// If the source still declares the work on the next tick, it is authoritative.
+		expect(third.started).toEqual([
+			expect.objectContaining({ runId: "run-1" }),
 		]);
 	});
 

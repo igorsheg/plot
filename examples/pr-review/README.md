@@ -28,7 +28,7 @@ For the dashboard/control plane:
 plot tui --workflow examples/pr-review/WORKFLOW.md
 ```
 
-The workflow expects GitHub CLI authentication and a current branch with an associated pull request. Review progress is durable in `.plot/review/pr-<number>/state.json`, so the outer Plot loop can retry or continue phases without nested agent orchestration.
+The workflow expects GitHub CLI authentication and a current branch with an associated pull request. Review progress is durable in the PR anchor comment, so the outer Plot loop can retry or continue phases without nested agent orchestration.
 
 ## Project shape
 

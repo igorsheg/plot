@@ -94,7 +94,6 @@ const workKeyForExtensionWork = (
 	workKey(
 		`extension:${extension.id}:${work.id}:${work.version ?? "unversioned"}`,
 	);
-const completedFactKey = (key: WorkKey) => `extension.completed:${key}`;
 const discoveredFactKey = (source: SourceId) =>
 	`extension.discovered:${source}`;
 const workStatusFactKey = (source: SourceId, workId: string) =>
@@ -279,10 +278,47 @@ export const makePlotExtensionSourceBundle = (options: {
 					observation.type === "plot.extension.discovered" &&
 					observation.subject === String(source),
 			);
-			if (latestDiscovery !== undefined) {
+			const shouldWriteDiscoveredFact = latestDiscovery !== undefined;
+			if (latestDiscovery !== undefined)
 				discoveredWorks = decodeDiscoveredWorks(latestDiscovery.data);
-				proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
+			for (const observation of snapshot.observations) {
+				if (observation.type !== "operator_observation") continue;
+				if (!isObjectRecord(observation.data)) continue;
+				if (observation.data["sourceId"] !== source) continue;
+				const observedWorkKey = observation.data["workKey"];
+				if (typeof observedWorkKey !== "string") continue;
+				const work = selectedWork.get(workKey(observedWorkKey));
+				if (work === undefined) continue;
+				await invokeOperatorActionHook(
+					options.runtime,
+					source,
+					work,
+					observation.data,
+				);
 			}
+			const completedThisTickKeys = new Set<WorkKey>();
+			for (const completion of snapshot.completions) {
+				if (completion.sourceId !== source) continue;
+				completedThisTickKeys.add(completion.workKey);
+				const work = selectedWork.get(completion.workKey);
+				if (work === undefined) continue;
+				await invokeCompletionHook(options.runtime, source, work, completion);
+			}
+			// Completion hooks may update the source's durable state, but this
+			// tick's discovery was observed before those hooks ran. Suppress only
+			// exact keys that completed in this tick so stale discovery cannot
+			// immediately redispatch. If the source still declares the same key on
+			// a later tick, the source is authoritative and Plot runs it again.
+			if (completedThisTickKeys.size > 0) {
+				discoveredWorks = discoveredWorks.filter(
+					(work) =>
+						!completedThisTickKeys.has(
+							workKeyForExtensionWork(options.extension, work),
+						),
+				);
+			}
+			if (shouldWriteDiscoveredFact || completedThisTickKeys.size > 0)
+				proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
 			const currentKeys = currentWorkKeys(options.extension, discoveredWorks);
 			const currentIds = new Set(discoveredWorks.map((work) => work.id));
 			// Symphony-style claim semantics. A running work is one of:
@@ -345,38 +381,6 @@ export const makePlotExtensionSourceBundle = (options: {
 					}
 				}
 			}
-			for (const observation of snapshot.observations) {
-				if (observation.type !== "operator_observation") continue;
-				if (!isObjectRecord(observation.data)) continue;
-				if (observation.data["sourceId"] !== source) continue;
-				const observedWorkKey = observation.data["workKey"];
-				if (typeof observedWorkKey !== "string") continue;
-				const work = selectedWork.get(workKey(observedWorkKey));
-				if (work === undefined) continue;
-				await invokeOperatorActionHook(
-					options.runtime,
-					source,
-					work,
-					observation.data,
-				);
-			}
-			for (const completion of snapshot.completions) {
-				if (completion.sourceId !== source) continue;
-				const work = selectedWork.get(completion.workKey);
-				if (work === undefined) continue;
-				await invokeCompletionHook(options.runtime, source, work, completion);
-				proposals.push(
-					setFact(completedFactKey(completion.workKey), {
-						status: completion.status,
-						...(completion.output === undefined
-							? {}
-							: { output: completion.output }),
-						...(completion.error === undefined
-							? {}
-							: { error: completion.error }),
-					}),
-				);
-			}
 			return proposals;
 		},
 		selectWork: ({ snapshot }) => {
@@ -396,8 +400,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				if (
 					snapshot.running.has(key) ||
 					claimedIds.has(extensionWork.id) ||
-					isBlocked(extensionWork) ||
-					snapshot.facts.has(completedFactKey(key))
+					isBlocked(extensionWork)
 				)
 					return [];
 				selectedWork.set(key, extensionWork);

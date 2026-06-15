@@ -83,6 +83,12 @@ The prompt should answer:
 - What counts as done?
 - What should the output look like?
 
+## Durability contract
+
+The extension is authoritative for domain state. If work is done, `discover()` should stop returning it. If the same work should run again, `discover()` should return it again with the same `id` and appropriate `version`.
+
+Plot Session History records control-plane events, projections, active attempts, usage, and audit history. It does not make extension work permanently complete. A completed Agent Run suppresses only stale discovery from the same tick; the next tick trusts the extension again.
+
 ## Work items
 
 A discovered work item looks like this:
