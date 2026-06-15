@@ -53,7 +53,7 @@ export function SessionSurface() {
 		return <SnapshotUnavailable lastError={lastError} />;
 
 	return (
-		<div className="flex flex-col gap-6 py-8">
+		<div className="flex flex-col gap-6">
 			<Link
 				to="/"
 				search={(prev) => ({ role: prev.role ?? "controller" })}

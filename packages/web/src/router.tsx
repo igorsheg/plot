@@ -18,7 +18,7 @@ import {
 	type PlotWebDashboardState,
 	usePlotWebDashboardState,
 } from "./app/dashboard/web-dashboard-state";
-import { FleetSurface } from "./app/dashboard/views/fleet-surface";
+import { FleetRail, OverviewPane } from "./app/dashboard/views/fleet-rail";
 import { SessionSurface } from "./app/dashboard/views/session-surface";
 import { TopBar } from "./app/dashboard/views/top-bar";
 
@@ -51,12 +51,18 @@ function RootLayout() {
 	const state = stateOverride ?? live;
 	return (
 		<DashboardProvider state={state}>
-			<main className="min-h-dvh bg-background text-foreground">
-				<div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col px-5 pb-12 md:px-8">
-					<TopBar />
-					<Outlet />
+			<div className="flex h-dvh flex-col bg-background text-foreground">
+				<TopBar />
+				<div className="flex min-h-0 flex-1">
+					<FleetRail />
+					<div className="min-w-0 flex-1 overflow-y-auto">
+						{/* Detail content stays width-capped inside the pane for readability. */}
+						<div className="mx-auto w-full max-w-5xl px-6 py-6">
+							<Outlet />
+						</div>
+					</div>
 				</div>
-			</main>
+			</div>
 		</DashboardProvider>
 	);
 }
@@ -83,7 +89,7 @@ function FleetRoute() {
 			});
 		}
 	}, [roster, connection, navigate]);
-	return <FleetSurface />;
+	return <OverviewPane />;
 }
 
 const indexRoute = createRoute({
