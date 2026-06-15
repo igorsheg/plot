@@ -3,7 +3,7 @@ import type {
 	DashboardModel,
 	ScheduledRowModel,
 	WorkRowModel,
-} from "./dashboard-model.js";
+} from "@plot/control/dashboard-model";
 import {
 	blank,
 	cell,

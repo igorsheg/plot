@@ -1,11 +1,19 @@
 import { AsyncQueue } from "@plot/common/async-queue";
 import { EventHub } from "@plot/common/event-stream";
 import { withWideEvent } from "@plot/common/observability";
+import {
+	safeParseAuthLoginParams,
+	safeParseAuthProviderParams,
+	safeParseAuthStatusParams,
+	safeParseSubmitObservationParams,
+	safeParseSubscribeParams,
+} from "@plot/control/protocol";
 import type { PlotSessionShape } from "./plot-session.js";
 import { plotSessionEventSequence } from "./plot-session.js";
 import type { PlotAuthShape } from "./pi-auth.js";
 import {
 	defaultPlotProtocolLimits,
+	formatProtocolParseIssues,
 	makePlotErrorResponse,
 	makePlotSuccessResponse,
 	PlotErrorResponseRecord,
@@ -49,50 +57,39 @@ export type PlotProtocol = PlotProtocolShape;
 export const PlotProtocol = Symbol("PlotProtocol");
 const errorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
-const object = (value: unknown): Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
-const decodeSubscribeParams = (value: unknown): SubscribeParams => ({
-	afterSequence: object(value)["afterSequence"] as number | undefined,
-});
+const invalidParams = (
+	issues: Parameters<typeof formatProtocolParseIssues>[0],
+) =>
+	new PlotProtocolFailure({
+		code: "invalid_request",
+		message: formatProtocolParseIssues(issues),
+	});
+const decodeSubscribeParams = (value: unknown): SubscribeParams => {
+	const parsed = safeParseSubscribeParams(value);
+	if (!parsed.success) throw invalidParams(parsed.error.issues);
+	return parsed.data as SubscribeParams;
+};
 const decodeSubmitObservationParams = (
 	value: unknown,
 ): SubmitObservationParams => {
-	const observation = object(value)["observation"];
-	if (typeof observation !== "object" || observation === null)
-		throw new PlotProtocolFailure({
-			code: "invalid_request",
-			message: "observation is required",
-		});
-	return { observation: observation as SubmitObservationParams["observation"] };
+	const parsed = safeParseSubmitObservationParams(value);
+	if (!parsed.success) throw invalidParams(parsed.error.issues);
+	return parsed.data as SubmitObservationParams;
 };
 const decodeAuthProviderParams = (value: unknown): AuthProviderParams => {
-	const provider = object(value)["provider"];
-	if (typeof provider !== "string" || provider.length === 0)
-		throw new PlotProtocolFailure({
-			code: "invalid_request",
-			message: "provider is required",
-		});
-	return { provider };
+	const parsed = safeParseAuthProviderParams(value);
+	if (!parsed.success) throw invalidParams(parsed.error.issues);
+	return parsed.data as AuthProviderParams;
 };
 const decodeAuthStatusParams = (value: unknown): AuthStatusParams => {
-	const provider = object(value)["provider"];
-	return typeof provider === "string" ? { provider } : {};
+	const parsed = safeParseAuthStatusParams(value);
+	if (!parsed.success) throw invalidParams(parsed.error.issues);
+	return parsed.data as AuthStatusParams;
 };
 const decodeAuthLoginParams = (value: unknown): AuthLoginParams => {
-	const r = object(value);
-	if (typeof r["provider"] !== "string" || r["provider"].length === 0)
-		throw new PlotProtocolFailure({
-			code: "invalid_request",
-			message: "provider is required",
-		});
-	return {
-		provider: r["provider"],
-		promptResponses: r["promptResponses"] as string[] | undefined,
-		selectResponse: r["selectResponse"] as string | undefined,
-		manualCode: r["manualCode"] as string | undefined,
-	};
+	const parsed = safeParseAuthLoginParams(value);
+	if (!parsed.success) throw invalidParams(parsed.error.issues);
+	return parsed.data as AuthLoginParams;
 };
 const byteLength = (value: string) => new TextEncoder().encode(value).length;
 const checkObservationPayloadLimit = (

@@ -1,120 +1,206 @@
-import type { PlotServerRecord } from "@plot/session/protocol";
-import type { RuntimeIdentityProjection } from "./runtime-identity.js";
+import { z } from "zod";
+import { operatorActionSchema } from "./operator.js";
+import type { PlotServerRecord } from "./protocol.js";
+import { nonNegativeIntegerSchema } from "./session-summary.js";
 
-export type TuiStatus =
-	| "starting"
-	| "idle"
-	| "running"
-	| "shutting_down"
-	| "stopped"
-	| "error";
+export const dashboardStatusSchema = z.enum([
+	"starting",
+	"idle",
+	"running",
+	"shutting_down",
+	"stopped",
+	"error",
+]);
+export type DashboardStatus = z.infer<typeof dashboardStatusSchema>;
+export type TuiStatus = DashboardStatus;
 
-export type WorkStage =
-	| "starting"
-	| "waiting"
-	| "working"
-	| "verifying"
-	| "finishing"
-	| "blocked"
-	| "failed";
+export const workStageSchema = z.enum([
+	"starting",
+	"waiting",
+	"working",
+	"verifying",
+	"finishing",
+	"blocked",
+	"failed",
+]);
+export type WorkStage = z.infer<typeof workStageSchema>;
 
-export interface TimelineEntry {
-	readonly atMs: number;
-	readonly text: string;
-}
+export const timelineEntrySchema = z
+	.object({
+		atMs: nonNegativeIntegerSchema,
+		text: z.string(),
+	})
+	.strict();
+export type TimelineEntry = z.infer<typeof timelineEntrySchema>;
 
-export type ActivityTone = "ok" | "bad" | "info";
+export const activityToneSchema = z.enum(["ok", "bad", "info"]);
+export type ActivityTone = z.infer<typeof activityToneSchema>;
 
-export interface ActivityEntry {
-	readonly atMs: number;
-	readonly tone: ActivityTone;
-	readonly text: string;
-}
+export const activityEntrySchema = z
+	.object({
+		atMs: nonNegativeIntegerSchema,
+		tone: activityToneSchema,
+		text: z.string(),
+	})
+	.strict();
+export type ActivityEntry = z.infer<typeof activityEntrySchema>;
 
-export interface LoopPulse {
-	readonly tickId: number;
-	readonly atMs: number;
-	readonly found: number;
-	readonly started: number;
-}
+export const loopPulseSchema = z
+	.object({
+		tickId: nonNegativeIntegerSchema,
+		atMs: nonNegativeIntegerSchema,
+		found: nonNegativeIntegerSchema,
+		started: nonNegativeIntegerSchema,
+	})
+	.strict();
+export type LoopPulse = z.infer<typeof loopPulseSchema>;
 
-export interface UsageTotals {
-	readonly tokens: number;
-	readonly cost?: number;
-}
+export const usageTotalsSchema = z
+	.object({
+		tokens: nonNegativeIntegerSchema,
+		cost: z.number().nonnegative().optional(),
+	})
+	.strict();
+export type UsageTotals = z.infer<typeof usageTotalsSchema>;
 
-export interface TokenSample {
-	readonly atMs: number;
-	readonly tokens: number;
-}
+export const tokenSampleSchema = z
+	.object({
+		atMs: nonNegativeIntegerSchema,
+		tokens: nonNegativeIntegerSchema,
+	})
+	.strict();
+export type TokenSample = z.infer<typeof tokenSampleSchema>;
 
-export interface RunningWorkProjection {
-	readonly workKey: string;
-	readonly runId: string;
-	readonly sourceId: string;
-	readonly subject?: string;
-	readonly primary?: string;
-	readonly title: string;
-	readonly subtitle?: string;
-	readonly url?: string;
-	readonly stage: WorkStage;
-	readonly startedAtSeq: number;
-	readonly lastEventSeq: number;
-	readonly startedAtMs?: number;
-	readonly lastEventAtMs?: number;
-	readonly turnCount: number;
-	readonly eventCount: number;
-	readonly toolUpdateCount: number;
-	readonly messageCount: number;
-	readonly seenTurnIds: readonly string[];
-	readonly lastMessage: string;
-	readonly activity: string;
-	readonly lastMeaningful: string;
-	readonly check: "not-run" | "running" | "passed" | "failed";
-	readonly commands: readonly string[];
-	readonly observations: readonly string[];
-	readonly timeline: readonly TimelineEntry[];
-	readonly tokens?: {
-		readonly input?: number;
-		readonly output?: number;
-		readonly total?: number;
-		readonly cost?: number;
-	};
-}
+export const runtimeIdentityProjectionSchema = z
+	.object({
+		cwdName: z.string(),
+		cwd: z.string(),
+		workflowPath: z.string().optional(),
+		provider: z.string().optional(),
+		model: z.string().optional(),
+		thinking: z.string().optional(),
+		skills: z.array(z.string()).readonly(),
+		skillPaths: z.array(z.string()).readonly(),
+		tickIntervalMs: nonNegativeIntegerSchema.optional(),
+		maxConcurrentRuns: nonNegativeIntegerSchema.optional(),
+		maxRunDurationMs: nonNegativeIntegerSchema.optional(),
+	})
+	.strict();
+export type RuntimeIdentityProjection = z.infer<
+	typeof runtimeIdentityProjectionSchema
+>;
 
-export interface CompletedWorkProjection {
-	readonly workKey: string;
-	readonly label: string;
-	readonly status: string;
-	readonly message: string;
-	readonly atMs: number;
-	readonly url?: string;
-}
+export const workCheckSchema = z.enum([
+	"not-run",
+	"running",
+	"passed",
+	"failed",
+]);
+export type WorkCheck = z.infer<typeof workCheckSchema>;
 
-export interface ScheduledWakeProjection {
-	readonly dueAtMs: number;
-	readonly delayMs: number;
-	readonly reason?: string;
-	readonly workKey?: string;
-	readonly attempt?: number;
-}
+export const tokenUsageProjectionSchema = z
+	.object({
+		input: nonNegativeIntegerSchema.optional(),
+		output: nonNegativeIntegerSchema.optional(),
+		total: nonNegativeIntegerSchema.optional(),
+		cost: z.number().nonnegative().optional(),
+	})
+	.strict();
+export type TokenUsageProjection = z.infer<typeof tokenUsageProjectionSchema>;
 
-export interface DashboardProjection {
-	readonly sessionId: string;
-	readonly workflowName: string;
-	readonly runtime: RuntimeIdentityProjection;
-	readonly status: TuiStatus;
-	readonly frontier: number;
-	readonly pulse?: LoopPulse;
-	readonly usageTotals: UsageTotals;
-	readonly tokenSamples: readonly TokenSample[];
-	readonly running: ReadonlyMap<string, RunningWorkProjection>;
-	readonly completed: readonly CompletedWorkProjection[];
-	readonly diagnostics: readonly string[];
-	readonly scheduledWakes: readonly ScheduledWakeProjection[];
-	readonly activity: readonly ActivityEntry[];
-	readonly debugEvents: readonly string[];
-}
+export const agentTranscriptReferenceSchema = z
+	.object({
+		id: z.string().optional(),
+		path: z.string().optional(),
+	})
+	.strict();
+export type AgentTranscriptReference = z.infer<
+	typeof agentTranscriptReferenceSchema
+>;
+
+export const runningWorkProjectionSchema = z
+	.object({
+		workKey: z.string(),
+		runId: z.string(),
+		sourceId: z.string(),
+		subject: z.string().optional(),
+		primary: z.string().optional(),
+		title: z.string(),
+		subtitle: z.string().optional(),
+		url: z.string().optional(),
+		stage: workStageSchema,
+		startedAtSeq: nonNegativeIntegerSchema,
+		lastEventSeq: nonNegativeIntegerSchema,
+		startedAtMs: nonNegativeIntegerSchema.optional(),
+		lastEventAtMs: nonNegativeIntegerSchema.optional(),
+		turnCount: nonNegativeIntegerSchema,
+		eventCount: nonNegativeIntegerSchema,
+		toolUpdateCount: nonNegativeIntegerSchema,
+		messageCount: nonNegativeIntegerSchema,
+		seenTurnIds: z.array(z.string()).readonly(),
+		lastMessage: z.string(),
+		activity: z.string(),
+		lastMeaningful: z.string(),
+		check: workCheckSchema,
+		commands: z.array(z.string()).readonly(),
+		observations: z.array(z.string()).readonly(),
+		timeline: z.array(timelineEntrySchema).readonly(),
+		tokens: tokenUsageProjectionSchema.optional(),
+		transcript: agentTranscriptReferenceSchema.optional(),
+		operatorActions: z.array(operatorActionSchema).readonly().optional(),
+	})
+	.strict();
+export type RunningWorkProjection = z.infer<typeof runningWorkProjectionSchema>;
+
+export const completedWorkProjectionSchema = z
+	.object({
+		workKey: z.string(),
+		label: z.string(),
+		status: z.string(),
+		message: z.string(),
+		atMs: nonNegativeIntegerSchema,
+		url: z.string().optional(),
+	})
+	.strict();
+export type CompletedWorkProjection = z.infer<
+	typeof completedWorkProjectionSchema
+>;
+
+export const scheduledWakeProjectionSchema = z
+	.object({
+		dueAtMs: nonNegativeIntegerSchema,
+		delayMs: nonNegativeIntegerSchema,
+		reason: z.string().optional(),
+		workKey: z.string().optional(),
+		attempt: nonNegativeIntegerSchema.optional(),
+	})
+	.strict();
+export type ScheduledWakeProjection = z.infer<
+	typeof scheduledWakeProjectionSchema
+>;
+
+export const dashboardProjectionSchema = z
+	.object({
+		sessionId: z.string(),
+		workflowName: z.string(),
+		runtime: runtimeIdentityProjectionSchema,
+		status: dashboardStatusSchema,
+		frontier: nonNegativeIntegerSchema,
+		pulse: loopPulseSchema.optional(),
+		usageTotals: usageTotalsSchema,
+		tokenSamples: z.array(tokenSampleSchema).readonly(),
+		running: z.map(z.string(), runningWorkProjectionSchema).readonly(),
+		completed: z.array(completedWorkProjectionSchema).readonly(),
+		diagnostics: z.array(z.string()).readonly(),
+		scheduledWakes: z.array(scheduledWakeProjectionSchema).readonly(),
+		activity: z.array(activityEntrySchema).readonly(),
+		debugEvents: z.array(z.string()).readonly(),
+	})
+	.strict();
+export type DashboardProjection = z.infer<typeof dashboardProjectionSchema>;
+
+export const safeParseDashboardProjection = (value: unknown) =>
+	dashboardProjectionSchema.safeParse(value);
 
 export const emptyProjection = (
 	sessionId: string,
@@ -485,7 +571,7 @@ const inferCheck = (
 };
 
 export const workLabel = (work: {
-	readonly primary?: string;
+	readonly primary?: string | undefined;
 	readonly title: string;
 }) =>
 	work.primary === undefined ? work.title : `${work.primary} ${work.title}`;
@@ -544,7 +630,7 @@ export const applySnapshot = (
 			...(previous?.tokens === undefined ? {} : { tokens: previous.tokens }),
 		});
 	}
-	for (const key of [...running.keys()]) {
+	for (const key of running.keys()) {
 		if (
 			!runningValues.some(
 				(run) => isRecord(run) && text(run["workKey"]) === key,

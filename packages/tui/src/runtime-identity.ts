@@ -1,19 +1,6 @@
 import { basename } from "node:path";
+import type { RuntimeIdentityProjection } from "@plot/control/projection";
 import type { WorkflowDefinition } from "@plot/session/workflow";
-
-export interface RuntimeIdentityProjection {
-	readonly cwdName: string;
-	readonly cwd: string;
-	readonly workflowPath?: string;
-	readonly provider?: string;
-	readonly model?: string;
-	readonly thinking?: string;
-	readonly skills: readonly string[];
-	readonly skillPaths: readonly string[];
-	readonly tickIntervalMs?: number;
-	readonly maxConcurrentRuns?: number;
-	readonly maxRunDurationMs?: number;
-}
 
 export const runtimeIdentityFrom = (input: {
 	readonly workflow: WorkflowDefinition;

@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { PlotDashboard } from "../src/dashboard.js";
-import { emptyProjection } from "../src/projection.js";
-import type { RunningWorkProjection } from "../src/projection.js";
+import { emptyProjection } from "@plot/control/projection";
+import type { RunningWorkProjection } from "@plot/control/projection";
 
 const fixedNowMs = 1_700_000_000_000;
 

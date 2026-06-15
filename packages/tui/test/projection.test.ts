@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { PlotServerRecord } from "@plot/session/protocol";
+import type { PlotServerRecord } from "@plot/control/protocol";
 import {
 	applySnapshot,
 	emptyProjection,
 	reduceRecord,
-} from "../src/projection.js";
+} from "@plot/control/projection";
 
 const eventRecord = (sequence: number, event: unknown): PlotServerRecord => ({
 	protocol: "plot.v1",

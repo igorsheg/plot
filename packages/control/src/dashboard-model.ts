@@ -1,79 +1,117 @@
+import { z } from "zod";
 import {
+	activityToneSchema,
+	runningWorkProjectionSchema,
 	workLabel,
+	workStageSchema,
 	type DashboardProjection,
-	type ActivityTone,
 	type RunningWorkProjection,
 	type WorkStage,
 } from "./projection.js";
+import { nonNegativeIntegerSchema } from "./session-summary.js";
 
-export interface PulseModel {
-	readonly tick?: {
-		readonly id: number;
-		readonly ago: string;
-		readonly found: number;
-		readonly started: number;
-	};
-	readonly nextWake?: {
-		readonly inSeconds: number;
-		readonly reason?: string;
-	};
-	readonly runningCount: number;
-	readonly maxConcurrentRuns?: number;
-	readonly totalTokens: string;
-	readonly totalCost?: string;
-	readonly throughput: string;
-	readonly throughputGraph: string;
-}
+export const pulseTickModelSchema = z
+	.object({
+		id: nonNegativeIntegerSchema,
+		ago: z.string(),
+		found: nonNegativeIntegerSchema,
+		started: nonNegativeIntegerSchema,
+	})
+	.strict();
+export type PulseTickModel = z.infer<typeof pulseTickModelSchema>;
 
-export interface AttentionItemModel {
-	readonly workKey?: string;
-	readonly text: string;
-}
+export const pulseNextWakeModelSchema = z
+	.object({
+		inSeconds: nonNegativeIntegerSchema,
+		reason: z.string().optional(),
+	})
+	.strict();
+export type PulseNextWakeModel = z.infer<typeof pulseNextWakeModelSchema>;
 
-export interface WorkRowModel {
-	readonly work: RunningWorkProjection;
-	readonly label: string;
-	readonly stage: WorkStage;
-	readonly age: string;
-	readonly turns: string;
-	readonly tokens: string;
-	readonly activity: string;
-	readonly lastEventAgo: string;
-	readonly stale: boolean;
-	readonly attention: boolean;
-}
+export const pulseModelSchema = z
+	.object({
+		tick: pulseTickModelSchema.optional(),
+		nextWake: pulseNextWakeModelSchema.optional(),
+		runningCount: nonNegativeIntegerSchema,
+		maxConcurrentRuns: nonNegativeIntegerSchema.optional(),
+		totalTokens: z.string(),
+		totalCost: z.string().optional(),
+		throughput: z.string(),
+		throughputGraph: z.string(),
+	})
+	.strict();
+export type PulseModel = z.infer<typeof pulseModelSchema>;
 
-export interface ScheduledRowModel {
-	readonly inSeconds: number;
-	readonly reason?: string;
-	readonly workKey?: string;
-	readonly label?: string;
-	readonly attempt?: number;
-}
+export const attentionItemModelSchema = z
+	.object({
+		workKey: z.string().optional(),
+		text: z.string(),
+	})
+	.strict();
+export type AttentionItemModel = z.infer<typeof attentionItemModelSchema>;
 
-export interface CompletedRowModel {
-	readonly label: string;
-	readonly status: string;
-	readonly message: string;
-	readonly ago: string;
-	readonly tone: ActivityTone;
-	readonly url?: string;
-}
+export const workRowModelSchema = z
+	.object({
+		work: runningWorkProjectionSchema,
+		label: z.string(),
+		stage: workStageSchema,
+		age: z.string(),
+		turns: z.string(),
+		tokens: z.string(),
+		activity: z.string(),
+		lastEventAgo: z.string(),
+		stale: z.boolean(),
+		attention: z.boolean(),
+	})
+	.strict();
+export type WorkRowModel = z.infer<typeof workRowModelSchema>;
 
-export interface ActivityRowModel {
-	readonly ago: string;
-	readonly tone: ActivityTone;
-	readonly text: string;
-}
+export const scheduledRowModelSchema = z
+	.object({
+		inSeconds: nonNegativeIntegerSchema,
+		reason: z.string().optional(),
+		workKey: z.string().optional(),
+		label: z.string().optional(),
+		attempt: nonNegativeIntegerSchema.optional(),
+	})
+	.strict();
+export type ScheduledRowModel = z.infer<typeof scheduledRowModelSchema>;
 
-export interface DashboardModel {
-	readonly pulse: PulseModel;
-	readonly attention: readonly AttentionItemModel[];
-	readonly work: readonly WorkRowModel[];
-	readonly scheduled: readonly ScheduledRowModel[];
-	readonly completed: readonly CompletedRowModel[];
-	readonly activity: readonly ActivityRowModel[];
-}
+export const completedRowModelSchema = z
+	.object({
+		label: z.string(),
+		status: z.string(),
+		message: z.string(),
+		ago: z.string(),
+		tone: activityToneSchema,
+		url: z.string().optional(),
+	})
+	.strict();
+export type CompletedRowModel = z.infer<typeof completedRowModelSchema>;
+
+export const activityRowModelSchema = z
+	.object({
+		ago: z.string(),
+		tone: activityToneSchema,
+		text: z.string(),
+	})
+	.strict();
+export type ActivityRowModel = z.infer<typeof activityRowModelSchema>;
+
+export const dashboardModelSchema = z
+	.object({
+		pulse: pulseModelSchema,
+		attention: z.array(attentionItemModelSchema).readonly(),
+		work: z.array(workRowModelSchema).readonly(),
+		scheduled: z.array(scheduledRowModelSchema).readonly(),
+		completed: z.array(completedRowModelSchema).readonly(),
+		activity: z.array(activityRowModelSchema).readonly(),
+	})
+	.strict();
+export type DashboardModel = z.infer<typeof dashboardModelSchema>;
+
+export const safeParseDashboardModel = (value: unknown) =>
+	dashboardModelSchema.safeParse(value);
 
 const countFormatter = new Intl.NumberFormat("en-US");
 export const formatCount = (value: number) => countFormatter.format(value);
@@ -209,7 +247,7 @@ export const dashboardModelFrom = (
 ): DashboardModel => {
 	const rows = [...projection.running.values()]
 		.map((work) => workRow(work, nowMs))
-		.sort(
+		.toSorted(
 			(a, b) =>
 				Number(b.attention) - Number(a.attention) ||
 				a.work.startedAtSeq - b.work.startedAtSeq,

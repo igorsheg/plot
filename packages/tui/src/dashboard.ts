@@ -1,6 +1,9 @@
 import { matchesKey, parseKey, type Component } from "./pi-tui/index.ts";
 import { configViewLines } from "./config-view.js";
-import { dashboardModelFrom, type DashboardModel } from "./dashboard-model.js";
+import {
+	dashboardModelFrom,
+	type DashboardModel,
+} from "@plot/control/dashboard-model";
 import {
 	renderLines,
 	asLine,
@@ -10,7 +13,10 @@ import {
 import { debugViewLines } from "./debug-view.js";
 import { detailBodyLines, detailViewLines } from "./detail-view.js";
 import { fleetViewLines } from "./fleet-view.js";
-import type { DashboardProjection, TuiStatus } from "./projection.js";
+import type {
+	DashboardProjection,
+	DashboardStatus,
+} from "@plot/control/projection";
 import { style } from "./style.js";
 
 export interface DashboardActions {
@@ -25,7 +31,7 @@ export interface DashboardActions {
 
 type ViewMode = "fleet" | "debug" | "config" | "detail";
 
-const statusGlyph = (status: TuiStatus) => {
+const statusGlyph = (status: DashboardStatus) => {
 	switch (status) {
 		case "running":
 			return style.status.running("◉");
@@ -42,7 +48,7 @@ const statusGlyph = (status: TuiStatus) => {
 	}
 };
 
-const statusStyle = (status: TuiStatus) => {
+const statusStyle = (status: DashboardStatus) => {
 	switch (status) {
 		case "running":
 			return style.status.running;

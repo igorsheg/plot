@@ -1,10 +1,13 @@
-import { workLabel, type RunningWorkProjection } from "./projection.js";
+import {
+	workLabel,
+	type RunningWorkProjection,
+} from "@plot/control/projection";
 import {
 	formatAgo,
 	formatCost,
 	formatDuration,
 	formatTokens,
-} from "./dashboard-model.js";
+} from "@plot/control/dashboard-model";
 import {
 	asLine,
 	blank,

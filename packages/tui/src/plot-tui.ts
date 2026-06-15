@@ -12,8 +12,12 @@ import {
 	type PlotServerRecord,
 } from "@plot/session/protocol";
 import { PlotDashboard } from "./dashboard.js";
-import { applySnapshot, emptyProjection, reduceRecord } from "./projection.js";
-import type { DashboardProjection } from "./projection.js";
+import {
+	applySnapshot,
+	emptyProjection,
+	reduceRecord,
+	type DashboardProjection,
+} from "@plot/control/projection";
 import { runtimeIdentityFrom } from "./runtime-identity.js";
 
 export interface PlotTuiOptions extends PlotSessionHostOptions {}

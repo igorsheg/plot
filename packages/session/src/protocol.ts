@@ -1,5 +1,9 @@
 import type { Observation } from "@plot/agent/model";
 import { positiveInt, type PositiveInt } from "@plot/agent/model";
+import {
+	safeParsePlotClientRecord,
+	safeParsePlotServerRecord,
+} from "@plot/control/protocol";
 import { Result, TaggedError } from "better-result";
 import type {
 	PlotSessionEventSequence,
@@ -38,19 +42,6 @@ export type PlotCommand =
 	| "auth_status"
 	| "auth_login"
 	| "auth_logout";
-const commands = new Set<string>([
-	"start",
-	"tick_once",
-	"submit_observation",
-	"get_snapshot",
-	"subscribe",
-	"shutdown",
-	"ping",
-	"auth_providers",
-	"auth_status",
-	"auth_login",
-	"auth_logout",
-]);
 export type PlotProtocolErrorCode =
 	| "parse_error"
 	| "invalid_request"
@@ -184,35 +175,33 @@ export type PlotServerRecord =
 	| PlotSuccessResponseRecord
 	| PlotErrorResponseRecord;
 
-const object = (value: unknown): Record<string, unknown> => {
-	if (typeof value !== "object" || value === null || Array.isArray(value))
-		throw new Error("expected object");
-	return value as Record<string, unknown>;
+type ProtocolParseIssue = {
+	readonly path: readonly PropertyKey[];
+	readonly message: string;
 };
-const nonEmpty = (value: unknown, field: string): string => {
-	if (typeof value !== "string" || value.length === 0)
-		throw new Error(`${field} must be non-empty string`);
-	return value;
-};
+
+export const formatProtocolParseIssues = (
+	issues: readonly ProtocolParseIssue[],
+): string =>
+	issues
+		.map((issue) => {
+			const path =
+				issue.path.length === 0
+					? "record"
+					: issue.path.map((part) => String(part)).join(".");
+			return `${path}: ${issue.message}`;
+		})
+		.join("; ");
+
 export const decodePlotClientRecordResult = (
 	value: unknown,
 ): Result<PlotClientRecord, PlotProtocolFailure> =>
 	Result.try({
 		try: () => {
-			const r = object(value);
-			if (r["protocol"] !== "plot.v1" || r["kind"] !== "request")
-				throw new Error("invalid protocol request");
-			const id = plotProtocolRequestId(nonEmpty(r["id"], "id"));
-			const command = nonEmpty(r["command"], "command");
-			if (!commands.has(command))
-				throw new Error(`unknown command: ${command}`);
-			return {
-				protocol: "plot.v1" as const,
-				kind: "request" as const,
-				id,
-				command: command as PlotCommand,
-				...(r["params"] === undefined ? {} : { params: r["params"] }),
-			};
+			const parsed = safeParsePlotClientRecord(value);
+			if (!parsed.success)
+				throw new Error(formatProtocolParseIssues(parsed.error.issues));
+			return parsed.data as PlotClientRecord;
 		},
 		catch: (error) =>
 			new PlotProtocolFailure({
@@ -232,9 +221,10 @@ export const decodePlotServerRecordResult = (
 ): Result<PlotServerRecord, PlotProtocolFailure> =>
 	Result.try({
 		try: () => {
-			const r = object(value);
-			if (r["protocol"] !== "plot.v1") throw new Error("invalid protocol");
-			return r as unknown as PlotServerRecord;
+			const parsed = safeParsePlotServerRecord(value);
+			if (!parsed.success)
+				throw new Error(formatProtocolParseIssues(parsed.error.issues));
+			return parsed.data as PlotServerRecord;
 		},
 		catch: (error) =>
 			new PlotProtocolFailure({
