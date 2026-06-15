@@ -42,7 +42,9 @@ import {
 	refreshPlotSessionCatalogFromHistory,
 	upsertPlotSessionCatalogEntry,
 } from "./session-catalog.js";
+import type { PlotAgentSessionCliOverrides } from "./pi-agent-session.js";
 import type { OpenSessionParams, PlotProtocolLimits } from "./protocol.js";
+import type { SessionHistoryEvent } from "@plot/control/session-history";
 
 interface WebSocketData {
 	readonly protocol: ReturnType<typeof makePlotProtocolLayer>;
@@ -153,6 +155,40 @@ const updateCatalogForRuntime = async (
 	await applyStoppedOneshotRetention({ paths });
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null;
+
+const oneshotTickIsTerminal = (event: SessionHistoryEvent): boolean => {
+	if (event.type !== "tick_completed" || !isRecord(event.payload)) return false;
+	const result = event.payload["result"];
+	if (!isRecord(result)) return false;
+	const snapshot = result["snapshot"];
+	const running = isRecord(snapshot) ? snapshot["running"] : undefined;
+	const runningSize = running instanceof Map ? running.size : 0;
+	const started = Array.isArray(result["started"])
+		? result["started"].length
+		: 0;
+	const selected = Array.isArray(result["selected"])
+		? result["selected"].length
+		: 0;
+	const completions = Array.isArray(result["completions"])
+		? result["completions"].length
+		: 0;
+	return (
+		runningSize === 0 && started === 0 && selected === 0 && completions > 0
+	);
+};
+
+const startOneshotTerminalMonitor = (runtime: ControlSessionRuntime) => {
+	void (async () => {
+		for await (const event of runtime.events()) {
+			if (!oneshotTickIsTerminal(event)) continue;
+			await runtime.close();
+			break;
+		}
+	})().catch(() => undefined);
+};
+
 const makeOpenSession =
 	(input: {
 		readonly paths: LocalPlotServerPaths;
@@ -167,11 +203,38 @@ const makeOpenSession =
 			...(params.workflowPath === undefined
 				? {}
 				: { workflowPath: params.workflowPath }),
+			...(params.plotDir === undefined ? {} : { plotDir: params.plotDir }),
+			...(params.agentDir === undefined ? {} : { agentDir: params.agentDir }),
+			...(params.sessionDir === undefined
+				? {}
+				: { sessionDir: params.sessionDir }),
+			...(params.requestQueueCapacity === undefined
+				? {}
+				: { requestQueueCapacity: params.requestQueueCapacity }),
+			...(params.eventCapacity === undefined
+				? {}
+				: { eventCapacity: params.eventCapacity }),
+			...(params.replayCapacity === undefined
+				? {}
+				: { replayCapacity: params.replayCapacity }),
+			...(params.tickIntervalMs === undefined
+				? {}
+				: { tickIntervalMs: params.tickIntervalMs }),
+			...(params.maxRunDurationMs === undefined
+				? {}
+				: { maxRunDurationMs: params.maxRunDurationMs }),
+			...(params.agentSessionOverrides === undefined
+				? {}
+				: {
+						agentSessionOverrides:
+							params.agentSessionOverrides as PlotAgentSessionCliOverrides,
+					}),
 		});
 		const runtime = makeControlSessionRuntime({
 			session: host.session,
 			history: host.sessionHistory,
 			cwd: host.paths.cwd,
+			mode: params.mode ?? "watch",
 			...(host.workflow.path === undefined
 				? {}
 				: { workflowPath: host.workflow.path }),
@@ -180,6 +243,8 @@ const makeOpenSession =
 				await updateCatalogForRuntime(input.paths, runtime);
 			},
 		});
+		if ((params.mode ?? "watch") === "oneshot")
+			startOneshotTerminalMonitor(runtime);
 		await updateCatalogForRuntime(input.paths, runtime);
 		return runtime;
 	};

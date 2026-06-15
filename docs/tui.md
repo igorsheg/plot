@@ -6,6 +6,8 @@ The TUI is the operator view for a Plot workflow.
 plot tui --workflow WORKFLOW.md
 ```
 
+By default it uses or autostarts the machine-local Plot Server and attaches over the explicit control protocol. The session appears in the shared roster used by other local clients. Quitting or pressing Ctrl-C detaches this UI; it does not close the Plot Session. Use `--no-server` only as an explicit local test/escape hatch.
+
 It is built for a fleet, not a single log stream.
 
 You should be able to answer:

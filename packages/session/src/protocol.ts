@@ -15,6 +15,7 @@ import {
 	type DetachSessionParams,
 	type GetSnapshotParams,
 	type InterruptAgentRunParams,
+	type OpenSessionMode,
 	type OpenSessionParams,
 	type PauseSessionParams,
 	type PerformOperatorActionParams,
@@ -44,7 +45,7 @@ import { Result, TaggedError } from "better-result";
 export type { AuthLoginParams, AuthProviderParams, AuthStatusParams };
 export type { AttachSessionParams, CloseSessionParams, ControlConnectionRole };
 export type { DetachSessionParams, GetSnapshotParams };
-export type { InterruptAgentRunParams, OpenSessionParams };
+export type { InterruptAgentRunParams, OpenSessionMode, OpenSessionParams };
 export type { PauseSessionParams, PerformOperatorActionParams };
 export type { PlotClientRecord, PlotCommand };
 export type { PlotProtocolErrorCode, PlotProtocolEpoch, PlotProtocolLimits };
@@ -56,6 +57,7 @@ export type {
 };
 export type { PlotSuccessResponseRecordType, PlotWelcomeRecordType };
 export type { RequestTickParams, ResumeSessionParams };
+export type { SessionHistoryEvent };
 
 export type PlotProtocolVersion = PlotControlProtocolVersion;
 export const plotProtocolVersion: PlotProtocolVersion =

@@ -1,11 +1,14 @@
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
+import type { SessionHistoryEvent } from "@plot/session/protocol";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
+import { connectLocalControlClient } from "@plot/session/local-control-client";
 import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
 import type { PlotSessionEvent } from "@plot/session/plot-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 import { runLocalPlotServer } from "@plot/session/local-server";
 import {
 	runPlotSessionHostDaemon,
+	runPlotSessionHostOnce,
 	runPlotSessionHostStdio,
 } from "@plot/session/session-host";
 import { resolveWorkflowPath } from "@plot/session/workflow";
@@ -28,6 +31,8 @@ interface BaseRunOptions {
 	readonly sessionDir?: string;
 	readonly logLevel: LogLevelFlag;
 	readonly logFormat: LogFormat;
+	readonly homeDir?: string;
+	readonly serverDir?: string;
 	readonly requestQueueCapacity?: number;
 	readonly eventCapacity?: number;
 	readonly replayCapacity?: number;
@@ -48,6 +53,12 @@ export interface ServeLocalOptions extends BaseRunOptions {
 export interface RunDaemonOptions extends BaseRunOptions {
 	readonly onEvent?: (event: PlotSessionEvent) => Promise<void> | void;
 }
+export interface RunInProcessOnceOptions extends BaseRunOptions {
+	readonly onEvent?: (event: PlotSessionEvent) => Promise<void> | void;
+}
+export interface RunControlOneshotOptions extends BaseRunOptions {
+	readonly onEvent?: (event: SessionHistoryEvent) => Promise<void> | void;
+}
 const toLogLevel = (
 	level: LogLevelFlag,
 ): "Debug" | "Info" | "Warning" | "Error" =>
@@ -65,6 +76,58 @@ const workflowPathLogField = (options: BaseRunOptions) =>
 			? {}
 			: { workflowPath: options.workflowPath }),
 	});
+const openSessionParamsFrom = (
+	options: BaseRunOptions,
+	mode: "watch" | "oneshot",
+) => ({
+	sessionId: options.sessionId,
+	mode,
+	role: "controller" as const,
+	cwd: options.cwd,
+	...(options.workflowPath === undefined
+		? {}
+		: { workflowPath: options.workflowPath }),
+	...(options.plotDir === undefined ? {} : { plotDir: options.plotDir }),
+	...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
+	...(options.sessionDir === undefined
+		? {}
+		: { sessionDir: options.sessionDir }),
+	...(options.requestQueueCapacity === undefined
+		? {}
+		: { requestQueueCapacity: options.requestQueueCapacity }),
+	...(options.eventCapacity === undefined
+		? {}
+		: { eventCapacity: options.eventCapacity }),
+	...(options.replayCapacity === undefined
+		? {}
+		: { replayCapacity: options.replayCapacity }),
+	...(options.tickIntervalMs === undefined
+		? {}
+		: { tickIntervalMs: options.tickIntervalMs }),
+	...(options.maxRunDurationMs === undefined
+		? {}
+		: { maxRunDurationMs: options.maxRunDurationMs }),
+	...(options.agentSessionOverrides === undefined
+		? {}
+		: { agentSessionOverrides: options.agentSessionOverrides }),
+});
+const terminalRecordFor = (sessionId: string, record: unknown): boolean => {
+	if (typeof record !== "object" || record === null) return false;
+	const r = record as {
+		readonly kind?: string;
+		readonly sessionId?: string;
+		readonly event?: { readonly type?: string };
+		readonly session?: { readonly id?: string; readonly state?: string };
+	};
+	return (
+		(r.kind === "session_event" &&
+			r.sessionId === sessionId &&
+			r.event?.type === "session_shutdown") ||
+		(r.kind === "roster_event" &&
+			r.session?.id === sessionId &&
+			(r.session.state === "stopped" || r.session.state === "error"))
+	);
+};
 const provideCliLogger = async <A>(
 	options: BaseRunOptions,
 	work: () => Promise<A> | A,
@@ -75,12 +138,73 @@ const provideCliLogger = async <A>(
 export const runDaemon = (options: RunDaemonOptions): Promise<void> =>
 	provideCliLogger(options, () =>
 		withWideEvent(
-			"plot_cli.run",
+			"plot_cli.run_no_server",
 			{
 				workflow_path: workflowPathLogField(options),
 				session_id: options.sessionId,
 			},
 			() => runPlotSessionHostDaemon(options),
+		),
+	);
+
+export const runInProcessOnce = (
+	options: RunInProcessOnceOptions,
+): Promise<void> =>
+	provideCliLogger(options, () =>
+		withWideEvent(
+			"plot_cli.run_no_server_once",
+			{
+				workflow_path: workflowPathLogField(options),
+				session_id: options.sessionId,
+			},
+			async () => {
+				await runPlotSessionHostOnce(options);
+			},
+		),
+	);
+
+export const runControlOneshot = (
+	options: RunControlOneshotOptions,
+): Promise<void> =>
+	provideCliLogger(options, () =>
+		withWideEvent(
+			"plot_cli.run_control_oneshot",
+			{
+				workflow_path: workflowPathLogField(options),
+				session_id: options.sessionId,
+			},
+			async () => {
+				const client = await connectLocalControlClient({
+					cwd: options.cwd,
+					...(options.homeDir === undefined
+						? {}
+						: { homeDir: options.homeDir }),
+					...(options.serverDir === undefined
+						? {}
+						: { serverDir: options.serverDir }),
+				});
+				try {
+					await client.openSession(openSessionParamsFrom(options, "oneshot"));
+					await client.attachSession({
+						sessionId: options.sessionId,
+						role: "controller",
+						afterSequence: 0,
+					});
+					for await (const record of client.records()) {
+						if (
+							record.kind === "session_event" &&
+							record.sessionId === options.sessionId
+						)
+							await options.onEvent?.(record.event);
+						if (terminalRecordFor(options.sessionId, record)) break;
+					}
+				} finally {
+					await client
+						.detachSession({ sessionId: options.sessionId })
+						.catch(() => undefined);
+					client.close();
+				}
+			},
 		),
 	);
 export const serveStdio = (options: ServeStdioOptions): Promise<void> =>

@@ -11,7 +11,7 @@ STATUS: early / online
 
 Plot is a control plane for long-running coding agents.
 
-It finds work, starts agents, tracks runs, retries later, and gives you a terminal dashboard when something needs attention.
+It finds work, starts agents, tracks runs, retries later, and gives you a terminal dashboard when something needs attention. Normal local entrypoints use the machine-local Plot Server, so `plot tui` and `plot run` sessions appear in the same local roster without exposing a remote server.
 
 ```bash
 npm install -g plot-ai
@@ -55,6 +55,8 @@ Or run one pass without the dashboard:
 ```bash
 plot run --workflow examples/pr-review/WORKFLOW.md
 ```
+
+`plot run` opens a temporary `oneshot` Plot Session in the Local Plot Server while it runs and keeps Session History afterward.
 
 You need:
 
@@ -115,7 +117,7 @@ Plot should not care what kind of work it is. It should care whether the work is
 plot tui --workflow WORKFLOW.md
 ```
 
-The TUI is built for watching a fleet, not tailing a log.
+The TUI is built for watching a fleet, not tailing a log. Closing it detaches the UI from the Local Plot Server session; it does not kill the session.
 
 It shows:
 

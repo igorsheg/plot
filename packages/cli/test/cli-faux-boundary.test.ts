@@ -101,7 +101,7 @@ describe("plot CLI faux provider boundary", () => {
 		);
 	});
 
-	test("runs WORKFLOW.md as a daemon with the production Plot pi factory", async () => {
+	test("runs WORKFLOW.md through the explicit no-server escape hatch with the production Plot pi factory", async () => {
 		const workflow = await makeWorkflowFile();
 		const child = Bun.spawn(
 			[
@@ -116,11 +116,14 @@ describe("plot CLI faux provider boundary", () => {
 				join(workflow.dir, ".plot/agent"),
 				"--log-format",
 				"json",
+				"--log-level",
+				"info",
 				"--provider",
 				"plot-faux",
 				"--model",
 				"faux-1",
 				"--no-tools",
+				"--no-server",
 			],
 			{
 				stdout: "pipe",
@@ -150,7 +153,7 @@ describe("plot CLI faux provider boundary", () => {
 		expect(stdout).toContain("hello from plot run");
 		expect(stdout).toContain("Completed work workflow:default: succeeded");
 		expect(stdout).not.toContain("Workflow cli-faux finished with succeeded");
-		expect(stderr).not.toContain("plot_cli.run");
+		expect(stderr).not.toContain("plot_cli.run_control_oneshot");
 	});
 
 	test("exercises the production Plot pi factory with a deterministic faux provider", async () => {

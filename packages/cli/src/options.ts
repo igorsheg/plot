@@ -14,7 +14,10 @@ export const str = (
 export const bool = (
 	args: Record<string, unknown>,
 	name: string,
-): boolean | undefined => (args[name] === true ? true : undefined);
+): boolean | undefined => {
+	const value = args[name];
+	return value === true || value === "" || value === "true" ? true : undefined;
+};
 export const int = (args: ParsedArgs, name: string): number | undefined => {
 	const v = str(args, name);
 	return v === undefined ? undefined : Number.parseInt(v, 10);

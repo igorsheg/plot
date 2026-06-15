@@ -12,6 +12,7 @@
 		"./plot-paths": "./src/plot-paths.ts",
 		"./plot-session": "./src/plot-session.ts",
 		"./control-server": "./src/control-server.ts",
+		"./local-control-client": "./src/local-control-client.ts",
 		"./local-server": "./src/local-server.ts",
 		"./local-server-auth": "./src/local-server-auth.ts",
 		"./local-server-metadata": "./src/local-server-metadata.ts",

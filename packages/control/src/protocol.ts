@@ -99,12 +99,25 @@ export type SessionIdParams = z.infer<typeof sessionIdParamsSchema>;
 export const listSessionsParamsSchema = z.object({}).strict();
 export type ListSessionsParams = z.infer<typeof listSessionsParamsSchema>;
 
+export const openSessionModeSchema = z.enum(["watch", "oneshot"]);
+export type OpenSessionMode = z.infer<typeof openSessionModeSchema>;
+
 export const openSessionParamsSchema = z
 	.object({
 		sessionId: nonEmptyStringSchema.optional(),
 		workflowPath: nonEmptyStringSchema.optional(),
 		cwd: nonEmptyStringSchema.optional(),
+		mode: openSessionModeSchema.default("watch").optional(),
 		role: controlConnectionRoleSchema.default("controller").optional(),
+		plotDir: nonEmptyStringSchema.optional(),
+		agentDir: nonEmptyStringSchema.optional(),
+		sessionDir: nonEmptyStringSchema.optional(),
+		requestQueueCapacity: positiveIntegerSchema.optional(),
+		eventCapacity: positiveIntegerSchema.optional(),
+		replayCapacity: positiveIntegerSchema.optional(),
+		tickIntervalMs: positiveIntegerSchema.optional(),
+		maxRunDurationMs: positiveIntegerSchema.optional(),
+		agentSessionOverrides: z.unknown().optional(),
 	})
 	.strict();
 export type OpenSessionParams = z.infer<typeof openSessionParamsSchema>;

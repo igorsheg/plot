@@ -131,7 +131,9 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain("Run a workflow without opening the dashboard.");
+		expect(output).toContain(
+			"Run a workflow once through the Local Plot Server without opening the dashboard.",
+		);
 		expect(output).toContain("--workflow");
 		expect(output).toContain("--provider");
 	});

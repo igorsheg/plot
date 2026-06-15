@@ -177,7 +177,7 @@ export class PlotDashboard implements Component {
 	} {
 		if (this.confirmQuit)
 			return {
-				footerText: "shut down the fleet? q confirm · esc cancel",
+				footerText: "detach this UI? q confirm · esc cancel",
 				footerStyle: style.warn,
 			};
 		return {

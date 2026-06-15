@@ -20,11 +20,15 @@ Run a workflow once:
 plot run --workflow WORKFLOW.md
 ```
 
+`plot run` uses or autostarts the machine-local Plot Server, opens an ephemeral `oneshot` Plot Session, prints events, and leaves Session History visible in the local roster after completion.
+
 Open the dashboard:
 
 ```bash
 plot tui --workflow WORKFLOW.md
 ```
+
+`plot tui` also uses the Local Plot Server by default. Quitting the TUI detaches the UI; it does not close the Plot Session. These are localhost control connections only, not remote exposure.
 
 ## Try the PR review example
 
