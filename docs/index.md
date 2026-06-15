@@ -16,7 +16,7 @@ If you are writing a Plot extension, start here:
 - [Workflows](workflows.md) — configure the agent, extension, prompt, and resources.
 - [Extensions](extensions.md) — write trusted TypeScript that discovers work and registers pi tools.
 - [TUI](tui.md) — attach a terminal dashboard to one Plot Session.
-- [Web](web.md) — start the localhost fleet control plane.
+- [Web](web.md) — open the localhost fleet control panel.
 
 ## Ask an agent to write an extension
 

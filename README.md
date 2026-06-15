@@ -11,11 +11,11 @@ STATUS: early / online
 
 Plot is a control plane for long-running coding agents.
 
-It finds work, starts agents, tracks runs, retries later, and gives you terminal and web dashboards when something needs attention. Normal local entrypoints use the machine-local Plot Server, so `plot tui`, `plot run`, and the foreground `plot web` server share one localhost roster without exposing a remote server.
+It finds work, starts agents, tracks runs, retries later, and gives you terminal and web dashboards when something needs attention. Normal local entrypoints use one shared machine-local Plot Server daemon, so `plot`, `plot run`, and `plot web` share one localhost roster without exposing a remote server.
 
 ```bash
 npm install -g plot-ai
-plot tui --workflow WORKFLOW.md
+plot --workflow WORKFLOW.md
 plot web
 ```
 
@@ -50,7 +50,7 @@ Plot handles the operational layer:
 From a repo branch with an open GitHub PR:
 
 ```bash
-plot tui --workflow examples/pr-review/WORKFLOW.md
+plot --workflow examples/pr-review/WORKFLOW.md
 ```
 
 Or run one pass without the dashboard:
@@ -65,7 +65,7 @@ plot run --workflow examples/pr-review/WORKFLOW.md
 plot web
 ```
 
-`plot web` starts the Local Plot Server in the foreground, opens a localhost browser URL with a fragment-based control-token handoff, and keeps running until you press Ctrl-C. It does not create workflows or expose a remote server.
+`plot web` uses the shared Local Plot Server daemon, opens a localhost browser URL with a fragment-based control-token handoff, prints the URL, and holds the terminal until Ctrl-C. It does not create workflows or expose a remote server.
 
 You need:
 
@@ -123,11 +123,11 @@ Plot should not care what kind of work it is. It should care whether the work is
 ## Dashboards
 
 ```bash
-plot tui --workflow WORKFLOW.md
+plot --workflow WORKFLOW.md
 plot web
 ```
 
-The TUI attaches to one Plot Session. The web dashboard rolls up every Plot Session in the Local Plot Server roster and drills into the same per-session projection. Closing either UI detaches the client; it does not kill a Plot Session. Pressing Ctrl-C in `plot web` stops that foreground Local Plot Server process.
+The TUI attaches to one Plot Session. The web dashboard rolls up every Plot Session in the Local Plot Server roster and drills into the same per-session projection. Pressing Ctrl-C in `plot` closes that Plot Session; pressing Ctrl-C in `plot web` stops the web command. Closing a browser tab only detaches that web client. Use `plot stop --all` to stop the daemon and all sessions.
 
 It shows:
 

@@ -269,6 +269,38 @@ describe("Plot TUI projection", () => {
 		expect(projection.debugEvents[0]).toContain("tool_execution_end");
 	});
 
+	test("late agent events do not resurrect completed work", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			plotAgentEvent(2, {
+				type: "work_completed",
+				completion: {
+					workKey: "source:item:42",
+					status: "succeeded",
+				},
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			agentEvent(3, "late message after completion"),
+		);
+
+		expect(projection.running.has("source:item:42")).toBe(false);
+		expect(projection.completed[0]?.workKey).toBe("source:item:42");
+	});
+
+	test("agent events cannot create running rows without work_started", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(
+			projection,
+			agentEvent(1, "message before lifecycle"),
+		);
+
+		expect(projection.running.size).toBe(0);
+	});
+
 	test("snapshot repairs running rows by work key", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1, "source:item:1"));

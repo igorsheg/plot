@@ -162,10 +162,12 @@ describe("plot CLI faux provider boundary", () => {
 			[
 				"bun",
 				fileURLToPath(new URL("../src/testing-main.ts", import.meta.url)),
-				"serve",
+				"_serve",
 				"stdio",
 				"--workflow",
 				workflow.path,
+				"--session-id",
+				"default",
 				"--cwd",
 				workflow.dir,
 				"--agent-dir",

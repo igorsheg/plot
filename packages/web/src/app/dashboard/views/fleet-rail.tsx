@@ -120,7 +120,7 @@ function EmptyOrOffline({
 				</Card.Header>
 				<Card.Body className="flex flex-col gap-3 text-sm text-muted-foreground">
 					<p>{lastError ?? "Start a Plot Session, then refresh this page."}</p>
-					<InputCopy value="plot tui --workflow WORKFLOW.md" />
+					<InputCopy value="plot --workflow WORKFLOW.md" />
 					<InputCopy value="plot run --workflow WORKFLOW.md" />
 				</Card.Body>
 			</Card>

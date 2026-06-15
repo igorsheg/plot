@@ -73,19 +73,28 @@ const runtimeFor = (
 	};
 };
 
+const projectionBase = (input: {
+	readonly sessionId: string;
+	readonly roster: readonly PlotSessionSummary[];
+}) =>
+	emptyProjection(
+		input.sessionId,
+		workflowNameFor(input.roster, input.sessionId),
+		runtimeFor(input.roster, input.sessionId),
+	);
+
 const projectionFromSnapshot = (input: {
 	readonly sessionId: string;
 	readonly roster: readonly PlotSessionSummary[];
 	readonly snapshot: unknown;
+	readonly asOfSequence?: number | undefined;
 }) =>
-	applySnapshot(
-		emptyProjection(
-			input.sessionId,
-			workflowNameFor(input.roster, input.sessionId),
-			runtimeFor(input.roster, input.sessionId),
-		),
-		{ snapshot: normalizeWireSnapshot(input.snapshot) },
-	);
+	applySnapshot(projectionBase(input), {
+		snapshot: normalizeWireSnapshot(input.snapshot),
+		...(input.asOfSequence === undefined
+			? {}
+			: { asOfSequence: input.asOfSequence }),
+	});
 
 const normalizeWireSnapshot = (snapshot: unknown) => {
 	if (!isRecord(snapshot)) return snapshot;
@@ -105,6 +114,20 @@ const normalizeMapLike = (value: unknown): Map<string, unknown> | undefined => {
 	return undefined;
 };
 
+const snapshotFromResponse = (record: PlotServerRecord) => {
+	if (record.kind !== "response" || !record.ok || !isRecord(record.data))
+		return undefined;
+	return {
+		snapshot: record.data["snapshot"],
+		asOfSequence:
+			typeof record.asOfSequence === "number"
+				? record.asOfSequence
+				: typeof record.data["asOfSequence"] === "number"
+					? record.data["asOfSequence"]
+					: undefined,
+	};
+};
+
 const sessionsFromResponse = (record: PlotServerRecord) => {
 	if (record.kind !== "response" || !record.ok || !isRecord(record.data))
 		return undefined;
@@ -120,6 +143,30 @@ const refreshRoster = async (
 	const roster = await client.listSessions();
 	setState((state) => ({ ...state, roster, connection: "online" }));
 	return roster;
+};
+
+const refreshProjection = async (
+	client: BrowserPlotControlClient,
+	setState: (update: (state: LiveState) => LiveState) => void,
+	sessionId: string,
+) => {
+	const response = await client.request("get_snapshot", { sessionId });
+	const snapshot = snapshotFromResponse(response);
+	if (snapshot === undefined) return;
+	setState((state) => {
+		const roster = state.roster;
+		const base = state.projection ?? projectionBase({ sessionId, roster });
+		return {
+			...state,
+			projection: applySnapshot(base, {
+				snapshot: normalizeWireSnapshot(snapshot.snapshot),
+				...(snapshot.asOfSequence === undefined
+					? {}
+					: { asOfSequence: snapshot.asOfSequence }),
+			}),
+			snapshotUnavailable: false,
+		};
+	});
 };
 
 const applyRosterEvent = (
@@ -158,6 +205,19 @@ export const usePlotWebDashboardState = ({
 	useEffect(() => {
 		let cancelled = false;
 		let client: BrowserPlotControlClient | undefined;
+		let scheduledRefresh: number | undefined;
+		const scheduleSnapshotRefresh = () => {
+			if (sessionId === undefined || client === undefined) return;
+			if (scheduledRefresh !== undefined) return;
+			scheduledRefresh = window.setTimeout(() => {
+				scheduledRefresh = undefined;
+				if (cancelled || client === undefined || sessionId === undefined)
+					return;
+				void refreshProjection(client, setState, sessionId).catch(
+					() => undefined,
+				);
+			}, 250);
+		};
 		// Switching sessions clears the prior projection while the new snapshot loads.
 		setState((current) => ({
 			...current,
@@ -198,6 +258,24 @@ export const usePlotWebDashboardState = ({
 						},
 					}));
 					client.onRecord((record) => {
+						const snapshot = snapshotFromResponse(record);
+						if (snapshot !== undefined && sessionId !== undefined) {
+							setState((current) => {
+								const base =
+									current.projection ??
+									projectionBase({ sessionId, roster: current.roster });
+								return {
+									...current,
+									projection: applySnapshot(base, {
+										snapshot: normalizeWireSnapshot(snapshot.snapshot),
+										...(snapshot.asOfSequence === undefined
+											? {}
+											: { asOfSequence: snapshot.asOfSequence }),
+									}),
+									snapshotUnavailable: false,
+								};
+							});
+						}
 						if (record.kind === "roster_event") {
 							setState((current) => applyRosterEvent(current, record));
 							void refreshRoster(client!, setState).catch(() => undefined);
@@ -224,6 +302,7 @@ export const usePlotWebDashboardState = ({
 								),
 							};
 						});
+						scheduleSnapshotRefresh();
 					});
 					const roster = await refreshRoster(client, setState);
 					if (sessionId !== undefined) {
@@ -236,6 +315,7 @@ export const usePlotWebDashboardState = ({
 								sessionId,
 								roster: current.roster.length === 0 ? roster : current.roster,
 								snapshot: attached.snapshot,
+								asOfSequence: attached.lastSequence,
 							});
 							return {
 								...current,
@@ -267,6 +347,7 @@ export const usePlotWebDashboardState = ({
 		void connect();
 		return () => {
 			cancelled = true;
+			if (scheduledRefresh !== undefined) window.clearTimeout(scheduledRefresh);
 			client?.close();
 		};
 	}, [role, sessionId]);

@@ -12,7 +12,11 @@ import {
 	writePlotFauxAgentFiles,
 	type PlotFauxProviderRegistration,
 } from "@plot/session/testing/faux-agent-session";
-import { runControlOneshot, startWebDashboard } from "../src/runtime.js";
+import {
+	runControlOneshot,
+	runWebDashboard,
+	startWebDashboard,
+} from "../src/runtime.js";
 import { runPlotCli } from "../src/cli.js";
 
 const tempDirs: string[] = [];
@@ -186,14 +190,12 @@ describe("control-protocol product entrypoints", () => {
 			await sleep(50);
 		}
 
-		const event = JSON.parse(stdout.join("")) as {
-			readonly event: string;
-			readonly url: string;
-			readonly opened: boolean;
-		};
-		expect(event.event).toBe("plot_web_url");
-		expect(event.opened).toBe(false);
-		const url = new URL(event.url);
+		const output = stdout.join("");
+		expect(output).toContain("░█▀█░█░░░█▀█░▀█▀");
+		expect(output).toContain("Web running at: ");
+		const urlText = output.match(/Web running at: (\S+)/)?.[1];
+		expect(urlText).toBeDefined();
+		const url = new URL(urlText!);
 		expect(url.searchParams.has("token")).toBe(false);
 		const hash = new URLSearchParams(url.hash.slice(1));
 		expect(hash.get("session")).toBe("existing-session");
@@ -203,6 +205,57 @@ describe("control-protocol product entrypoints", () => {
 		expect(ws.protocol).toBe("ws:");
 		expect(ws.pathname).toBe("/ws");
 		expect(ws.searchParams.has("token")).toBe(true);
+	});
+
+	test("plot web holds the CLI until stopped", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "plot-web-hold-"));
+		tempDirs.push(cwd);
+		const serverDir = await mkdtemp(join(tmpdir(), "plot-web-hold-server-"));
+		tempDirs.push(serverDir);
+		const stdout: string[] = [];
+		const server = await startLocalPlotServer({
+			serverDir,
+			port: 0,
+			cwd,
+			webAssets: {
+				indexHtml: "<!doctype html><div id='root'></div>",
+				assets: [],
+			},
+		});
+		let release!: () => void;
+		const stopped = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let settled = false;
+		const running = runWebDashboard({
+			cwd,
+			sessionId: "web-hold-test",
+			serverDir,
+			logLevel: "none",
+			logFormat: "json",
+			noOpen: true,
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+			waitUntilStopped: () => stopped,
+		}).finally(() => {
+			settled = true;
+		});
+		try {
+			await waitFor(async () =>
+				stdout.join("").includes("Web running at:") ? true : undefined,
+			);
+			await sleep(25);
+			expect(settled).toBe(false);
+			release();
+			await running;
+			expect(settled).toBe(true);
+		} finally {
+			release();
+			await running.catch(() => undefined);
+			await server.stop();
+			await sleep(50);
+		}
 	});
 
 	test("--no-server is explicit help, not the default entrypoint path", async () => {

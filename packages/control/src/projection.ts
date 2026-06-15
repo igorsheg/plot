@@ -890,7 +890,8 @@ const reduceAgentSessionEvent = (
 			: summarizeAgentEvent(rawEvent);
 	const running = new Map(projection.running);
 	const previous = running.get(workKey);
-	const subject = text(event["subject"]) ?? previous?.subject;
+	if (previous === undefined) return projection;
+	const subject = text(event["subject"]) ?? previous.subject;
 	const usage = extractUsage(rawEvent);
 	const tokens =
 		usage === undefined ? previous?.tokens : addUsage(previous?.tokens, usage);
@@ -1025,10 +1026,7 @@ const reduceEventPayload = (
 				: payload,
 			observedAtMs,
 		);
-	if (
-		(type === "work_started" || type === "agent_run_started") &&
-		isRecord(payload)
-	) {
+	if (type === "work_started" && isRecord(payload)) {
 		const run = isRecord(payload["run"]) ? payload["run"] : payload;
 		return reduceWorkStarted(projection, run, sequence, observedAtMs);
 	}

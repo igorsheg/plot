@@ -120,7 +120,58 @@ describe("plot CLI", () => {
 		expect(output).toContain("docs");
 		expect(output).toContain("run");
 		expect(output).toContain("web");
-		expect(output).toContain("service");
+		expect(output).toContain("stop");
+		expect(output).not.toContain("tui");
+		expect(output).not.toContain("service");
+		expect(output).not.toContain("_serve");
+	});
+
+	test("prints root short help without internal commands", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["-h"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("plot [OPTIONS]");
+		expect(output).not.toContain("_serve");
+	});
+
+	test("allows root options before a subcommand", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-cli-global-option-"));
+		tempDirs.push(dir);
+		await writePlotFauxAgentFiles({ cwd: dir });
+		const previousKey = process.env["PLOT_FAUX_API_KEY"];
+		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
+		const stdout: string[] = [];
+
+		try {
+			await runPlotCli(
+				[
+					"--cwd",
+					dir,
+					"--agent-dir",
+					join(dir, ".plot/agent"),
+					"list-models",
+					"faux",
+				],
+				{
+					stdin: chunks([]),
+					writeStdout: (line) => {
+						stdout.push(line);
+					},
+				},
+			);
+		} finally {
+			if (previousKey === undefined) delete process.env["PLOT_FAUX_API_KEY"];
+			else process.env["PLOT_FAUX_API_KEY"] = previousKey;
+		}
+
+		const output = stdout.join("");
+		expect(output).toContain("plot-faux");
 	});
 
 	test("prints citty subcommand help", async () => {
@@ -174,9 +225,9 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("--tick-interval-ms");
 	});
 
-	test("prints nested citty serve help", async () => {
+	test("prints nested citty internal serve help", async () => {
 		const stdout: string[] = [];
-		await runPlotCli(["serve", "stdio", "--help"], {
+		await runPlotCli(["_serve", "stdio", "--help"], {
 			stdin: chunks([]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -228,7 +279,7 @@ describe("plot CLI", () => {
 			const stdout: string[] = [];
 			await runPlotCli(
 				[
-					"serve",
+					"_serve",
 					"stdio",
 					"--workflow",
 					workflowPath,

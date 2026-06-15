@@ -56,7 +56,7 @@ extension:
 Then run:
 
 ```bash
-plot tui --workflow WORKFLOW.md
+plot --workflow WORKFLOW.md
 ```
 
 ## Mental model

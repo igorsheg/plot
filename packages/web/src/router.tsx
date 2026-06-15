@@ -69,7 +69,7 @@ function RootLayout() {
 
 // Resolve the initial route once per page load: landing on the fleet with
 // exactly one reachable session collapses straight into it (the common
-// `plot tui` → open-web case). Module-scoped so navigating back to "all
+// `plot` → open-web case). Module-scoped so navigating back to "all
 // sessions" afterwards does not bounce — only a fresh load re-resolves.
 let initialRouteResolved = false;
 
