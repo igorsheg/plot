@@ -17,7 +17,7 @@ plot:
 agent:
   provider: openai-codex
   model: gpt-5.5
-  thinking: medium
+  thinking: low
   allowProjectConfig: true
 extension:
   source: ./github-pr-reviewer.extension.ts

@@ -1,7 +1,7 @@
 
 ╭─ PLOT  workflow  ◉ running                                                                                            
 │                                                                                                                       
-│  0/4 agents active      0 tokens      0 tps ▁▁▁▁▁▁▁▁                                                                  
+│  0/4 agents active      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁                                                                
 │  tick #42 · 3s ago      next wake in 26s                                                                              
 │                                                                                                                       
 ├─ Agents · 1 scheduled                                                                                                 

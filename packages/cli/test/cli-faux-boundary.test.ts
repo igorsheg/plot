@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { decodePlotServerRecord } from "@plot/session/protocol";
+import {
+	decodePlotServerRecord,
+	plotProtocolVersion,
+} from "@plot/session/protocol";
 import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,7 +45,7 @@ const eventType = (record: unknown) => {
 		record === null ||
 		typeof record !== "object" ||
 		!("kind" in record) ||
-		record.kind !== "event" ||
+		record.kind !== "session_event" ||
 		!("event" in record)
 	)
 		return undefined;
@@ -98,7 +101,7 @@ describe("plot CLI faux provider boundary", () => {
 		);
 	});
 
-	test("runs WORKFLOW.md as a daemon with the production Plot pi factory", async () => {
+	test("runs WORKFLOW.md through the explicit no-server escape hatch with the production Plot pi factory", async () => {
 		const workflow = await makeWorkflowFile();
 		const child = Bun.spawn(
 			[
@@ -113,11 +116,14 @@ describe("plot CLI faux provider boundary", () => {
 				join(workflow.dir, ".plot/agent"),
 				"--log-format",
 				"json",
+				"--log-level",
+				"info",
 				"--provider",
 				"plot-faux",
 				"--model",
 				"faux-1",
 				"--no-tools",
+				"--no-server",
 			],
 			{
 				stdout: "pipe",
@@ -147,7 +153,7 @@ describe("plot CLI faux provider boundary", () => {
 		expect(stdout).toContain("hello from plot run");
 		expect(stdout).toContain("Completed work workflow:default: succeeded");
 		expect(stdout).not.toContain("Workflow cli-faux finished with succeeded");
-		expect(stderr).not.toContain("plot_cli.run");
+		expect(stderr).not.toContain("plot_cli.run_control_oneshot");
 	});
 
 	test("exercises the production Plot pi factory with a deterministic faux provider", async () => {
@@ -188,13 +194,16 @@ describe("plot CLI faux provider boundary", () => {
 		const stdoutReader = child.stdout.getReader();
 
 		child.stdin.write(
-			'{"protocol":"plot.v1","kind":"request","id":"req-1","command":"tick_once"}\n',
-		);
-		const partialStdout = await waitForStdout(stdoutReader, (text) =>
-			text.includes("agent_session_event"),
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-0","command":"attach_session","params":{"sessionId":"default","role":"controller"}}\n`,
 		);
 		child.stdin.write(
-			'{"protocol":"plot.v1","kind":"request","id":"req-2","command":"shutdown"}\n',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"request_tick","params":{"sessionId":"default"}}\n`,
+		);
+		const partialStdout = await waitForStdout(stdoutReader, (text) =>
+			text.includes("agent_run_event"),
+		);
+		child.stdin.write(
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-2","command":"close_session","params":{"sessionId":"default"}}\n`,
 		);
 		child.stdin.end();
 
@@ -209,8 +218,10 @@ describe("plot CLI faux provider boundary", () => {
 			.filter((type) => type !== undefined);
 
 		expect(exitCode).toBe(0);
-		expect(records.every((record) => record.protocol === "plot.v1")).toBe(true);
-		expect(eventTypes).toContain("agent_session_event");
+		expect(
+			records.every((record) => record.protocol === plotProtocolVersion),
+		).toBe(true);
+		expect(eventTypes).toContain("agent_run_event");
 		expect(stdout).toContain("hello from spawned faux");
 		expect(stdout).not.toContain("plot_cli.serve_stdio");
 		expect(stderr).toContain("agent_session.create");

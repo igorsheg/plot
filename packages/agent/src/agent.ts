@@ -51,7 +51,12 @@ type InternalMessage =
 	| { readonly type: "scheduled_tick"; readonly token: number }
 	| { readonly type: "wake" }
 	| { readonly type: "wake_requested"; readonly wake: Domain.ScheduledWake }
-	| { readonly type: "run_timeout"; readonly run: WorkRun };
+	| { readonly type: "run_timeout"; readonly run: WorkRun }
+	| {
+			readonly type: "interrupt_run";
+			readonly runId: Domain.RunId;
+			readonly workKey?: WorkKey;
+	  };
 interface DrainedMessages {
 	readonly observations: readonly Observation[];
 	readonly completions: readonly {
@@ -59,6 +64,10 @@ interface DrainedMessages {
 		readonly completion: Completion;
 	}[];
 	readonly timedOutRuns: readonly WorkRun[];
+	readonly interruptions: readonly {
+		readonly runId: Domain.RunId;
+		readonly workKey?: WorkKey;
+	}[];
 	readonly requestedWakes: readonly Domain.ScheduledWake[];
 	readonly shutdownRequested: boolean;
 }
@@ -79,6 +88,12 @@ export interface PlotAgentShape {
 	readonly events: () => AsyncIterable<PlotAgentEvent>;
 	readonly offer: (message: PlotAgentMessage) => Promise<boolean>;
 	readonly wakeAfter: (delayMs: number, reason?: string) => Promise<void>;
+	readonly interruptAgentRun: (input: {
+		readonly runId: Domain.RunId;
+		readonly workKey?: WorkKey;
+	}) => Promise<boolean>;
+	readonly pauseDispatch: () => Promise<void>;
+	readonly resumeDispatch: () => Promise<void>;
 	readonly shutdown: () => Promise<boolean>;
 }
 export type PlotAgent = PlotAgentShape;
@@ -200,6 +215,7 @@ const drainMessages = (
 	const observations: Observation[] = [],
 		completions: { run: WorkRun; completion: Completion }[] = [],
 		timedOutRuns: WorkRun[] = [],
+		interruptions: { runId: Domain.RunId; workKey?: WorkKey }[] = [],
 		requestedWakes: Domain.ScheduledWake[] = [];
 	let shutdownRequested = false;
 	for (const message of messages) {
@@ -207,6 +223,11 @@ const drainMessages = (
 		else if (message.type === "run_completed")
 			completions.push({ run: message.run, completion: message.completion });
 		else if (message.type === "run_timeout") timedOutRuns.push(message.run);
+		else if (message.type === "interrupt_run")
+			interruptions.push({
+				runId: message.runId,
+				...(message.workKey === undefined ? {} : { workKey: message.workKey }),
+			});
 		else if (message.type === "wake_requested")
 			requestedWakes.push(message.wake);
 		else if (message.type === "shutdown") shutdownRequested = true;
@@ -215,6 +236,7 @@ const drainMessages = (
 		observations,
 		completions,
 		timedOutRuns,
+		interruptions,
 		requestedWakes,
 		shutdownRequested,
 	};
@@ -307,6 +329,29 @@ const beginTick = (
 		completions.push(completion);
 		const d = completionDiagnostic(completion);
 		if (d) diagnostics.push(d);
+	}
+	for (const interruption of drained.interruptions) {
+		const matches = [...running.values()].filter(
+			(run) =>
+				run.runId === interruption.runId &&
+				(interruption.workKey === undefined ||
+					run.workKey === interruption.workKey),
+		);
+		for (const run of matches) {
+			running.delete(run.workKey);
+			completedRuns.push(run);
+			const completion: Completion = {
+				runId: run.runId,
+				sourceId: run.sourceId,
+				workKey: run.workKey,
+				status: "interrupted",
+				...optionalSubject(run.subject),
+				error: "work run interrupted by controller request",
+			};
+			completions.push(completion);
+			const d = completionDiagnostic(completion);
+			if (d) diagnostics.push(d);
+		}
 	}
 	if (drained.shutdownRequested)
 		for (const run of running.values()) {
@@ -542,6 +587,9 @@ const startEligibleRuns = (
 			workKey: work.workKey,
 			...optionalSubject(work.subject),
 			...(work.display === undefined ? {} : { display: work.display }),
+			...(work.operatorActions === undefined
+				? {}
+				: { operatorActions: work.operatorActions }),
 		};
 		nextRunIndex++;
 		running.set(work.workKey, run);
@@ -637,6 +685,7 @@ export const makePlotAgentLayer = (
 	let state = initialState,
 		snapshotCache = snapshotFrom(initialState),
 		actorStarted = false,
+		dispatchPaused = false,
 		activeTickToken: number | undefined,
 		nextTickToken = 0,
 		tickChain = Promise.resolve();
@@ -895,7 +944,7 @@ export const makePlotAgentLayer = (
 			if (policyDiagnostics.length)
 				state = applyDiagnostics(state, policyDiagnostics, historyLimit);
 			const policyFailed = policyDiagnostics.some((d) => d.level === "error");
-			if (policyFailed || drained.shutdownRequested) {
+			if (policyFailed || drained.shutdownRequested || dispatchPaused) {
 				publishSnapshot(state);
 				const result: TickResult = {
 					tickId,
@@ -1027,6 +1076,22 @@ export const makePlotAgentLayer = (
 			message.type === "observation"
 				? mailbox.offer(message)
 				: offerControl(message),
+		interruptAgentRun: async (input) => {
+			const message = {
+				type: "interrupt_run" as const,
+				runId: input.runId,
+				...(input.workKey === undefined ? {} : { workKey: input.workKey }),
+			};
+			if (actorStarted) return offerControl(message);
+			await runTick([message]);
+			return true;
+		},
+		pauseDispatch: async () => {
+			dispatchPaused = true;
+		},
+		resumeDispatch: async () => {
+			dispatchPaused = false;
+		},
 		wakeAfter: async (delayMs, reason) => {
 			const safeDelay = positive(
 				delayMs,
@@ -1048,7 +1113,11 @@ export const makePlotAgentLayer = (
 			});
 			timer(safeDelay, { type: "wake" });
 		},
-		shutdown: async () => offerControl({ type: "shutdown" }),
+		shutdown: async () => {
+			if (actorStarted) return offerControl({ type: "shutdown" });
+			await runTick([{ type: "shutdown" }]);
+			return true;
+		},
 	};
 	return api;
 };

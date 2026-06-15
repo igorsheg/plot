@@ -2,7 +2,7 @@
 
 ╭─ PLOT  workflow  ◉ idle
 │
-│  0/4 agents active      0 tokens      0 tps ▁▁▁▁▁▁▁▁
+│  0/4 agents active      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁
 │  tick #44 · 5s ago · found 1      next wake in 2s
 │
 │

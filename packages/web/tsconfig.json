@@ -1,0 +1,31 @@
+{
+	"extends": "@repo/tsconfig/base.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["src/*"]
+		},
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"exactOptionalPropertyTypes": false
+	},
+	"include": [
+		"src/main.tsx",
+		"src/router.tsx",
+		"src/globals.css",
+		"src/app/**/*.ts",
+		"src/app/**/*.tsx",
+		"src/components/**/*.ts",
+		"src/components/**/*.tsx",
+		"src/lib/**/*.ts",
+		"src/lib/**/*.tsx",
+		"src/hooks/**/*.ts",
+		"src/hooks/**/*.tsx",
+		"test/**/*.ts",
+		"test/**/*.tsx"
+	]
+}

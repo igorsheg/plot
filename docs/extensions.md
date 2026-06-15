@@ -4,7 +4,7 @@
 
 Paste this doc, then say what work you want Plot to run.
 
-Extensions are trusted TypeScript modules. They discover work, register pi-native tools, and can fan out specialist pi agent sessions. Plot schedules the outer work. The agent handles judgment inside the workflow prompt.
+Extensions are trusted TypeScript modules. They discover work and register pi-native tools. Plot schedules one Agent Run for each selected Work Item. The agent handles judgment inside the workflow prompt.
 
 Use the public SDK:
 
@@ -64,9 +64,8 @@ plot tui --workflow WORKFLOW.md
 Think in three layers:
 
 ```txt
-world -> extension -> work item -> agent
-                     ├─ registered pi tools
-                     └─ optional specialist subagents
+world -> extension -> work item -> Agent Run
+                     └─ registered pi tools
 ```
 
 The extension should answer:
@@ -76,7 +75,6 @@ The extension should answer:
 - What version should rerun it?
 - What context does the agent need?
 - Which integration actions should be exposed as tools?
-- Should any coarse work be delegated to specialist subagents?
 - How should it look in the dashboard?
 
 The prompt should answer:
@@ -84,6 +82,12 @@ The prompt should answer:
 - How should the agent investigate?
 - What counts as done?
 - What should the output look like?
+
+## Durability contract
+
+The extension is authoritative for domain state. If work is done, `discover()` should stop returning it. If the same work should run again, `discover()` should return it again with the same `id` and appropriate `version`.
+
+Plot Session History records control-plane events, projections, active attempts, usage, and audit history. It does not make extension work permanently complete. A completed Agent Run suppresses only stale discovery from the same tick; the next tick trusts the extension again.
 
 ## Work items
 
@@ -150,9 +154,32 @@ Give the agent facts, not a rigid script.
 
 ### `display`
 
-Hints for the TUI. Plot owns rendering.
+Hints for the TUI and web dashboard. Plot owns rendering.
 
 Extensions may provide titles, labels, URLs, and short version text. Extensions may not provide TUI components, keybindings, or custom renderers.
+
+### `operatorActions`
+
+Source-declared choices a human controller may perform on the Work Item. They are semantic actions, not display hints, and they are rendered generically by TUI/web.
+
+```ts
+work({
+	id: "release:v1",
+	title: "Release v1",
+	blocked: "waiting for operator approval",
+	operatorActions: [
+		{
+			id: "approve",
+			label: "Approve",
+			tone: "primary",
+			confirm: { title: "Approve release?" },
+		},
+		{ id: "hold", label: "Hold", requiresComment: true },
+	],
+});
+```
+
+When an operator performs an action, Plot records an Operator Observation in Session History. The web never calls Source code directly; your extension can implement `operatorAction(event)` to update its own trusted state before later discovery/reconciliation decides what changed.
 
 ## Config
 
@@ -250,52 +277,7 @@ registerTool(({ work }) =>
 );
 ```
 
-Keep judgment in the prompt and agent. Put durable, idempotent, API-shaped operations in tools.
-
-## Specialist subagents
-
-Extensions can run pi agent sessions through `runAgent` and `runAgents`. This is a thin passthrough to pi-mono: options use native `CreateAgentSessionOptions`, `PromptOptions`, and raw `AgentSessionEvent` values.
-
-Use subagents for coarse parallel investigation, not for micromanaging every step.
-
-```ts
-export default definePlotExtension({
-	id: "demo-subagents",
-	create({ registerTool, runAgents }) {
-		registerTool(
-			defineTool({
-				name: "spawn_reviewers",
-				description: "Run specialist reviewers in parallel.",
-				parameters: { type: "object", properties: {} },
-				execute: async () => {
-					const results = await runAgents(
-						[
-							{ prompt: "Review correctness risks." },
-							{ prompt: "Review test coverage risks." },
-						],
-						{ concurrency: 2 },
-					);
-
-					return {
-						content: [
-							{ type: "text", text: `finished ${results.length} reviewers` },
-						],
-						details: { results },
-					};
-				},
-			}),
-		);
-
-		return {
-			async discover() {
-				return [];
-			},
-		};
-	},
-});
-```
-
-If a tool runs subagents, surface useful progress through the tool update callback and return concise summaries alongside raw events. The TUI can account for generic usage metadata when tools expose it in result details.
+Keep judgment in the prompt and agent. Put durable, idempotent, API-shaped operations in tools. Tools run inside the Agent Run that Plot scheduled; Plot does not expose separate agent-session helpers.
 
 ## Lifecycle hooks
 
@@ -343,7 +325,6 @@ Do:
 - keep context small and relevant
 - put secrets in environment variables or external CLIs
 - use registered tools for idempotent external mutations
-- use subagents for coarse specialist investigation when it helps
 - let the workflow prompt teach judgment
 - return no work when there is nothing to do
 
@@ -354,7 +335,7 @@ Avoid:
 - plugin-owned UI rendering
 - hidden writes during discovery unless clearly intentional
 - encoding every agent step as code
-- reimplementing pi tools or subagent orchestration outside the SDK helpers
+- launching separate agent sessions from the Source path
 - importing private Plot modules
 
 ## LLM prompt
@@ -368,7 +349,7 @@ Use only the public SDK:
 
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
 
-The extension should discover work and return stable work items. It may register pi-native tools with registerTool for API/integration side effects, and may use runAgent/runAgents for coarse specialist subagents. The workflow prompt will tell the agent how to handle the work and make judgments. Do not import Plot internals. Do not create custom TUI rendering.
+The extension should discover work and return stable work items. It may register pi-native tools with registerTool for API/integration side effects. The workflow prompt will tell the Agent Run how to handle the work and make judgments. Do not import Plot internals. Do not create custom TUI rendering.
 
 Create an extension for:
 

@@ -1,16 +1,8 @@
-import type {
-	AgentSessionEvent,
-	CreateAgentSessionOptions,
-	PromptOptions,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export type {
-	AgentSessionEvent,
 	AgentToolResult,
 	AgentToolUpdateCallback,
-	CreateAgentSessionOptions,
-	PromptOptions,
 	ToolDefinition,
 	ToolExecutionMode,
 } from "@earendil-works/pi-coding-agent";
@@ -26,6 +18,20 @@ export interface WorkDisplay {
 	readonly url?: string;
 	readonly version?: string;
 	readonly labels?: readonly string[];
+}
+
+export interface OperatorActionConfirm {
+	readonly title: string;
+	readonly message?: string;
+}
+
+export interface OperatorAction {
+	readonly id: string;
+	readonly label: string;
+	readonly tone?: "primary" | "secondary" | "danger";
+	readonly disabledReason?: string;
+	readonly requiresComment?: boolean;
+	readonly confirm?: OperatorActionConfirm;
 }
 
 export interface PlotExtensionWork {
@@ -47,8 +53,10 @@ export interface PlotExtensionWork {
 	 * opposite: the work is released and running attempts are stopped.
 	 */
 	readonly blocked?: boolean | string;
-	/** Optional generic display hints. TUI owns rendering; hints have no scheduling semantics. */
+	/** Optional generic display hints. TUI/web own rendering; hints have no scheduling semantics. */
 	readonly display?: WorkDisplay;
+	/** Source-declared choices a human controller may perform on this work item. */
+	readonly operatorActions?: readonly OperatorAction[];
 	/** Domain context supplied to the inner agent alongside WORKFLOW.md prompt. */
 	readonly context?: unknown;
 }
@@ -73,40 +81,12 @@ export type PlotExtensionTool<Config = unknown> =
 	| ToolDefinition
 	| ((context: PlotToolContext<Config>) => MaybePromise<ToolDefinition>);
 
-export interface PlotRunAgentOptions {
-	readonly prompt: string;
-	readonly create?: CreateAgentSessionOptions;
-	readonly promptOptions?: PromptOptions;
-	readonly timeoutMs?: number;
-	readonly onEvent?: (event: AgentSessionEvent) => MaybePromise<void>;
-}
-
-export interface PlotRunAgentResult {
-	readonly events: readonly AgentSessionEvent[];
-}
-
-export interface PlotRunAgentsOptions {
-	readonly concurrency?: number;
-	readonly timeoutMs?: number;
-	readonly onEvent?: (
-		index: number,
-		event: AgentSessionEvent,
-	) => MaybePromise<void>;
-}
-
 export interface PlotExtensionSetupContext<Config = unknown> {
 	readonly workflow: unknown;
 	readonly paths: PlotToolContext<Config>["paths"];
 	readonly config: Config;
 	readonly work: (input: PlotExtensionWork) => PlotExtensionWork;
 	readonly registerTool: (tool: PlotExtensionTool<Config>) => void;
-	readonly runAgent: (
-		options: PlotRunAgentOptions,
-	) => MaybePromise<PlotRunAgentResult>;
-	readonly runAgents: (
-		runs: readonly PlotRunAgentOptions[],
-		options?: PlotRunAgentsOptions,
-	) => MaybePromise<readonly PlotRunAgentResult[]>;
 }
 
 export interface PlotExtensionWorkEvent {
@@ -122,6 +102,15 @@ export interface PlotExtensionFailedEvent extends PlotExtensionWorkEvent {
 	readonly error: unknown;
 }
 
+export interface PlotExtensionOperatorActionEvent extends PlotExtensionWorkEvent {
+	readonly actionId: string;
+	readonly actionLabel: string;
+	readonly timestamp: string;
+	readonly comment?: string;
+	readonly actor?: unknown;
+	readonly clientId?: string;
+}
+
 export interface PlotExtensionRuntime {
 	/** Discover eligible domain work. No returned work means this tick is a no-op. */
 	readonly discover: () => MaybePromise<readonly PlotExtensionWork[]>;
@@ -135,6 +124,10 @@ export interface PlotExtensionRuntime {
 	readonly failed?: (event: PlotExtensionFailedEvent) => MaybePromise<void>;
 	/** Optional callback after Plot interrupts a run. */
 	readonly interrupted?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
+	/** Optional callback after Plot records a controller's Operator Action. */
+	readonly operatorAction?: (
+		event: PlotExtensionOperatorActionEvent,
+	) => MaybePromise<void>;
 	/** Optional callback after Plot times out a run. */
 	readonly timedOut?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
 	/** Optional process/session cleanup. */

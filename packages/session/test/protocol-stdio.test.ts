@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { makePlotSessionLayer } from "../src/plot-session.js";
-import { decodePlotServerRecord } from "../src/protocol.js";
+import {
+	decodePlotServerRecord,
+	plotProtocolVersion,
+} from "../src/protocol.js";
 import { makePlotProtocolLayer } from "../src/protocol-handler.js";
 import { runPlotProtocolStdio } from "../src/protocol-stdio.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
@@ -31,12 +34,12 @@ const decodeLines = (lines: readonly string[]) =>
 	);
 
 describe("plot protocol stdio transport", () => {
-	test("emits hello and routes stdin requests to stdout protocol records", async () => {
+	test("emits welcome and routes stdin requests to stdout protocol records", async () => {
 		const stdout: string[] = [];
 		await runPlotProtocolStdio({
 			protocol: makeProtocol(),
 			stdin: chunks([
-				'{"protocol":"plot.v1","kind":"request","id":"req-1","command":"ping"}\n',
+				`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
 			]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -44,8 +47,12 @@ describe("plot protocol stdio transport", () => {
 		});
 		const records = await decodeLines(stdout);
 
-		expect(records.map((record) => record.kind)).toEqual(["hello", "response"]);
-		expect(records[1]).toEqual(
+		expect(records.map((record) => record.kind)).toEqual([
+			"welcome",
+			"roster_event",
+			"response",
+		]);
+		expect(records[2]).toEqual(
 			expect.objectContaining({
 				kind: "response",
 				id: "req-1",
@@ -60,7 +67,7 @@ describe("plot protocol stdio transport", () => {
 		await runPlotProtocolStdio({
 			protocol: makeProtocol(),
 			stdin: chunks([
-				'not-json\n{"protocol":"plot.v1","kind":"request","id":"req-2","command":"prompt"}\n',
+				`not-json\n{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-2","command":"prompt"}\n`,
 			]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -68,20 +75,21 @@ describe("plot protocol stdio transport", () => {
 		});
 		const records = await decodeLines(stdout);
 
-		expect(records.every((record) => record.protocol === "plot.v1")).toBe(true);
-		expect(records.map((record) => record.kind)).toEqual([
-			"hello",
-			"response",
-			"response",
-		]);
-		expect(records[1]).toEqual(
+		expect(
+			records.every((record) => record.protocol === plotProtocolVersion),
+		).toBe(true);
+		expect(records.map((record) => record.kind)).toContain("welcome");
+		expect(records.filter((record) => record.kind === "response")).toHaveLength(
+			2,
+		);
+		expect(records).toContainEqual(
 			expect.objectContaining({
 				kind: "response",
 				ok: false,
 				error: expect.objectContaining({ code: "parse_error" }),
 			}),
 		);
-		expect(records[2]).toEqual(
+		expect(records).toContainEqual(
 			expect.objectContaining({
 				kind: "response",
 				ok: false,

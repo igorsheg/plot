@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { decodePlotServerRecord } from "@plot/session/protocol";
+import {
+	decodePlotServerRecord,
+	plotProtocolVersion,
+} from "@plot/session/protocol";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -67,7 +70,7 @@ describe("plot CLI stdio process boundary", () => {
 		);
 
 		process.stdin.write(
-			'{"protocol":"plot.v1","kind":"request","id":"req-1","command":"ping"}\n',
+			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
 		);
 		process.stdin.end();
 
@@ -79,14 +82,17 @@ describe("plot CLI stdio process boundary", () => {
 
 		expect(exitCode).toBe(0);
 		const records = await decodeLines(stdout);
-		expect(records.map((record) => record.kind)).toEqual(["hello", "response"]);
+		expect(records.map((record) => record.kind)).toContain("welcome");
+		expect(records.map((record) => record.kind)).toContain("response");
 		expect(records[0]).toEqual(
 			expect.objectContaining({
-				kind: "hello",
+				kind: "welcome",
 				limits: expect.objectContaining({ maxEventBufferEvents: 8 }),
 			}),
 		);
-		expect(records.every((record) => record.protocol === "plot.v1")).toBe(true);
+		expect(
+			records.every((record) => record.protocol === plotProtocolVersion),
+		).toBe(true);
 		expect(stdout).not.toContain("plot_cli.serve_stdio");
 		expect(stdout).not.toContain("plot_protocol.submit");
 		expect(stderr).toContain("plot_cli.serve_stdio");

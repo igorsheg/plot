@@ -1,7 +1,7 @@
 
 ╭─ PLOT  workflow  ◉ running                                                                                            
 │                                                                                                                       
-│  2/4 agents active      12.0k tokens      $0.0345      275 tps ▁▁▅█▁▇▅▁                                               
+│  2/4 agents active      12.0k tokens      $0.0345      275 tok/s ▁▁▅█▁▇▅▁                                             
 │  tick #43 · 1s ago · found 5                                                                                          
 │                                                                                                                       
 ├─ Agents · 2 running                                                                                                   

@@ -2,7 +2,13 @@
 	"extends": "./packages/@repo/base.json",
 	"compilerOptions": {
 		"noEmit": true,
-		"allowImportingTsExtensions": true
+		"allowImportingTsExtensions": true,
+		"jsx": "react-jsx",
+		"ignoreDeprecations": "5.0",
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["packages/web/src/*"]
+		}
 	},
 	"include": ["packages/**/*.ts", "*.extension.ts"]
 }

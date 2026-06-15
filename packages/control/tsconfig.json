@@ -1,0 +1,10 @@
+{
+	"extends": "@repo/tsconfig/base.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"lib": ["ESNext", "DOM", "DOM.Iterable"]
+	},
+	"include": ["src/**/*.ts", "test/**/*.ts"]
+}

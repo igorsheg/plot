@@ -1,3 +1,4 @@
+import type { SessionHistoryEvent } from "@plot/session/protocol";
 import type { PlotSessionEvent } from "@plot/session/plot-session";
 import type { PlotAuthStatusInfo, PlotModelInfo } from "@plot/session/pi-auth";
 
@@ -75,14 +76,29 @@ const textFromContent = (content: unknown): string =>
 					.join("\n")
 			: "";
 
+const collectTextBlocks = (value: unknown): readonly string[] => {
+	if (isRecord(value)) {
+		if (value["type"] === "text" && typeof value["text"] === "string")
+			return [value["text"]];
+		return Object.values(value).flatMap(collectTextBlocks);
+	}
+	return Array.isArray(value) ? value.flatMap(collectTextBlocks) : [];
+};
+
 const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
-	if (!isRecord(event) || !Array.isArray(event["messages"])) return undefined;
+	if (!isRecord(event)) return undefined;
+	if (!Array.isArray(event["messages"])) {
+		const fallback = collectTextBlocks(event).join("\n").trim();
+		return fallback.length ? fallback : undefined;
+	}
 	const assistant = event["messages"].findLast(
 		(m) => isRecord(m) && m["role"] === "assistant",
 	);
 	if (!isRecord(assistant)) return undefined;
 	const text = textFromContent(assistant["content"]).trim();
-	return text.length ? text : undefined;
+	if (text.length) return text;
+	const fallback = collectTextBlocks(assistant).join("\n").trim();
+	return fallback.length ? fallback : undefined;
 };
 
 export const renderRunEvent = (event: PlotSessionEvent): string | undefined => {
@@ -105,5 +121,32 @@ export const renderRunEvent = (event: PlotSessionEvent): string | undefined => {
 		if (event.event.type === "work_completed")
 			return `Completed work ${event.event.completion.workKey}: ${event.event.completion.status}.\n`;
 	}
+	return undefined;
+};
+
+export const renderRunHistoryEvent = (
+	event: SessionHistoryEvent,
+): string | undefined => {
+	if (event.type === "session_started")
+		return `Started session ${event.sessionId}.\n`;
+	if (event.type === "session_shutdown")
+		return `Shutdown session ${event.sessionId}.\n`;
+	if (!isRecord(event.payload)) return undefined;
+	if (event.type === "agent_run_event") {
+		if (event.payload["eventType"] === "agent_start")
+			return "Inner agent started.\n";
+		if (event.payload["eventType"] === "agent_end") {
+			const text = finalAssistantTextFromAgentEnd(event.payload["event"]);
+			return text === undefined
+				? "Inner agent finished.\n"
+				: `\nFinal assistant message:\n${text}\n\nInner agent finished.\n`;
+		}
+	}
+	if (event.type === "work_started" && isRecord(event.payload["run"]))
+		return `Started work ${String(event.payload["run"]["workKey"] ?? "work")}.\n`;
+	if (event.type === "work_completed" && isRecord(event.payload["completion"]))
+		return `Completed work ${String(
+			event.payload["completion"]["workKey"] ?? "work",
+		)}: ${String(event.payload["completion"]["status"] ?? "unknown")}.\n`;
 	return undefined;
 };

@@ -1,120 +1,208 @@
-import type { PlotServerRecord } from "@plot/session/protocol";
-import type { RuntimeIdentityProjection } from "./runtime-identity.js";
+import { z } from "zod";
+import { operatorActionSchema } from "./operator.js";
+import type { PlotServerRecord } from "./protocol.js";
+import type { SessionHistoryEvent } from "./session-history.js";
+import { nonNegativeIntegerSchema } from "./session-summary.js";
 
-export type TuiStatus =
-	| "starting"
-	| "idle"
-	| "running"
-	| "shutting_down"
-	| "stopped"
-	| "error";
+export const dashboardStatusSchema = z.enum([
+	"starting",
+	"idle",
+	"running",
+	"shutting_down",
+	"paused",
+	"stopped",
+	"error",
+]);
+export type DashboardStatus = z.infer<typeof dashboardStatusSchema>;
+export type TuiStatus = DashboardStatus;
 
-export type WorkStage =
-	| "starting"
-	| "waiting"
-	| "working"
-	| "verifying"
-	| "finishing"
-	| "blocked"
-	| "failed";
+export const workStageSchema = z.enum([
+	"starting",
+	"waiting",
+	"working",
+	"verifying",
+	"finishing",
+	"blocked",
+	"failed",
+]);
+export type WorkStage = z.infer<typeof workStageSchema>;
 
-export interface TimelineEntry {
-	readonly atMs: number;
-	readonly text: string;
-}
+export const timelineEntrySchema = z
+	.object({
+		atMs: nonNegativeIntegerSchema,
+		text: z.string(),
+	})
+	.strict();
+export type TimelineEntry = z.infer<typeof timelineEntrySchema>;
 
-export type ActivityTone = "ok" | "bad" | "info";
+export const activityToneSchema = z.enum(["ok", "bad", "info"]);
+export type ActivityTone = z.infer<typeof activityToneSchema>;
 
-export interface ActivityEntry {
-	readonly atMs: number;
-	readonly tone: ActivityTone;
-	readonly text: string;
-}
+export const activityEntrySchema = z
+	.object({
+		atMs: nonNegativeIntegerSchema,
+		tone: activityToneSchema,
+		text: z.string(),
+	})
+	.strict();
+export type ActivityEntry = z.infer<typeof activityEntrySchema>;
 
-export interface LoopPulse {
-	readonly tickId: number;
-	readonly atMs: number;
-	readonly found: number;
-	readonly started: number;
-}
+export const loopPulseSchema = z
+	.object({
+		tickId: nonNegativeIntegerSchema,
+		atMs: nonNegativeIntegerSchema,
+		found: nonNegativeIntegerSchema,
+		started: nonNegativeIntegerSchema,
+	})
+	.strict();
+export type LoopPulse = z.infer<typeof loopPulseSchema>;
 
-export interface UsageTotals {
-	readonly tokens: number;
-	readonly cost?: number;
-}
+export const usageTotalsSchema = z
+	.object({
+		tokens: nonNegativeIntegerSchema,
+		cost: z.number().nonnegative().optional(),
+	})
+	.strict();
+export type UsageTotals = z.infer<typeof usageTotalsSchema>;
 
-export interface TokenSample {
-	readonly atMs: number;
-	readonly tokens: number;
-}
+export const tokenSampleSchema = z
+	.object({
+		atMs: nonNegativeIntegerSchema,
+		tokens: nonNegativeIntegerSchema,
+	})
+	.strict();
+export type TokenSample = z.infer<typeof tokenSampleSchema>;
 
-export interface RunningWorkProjection {
-	readonly workKey: string;
-	readonly runId: string;
-	readonly sourceId: string;
-	readonly subject?: string;
-	readonly primary?: string;
-	readonly title: string;
-	readonly subtitle?: string;
-	readonly url?: string;
-	readonly stage: WorkStage;
-	readonly startedAtSeq: number;
-	readonly lastEventSeq: number;
-	readonly startedAtMs?: number;
-	readonly lastEventAtMs?: number;
-	readonly turnCount: number;
-	readonly eventCount: number;
-	readonly toolUpdateCount: number;
-	readonly messageCount: number;
-	readonly seenTurnIds: readonly string[];
-	readonly lastMessage: string;
-	readonly activity: string;
-	readonly lastMeaningful: string;
-	readonly check: "not-run" | "running" | "passed" | "failed";
-	readonly commands: readonly string[];
-	readonly observations: readonly string[];
-	readonly timeline: readonly TimelineEntry[];
-	readonly tokens?: {
-		readonly input?: number;
-		readonly output?: number;
-		readonly total?: number;
-		readonly cost?: number;
-	};
-}
+export const runtimeIdentityProjectionSchema = z
+	.object({
+		cwdName: z.string(),
+		cwd: z.string(),
+		workflowPath: z.string().optional(),
+		provider: z.string().optional(),
+		model: z.string().optional(),
+		thinking: z.string().optional(),
+		skills: z.array(z.string()).readonly(),
+		skillPaths: z.array(z.string()).readonly(),
+		tickIntervalMs: nonNegativeIntegerSchema.optional(),
+		maxConcurrentRuns: nonNegativeIntegerSchema.optional(),
+		maxRunDurationMs: nonNegativeIntegerSchema.optional(),
+	})
+	.strict();
+export type RuntimeIdentityProjection = z.infer<
+	typeof runtimeIdentityProjectionSchema
+>;
 
-export interface CompletedWorkProjection {
-	readonly workKey: string;
-	readonly label: string;
-	readonly status: string;
-	readonly message: string;
-	readonly atMs: number;
-	readonly url?: string;
-}
+export const workCheckSchema = z.enum([
+	"not-run",
+	"running",
+	"passed",
+	"failed",
+]);
+export type WorkCheck = z.infer<typeof workCheckSchema>;
 
-export interface ScheduledWakeProjection {
-	readonly dueAtMs: number;
-	readonly delayMs: number;
-	readonly reason?: string;
-	readonly workKey?: string;
-	readonly attempt?: number;
-}
+export const tokenUsageProjectionSchema = z
+	.object({
+		input: nonNegativeIntegerSchema.optional(),
+		output: nonNegativeIntegerSchema.optional(),
+		total: nonNegativeIntegerSchema.optional(),
+		cost: z.number().nonnegative().optional(),
+	})
+	.strict();
+export type TokenUsageProjection = z.infer<typeof tokenUsageProjectionSchema>;
 
-export interface DashboardProjection {
-	readonly sessionId: string;
-	readonly workflowName: string;
-	readonly runtime: RuntimeIdentityProjection;
-	readonly status: TuiStatus;
-	readonly frontier: number;
-	readonly pulse?: LoopPulse;
-	readonly usageTotals: UsageTotals;
-	readonly tokenSamples: readonly TokenSample[];
-	readonly running: ReadonlyMap<string, RunningWorkProjection>;
-	readonly completed: readonly CompletedWorkProjection[];
-	readonly diagnostics: readonly string[];
-	readonly scheduledWakes: readonly ScheduledWakeProjection[];
-	readonly activity: readonly ActivityEntry[];
-	readonly debugEvents: readonly string[];
-}
+export const agentTranscriptReferenceSchema = z
+	.object({
+		id: z.string().optional(),
+		path: z.string().optional(),
+	})
+	.strict();
+export type AgentTranscriptReference = z.infer<
+	typeof agentTranscriptReferenceSchema
+>;
+
+export const runningWorkProjectionSchema = z
+	.object({
+		workKey: z.string(),
+		runId: z.string(),
+		sourceId: z.string(),
+		subject: z.string().optional(),
+		primary: z.string().optional(),
+		title: z.string(),
+		subtitle: z.string().optional(),
+		url: z.string().optional(),
+		stage: workStageSchema,
+		startedAtSeq: nonNegativeIntegerSchema,
+		lastEventSeq: nonNegativeIntegerSchema,
+		startedAtMs: nonNegativeIntegerSchema.optional(),
+		lastEventAtMs: nonNegativeIntegerSchema.optional(),
+		turnCount: nonNegativeIntegerSchema,
+		eventCount: nonNegativeIntegerSchema,
+		toolUpdateCount: nonNegativeIntegerSchema,
+		messageCount: nonNegativeIntegerSchema,
+		seenTurnIds: z.array(z.string()).readonly(),
+		lastMessage: z.string(),
+		activity: z.string(),
+		lastMeaningful: z.string(),
+		check: workCheckSchema,
+		commands: z.array(z.string()).readonly(),
+		observations: z.array(z.string()).readonly(),
+		timeline: z.array(timelineEntrySchema).readonly(),
+		tokens: tokenUsageProjectionSchema.optional(),
+		transcript: agentTranscriptReferenceSchema.optional(),
+		operatorActions: z.array(operatorActionSchema).readonly().optional(),
+	})
+	.strict();
+export type RunningWorkProjection = z.infer<typeof runningWorkProjectionSchema>;
+
+export const completedWorkProjectionSchema = z
+	.object({
+		workKey: z.string(),
+		label: z.string(),
+		status: z.string(),
+		message: z.string(),
+		atMs: nonNegativeIntegerSchema,
+		url: z.string().optional(),
+	})
+	.strict();
+export type CompletedWorkProjection = z.infer<
+	typeof completedWorkProjectionSchema
+>;
+
+export const scheduledWakeProjectionSchema = z
+	.object({
+		dueAtMs: nonNegativeIntegerSchema,
+		delayMs: nonNegativeIntegerSchema,
+		reason: z.string().optional(),
+		workKey: z.string().optional(),
+		attempt: nonNegativeIntegerSchema.optional(),
+	})
+	.strict();
+export type ScheduledWakeProjection = z.infer<
+	typeof scheduledWakeProjectionSchema
+>;
+
+export const dashboardProjectionSchema = z
+	.object({
+		sessionId: z.string(),
+		workflowName: z.string(),
+		runtime: runtimeIdentityProjectionSchema,
+		status: dashboardStatusSchema,
+		frontier: nonNegativeIntegerSchema,
+		pulse: loopPulseSchema.optional(),
+		usageTotals: usageTotalsSchema,
+		tokenSamples: z.array(tokenSampleSchema).readonly(),
+		running: z.map(z.string(), runningWorkProjectionSchema).readonly(),
+		completed: z.array(completedWorkProjectionSchema).readonly(),
+		diagnostics: z.array(z.string()).readonly(),
+		scheduledWakes: z.array(scheduledWakeProjectionSchema).readonly(),
+		activity: z.array(activityEntrySchema).readonly(),
+		debugEvents: z.array(z.string()).readonly(),
+	})
+	.strict();
+export type DashboardProjection = z.infer<typeof dashboardProjectionSchema>;
+
+export const safeParseDashboardProjection = (value: unknown) =>
+	dashboardProjectionSchema.safeParse(value);
 
 export const emptyProjection = (
 	sessionId: string,
@@ -147,16 +235,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const text = (value: unknown): string | undefined =>
 	typeof value === "string" ? value : undefined;
 
-const eventSummary = (record: Extract<PlotServerRecord, { kind: "event" }>) => {
-	const event = record.event;
-	if (!isRecord(event)) return "event";
-	if (event["type"] === "plot_agent_event" && isRecord(event["event"])) {
-		return text(event["event"]["type"]) ?? "plot_agent_event";
-	}
-	if (event["type"] === "agent_session_event") {
-		return text(event["eventType"]) ?? "agent_session_event";
-	}
-	return text(event["type"]) ?? "event";
+const eventSummary = (
+	record: Extract<PlotServerRecord, { kind: "session_event" }>,
+) => {
+	if (record.event.type === "agent_run_event" && isRecord(record.event.payload))
+		return text(record.event.payload["eventType"]) ?? "agent_run_event";
+	return record.event.type;
 };
 
 const displayFrom = (value: unknown) => (isRecord(value) ? value : undefined);
@@ -169,6 +253,16 @@ const displayLabels = (display: Record<string, unknown> | undefined) => {
 	return Array.isArray(labels)
 		? labels.filter((label): label is string => typeof label === "string")
 		: [];
+};
+
+const mapValues = (value: unknown): readonly unknown[] => {
+	if (value instanceof Map) return [...value.values()];
+	if (Array.isArray(value))
+		return value.map((entry) =>
+			Array.isArray(entry) && entry.length >= 2 ? entry[1] : entry,
+		);
+	if (isRecord(value)) return Object.values(value);
+	return [];
 };
 
 const inlineText = (value: string, max = 140) =>
@@ -293,19 +387,11 @@ const numberAt = (
 const extractUsage = (event: unknown): UsageDelta | undefined => {
 	if (!isRecord(event)) return undefined;
 	const message = isRecord(event["message"]) ? event["message"] : undefined;
-	const partialResult = isRecord(event["partialResult"])
-		? event["partialResult"]
-		: undefined;
-	const partialDetails = isRecord(partialResult?.["details"])
-		? partialResult["details"]
-		: undefined;
 	const usage = isRecord(message?.["usage"])
 		? message["usage"]
 		: isRecord(event["usage"])
 			? event["usage"]
-			: isRecord(partialDetails?.["usage"])
-				? partialDetails["usage"]
-				: undefined;
+			: undefined;
 	if (usage === undefined) return undefined;
 	const input = numberAt(usage, "input", "inputTokens");
 	const output = numberAt(usage, "output", "outputTokens");
@@ -493,7 +579,7 @@ const inferCheck = (
 };
 
 export const workLabel = (work: {
-	readonly primary?: string;
+	readonly primary?: string | undefined;
 	readonly title: string;
 }) =>
 	work.primary === undefined ? work.title : `${work.primary} ${work.title}`;
@@ -505,8 +591,17 @@ export const applySnapshot = (
 	const snapshot =
 		isRecord(data) && isRecord(data["snapshot"]) ? data["snapshot"] : undefined;
 	if (!snapshot) return projection;
-	const runningValues =
-		snapshot["running"] instanceof Map ? [...snapshot["running"].values()] : [];
+	// Monotonic guard: `asOfSequence` is the snapshot's frontier. A snapshot older
+	// than the events already reduced into this projection must not overwrite
+	// newer state — otherwise a periodic get_snapshot racing the event stream (or
+	// a divergent second session sharing the same id) makes the dashboard flip
+	// between states. Snapshots without an asOfSequence (e.g. the initial attach
+	// frame applied to an empty projection) always apply.
+	const asOfRaw = isRecord(data) ? data["asOfSequence"] : undefined;
+	const asOfSequence = typeof asOfRaw === "number" ? asOfRaw : undefined;
+	if (asOfSequence !== undefined && asOfSequence < projection.frontier)
+		return projection;
+	const runningValues = mapValues(snapshot["running"]);
 	const running = new Map(projection.running);
 	for (const run of runningValues) {
 		if (!isRecord(run)) continue;
@@ -519,6 +614,12 @@ export const applySnapshot = (
 		const subtitle = previous?.subtitle ?? displayString(display, "subtitle");
 		const url = previous?.url ?? displayString(display, "url");
 		const labels = displayLabels(display);
+		const parsedActions = z
+			.array(operatorActionSchema)
+			.safeParse(run["operatorActions"]);
+		const operatorActions = parsedActions.success
+			? parsedActions.data
+			: previous?.operatorActions;
 		running.set(workKey, {
 			workKey,
 			runId: text(run["runId"]) ?? previous?.runId ?? "run",
@@ -528,7 +629,10 @@ export const applySnapshot = (
 			title: previous?.title ?? title ?? subtitle ?? subject ?? workKey,
 			...(subtitle === undefined ? {} : { subtitle }),
 			...(url === undefined ? {} : { url }),
-			stage: previous?.stage ?? "waiting",
+			stage:
+				operatorActions !== undefined && operatorActions.length > 0
+					? "blocked"
+					: (previous?.stage ?? "waiting"),
 			startedAtSeq: previous?.startedAtSeq ?? projection.frontier,
 			lastEventSeq: previous?.lastEventSeq ?? projection.frontier,
 			...(previous?.startedAtMs === undefined
@@ -550,9 +654,10 @@ export const applySnapshot = (
 			observations: previous?.observations ?? [],
 			timeline: previous?.timeline ?? [],
 			...(previous?.tokens === undefined ? {} : { tokens: previous.tokens }),
+			...(operatorActions === undefined ? {} : { operatorActions }),
 		});
 	}
-	for (const key of [...running.keys()]) {
+	for (const key of running.keys()) {
 		if (
 			!runningValues.some(
 				(run) => isRecord(run) && text(run["workKey"]) === key,
@@ -581,16 +686,33 @@ export const applySnapshot = (
 			})
 		: projection.scheduledWakes;
 	const diagnostics = Array.isArray(snapshot["diagnostics"])
-		? snapshot["diagnostics"]
-				.slice(-5)
-				.map((d) =>
-					isRecord(d)
-						? `${text(d["level"]) ?? "diagnostic"}/${text(d["phase"]) ?? "unknown"}: ${text(d["message"]) ?? JSON.stringify(d)}`
-						: String(d),
-				)
+		? snapshot["diagnostics"].slice(-5).map(diagnosticText)
 		: projection.diagnostics;
-	return { ...projection, running, diagnostics, scheduledWakes };
+	const frontier =
+		asOfSequence === undefined
+			? projection.frontier
+			: Math.max(projection.frontier, asOfSequence);
+	return { ...projection, frontier, running, diagnostics, scheduledWakes };
 };
+
+const diagnosticText = (diagnostic: unknown) =>
+	isRecord(diagnostic)
+		? `${text(diagnostic["level"]) ?? "diagnostic"}/${text(diagnostic["phase"]) ?? "unknown"}: ${text(diagnostic["message"]) ?? JSON.stringify(diagnostic)}`
+		: String(diagnostic);
+
+const reduceTickStarted = (
+	projection: DashboardProjection,
+	tickId: unknown,
+	observedAtMs: number,
+): DashboardProjection => ({
+	...projection,
+	status: "running",
+	activity: prependActivity(projection.activity, {
+		atMs: observedAtMs,
+		tone: "info",
+		text: `tick #${typeof tickId === "number" ? tickId : 0} started`,
+	}),
+});
 
 const reduceTickCompleted = (
 	projection: DashboardProjection,
@@ -614,7 +736,13 @@ const reduceTickCompleted = (
 					text: `tick #${tickId} found ${found} work, started ${started}`,
 				})
 			: projection.activity;
-	return { ...projection, pulse, activity };
+	const diagnostics = Array.isArray(result["diagnostics"])
+		? [
+				...result["diagnostics"].map(diagnosticText),
+				...projection.diagnostics,
+			].slice(0, 5)
+		: projection.diagnostics;
+	return { ...projection, status: "idle", pulse, activity, diagnostics };
 };
 
 const reduceWorkStarted = (
@@ -632,6 +760,12 @@ const reduceWorkStarted = (
 	const subtitle = displayString(display, "subtitle");
 	const url = displayString(display, "url");
 	const labels = displayLabels(display);
+	const parsedActions = z
+		.array(operatorActionSchema)
+		.safeParse(run["operatorActions"]);
+	const operatorActions = parsedActions.success
+		? parsedActions.data
+		: undefined;
 	const work: RunningWorkProjection = {
 		workKey,
 		runId: text(run["runId"]) ?? "run",
@@ -641,7 +775,10 @@ const reduceWorkStarted = (
 		title: title ?? subtitle ?? subject ?? workKey,
 		...(subtitle === undefined ? {} : { subtitle }),
 		...(url === undefined ? {} : { url }),
-		stage: "starting",
+		stage:
+			operatorActions !== undefined && operatorActions.length > 0
+				? "blocked"
+				: "starting",
 		startedAtSeq: sequence,
 		lastEventSeq: sequence,
 		startedAtMs: observedAtMs,
@@ -658,6 +795,7 @@ const reduceWorkStarted = (
 		commands: [],
 		observations: [],
 		timeline: [{ atMs: observedAtMs, text: "work started" }],
+		...(operatorActions === undefined ? {} : { operatorActions }),
 	};
 	running.set(workKey, work);
 	return {
@@ -706,15 +844,246 @@ const reduceWorkCompleted = (
 	};
 };
 
+const reduceWakeScheduled = (
+	projection: DashboardProjection,
+	wake: Record<string, unknown>,
+	observedAtMs: number,
+): DashboardProjection => {
+	const delayMs = wake["delayMs"];
+	if (typeof delayMs !== "number") return projection;
+	const dueAtMs =
+		typeof wake["dueAtMs"] === "number"
+			? wake["dueAtMs"]
+			: observedAtMs + delayMs;
+	const reason = text(wake["reason"]);
+	const workKey = text(wake["workKey"]);
+	const attempt = wake["attempt"];
+	return {
+		...projection,
+		scheduledWakes: [
+			...projection.scheduledWakes,
+			{
+				dueAtMs,
+				delayMs,
+				...(reason === undefined ? {} : { reason }),
+				...(workKey === undefined ? {} : { workKey }),
+				...(typeof attempt === "number" ? { attempt } : {}),
+			},
+		].toSorted((a, b) => a.dueAtMs - b.dueAtMs),
+	};
+};
+
+const reduceAgentSessionEvent = (
+	projection: DashboardProjection,
+	event: Record<string, unknown>,
+	sequence: number,
+	observedAtMs: number,
+): DashboardProjection => {
+	const workKey = text(event["workKey"]);
+	if (workKey === undefined) return projection;
+	const rawEvent = event["event"];
+	const eventType = text(event["eventType"]) ?? "agent";
+	const rawType = rawEventType(rawEvent, eventType);
+	const message =
+		isToolStart(eventType, rawType) || isToolEnd(eventType, rawType)
+			? toolCommand(rawEvent, summarizeAgentEvent(rawEvent))
+			: summarizeAgentEvent(rawEvent);
+	const running = new Map(projection.running);
+	const previous = running.get(workKey);
+	const subject = text(event["subject"]) ?? previous?.subject;
+	const usage = extractUsage(rawEvent);
+	const tokens =
+		usage === undefined ? previous?.tokens : addUsage(previous?.tokens, usage);
+	const usageTotals =
+		usage === undefined
+			? projection.usageTotals
+			: {
+					tokens: projection.usageTotals.tokens + usage.total,
+					cost: (projection.usageTotals.cost ?? 0) + (usage.cost ?? 0),
+				};
+	const tokenSamples =
+		usage === undefined
+			? projection.tokenSamples
+			: appendSample(projection.tokenSamples, {
+					atMs: observedAtMs,
+					tokens: usageTotals.tokens,
+				});
+	const commands = isCommand(message)
+		? appendBounded(previous?.commands ?? [], message, 8)
+		: (previous?.commands ?? []);
+	const observations = isObservation(message)
+		? appendBounded(previous?.observations ?? [], message, 8)
+		: (previous?.observations ?? []);
+	const priorTurnIds = previous?.seenTurnIds ?? [];
+	const id = isTurnStart(eventType, rawType)
+		? turnId(rawEvent, sequence)
+		: undefined;
+	const seenTurnIds =
+		id !== undefined && !priorTurnIds.includes(id)
+			? [...priorTurnIds, id]
+			: priorTurnIds;
+	const activity = activityFor(message, eventType, rawType);
+	const meaningful = isMeaningful(eventType, rawType);
+	const lastMeaningful = meaningful
+		? activity
+		: (previous?.lastMeaningful ?? "waiting");
+	const timeline = meaningful
+		? prependTimeline(
+				previous?.timeline ?? [],
+				{ atMs: observedAtMs, text: activity },
+				12,
+			)
+		: (previous?.timeline ?? []);
+	running.set(workKey, {
+		workKey,
+		runId: text(event["runId"]) ?? previous?.runId ?? "run",
+		sourceId: text(event["sourceId"]) ?? previous?.sourceId ?? "source",
+		...(subject === undefined ? {} : { subject }),
+		...(previous?.primary === undefined ? {} : { primary: previous.primary }),
+		title: previous?.title ?? subject ?? workKey,
+		...(previous?.subtitle === undefined
+			? {}
+			: { subtitle: previous.subtitle }),
+		...(previous?.url === undefined ? {} : { url: previous.url }),
+		stage: inferStage(message, `${eventType} ${rawType}`),
+		startedAtSeq: previous?.startedAtSeq ?? sequence,
+		lastEventSeq: sequence,
+		startedAtMs: previous?.startedAtMs ?? observedAtMs,
+		lastEventAtMs: observedAtMs,
+		turnCount: seenTurnIds.length,
+		eventCount: (previous?.eventCount ?? 0) + 1,
+		toolUpdateCount:
+			(previous?.toolUpdateCount ?? 0) +
+			(isToolUpdate(eventType, rawType) ? 1 : 0),
+		messageCount:
+			(previous?.messageCount ?? 0) +
+			(isMessageDelta(eventType, rawType) ? 1 : 0),
+		seenTurnIds,
+		lastMessage: message,
+		activity,
+		lastMeaningful,
+		check: inferCheck(previous?.check ?? "not-run", message),
+		commands,
+		observations,
+		timeline,
+		...(tokens === undefined ? {} : { tokens }),
+		...(previous?.operatorActions === undefined
+			? {}
+			: { operatorActions: previous.operatorActions }),
+	});
+	return { ...projection, usageTotals, tokenSamples, running };
+};
+
+const reduceOperatorActionsDeclared = (
+	projection: DashboardProjection,
+	payload: Record<string, unknown>,
+): DashboardProjection => {
+	const workKey = text(payload["workKey"]);
+	if (workKey === undefined) return projection;
+	const parsed = z.array(operatorActionSchema).safeParse(payload["actions"]);
+	if (!parsed.success) return projection;
+	const running = new Map(projection.running);
+	const previous = running.get(workKey);
+	if (previous === undefined) return projection;
+	running.set(workKey, {
+		...previous,
+		operatorActions: parsed.data,
+		stage: parsed.data.length > 0 ? "blocked" : previous.stage,
+		lastMeaningful:
+			parsed.data.length > 0
+				? "operator action declared"
+				: previous.lastMeaningful,
+	});
+	return { ...projection, running };
+};
+
+const reduceEventPayload = (
+	projection: DashboardProjection,
+	type: string,
+	payload: unknown,
+	sequence: number,
+	observedAtMs: number,
+): DashboardProjection => {
+	if (type === "session_started") return { ...projection, status: "running" };
+	if (type === "session_paused") return { ...projection, status: "paused" };
+	if (type === "session_resumed") return { ...projection, status: "idle" };
+	if (type === "session_close_requested")
+		return { ...projection, status: "shutting_down" };
+	if (type === "session_shutdown" || type === "session_close_completed")
+		return { ...projection, status: "stopped" };
+	if (type === "tick_started")
+		return reduceTickStarted(
+			projection,
+			isRecord(payload) ? payload["tickId"] : undefined,
+			observedAtMs,
+		);
+	if (type === "tick_completed")
+		return reduceTickCompleted(
+			projection,
+			isRecord(payload) && payload["result"] !== undefined
+				? payload["result"]
+				: payload,
+			observedAtMs,
+		);
+	if (
+		(type === "work_started" || type === "agent_run_started") &&
+		isRecord(payload)
+	) {
+		const run = isRecord(payload["run"]) ? payload["run"] : payload;
+		return reduceWorkStarted(projection, run, sequence, observedAtMs);
+	}
+	if (
+		(type === "work_completed" ||
+			type === "agent_run_completed" ||
+			type === "agent_run_interrupted") &&
+		isRecord(payload)
+	) {
+		const completion = isRecord(payload["completion"])
+			? payload["completion"]
+			: payload;
+		return reduceWorkCompleted(projection, completion, observedAtMs);
+	}
+	if (
+		(type === "agent_session_event" || type === "agent_run_event") &&
+		isRecord(payload)
+	)
+		return reduceAgentSessionEvent(projection, payload, sequence, observedAtMs);
+	if (type === "wake_scheduled" && isRecord(payload))
+		return reduceWakeScheduled(projection, payload, observedAtMs);
+	if (
+		(type === "diagnostic_recorded" || type === "diagnostic") &&
+		isRecord(payload)
+	)
+		return {
+			...projection,
+			diagnostics: [diagnosticText(payload), ...projection.diagnostics].slice(
+				0,
+				5,
+			),
+		};
+	if (type === "operator_actions_declared" && isRecord(payload))
+		return reduceOperatorActionsDeclared(projection, payload);
+	if (type === "operator_observation_recorded" && isRecord(payload))
+		return {
+			...projection,
+			activity: prependActivity(projection.activity, {
+				atMs: observedAtMs,
+				tone: "info",
+				text: `operator action ${text(payload["actionLabel"]) ?? text(payload["actionId"]) ?? "recorded"}`,
+			}),
+		};
+	return projection;
+};
+
 export const reduceRecord = (
 	projection: DashboardProjection,
 	record: PlotServerRecord,
 ): DashboardProjection => {
-	if (record.kind !== "event") return projection;
+	if (record.kind !== "session_event") return projection;
 	const sequence = Number(record.sequence);
 	const observedAtMs = Date.now();
 	const summary = eventSummary(record);
-	let next: DashboardProjection = {
+	const next: DashboardProjection = {
 		...projection,
 		frontier: sequence,
 		debugEvents: [
@@ -723,113 +1092,47 @@ export const reduceRecord = (
 		].slice(0, 100),
 	};
 	const event = record.event;
-	if (!isRecord(event)) return next;
-	if (event["type"] === "plot_agent_event" && isRecord(event["event"])) {
-		const agentEvent = event["event"];
-		if (agentEvent["type"] === "tick_completed")
-			return reduceTickCompleted(next, agentEvent["result"], observedAtMs);
-		if (agentEvent["type"] === "work_started" && isRecord(agentEvent["run"]))
-			return reduceWorkStarted(next, agentEvent["run"], sequence, observedAtMs);
-		if (
-			agentEvent["type"] === "work_completed" &&
-			isRecord(agentEvent["completion"])
-		)
-			return reduceWorkCompleted(next, agentEvent["completion"], observedAtMs);
-		return next;
-	}
-	if (event["type"] === "agent_session_event") {
-		const workKey = text(event["workKey"]);
-		if (workKey === undefined) return next;
-		const rawEvent = event["event"];
-		const eventType = text(event["eventType"]) ?? "agent";
-		const rawType = rawEventType(rawEvent, eventType);
-		const message =
-			isToolStart(eventType, rawType) || isToolEnd(eventType, rawType)
-				? toolCommand(rawEvent, summarizeAgentEvent(rawEvent))
-				: summarizeAgentEvent(rawEvent);
-		const running = new Map(next.running);
-		const previous = running.get(workKey);
-		const subject = text(event["subject"]) ?? previous?.subject;
-		const usage = extractUsage(rawEvent);
-		const tokens =
-			usage === undefined
-				? previous?.tokens
-				: addUsage(previous?.tokens, usage);
-		const usageTotals =
-			usage === undefined
-				? next.usageTotals
-				: {
-						tokens: next.usageTotals.tokens + usage.total,
-						cost: (next.usageTotals.cost ?? 0) + (usage.cost ?? 0),
-					};
-		const tokenSamples =
-			usage === undefined
-				? next.tokenSamples
-				: appendSample(next.tokenSamples, {
-						atMs: observedAtMs,
-						tokens: usageTotals.tokens,
-					});
-		const commands = isCommand(message)
-			? appendBounded(previous?.commands ?? [], message, 8)
-			: (previous?.commands ?? []);
-		const observations = isObservation(message)
-			? appendBounded(previous?.observations ?? [], message, 8)
-			: (previous?.observations ?? []);
-		const priorTurnIds = previous?.seenTurnIds ?? [];
-		const id = isTurnStart(eventType, rawType)
-			? turnId(rawEvent, sequence)
-			: undefined;
-		const seenTurnIds =
-			id !== undefined && !priorTurnIds.includes(id)
-				? [...priorTurnIds, id]
-				: priorTurnIds;
-		const activity = activityFor(message, eventType, rawType);
-		const meaningful = isMeaningful(eventType, rawType);
-		const lastMeaningful = meaningful
-			? activity
-			: (previous?.lastMeaningful ?? "waiting");
-		const timeline = meaningful
-			? prependTimeline(
-					previous?.timeline ?? [],
-					{ atMs: observedAtMs, text: activity },
-					12,
-				)
-			: (previous?.timeline ?? []);
-		running.set(workKey, {
-			workKey,
-			runId: text(event["runId"]) ?? previous?.runId ?? "run",
-			sourceId: text(event["sourceId"]) ?? previous?.sourceId ?? "source",
-			...(subject === undefined ? {} : { subject }),
-			...(previous?.primary === undefined ? {} : { primary: previous.primary }),
-			title: previous?.title ?? subject ?? workKey,
-			...(previous?.subtitle === undefined
-				? {}
-				: { subtitle: previous.subtitle }),
-			...(previous?.url === undefined ? {} : { url: previous.url }),
-			stage: inferStage(message, `${eventType} ${rawType}`),
-			startedAtSeq: previous?.startedAtSeq ?? sequence,
-			lastEventSeq: sequence,
-			startedAtMs: previous?.startedAtMs ?? observedAtMs,
-			lastEventAtMs: observedAtMs,
-			turnCount: seenTurnIds.length,
-			eventCount: (previous?.eventCount ?? 0) + 1,
-			toolUpdateCount:
-				(previous?.toolUpdateCount ?? 0) +
-				(isToolUpdate(eventType, rawType) ? 1 : 0),
-			messageCount:
-				(previous?.messageCount ?? 0) +
-				(isMessageDelta(eventType, rawType) ? 1 : 0),
-			seenTurnIds,
-			lastMessage: message,
-			activity,
-			lastMeaningful,
-			check: inferCheck(previous?.check ?? "not-run", message),
-			commands,
-			observations,
-			timeline,
-			...(tokens === undefined ? {} : { tokens }),
-		});
-		return { ...next, usageTotals, tokenSamples, running };
-	}
-	return next;
+	return reduceEventPayload(
+		next,
+		event.type,
+		event.payload,
+		sequence,
+		observedAtMs,
+	);
 };
+
+const timestampMs = (timestamp: string) => {
+	const ms = Date.parse(timestamp);
+	return Number.isFinite(ms) ? ms : Date.now();
+};
+
+export const reduceSessionHistoryEvent = (
+	projection: DashboardProjection,
+	event: SessionHistoryEvent,
+): DashboardProjection => {
+	const sequence = Number(event.sequence);
+	const next: DashboardProjection = {
+		...projection,
+		frontier: sequence,
+		debugEvents: [
+			`#${event.sequence} ${event.type}`,
+			...projection.debugEvents,
+		].slice(0, 100),
+	};
+	return reduceEventPayload(
+		next,
+		event.type,
+		event.payload,
+		sequence,
+		timestampMs(event.timestamp),
+	);
+};
+
+export const rebuildProjectionFromSessionHistory = (
+	events: readonly SessionHistoryEvent[],
+	projection: DashboardProjection,
+): DashboardProjection =>
+	events.reduce(
+		(current, event) => reduceSessionHistoryEvent(current, event),
+		projection,
+	);

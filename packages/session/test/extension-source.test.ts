@@ -58,6 +58,7 @@ describe("Plot extension source adapter", () => {
 
 	test("adapts discovery and lifecycle hooks into Plot WorkSource semantics", async () => {
 		const lifecycle: string[] = [];
+		let done = false;
 		const bundle = makePlotExtensionSourceBundle({
 			workflow,
 			paths,
@@ -67,18 +68,22 @@ describe("Plot extension source adapter", () => {
 				create: () => ({ discover: () => [] }),
 			},
 			runtime: {
-				discover: () => [
-					{
-						id: "github:acme/web:pr:42",
-						version: "sha-1",
-						title: "Review PR #42",
-						context: { repo: "acme/web", prNumber: 42 },
-					},
-				],
+				discover: () =>
+					done
+						? []
+						: [
+								{
+									id: "github:acme/web:pr:42",
+									version: "sha-1",
+									title: "Review PR #42",
+									context: { repo: "acme/web", prNumber: 42 },
+								},
+							],
 				started: ({ work, runId }) => {
 					lifecycle.push(`started:${work.id}:${runId}`);
 				},
 				completed: ({ work, output }) => {
+					done = true;
 					lifecycle.push(`completed:${work.id}:${String(output)}`);
 				},
 				shutdown: () => {
@@ -109,12 +114,110 @@ describe("Plot extension source adapter", () => {
 
 		expect(result.first.started).toHaveLength(1);
 		expect(result.second.completions).toHaveLength(1);
+		expect(result.second.started).toHaveLength(0);
 		expect(result.third.started).toHaveLength(0);
 		expect(lifecycle).toEqual([
 			"started:github:acme/web:pr:42:run-0",
 			"completed:github:acme/web:pr:42:ok",
 			"shutdown",
 		]);
+	});
+
+	test("rediscovers a completed key when the source still declares work", async () => {
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "github-pr-reviewer",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => [
+					{
+						id: "github:acme/web:pr:42",
+						version: "sha-1",
+						title: "Review PR #42",
+					},
+				],
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: () => ({ output: "ok" }),
+		});
+
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const first = await agent.tickOnce();
+		await Promise.resolve();
+		const second = await agent.tickOnce();
+		const third = await agent.tickOnce();
+
+		expect(first.started).toEqual([
+			expect.objectContaining({ runId: "run-0" }),
+		]);
+		expect(second.completions).toEqual([
+			expect.objectContaining({ runId: "run-0", status: "succeeded" }),
+		]);
+		// Completion suppresses only the stale discovery from this same tick.
+		expect(second.started).toHaveLength(0);
+		// If the source still declares the work on the next tick, it is authoritative.
+		expect(third.started).toEqual([
+			expect.objectContaining({ runId: "run-1" }),
+		]);
+	});
+
+	test("adapts operator actions and observations into the extension seam", async () => {
+		const observed: string[] = [];
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "approval-source",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => [
+					{
+						id: "release:v1",
+						version: "1",
+						title: "Release v1",
+						operatorActions: [
+							{ id: "approve", label: "Approve", tone: "primary" },
+						],
+					},
+				],
+				operatorAction: ({ work, actionId, comment }) => {
+					observed.push(`${work.id}:${actionId}:${comment ?? ""}`);
+				},
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: () => new Promise(() => {}),
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const first = await agent.tickOnce();
+		const run = first.started[0];
+		expect(run?.operatorActions).toEqual([
+			{ id: "approve", label: "Approve", tone: "primary" },
+		]);
+		await agent.offer({
+			type: "observation",
+			observation: {
+				type: "operator_observation",
+				data: {
+					sourceId: "extension:approval-source",
+					workKey: String(run!.workKey),
+					actionId: "approve",
+					actionLabel: "Approve",
+					timestamp: "2026-06-15T00:00:00.000Z",
+					comment: "ship it",
+				},
+			},
+		});
+		await agent.tickOnce();
+
+		expect(observed).toEqual(["release:v1:approve:ship it"]);
 	});
 
 	test("superseded version drains; the id-level claim defers the next version", async () => {
@@ -445,44 +548,31 @@ export default definePlotExtension({
 		]);
 	});
 
-	test("passes pi-native subagent runner helpers into extension setup", async () => {
-		const calls: string[] = [];
+	test("does not expose source-launched agent helpers to extension setup", async () => {
 		const dir = await makeTempDir();
 		const extensionPath = join(dir, "extension.ts");
 		await writeFile(
 			extensionPath,
 			`export default {
-  id: "subagent-sdk-test",
-  create: async ({ runAgent, runAgents }) => {
-    await runAgent({ prompt: "one" });
-    await runAgents([{ prompt: "two" }, { prompt: "three" }], { concurrency: 2 });
-    return { discover: () => [] };
+  id: "single-agent-run-test",
+  create: async (context) => {
+    const removedHelperNames = ["run" + "Agent", "run" + "Agents"];
+    const sawAgentHelpers = removedHelperNames.some((name) => name in context);
+    return { discover: () => [{ id: sawAgentHelpers ? "bad" : "ok" }] };
   }
 };
 `,
 		);
-		await loadPlotExtensionRuntimeFromWorkflow({
+		const loaded = await loadPlotExtensionRuntimeFromWorkflow({
 			paths: { ...paths, cwd: dir },
 			workflow: {
 				...workflow,
 				path: join(dir, "WORKFLOW.md"),
 				runtime: { extension: { source: "./extension.ts" } },
 			},
-			agentRunner: {
-				runAgent: async (options) => {
-					calls.push(`one:${options.prompt}`);
-					return { events: [] };
-				},
-				runAgents: async (runs, options) => {
-					calls.push(
-						`many:${runs.map((run) => run.prompt).join(",")}:${options?.concurrency ?? "default"}`,
-					);
-					return runs.map(() => ({ events: [] }));
-				},
-			},
 		});
 
-		expect(calls).toEqual(["one:one", "many:two,three:2"]);
+		expect(await loaded.runtime.discover()).toEqual([{ id: "ok" }]);
 	});
 
 	test("loads extension-registered pi tool definitions from the public SDK", async () => {

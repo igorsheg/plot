@@ -145,11 +145,24 @@ export interface WorkDisplay {
 	readonly version?: string;
 	readonly labels?: readonly string[];
 }
+export interface OperatorActionConfirm {
+	readonly title: string;
+	readonly message?: string;
+}
+export interface OperatorAction {
+	readonly id: string;
+	readonly label: string;
+	readonly tone?: "primary" | "secondary" | "danger";
+	readonly disabledReason?: string;
+	readonly requiresComment?: boolean;
+	readonly confirm?: OperatorActionConfirm;
+}
 export interface WorkItem {
 	readonly workKey: WorkKey;
 	readonly subject?: SubjectKey;
 	readonly templateContext?: unknown;
 	readonly display?: WorkDisplay;
+	readonly operatorActions?: readonly OperatorAction[];
 }
 export interface WorkRun {
 	readonly runId: RunId;
@@ -157,6 +170,7 @@ export interface WorkRun {
 	readonly workKey: WorkKey;
 	readonly subject?: SubjectKey;
 	readonly display?: WorkDisplay;
+	readonly operatorActions?: readonly OperatorAction[];
 }
 export interface WorkResult {
 	readonly output?: unknown;

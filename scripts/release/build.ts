@@ -21,12 +21,16 @@ import {
 	releaseDir,
 	releaseTargets,
 	version,
+	webPackageDir,
 } from "./shared.js";
+import { generateEmbeddedWebAssets } from "./web-assets.js";
 
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
 
 await $`bun run build`.cwd(sdkPackageDir);
+await $`bun run build`.cwd(webPackageDir);
+generateEmbeddedWebAssets();
 await Promise.all(releaseTargets.map((target) => buildPlatformPackage(target)));
 await buildUmbrellaPackage();
 

@@ -1,6 +1,6 @@
 # Workflows
 
-A workflow is a Markdown file with front matter.
+A workflow is a Markdown file with front matter. A Plot Session is the live runtime created from that workflow by the Local Plot Server.
 
 It answers three questions:
 
@@ -37,14 +37,13 @@ Post one useful review.
 
 ## The split
 
-The extension finds work, exposes safe integration tools, and may fan out coarse specialist subagents. The prompt teaches judgment.
+The extension finds work and exposes safe integration tools. The prompt teaches judgment.
 
 Good extension:
 
 ```txt
 There is a PR: #42. Here is its URL, head SHA, previous review, and display title.
 The agent may call post_pr_review when it is ready to publish the final review.
-The agent may call spawn_reviewers for parallel specialist investigation.
 ```
 
 Good prompt:
@@ -129,21 +128,31 @@ Review {{ issue.id }}: {{ issue.title }}
 
 Use context for facts the agent needs. Do not use it to micromanage every tool call.
 
-## Tools and subagents
+## Tools
 
 Workflow prompts should mention important registered tools by name and explain when they are appropriate.
 
 Example:
 
 ```md
-Use `prepare_review_context` before reviewing. If the PR is broad, call `spawn_reviewers` and synthesize their outputs. When you have a final review, call `post_pr_review`; do not hand-roll GitHub API mutation in shell.
+Use `prepare_review_context` before reviewing. When you have a final review, call `post_pr_review`; do not hand-roll GitHub API mutation in shell.
 ```
 
-Registered tools and subagent helpers come from the extension SDK:
+Registered tools come from the extension SDK:
 
-- `registerTool(tool)` exposes a pi-native `ToolDefinition` to the main agent session.
+- `registerTool(tool)` exposes a pi-native `ToolDefinition` to the Agent Run.
 - `defineTool(...)` is re-exported from pi-mono for tool authoring.
-- `runAgent(...)` starts one pi agent session from extension code.
-- `runAgents(...)` starts several pi agent sessions, optionally with a concurrency cap.
 
 Keep this split clear: TypeScript owns integration correctness and idempotent mutations; the agent owns investigation, judgment, and final content.
+
+## Running and observing
+
+```bash
+plot run --workflow WORKFLOW.md
+plot tui --workflow WORKFLOW.md
+plot web
+```
+
+`plot run` creates a oneshot Plot Session. `plot tui` opens or attaches to a watch Plot Session. `plot web` starts a foreground Local Plot Server, opens the roster, and can drill into either kind of session. All three use the explicit control protocol by default.
+
+Plot stores project-local Session History under `.plot/sessions`. This is separate from pi-mono Agent Transcripts: Session History records Plot control-plane events and projection state, while Agent Transcripts remain the inner agent-session record.

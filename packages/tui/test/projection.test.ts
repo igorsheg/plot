@@ -1,27 +1,36 @@
 import { describe, expect, test } from "bun:test";
-import type { PlotServerRecord } from "@plot/session/protocol";
+import {
+	plotProtocolVersion,
+	type PlotServerRecord,
+} from "@plot/control/protocol";
 import {
 	applySnapshot,
 	emptyProjection,
 	reduceRecord,
-} from "../src/projection.js";
+} from "@plot/control/projection";
 
-const eventRecord = (sequence: number, event: unknown): PlotServerRecord => ({
-	protocol: "plot.v1",
-	kind: "event",
+const eventRecord = (
+	sequence: number,
+	type: string,
+	payload: unknown,
+): PlotServerRecord => ({
+	protocol: plotProtocolVersion,
+	kind: "session_event",
 	sessionId: "default",
 	epoch: "epoch-1",
 	sequence,
-	event,
+	event: {
+		sessionId: "default",
+		epoch: "epoch-1",
+		sequence,
+		timestamp: "2026-06-15T00:00:00.000Z",
+		type,
+		payload,
+	},
 });
 
 const plotAgentEvent = (sequence: number, event: Record<string, unknown>) =>
-	eventRecord(sequence, {
-		type: "plot_agent_event",
-		sessionId: "default",
-		sequence,
-		event,
-	});
+	eventRecord(sequence, String(event["type"]), event);
 
 const workStarted = (sequence: number, workKey = "source:item:42") =>
 	plotAgentEvent(sequence, {
@@ -46,10 +55,7 @@ const agentEvent = (
 	eventType = "tool_call",
 	event: Record<string, unknown> = { type: eventType, command: message },
 ) =>
-	eventRecord(sequence, {
-		type: "agent_session_event",
-		sessionId: "default",
-		sequence,
+	eventRecord(sequence, "agent_run_event", {
 		sourceId: "extension:worker",
 		runId: "run-1",
 		workKey,
@@ -194,18 +200,17 @@ describe("Plot TUI projection", () => {
 		expect(work?.toolUpdateCount).toBe(1);
 	});
 
-	test("counts subagent usage surfaced through tool updates", () => {
+	test("ignores tool-result usage so totals stay scoped to Agent Runs", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(
 			projection,
-			agentEvent(2, "spawn", "source:item:42", "tool_execution_update", {
+			agentEvent(2, "tool", "source:item:42", "tool_execution_update", {
 				type: "tool_execution_update",
-				toolName: "spawn_reviewers",
+				toolName: "load_review_context",
 				partialResult: {
-					content: [{ type: "text", text: "security: message_end" }],
+					content: [{ type: "text", text: "loaded context" }],
 					details: {
-						reviewer: "security",
 						usage: {
 							input: 100,
 							output: 25,
@@ -218,10 +223,9 @@ describe("Plot TUI projection", () => {
 		);
 
 		const work = projection.running.get("source:item:42");
-		expect(work?.tokens?.total).toBe(125);
-		expect(work?.tokens?.cost).toBe(0.0125);
-		expect(projection.usageTotals.tokens).toBe(125);
-		expect(projection.usageTotals.cost).toBe(0.0125);
+		expect(work?.tokens).toBeUndefined();
+		expect(projection.usageTotals.tokens).toBe(0);
+		expect(projection.usageTotals.cost).toBeUndefined();
 	});
 
 	test("compacts tool updates out of the per-work timeline", () => {

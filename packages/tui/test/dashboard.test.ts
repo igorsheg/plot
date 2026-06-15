@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { PlotDashboard } from "../src/dashboard.js";
-import { emptyProjection } from "../src/projection.js";
-import type { RunningWorkProjection } from "../src/projection.js";
+import { emptyProjection } from "@plot/control/projection";
+import type { RunningWorkProjection } from "@plot/control/projection";
 
 const fixedNowMs = 1_700_000_000_000;
 
@@ -373,7 +373,7 @@ describe("PlotDashboard", () => {
 
 		dashboard.handleInput("q");
 		expect(shutdowns).toBe(0);
-		expect(dashboard.render(120).join("\n")).toContain("shut down the fleet?");
+		expect(dashboard.render(120).join("\n")).toContain("detach this UI?");
 
 		dashboard.handleInput("\x1b");
 		dashboard.handleInput("q");

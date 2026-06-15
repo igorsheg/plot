@@ -12,6 +12,11 @@ export const cliEntrypoint = join(repoDir, "packages/cli/src/main.ts");
 export const cliTsconfig = join(repoDir, "packages/cli/tsconfig.json");
 export const npmPackageDir = join(repoDir, "packages/npm/plot-ai");
 export const sdkPackageDir = join(repoDir, "packages/sdk");
+export const webPackageDir = join(repoDir, "packages/web");
+export const cliWebAssetsGenerated = join(
+	repoDir,
+	"packages/cli/src/web-assets.generated.ts",
+);
 
 export const packageTemplate = readJson(
 	join(npmPackageDir, "package.json"),

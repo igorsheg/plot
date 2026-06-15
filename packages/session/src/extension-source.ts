@@ -23,9 +23,6 @@ import type {
 	PlotExtensionRuntime,
 	PlotExtensionTool,
 	PlotExtensionWork,
-	PlotRunAgentOptions,
-	PlotRunAgentResult,
-	PlotRunAgentsOptions,
 	PlotToolContext,
 	ToolDefinition,
 } from "./extension.js";
@@ -43,15 +40,6 @@ export interface LoadedPlotExtensionRuntime {
 	readonly runtime: PlotExtensionRuntime;
 	readonly tools: readonly PlotExtensionTool[];
 	readonly config: unknown;
-}
-export interface PlotExtensionAgentRunner {
-	readonly runAgent: (
-		options: PlotRunAgentOptions,
-	) => Promise<PlotRunAgentResult>;
-	readonly runAgents: (
-		runs: readonly PlotRunAgentOptions[],
-		options?: PlotRunAgentsOptions,
-	) => Promise<readonly PlotRunAgentResult[]>;
 }
 export interface PlotExtensionSourceBundle {
 	readonly source: WorkSource;
@@ -106,7 +94,6 @@ const workKeyForExtensionWork = (
 	workKey(
 		`extension:${extension.id}:${work.id}:${work.version ?? "unversioned"}`,
 	);
-const completedFactKey = (key: WorkKey) => `extension.completed:${key}`;
 const discoveredFactKey = (source: SourceId) =>
 	`extension.discovered:${source}`;
 const workStatusFactKey = (source: SourceId, workId: string) =>
@@ -144,6 +131,9 @@ const templateContextForWork = (
 		...(work.url === undefined ? {} : { url: work.url }),
 		...(work.subject === undefined ? {} : { subject: work.subject }),
 		...(work.display === undefined ? {} : { display: work.display }),
+		...(work.operatorActions === undefined
+			? {}
+			: { operatorActions: work.operatorActions }),
 	};
 	const base = { workflow: workflow.config, work: metadata };
 	if (work.context === undefined) return base;
@@ -186,6 +176,40 @@ const resolveToolDefinitions = async (options: {
 	}
 	return resolved;
 };
+const invokeOperatorActionHook = async (
+	runtime: PlotExtensionRuntime,
+	source: SourceId,
+	work: PlotExtensionWork,
+	data: Record<string, unknown>,
+) => {
+	try {
+		const actionId = data["actionId"];
+		const actionLabel = data["actionLabel"];
+		const timestamp = data["timestamp"];
+		if (
+			typeof actionId !== "string" ||
+			typeof actionLabel !== "string" ||
+			typeof timestamp !== "string"
+		)
+			return;
+		await runtime.operatorAction?.({
+			work,
+			actionId,
+			actionLabel,
+			timestamp,
+			...(typeof data["comment"] === "string"
+				? { comment: data["comment"] }
+				: {}),
+			...(typeof data["clientId"] === "string"
+				? { clientId: data["clientId"] }
+				: {}),
+			...(data["actor"] === undefined ? {} : { actor: data["actor"] }),
+		});
+	} catch (error) {
+		await logHookError(error, "operator_action", source);
+	}
+};
+
 const invokeCompletionHook = async (
 	runtime: PlotExtensionRuntime,
 	source: SourceId,
@@ -254,10 +278,47 @@ export const makePlotExtensionSourceBundle = (options: {
 					observation.type === "plot.extension.discovered" &&
 					observation.subject === String(source),
 			);
-			if (latestDiscovery !== undefined) {
+			const shouldWriteDiscoveredFact = latestDiscovery !== undefined;
+			if (latestDiscovery !== undefined)
 				discoveredWorks = decodeDiscoveredWorks(latestDiscovery.data);
-				proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
+			for (const observation of snapshot.observations) {
+				if (observation.type !== "operator_observation") continue;
+				if (!isObjectRecord(observation.data)) continue;
+				if (observation.data["sourceId"] !== source) continue;
+				const observedWorkKey = observation.data["workKey"];
+				if (typeof observedWorkKey !== "string") continue;
+				const work = selectedWork.get(workKey(observedWorkKey));
+				if (work === undefined) continue;
+				await invokeOperatorActionHook(
+					options.runtime,
+					source,
+					work,
+					observation.data,
+				);
 			}
+			const completedThisTickKeys = new Set<WorkKey>();
+			for (const completion of snapshot.completions) {
+				if (completion.sourceId !== source) continue;
+				completedThisTickKeys.add(completion.workKey);
+				const work = selectedWork.get(completion.workKey);
+				if (work === undefined) continue;
+				await invokeCompletionHook(options.runtime, source, work, completion);
+			}
+			// Completion hooks may update the source's durable state, but this
+			// tick's discovery was observed before those hooks ran. Suppress only
+			// exact keys that completed in this tick so stale discovery cannot
+			// immediately redispatch. If the source still declares the same key on
+			// a later tick, the source is authoritative and Plot runs it again.
+			if (completedThisTickKeys.size > 0) {
+				discoveredWorks = discoveredWorks.filter(
+					(work) =>
+						!completedThisTickKeys.has(
+							workKeyForExtensionWork(options.extension, work),
+						),
+				);
+			}
+			if (shouldWriteDiscoveredFact || completedThisTickKeys.size > 0)
+				proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
 			const currentKeys = currentWorkKeys(options.extension, discoveredWorks);
 			const currentIds = new Set(discoveredWorks.map((work) => work.id));
 			// Symphony-style claim semantics. A running work is one of:
@@ -320,23 +381,6 @@ export const makePlotExtensionSourceBundle = (options: {
 					}
 				}
 			}
-			for (const completion of snapshot.completions) {
-				if (completion.sourceId !== source) continue;
-				const work = selectedWork.get(completion.workKey);
-				if (work === undefined) continue;
-				await invokeCompletionHook(options.runtime, source, work, completion);
-				proposals.push(
-					setFact(completedFactKey(completion.workKey), {
-						status: completion.status,
-						...(completion.output === undefined
-							? {}
-							: { output: completion.output }),
-						...(completion.error === undefined
-							? {}
-							: { error: completion.error }),
-					}),
-				);
-			}
 			return proposals;
 		},
 		selectWork: ({ snapshot }) => {
@@ -356,8 +400,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				if (
 					snapshot.running.has(key) ||
 					claimedIds.has(extensionWork.id) ||
-					isBlocked(extensionWork) ||
-					snapshot.facts.has(completedFactKey(key))
+					isBlocked(extensionWork)
 				)
 					return [];
 				selectedWork.set(key, extensionWork);
@@ -372,6 +415,9 @@ export const makePlotExtensionSourceBundle = (options: {
 						...(extensionWork.display === undefined
 							? {}
 							: { display: extensionWork.display }),
+						...(extensionWork.operatorActions === undefined
+							? {}
+							: { operatorActions: extensionWork.operatorActions }),
 					},
 				];
 			});
@@ -453,19 +499,9 @@ const resolveExtensionSourcePath = (options: {
 			: dirname(options.workflow.path);
 	return resolve(base, options.source);
 };
-const unavailableAgentRunner: PlotExtensionAgentRunner = {
-	runAgent: async () => {
-		throw new Error("extension agent runner is not available in this context");
-	},
-	runAgents: async () => {
-		throw new Error("extension agent runner is not available in this context");
-	},
-};
-
 export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
-	readonly agentRunner?: PlotExtensionAgentRunner;
 }): Promise<LoadedPlotExtensionRuntime> => {
 	const extensionConfig = options.workflow.runtime.extension;
 	if (extensionConfig === undefined)
@@ -502,7 +538,6 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 			)
 		: extensionConfig.config;
 	const tools: PlotExtensionTool[] = [];
-	const agentRunner = options.agentRunner ?? unavailableAgentRunner;
 	const runtime = await runMaybePromise("create", source, () =>
 		extension.create({
 			config,
@@ -512,8 +547,6 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 			registerTool: (tool) => {
 				tools.push(tool as PlotExtensionTool);
 			},
-			runAgent: agentRunner.runAgent,
-			runAgents: agentRunner.runAgents,
 		}),
 	);
 	return { extension, runtime, tools, config };
@@ -521,7 +554,6 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
-	readonly agentRunner?: PlotExtensionAgentRunner;
 	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
 }): Promise<PlotExtensionSourceBundle> => {
 	const { extension, runtime, tools, config } =
