@@ -3,6 +3,7 @@ import type { CreateAgentSession } from "@plot/session/agent-session-types";
 import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
 import type { PlotSessionEvent } from "@plot/session/plot-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
+import { runLocalPlotServer } from "@plot/session/local-server";
 import {
 	runPlotSessionHostDaemon,
 	runPlotSessionHostStdio,
@@ -37,6 +38,11 @@ interface BaseRunOptions {
 }
 export interface ServeStdioOptions extends BaseRunOptions {
 	readonly stdin: AsyncIterable<StdioChunk>;
+	readonly writeStdout: (line: string) => Promise<void> | void;
+}
+export interface ServeLocalOptions extends BaseRunOptions {
+	readonly hostname?: string;
+	readonly port?: number;
 	readonly writeStdout: (line: string) => Promise<void> | void;
 }
 export interface RunDaemonOptions extends BaseRunOptions {
@@ -86,5 +92,25 @@ export const serveStdio = (options: ServeStdioOptions): Promise<void> =>
 				session_id: options.sessionId,
 			},
 			() => runPlotSessionHostStdio(options),
+		),
+	);
+
+export const serveLocal = (options: ServeLocalOptions): Promise<void> =>
+	provideCliLogger(options, () =>
+		withWideEvent(
+			"plot_cli.serve_local",
+			{
+				hostname: options.hostname ?? "localhost",
+				port: options.port ?? 3927,
+			},
+			() =>
+				runLocalPlotServer({
+					cwd: options.cwd,
+					...(options.hostname === undefined
+						? {}
+						: { hostname: options.hostname }),
+					...(options.port === undefined ? {} : { port: options.port }),
+					print: options.writeStdout,
+				}),
 		),
 	);
