@@ -11,11 +11,12 @@ STATUS: early / online
 
 Plot is a control plane for long-running coding agents.
 
-It finds work, starts agents, tracks runs, retries later, and gives you a terminal dashboard when something needs attention. Normal local entrypoints use the machine-local Plot Server, so `plot tui` and `plot run` sessions appear in the same local roster without exposing a remote server.
+It finds work, starts agents, tracks runs, retries later, and gives you terminal and web dashboards when something needs attention. Normal local entrypoints use the machine-local Plot Server, so `plot tui`, `plot run`, and the foreground `plot web` server share one localhost roster without exposing a remote server.
 
 ```bash
 npm install -g plot-ai
 plot tui --workflow WORKFLOW.md
+plot web
 ```
 
 ## Why
@@ -39,8 +40,10 @@ Plot handles the operational layer:
 - stale-run timeouts
 - run history and diagnostics
 - usage and cost visibility
+- append-only Session History separate from agent transcripts
 - a protocol stream for automation
-- a TUI for humans
+- a TUI for one attached session
+- a web control plane for the local fleet
 
 ## Try the PR reviewer
 
@@ -56,7 +59,13 @@ Or run one pass without the dashboard:
 plot run --workflow examples/pr-review/WORKFLOW.md
 ```
 
-`plot run` opens a temporary `oneshot` Plot Session in the Local Plot Server while it runs and keeps Session History afterward.
+`plot run` opens a temporary `oneshot` Plot Session in the Local Plot Server while it runs and keeps Session History afterward. Open the local web control plane with:
+
+```bash
+plot web
+```
+
+`plot web` starts the Local Plot Server in the foreground, opens a localhost browser URL with a fragment-based control-token handoff, and keeps running until you press Ctrl-C. It does not create workflows or expose a remote server.
 
 You need:
 
@@ -111,13 +120,14 @@ Build workflows like:
 
 Plot should not care what kind of work it is. It should care whether the work is running, waiting, blocked, failed, or complete.
 
-## Dashboard
+## Dashboards
 
 ```bash
 plot tui --workflow WORKFLOW.md
+plot web
 ```
 
-The TUI is built for watching a fleet, not tailing a log. Closing it detaches the UI from the Local Plot Server session; it does not kill the session.
+The TUI attaches to one Plot Session. The web dashboard rolls up every Plot Session in the Local Plot Server roster and drills into the same per-session projection. Closing either UI detaches the client; it does not kill a Plot Session. Pressing Ctrl-C in `plot web` stops that foreground Local Plot Server process.
 
 It shows:
 
@@ -137,6 +147,7 @@ Your workflow can provide titles, labels, URLs, and short status text. Plot owns
 - [Workflows](docs/workflows.md)
 - [Extensions](docs/extensions.md)
 - [TUI](docs/tui.md)
+- [Web](docs/web.md)
 
 For LLM-assisted extension authoring:
 

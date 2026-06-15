@@ -53,6 +53,17 @@ interface WebSocketData {
 	lastSeenAt: number;
 }
 
+export interface LocalPlotWebAsset {
+	readonly path: string;
+	readonly contentType: string;
+	readonly body: string | Uint8Array;
+}
+
+export interface LocalPlotWebAssets {
+	readonly indexHtml: string;
+	readonly assets: readonly LocalPlotWebAsset[];
+}
+
 export interface LocalPlotServerOptions extends LocalPlotServerPathOptions {
 	readonly hostname?: string;
 	readonly port?: number;
@@ -63,6 +74,13 @@ export interface LocalPlotServerOptions extends LocalPlotServerPathOptions {
 		PlotProtocolLayerOptions,
 		"registry" | "openSession"
 	>;
+	readonly webAssets?: LocalPlotWebAssets;
+	/**
+	 * Reuse a healthy server found in user-level metadata. Product client
+	 * autostart uses reuse; explicit `plot serve` / `plot web` foreground
+	 * commands do not, so Ctrl-C owns the process they started.
+	 */
+	readonly reuseExisting?: boolean;
 	readonly print?: (line: string) => Promise<void> | void;
 }
 
@@ -123,6 +141,33 @@ const allowedOrigin = (origin: string | null): boolean => {
 };
 
 const unauthorized = () => new Response("unauthorized\n", { status: 401 });
+
+const normalizeAssetPath = (path: string): string =>
+	path.startsWith("/") ? path : `/${path}`;
+
+const isAssetRequest = (path: string): boolean =>
+	path.startsWith("/assets/") || path === "/favicon.ico";
+
+const cacheHeadersFor = (asset: LocalPlotWebAsset): HeadersInit => ({
+	"content-type": asset.contentType,
+	"cache-control": "public, max-age=31536000, immutable",
+});
+
+const arrayBufferFrom = (bytes: Uint8Array): ArrayBuffer => {
+	const copy = new Uint8Array(bytes.byteLength);
+	copy.set(bytes);
+	return copy.buffer;
+};
+
+const bodyForAsset = (asset: LocalPlotWebAsset): BodyInit =>
+	typeof asset.body === "string"
+		? asset.body
+		: new Blob([arrayBufferFrom(asset.body)]);
+
+const indexHeaders: HeadersInit = {
+	"content-type": "text/html; charset=utf-8",
+	"cache-control": "no-store",
+};
 
 const closeWithError = (
 	ws: Bun.ServerWebSocket<WebSocketData>,
@@ -259,12 +304,19 @@ const makeFetchHandler = (input: {
 		PlotProtocolLayerOptions,
 		"registry" | "openSession"
 	>;
+	readonly webAssets?: LocalPlotWebAssets;
 }) => {
 	const openSession = makeOpenSession({
 		paths: input.paths,
 		cwd: input.cwd,
 		registry: input.registry,
 	});
+	const webAssetMap = new Map(
+		(input.webAssets?.assets ?? []).map((asset) => [
+			normalizeAssetPath(asset.path),
+			asset,
+		]),
+	);
 	return (request: Request, server: Bun.Server<WebSocketData>): Response => {
 		const url = new URL(request.url);
 		if (url.pathname === "/health") {
@@ -280,8 +332,18 @@ const makeFetchHandler = (input: {
 				tokenFingerprint: input.token.fingerprint,
 			});
 		}
-		if (url.pathname !== "/ws")
+		if (url.pathname !== "/ws") {
+			const asset = webAssetMap.get(url.pathname);
+			if (asset !== undefined)
+				return new Response(bodyForAsset(asset), {
+					headers: cacheHeadersFor(asset),
+				});
+			if (input.webAssets !== undefined && !isAssetRequest(url.pathname))
+				return new Response(input.webAssets.indexHtml, {
+					headers: indexHeaders,
+				});
 			return new Response("not found\n", { status: 404 });
+		}
 		if (!allowedOrigin(request.headers.get("origin")))
 			return new Response("forbidden origin\n", { status: 403 });
 		if (!localControlTokenMatches(input.token.token, tokenFromRequest(request)))
@@ -397,6 +459,7 @@ const bindServer = (input: {
 		PlotProtocolLayerOptions,
 		"registry" | "openSession"
 	>;
+	readonly webAssets?: LocalPlotWebAssets;
 }): Bun.Server<WebSocketData> =>
 	Bun.serve<WebSocketData>({
 		hostname: input.hostname,
@@ -412,12 +475,15 @@ export const startLocalPlotServer = async (
 	await mkdir(paths.logsDir, { recursive: true });
 	const token = await ensureLocalControlToken(paths);
 	const registry = options.registry ?? makeControlSessionRegistry();
+	const reuseExisting = options.reuseExisting ?? true;
 	await refreshPlotSessionCatalogFromHistory(paths);
-	const discovered = await discoverHealthyLocalPlotServer({
-		paths,
-		token: token.token,
-		tokenFingerprint: token.fingerprint,
-	});
+	const discovered = reuseExisting
+		? await discoverHealthyLocalPlotServer({
+				paths,
+				token: token.token,
+				tokenFingerprint: token.fingerprint,
+			})
+		: undefined;
 	const hostname = normalizeHostname(options.hostname);
 	const requestedPort = options.port;
 	if (discovered && requestedPort === undefined) {
@@ -445,6 +511,9 @@ export const startLocalPlotServer = async (
 			...(options.protocolOptions === undefined
 				? {}
 				: { protocolOptions: options.protocolOptions }),
+			...(options.webAssets === undefined
+				? {}
+				: { webAssets: options.webAssets }),
 		});
 	const stablePort = options.stablePort ?? defaultLocalPlotServerPort;
 	const firstPort = requestedPort ?? stablePort;
@@ -460,6 +529,11 @@ export const startLocalPlotServer = async (
 			expectedTokenFingerprint: token.fingerprint,
 		});
 		if (healthy) {
+			if (!reuseExisting)
+				throw new Error(
+					`Local Plot Server is already running at ${occupiedUrl}; stop it before starting a foreground server on this port.`,
+					{ cause: error },
+				);
 			await printListening(options.print, occupiedUrl, true);
 			return {
 				url: occupiedUrl,
@@ -476,8 +550,7 @@ export const startLocalPlotServer = async (
 				stop: async () => undefined,
 			};
 		}
-		if (requestedPort !== undefined && requestedPort !== stablePort)
-			throw error;
+		if (requestedPort !== undefined) throw error;
 		server = startOnPort(0);
 	}
 	const boundPort = server.port;

@@ -154,6 +154,59 @@ describe("Local Plot Server", () => {
 		}
 	});
 
+	test("foreground starts refuse to reuse an existing Local Plot Server", async () => {
+		const paths = await tmpPaths();
+		const server = await startLocalPlotServer({
+			serverDir: paths.serverDir,
+			hostname: "127.0.0.1",
+			port: 0,
+		});
+		try {
+			await expect(
+				startLocalPlotServer({
+					serverDir: paths.serverDir,
+					hostname: "127.0.0.1",
+					port: Number(new URL(server.url).port),
+					reuseExisting: false,
+				}),
+			).rejects.toThrow("Local Plot Server is already running");
+		} finally {
+			await server.stop();
+		}
+	});
+
+	test("serves bundled web assets without weakening control auth", async () => {
+		const paths = await tmpPaths();
+		const server = await startLocalPlotServer({
+			serverDir: paths.serverDir,
+			port: 0,
+			webAssets: {
+				indexHtml: "<!doctype html><script src='/assets/app.js'></script>",
+				assets: [
+					{
+						path: "/assets/app.js",
+						contentType: "text/javascript; charset=utf-8",
+						body: "globalThis.__plotWeb = true;",
+					},
+				],
+			},
+		});
+		try {
+			const index = await fetch(`${server.url}/`);
+			expect(index.status).toBe(200);
+			expect(index.headers.get("content-type")).toContain("text/html");
+			expect(await index.text()).toContain("/assets/app.js");
+
+			const asset = await fetch(`${server.url}/assets/app.js`);
+			expect(asset.status).toBe(200);
+			expect(asset.headers.get("content-type")).toContain("text/javascript");
+			expect(await asset.text()).toContain("__plotWeb");
+			expect((await fetch(`${server.url}/health`)).status).toBe(401);
+		} finally {
+			await server.stop();
+		}
+	});
+
 	test("WebSocket clients receive welcome and can list sessions", async () => {
 		const paths = await tmpPaths();
 		const server = await startLocalPlotServer({

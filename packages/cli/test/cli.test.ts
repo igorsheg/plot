@@ -119,6 +119,7 @@ describe("plot CLI", () => {
 		expect(output).toContain("list-models");
 		expect(output).toContain("docs");
 		expect(output).toContain("run");
+		expect(output).toContain("web");
 	});
 
 	test("prints citty subcommand help", async () => {
@@ -136,6 +137,24 @@ describe("plot CLI", () => {
 		);
 		expect(output).toContain("--workflow");
 		expect(output).toContain("--provider");
+	});
+
+	test("prints web command help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["web", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain(
+			"Start the local web control plane and hold until Ctrl-C.",
+		);
+		expect(output).toContain("--no-open");
+		expect(output).toContain("--session-id");
+		expect(output).not.toContain("--workflow");
 	});
 
 	test("prints nested citty auth help", async () => {

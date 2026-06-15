@@ -22,13 +22,14 @@ plot run --workflow WORKFLOW.md
 
 `plot run` uses or autostarts the machine-local Plot Server, opens an ephemeral `oneshot` Plot Session, prints events, and leaves Session History visible in the local roster after completion.
 
-Open the dashboard:
+Open dashboards:
 
 ```bash
 plot tui --workflow WORKFLOW.md
+plot web
 ```
 
-`plot tui` also uses the Local Plot Server by default. Quitting the TUI detaches the UI; it does not close the Plot Session. These are localhost control connections only, not remote exposure.
+`plot tui` attaches the terminal dashboard to one Plot Session. `plot web` starts the localhost fleet control plane in the foreground for every Plot Session the Local Plot Server knows about. Quitting a UI detaches that client; it does not close the Plot Session. Press Ctrl-C in the `plot web` terminal to stop that foreground Local Plot Server process. These are localhost control connections only, not remote exposure.
 
 ## Try the PR review example
 
@@ -44,7 +45,7 @@ The example uses:
 - `plot-ai/sdk` for extension authoring
 - registered pi tools for GitHub/API side effects
 - a workflow prompt to teach review behavior
-- the TUI to show running review work, usage, and cost
+- the TUI or web dashboard to show running review work, usage, and cost
 
 ## What you need to build your own workflow
 

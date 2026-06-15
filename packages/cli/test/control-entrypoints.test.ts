@@ -12,7 +12,7 @@ import {
 	writePlotFauxAgentFiles,
 	type PlotFauxProviderRegistration,
 } from "@plot/session/testing/faux-agent-session";
-import { runControlOneshot } from "../src/runtime.js";
+import { runControlOneshot, startWebDashboard } from "../src/runtime.js";
 import { runPlotCli } from "../src/cli.js";
 
 const tempDirs: string[] = [];
@@ -144,6 +144,56 @@ describe("control-protocol product entrypoints", () => {
 			await server.stop();
 			await sleep(50);
 		}
+	});
+
+	test("plot web prints a fragment handoff URL without opening the browser", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "plot-web-control-"));
+		tempDirs.push(cwd);
+		const serverDir = await mkdtemp(join(tmpdir(), "plot-web-server-"));
+		tempDirs.push(serverDir);
+		const stdout: string[] = [];
+		const dashboard = await startWebDashboard({
+			cwd,
+			sessionId: "web-test",
+			serverDir,
+			port: 0,
+			logLevel: "none",
+			logFormat: "json",
+			selectedSessionId: "existing-session",
+			role: "observer",
+			explicitFleet: true,
+			noOpen: true,
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+			openBrowser: () => {
+				throw new Error("browser should not open with --no-open");
+			},
+		});
+		try {
+			expect((await fetch(dashboard.server.url)).status).toBe(200);
+		} finally {
+			await dashboard.stop();
+			await sleep(50);
+		}
+
+		const event = JSON.parse(stdout.join("")) as {
+			readonly event: string;
+			readonly url: string;
+			readonly opened: boolean;
+		};
+		expect(event.event).toBe("plot_web_url");
+		expect(event.opened).toBe(false);
+		const url = new URL(event.url);
+		expect(url.searchParams.has("token")).toBe(false);
+		const hash = new URLSearchParams(url.hash.slice(1));
+		expect(hash.get("session")).toBe("existing-session");
+		expect(hash.get("role")).toBe("observer");
+		expect(hash.get("view")).toBe("fleet");
+		const ws = new URL(hash.get("ws")!);
+		expect(ws.protocol).toBe("ws:");
+		expect(ws.pathname).toBe("/ws");
+		expect(ws.searchParams.has("token")).toBe(true);
 	});
 
 	test("--no-server is explicit help, not the default entrypoint path", async () => {

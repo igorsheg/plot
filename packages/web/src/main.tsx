@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 // oxlint-disable-next-line import/no-unassigned-import -- bundled Fluid Functionalism font.
-import "@fontsource/inter/variable.css";
+import "@fontsource/inter";
 // oxlint-disable-next-line import/no-unassigned-import -- Vite CSS entry import.
 import "./globals.css";
 import { DashboardPage } from "./app/dashboard/DashboardPage";

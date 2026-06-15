@@ -1,6 +1,6 @@
 # Workflows
 
-A workflow is a Markdown file with front matter.
+A workflow is a Markdown file with front matter. A Plot Session is the live runtime created from that workflow by the Local Plot Server.
 
 It answers three questions:
 
@@ -144,3 +144,15 @@ Registered tools come from the extension SDK:
 - `defineTool(...)` is re-exported from pi-mono for tool authoring.
 
 Keep this split clear: TypeScript owns integration correctness and idempotent mutations; the agent owns investigation, judgment, and final content.
+
+## Running and observing
+
+```bash
+plot run --workflow WORKFLOW.md
+plot tui --workflow WORKFLOW.md
+plot web
+```
+
+`plot run` creates a oneshot Plot Session. `plot tui` opens or attaches to a watch Plot Session. `plot web` starts a foreground Local Plot Server, opens the roster, and can drill into either kind of session. All three use the explicit control protocol by default.
+
+Plot stores project-local Session History under `.plot/sessions`. This is separate from pi-mono Agent Transcripts: Session History records Plot control-plane events and projection state, while Agent Transcripts remain the inner agent-session record.

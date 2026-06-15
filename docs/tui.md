@@ -1,6 +1,6 @@
 # TUI
 
-The TUI is the operator view for a Plot workflow.
+The TUI is the terminal operator view for one attached Plot Session. Use `plot web` when you want the multi-session fleet view.
 
 ```bash
 plot tui --workflow WORKFLOW.md
@@ -8,7 +8,7 @@ plot tui --workflow WORKFLOW.md
 
 By default it uses or autostarts the machine-local Plot Server and attaches over the explicit control protocol. The session appears in the shared roster used by other local clients. Quitting or pressing Ctrl-C detaches this UI; it does not close the Plot Session. Use `--no-server` only as an explicit local test/escape hatch.
 
-It is built for a fleet, not a single log stream.
+It is built as a Process Table, not a single log stream. The same per-session projection is used by the web drill-in view.
 
 You should be able to answer:
 

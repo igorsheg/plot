@@ -11,6 +11,7 @@ import { listModelsCommand } from "./commands/list-models.js";
 import { runCommand } from "./commands/run.js";
 import { serveCommand } from "./commands/serve.js";
 import { tuiCommand } from "./commands/tui.js";
+import { webCommand } from "./commands/web.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 
 export const version = "0.0.0";
@@ -23,6 +24,7 @@ const subCommands = {
 	docs: docsCommand,
 	run: runCommand,
 	tui: tuiCommand,
+	web: webCommand,
 	serve: serveCommand,
 };
 

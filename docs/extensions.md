@@ -148,9 +148,32 @@ Give the agent facts, not a rigid script.
 
 ### `display`
 
-Hints for the TUI. Plot owns rendering.
+Hints for the TUI and web dashboard. Plot owns rendering.
 
 Extensions may provide titles, labels, URLs, and short version text. Extensions may not provide TUI components, keybindings, or custom renderers.
+
+### `operatorActions`
+
+Source-declared choices a human controller may perform on the Work Item. They are semantic actions, not display hints, and they are rendered generically by TUI/web.
+
+```ts
+work({
+	id: "release:v1",
+	title: "Release v1",
+	blocked: "waiting for operator approval",
+	operatorActions: [
+		{
+			id: "approve",
+			label: "Approve",
+			tone: "primary",
+			confirm: { title: "Approve release?" },
+		},
+		{ id: "hold", label: "Hold", requiresComment: true },
+	],
+});
+```
+
+When an operator performs an action, Plot records an Operator Observation in Session History. The web never calls Source code directly; your extension can implement `operatorAction(event)` to update its own trusted state before later discovery/reconciliation decides what changed.
 
 ## Config
 

@@ -8,13 +8,14 @@ const docNames = [
 	"workflows",
 	"extensions",
 	"tui",
+	"web",
 ] as const;
 type DocName = (typeof docNames)[number];
 
 const isDocName = (value: string): value is DocName =>
 	(docNames as readonly string[]).includes(value);
 
-const docsIndex = `Plot docs\n\nStart here:\n  plot docs quickstart\n  plot docs workflows\n  plot docs extensions\n  plot docs tui\n\nFor LLM-assisted extension authoring:\n  plot docs extension-prompt\n`;
+const docsIndex = `Plot docs\n\nStart here:\n  plot docs quickstart\n  plot docs workflows\n  plot docs extensions\n  plot docs tui\n  plot docs web\n\nFor LLM-assisted extension authoring:\n  plot docs extension-prompt\n`;
 
 export const docsCommand = defineCommand({
 	meta: {
@@ -24,7 +25,8 @@ export const docsCommand = defineCommand({
 	args: {
 		topic: {
 			type: "positional",
-			description: "index|quickstart|workflows|extensions|tui|extension-prompt",
+			description:
+				"index|quickstart|workflows|extensions|tui|web|extension-prompt",
 			required: false,
 		},
 	},

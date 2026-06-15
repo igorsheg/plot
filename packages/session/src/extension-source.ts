@@ -132,6 +132,9 @@ const templateContextForWork = (
 		...(work.url === undefined ? {} : { url: work.url }),
 		...(work.subject === undefined ? {} : { subject: work.subject }),
 		...(work.display === undefined ? {} : { display: work.display }),
+		...(work.operatorActions === undefined
+			? {}
+			: { operatorActions: work.operatorActions }),
 	};
 	const base = { workflow: workflow.config, work: metadata };
 	if (work.context === undefined) return base;
@@ -174,6 +177,40 @@ const resolveToolDefinitions = async (options: {
 	}
 	return resolved;
 };
+const invokeOperatorActionHook = async (
+	runtime: PlotExtensionRuntime,
+	source: SourceId,
+	work: PlotExtensionWork,
+	data: Record<string, unknown>,
+) => {
+	try {
+		const actionId = data["actionId"];
+		const actionLabel = data["actionLabel"];
+		const timestamp = data["timestamp"];
+		if (
+			typeof actionId !== "string" ||
+			typeof actionLabel !== "string" ||
+			typeof timestamp !== "string"
+		)
+			return;
+		await runtime.operatorAction?.({
+			work,
+			actionId,
+			actionLabel,
+			timestamp,
+			...(typeof data["comment"] === "string"
+				? { comment: data["comment"] }
+				: {}),
+			...(typeof data["clientId"] === "string"
+				? { clientId: data["clientId"] }
+				: {}),
+			...(data["actor"] === undefined ? {} : { actor: data["actor"] }),
+		});
+	} catch (error) {
+		await logHookError(error, "operator_action", source);
+	}
+};
+
 const invokeCompletionHook = async (
 	runtime: PlotExtensionRuntime,
 	source: SourceId,
@@ -308,6 +345,21 @@ export const makePlotExtensionSourceBundle = (options: {
 					}
 				}
 			}
+			for (const observation of snapshot.observations) {
+				if (observation.type !== "operator_observation") continue;
+				if (!isObjectRecord(observation.data)) continue;
+				if (observation.data["sourceId"] !== source) continue;
+				const observedWorkKey = observation.data["workKey"];
+				if (typeof observedWorkKey !== "string") continue;
+				const work = selectedWork.get(workKey(observedWorkKey));
+				if (work === undefined) continue;
+				await invokeOperatorActionHook(
+					options.runtime,
+					source,
+					work,
+					observation.data,
+				);
+			}
 			for (const completion of snapshot.completions) {
 				if (completion.sourceId !== source) continue;
 				const work = selectedWork.get(completion.workKey);
@@ -360,6 +412,9 @@ export const makePlotExtensionSourceBundle = (options: {
 						...(extensionWork.display === undefined
 							? {}
 							: { display: extensionWork.display }),
+						...(extensionWork.operatorActions === undefined
+							? {}
+							: { operatorActions: extensionWork.operatorActions }),
 					},
 				];
 			});

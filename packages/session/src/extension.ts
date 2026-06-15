@@ -1,8 +1,11 @@
 export type {
 	MaybePromise,
+	OperatorAction,
+	OperatorActionConfirm,
 	PlotExtension,
 	PlotExtensionCompletedEvent,
 	PlotExtensionFailedEvent,
+	PlotExtensionOperatorActionEvent,
 	PlotExtensionRuntime,
 	PlotExtensionSetupContext,
 	PlotExtensionTool,

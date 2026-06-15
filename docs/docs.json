@@ -7,7 +7,8 @@
 				{ "title": "Quickstart", "path": "quickstart.md" },
 				{ "title": "Workflows", "path": "workflows.md" },
 				{ "title": "Extensions", "path": "extensions.md" },
-				{ "title": "TUI", "path": "tui.md" }
+				{ "title": "TUI", "path": "tui.md" },
+				{ "title": "Web", "path": "web.md" }
 			]
 		}
 	]

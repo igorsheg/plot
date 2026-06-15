@@ -117,6 +117,60 @@ describe("Plot extension source adapter", () => {
 		]);
 	});
 
+	test("adapts operator actions and observations into the extension seam", async () => {
+		const observed: string[] = [];
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "approval-source",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				discover: () => [
+					{
+						id: "release:v1",
+						version: "1",
+						title: "Release v1",
+						operatorActions: [
+							{ id: "approve", label: "Approve", tone: "primary" },
+						],
+					},
+				],
+				operatorAction: ({ work, actionId, comment }) => {
+					observed.push(`${work.id}:${actionId}:${comment ?? ""}`);
+				},
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: () => new Promise(() => {}),
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const first = await agent.tickOnce();
+		const run = first.started[0];
+		expect(run?.operatorActions).toEqual([
+			{ id: "approve", label: "Approve", tone: "primary" },
+		]);
+		await agent.offer({
+			type: "observation",
+			observation: {
+				type: "operator_observation",
+				data: {
+					sourceId: "extension:approval-source",
+					workKey: String(run!.workKey),
+					actionId: "approve",
+					actionLabel: "Approve",
+					timestamp: "2026-06-15T00:00:00.000Z",
+					comment: "ship it",
+				},
+			},
+		});
+		await agent.tickOnce();
+
+		expect(observed).toEqual(["release:v1:approve:ship it"]);
+	});
+
 	test("superseded version drains; the id-level claim defers the next version", async () => {
 		let version = "sha-1";
 		const interrupted: string[] = [];
