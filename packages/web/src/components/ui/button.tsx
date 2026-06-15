@@ -1,17 +1,14 @@
+import { forwardRef, isValidElement, type ButtonHTMLAttributes } from "react";
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
-import { type ButtonHTMLAttributes, isValidElement, type Ref } from "react";
-
-import type { IconComponent } from "@/lib/icon";
-import { useShape } from "@/lib/shape-context";
+import type { IconComponent } from "@/lib/icon-context";
 import { cn } from "@/lib/utils";
+import { useShape } from "@/lib/shape-context";
 
-// Ported from fluid-functionalism (registry/base/button), modernized to React
-// 19 ref-as-prop. Background lives on an absolutely-positioned layer so hover /
-// active / press can animate independently of the label.
 const buttonVariants = cva(
 	[
 		"group relative isolate inline-flex items-center justify-center outline-none cursor-pointer",
+		"text-box-trim-both text-box-edge-cap-alphabetic",
 		"transition-colors duration-80",
 		"disabled:opacity-50 disabled:pointer-events-none",
 		"focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
@@ -43,7 +40,10 @@ const buttonVariants = cva(
 			{ size: "md", iconRight: true, className: "pr-[10px]" },
 			{ size: "lg", iconRight: true, className: "pr-[14px]" },
 		],
-		defaultVariants: { variant: "primary", size: "md" },
+		defaultVariants: {
+			variant: "primary",
+			size: "md",
+		},
 	},
 );
 
@@ -51,14 +51,15 @@ interface ButtonProps
 	extends
 		ButtonHTMLAttributes<HTMLButtonElement>,
 		VariantProps<typeof buttonVariants> {
-	/** Route the single element child through Base UI's render (slot-style). */
+	/** When true, the given single React-element child becomes the rendered element (slot-style). */
 	asChild?: boolean;
 	loading?: boolean;
 	leadingIcon?: IconComponent;
 	trailingIcon?: IconComponent;
-	/** Force the pressed/held look (e.g. while it drives an open popover). */
+	/** Force the visual pressed/held state. Useful when the button drives an
+	 *  external open piece of UI (a popover, dropdown, etc.) so it reads as
+	 *  engaged while the menu is showing. */
 	active?: boolean;
-	ref?: Ref<HTMLButtonElement>;
 }
 
 const bgVariants: Record<string, string> = {
@@ -76,112 +77,124 @@ const activeBgVariants: Record<string, string> = {
 	ghost: "bg-active",
 };
 
-export function Button({
-	className,
-	variant,
-	size,
-	asChild = false,
-	loading = false,
-	leadingIcon: LeadingIcon,
-	trailingIcon: TrailingIcon,
-	active = false,
-	disabled,
-	children,
-	style,
-	ref,
-	...props
-}: ButtonProps) {
-	const isIconOnly =
-		size === "icon" || size === "icon-sm" || size === "icon-lg";
-	const iconSize = size === "sm" ? 14 : size === "lg" ? 20 : 16;
-	const shape = useShape();
-	const bgClass = active
-		? activeBgVariants[variant ?? "primary"]
-		: bgVariants[variant ?? "primary"];
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+	(
+		{
+			className,
+			variant,
+			size,
+			asChild = false,
+			loading = false,
+			leadingIcon: LeadingIcon,
+			trailingIcon: TrailingIcon,
+			active = false,
+			disabled,
+			children,
+			style,
+			...props
+		},
+		ref,
+	) => {
+		const isIconOnly =
+			size === "icon" || size === "icon-sm" || size === "icon-lg";
+		const iconSize = size === "sm" ? 14 : size === "lg" ? 20 : 16;
+		const shape = useShape();
+		const bgClass = active
+			? activeBgVariants[variant ?? "primary"]
+			: bgVariants[variant ?? "primary"];
 
-	const renderProp = asChild && isValidElement(children) ? children : undefined;
+		// asChild parity: Base UI's `render` prop accepts a single element and
+		// clones it. When asChild is true and children is a valid element, route
+		// through render so the user's element becomes the outer tag.
+		const renderProp =
+			asChild && isValidElement(children) ? children : undefined;
 
-	return (
-		<ButtonPrimitive
-			ref={ref}
-			render={renderProp}
-			className={cn(
-				buttonVariants({
-					variant,
-					size,
-					iconLeft: !isIconOnly && Boolean(LeadingIcon),
-					iconRight: !isIconOnly && Boolean(TrailingIcon),
-				}),
-				shape.button,
-				className,
-			)}
-			disabled={disabled || loading}
-			style={style}
-			{...props}
-		>
-			<span
-				aria-hidden
+		return (
+			<ButtonPrimitive
+				// Base UI's `ButtonPrimitive` forwards to an HTMLButtonElement;
+				// keep the public ref type narrow so consumers see the right type.
+				ref={ref as React.Ref<HTMLButtonElement>}
+				render={renderProp}
 				className={cn(
-					"absolute inset-0 rounded-[inherit] transition-[background-color,transform] duration-80 group-active:scale-[0.98]",
-					bgClass,
+					buttonVariants({
+						variant,
+						size,
+						iconLeft: !isIconOnly && Boolean(LeadingIcon),
+						iconRight: !isIconOnly && Boolean(TrailingIcon),
+					}),
+					shape.button,
+					className,
 				)}
-			/>
-			<span className="relative inline-flex items-center justify-center gap-[inherit]">
-				{loading ? (
-					<>
-						<span className="flex items-center justify-center gap-[inherit] opacity-0">
-							{LeadingIcon && !isIconOnly ? (
-								<LeadingIcon size={iconSize} strokeWidth={2} />
-							) : null}
+				disabled={disabled || loading}
+				style={style}
+				{...props}
+			>
+				<span
+					aria-hidden
+					className={cn(
+						"absolute inset-0 rounded-[inherit] transition-[background-color,transform] duration-80 group-active:scale-[0.98]",
+						bgClass,
+					)}
+				/>
+				<span className="relative inline-flex items-center justify-center gap-[inherit]">
+					{loading ? (
+						<>
+							<span className="flex items-center justify-center gap-[inherit] opacity-0">
+								{LeadingIcon && !isIconOnly && (
+									<LeadingIcon size={iconSize} strokeWidth={2} />
+								)}
+								{children}
+								{TrailingIcon && !isIconOnly && (
+									<TrailingIcon size={iconSize} strokeWidth={2} />
+								)}
+							</span>
+							<span className="absolute inset-0 flex items-center justify-center">
+								<svg className="h-8 w-8" viewBox="0 0 24 24" fill="none">
+									<path
+										d="M 12 12 C 14 8.5 19 8.5 19 12 C 19 15.5 14 15.5 12 12 C 10 8.5 5 8.5 5 12 C 5 15.5 10 15.5 12 12 Z"
+										stroke="currentColor"
+										strokeWidth="1.125"
+										strokeLinecap="round"
+										pathLength="100"
+										style={{
+											strokeDasharray: "15 85",
+											animation:
+												"spinner-move 2s linear infinite, spinner-dash 4s ease-in-out infinite",
+										}}
+									/>
+								</svg>
+							</span>
+						</>
+					) : isIconOnly ? (
+						<span className="[&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 group-hover:[&_svg]:stroke-[2]">
 							{children}
-							{TrailingIcon && !isIconOnly ? (
-								<TrailingIcon size={iconSize} strokeWidth={2} />
-							) : null}
 						</span>
-						<span className="absolute inset-0 flex items-center justify-center">
-							<svg className="h-8 w-8" viewBox="0 0 24 24" fill="none">
-								<path
-									d="M 12 12 C 14 8.5 19 8.5 19 12 C 19 15.5 14 15.5 12 12 C 10 8.5 5 8.5 5 12 C 5 15.5 10 15.5 12 12 Z"
-									stroke="currentColor"
-									strokeWidth="1.125"
-									strokeLinecap="round"
-									pathLength="100"
-									style={{
-										strokeDasharray: "15 85",
-										animation:
-											"spinner-move 2s linear infinite, spinner-dash 4s ease-in-out infinite",
-									}}
+					) : (
+						<>
+							{LeadingIcon && (
+								<LeadingIcon
+									size={iconSize}
+									strokeWidth={1.5}
+									className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
 								/>
-							</svg>
-						</span>
-					</>
-				) : isIconOnly ? (
-					<span className="[&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 group-hover:[&_svg]:stroke-[2]">
-						{children}
-					</span>
-				) : (
-					<>
-						{LeadingIcon ? (
-							<LeadingIcon
-								size={iconSize}
-								strokeWidth={1.5}
-								className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
-							/>
-						) : null}
-						<span>{children}</span>
-						{TrailingIcon ? (
-							<TrailingIcon
-								size={iconSize}
-								strokeWidth={1.5}
-								className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
-							/>
-						) : null}
-					</>
-				)}
-			</span>
-		</ButtonPrimitive>
-	);
-}
+							)}
+							<span>{children}</span>
+							{TrailingIcon && (
+								<TrailingIcon
+									size={iconSize}
+									strokeWidth={1.5}
+									className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
+								/>
+							)}
+						</>
+					)}
+				</span>
+			</ButtonPrimitive>
+		);
+	},
+);
 
-export { buttonVariants };
+Button.displayName = "Button";
+
+export { Button, buttonVariants };
 export type { ButtonProps };

@@ -67,6 +67,7 @@
 
 	--destructive: #ef4444;
 	--destructive-light: #fef2f2;
+	--attention: #d97706;
 
 	--overlay: 0 0 0;
 	--hover: rgb(var(--overlay) / 0.04);
@@ -144,6 +145,7 @@
 
 		--destructive: #f87171;
 		--destructive-light: #450a0a;
+		--attention: #f59e0b;
 
 		--overlay: 255 255 255;
 		--hover: rgb(var(--overlay) / 0.06);
@@ -206,6 +208,7 @@
 
 	--destructive: #ef4444;
 	--destructive-light: #fef2f2;
+	--attention: #d97706;
 
 	--overlay: 0 0 0;
 	--hover: rgb(var(--overlay) / 0.04);
@@ -320,6 +323,7 @@
 	--color-input: var(--input);
 	--color-destructive: var(--destructive);
 	--color-destructive-light: var(--destructive-light);
+	--color-attention: var(--attention);
 	--color-hover: var(--hover);
 	--color-active: var(--active);
 

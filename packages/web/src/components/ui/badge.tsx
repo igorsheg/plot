@@ -1,12 +1,8 @@
+import { forwardRef, type HTMLAttributes } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import type { HTMLAttributes, Ref } from "react";
-
-import { useShape } from "@/lib/shape-context";
 import { cn } from "@/lib/utils";
+import { useShape } from "@/lib/shape-context";
 
-// Ported from fluid-functionalism (registry/default/badge), modernized to React
-// 19 ref-as-prop. `solid` tints a color into the surface; `dot` pairs a neutral
-// chip with a colored status dot.
 const badgeColors = {
 	gray: "#a3a3a3",
 	red: "#ef4444",
@@ -43,7 +39,10 @@ const badgeVariants = cva(
 				lg: "h-7 px-3 text-sm gap-1.5",
 			},
 		},
-		defaultVariants: { variant: "solid", size: "md" },
+		defaultVariants: {
+			variant: "solid",
+			size: "md",
+		},
 	},
 );
 
@@ -52,52 +51,61 @@ interface BadgeProps
 		Omit<HTMLAttributes<HTMLSpanElement>, "color">,
 		VariantProps<typeof badgeVariants> {
 	color?: BadgeColor;
-	ref?: Ref<HTMLSpanElement>;
 }
 
-export function Badge({
-	className,
-	variant = "solid",
-	size = "md",
-	color = "gray",
-	children,
-	style,
-	ref,
-	...props
-}: BadgeProps) {
-	const shape = useShape();
-	const colorValue = badgeColors[color];
-	const isSolid = variant === "solid";
-	const dotSize = size === "sm" ? 6 : size === "lg" ? 8 : 7;
+const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
+	(
+		{
+			className,
+			variant = "solid",
+			size = "md",
+			color = "gray",
+			children,
+			style,
+			...props
+		},
+		ref,
+	) => {
+		const shape = useShape();
+		const colorValue = badgeColors[color];
+		const isSolid = variant === "solid";
+		const dotSize = size === "sm" ? 6 : size === "lg" ? 8 : 7;
 
-	const colorStyle = isSolid
-		? color === "gray"
-			? { backgroundColor: "var(--accent)", color: "var(--foreground)" }
-			: {
-					color: "var(--foreground)",
-					backgroundColor: `color-mix(in srgb, ${colorValue} 15%, var(--background))`,
-				}
-		: {};
+		const colorStyle = isSolid
+			? color === "gray"
+				? { backgroundColor: "var(--accent)", color: "var(--foreground)" }
+				: {
+						color: "var(--foreground)",
+						backgroundColor: `color-mix(in srgb, ${colorValue} 15%, var(--background))`,
+					}
+			: {};
 
-	const dotColor = color === "gray" ? "var(--muted-foreground)" : colorValue;
+		const dotColor = color === "gray" ? "var(--muted-foreground)" : colorValue;
 
-	return (
-		<span
-			ref={ref}
-			className={cn(badgeVariants({ variant, size }), shape.item, className)}
-			style={{ ...colorStyle, ...style }}
-			{...props}
-		>
-			{isSolid ? null : (
-				<span
-					className="shrink-0 rounded-full"
-					style={{ width: dotSize, height: dotSize, backgroundColor: dotColor }}
-				/>
-			)}
-			{children}
-		</span>
-	);
-}
+		return (
+			<span
+				ref={ref}
+				className={cn(badgeVariants({ variant, size }), shape.item, className)}
+				style={{ ...colorStyle, ...style }}
+				{...props}
+			>
+				{!isSolid && (
+					<span
+						className="shrink-0 rounded-full"
+						style={{
+							width: dotSize,
+							height: dotSize,
+							backgroundColor: dotColor,
+						}}
+					/>
+				)}
+				{children}
+			</span>
+		);
+	},
+);
 
-export { badgeVariants, badgeColors };
+Badge.displayName = "Badge";
+
+export { Badge, badgeVariants, badgeColors };
 export type { BadgeProps, BadgeColor };
