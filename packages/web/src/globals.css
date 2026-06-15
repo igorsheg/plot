@@ -474,10 +474,12 @@ p {
 	animation: pulse-beat 600ms ease-out;
 }
 
-/* Live-text shimmer (TextShimmer): a foreground highlight sweeps across muted
-   base text, clipped to the glyphs. Conveys "streaming/working" without
-   reflow. Tokens only; falls back to static muted under reduced motion. */
-@keyframes text-shimmer {
+/* Live-text shimmer: a foreground highlight sweeps across muted base text,
+   clipped to the glyphs — conveys "streaming/working" without reflow. This is
+   the `shimmer-text` class FF's ThinkingSteps / ThinkingIndicator reach for (it
+   ships the components but not the CSS). Tokens only; static under reduced
+   motion. */
+@keyframes shimmer-text {
 	from {
 		background-position: 200% 0;
 	}
@@ -486,7 +488,7 @@ p {
 	}
 }
 
-.text-shimmer {
+.shimmer-text {
 	background: linear-gradient(
 		90deg,
 		var(--muted-foreground) 0%,
@@ -499,7 +501,7 @@ p {
 	-webkit-background-clip: text;
 	background-clip: text;
 	color: transparent;
-	animation: text-shimmer 1.6s linear infinite;
+	animation: shimmer-text 1.6s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -507,7 +509,7 @@ p {
 		animation: none;
 	}
 
-	.text-shimmer {
+	.shimmer-text {
 		animation: none;
 		background: none;
 		-webkit-background-clip: border-box;

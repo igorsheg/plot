@@ -24,12 +24,15 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Disclosure } from "@/components/ui/disclosure";
 import { NotAvailable } from "@/components/ui/not-available";
 import { PageHeader, SectionLabel } from "@/components/ui/page-header";
 import { Switch } from "@/components/ui/switch";
-import { TextShimmer } from "@/components/ui/text-shimmer";
-import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import {
+	ThinkingStep,
+	ThinkingSteps,
+	ThinkingStepsContent,
+	ThinkingStepsHeader,
+} from "@/components/ui/thinking-steps";
 import { cn } from "@/lib/utils";
 import {
 	useDashboardActions,
@@ -262,11 +265,10 @@ function NeedsYouZone({
 	);
 }
 
-// A work item as a stable process row, not a reflowing table cell. The volatile
-// stream is isolated to one shimmering, truncating line (TextShimmer) so its
-// length never moves the layout; actions live in their own row below it; the
-// full event feed is an opt-in, auto-scrolling panel. Adapted from opencode's
-// activity model onto our timeline-grained data.
+// A work item as a stable process row. The volatile stream is isolated to one
+// line that uses FF's `shimmer-text` while the agent is live (motion, not
+// reflow, signals "working"); the event history is an opt-in FF ThinkingSteps
+// timeline — each entry a step on a connecting line, the current one `active`.
 function WorkItem({
 	work,
 	sessionId,
@@ -304,54 +306,55 @@ function WorkItem({
 					<span>{work.runId || <NotAvailable />}</span>
 				</div>
 			</div>
-			{/* Live head: the one volatile line, isolated + truncated. */}
-			<TextShimmer
-				text={work.activity || "idle"}
-				active={isLive}
-				className="text-sm"
-			/>
+			{/* Live line: FF shimmer-text while working, static muted otherwise. */}
+			<p
+				className={cn(
+					"truncate text-sm",
+					isLive ? "shimmer-text" : "text-muted-foreground",
+				)}
+			>
+				{work.activity || "idle"}
+			</p>
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<div className="flex flex-wrap items-center gap-2">
 					<OperatorActionButtons item={work} sessionId={sessionId} />
 					<InterruptRunButton item={work} sessionId={sessionId} />
 				</div>
-				<ActivityFeed entries={work.timeline} />
+				<WorkFeed entries={work.timeline} isLive={isLive} />
 			</div>
 		</div>
 	);
 }
 
-function ActivityFeed({
+function WorkFeed({
 	entries,
+	isLive,
 }: {
 	entries: RunningWorkProjection["timeline"];
+	isLive: boolean;
 }) {
 	const ordered = [...entries].toSorted((a, b) => a.atMs - b.atMs);
-	const scrollRef = useAutoScroll<HTMLDivElement>(ordered.length);
 	if (ordered.length === 0) return null;
+	const lastIndex = ordered.length - 1;
 	return (
-		<Disclosure>
-			<Disclosure.Trigger className="gap-1 py-0 text-xs">
-				<span>feed ({ordered.length})</span>
-			</Disclosure.Trigger>
-			<Disclosure.Panel>
-				<div
-					ref={scrollRef}
-					className="mt-2 max-h-64 overflow-y-auto border-l border-border pl-3 font-mono text-xs"
-				>
-					<div className="flex flex-col gap-1">
-						{ordered.map((entry) => (
-							<div key={`${entry.atMs}-${entry.text}`} className="flex gap-2">
-								<span className="shrink-0 tabular-nums text-muted-foreground">
-									{formatAgo(Date.now() - entry.atMs)}
-								</span>
-								<span className="text-foreground">{entry.text}</span>
-							</div>
-						))}
-					</div>
-				</div>
-			</Disclosure.Panel>
-		</Disclosure>
+		<ThinkingSteps defaultOpen={false} className="w-full">
+			<ThinkingStepsHeader className="text-xs">
+				feed ({ordered.length})
+			</ThinkingStepsHeader>
+			<ThinkingStepsContent>
+				{ordered.map((entry, index) => (
+					<ThinkingStep
+						key={`${entry.atMs}-${entry.text}`}
+						index={index}
+						icon="dot"
+						label={entry.text}
+						description={formatAgo(Date.now() - entry.atMs)}
+						status={index === lastIndex && isLive ? "active" : "complete"}
+						isLast={index === lastIndex}
+					/>
+				))}
+			</ThinkingStepsContent>
+		</ThinkingSteps>
 	);
 }
 
