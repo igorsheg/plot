@@ -488,6 +488,28 @@ p {
 	}
 }
 
+/* FF's signature weight-on-hover: a title sits at `medium` and animates to
+   `semibold` when its row (.group) is hovered. Real now that Inter is a
+   self-hosted variable font with the wght axis. */
+.weight-hover {
+	font-variation-settings:
+		"wght" 450,
+		"opsz" 15;
+	transition: font-variation-settings 150ms ease;
+}
+
+.group:hover .weight-hover {
+	font-variation-settings:
+		"wght" 550,
+		"opsz" 20;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.weight-hover {
+		transition: none;
+	}
+}
+
 .shimmer-text {
 	background: linear-gradient(
 		90deg,

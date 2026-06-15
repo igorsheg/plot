@@ -68,13 +68,13 @@ function FleetRailItem({
 			params={{ sessionId: session.id }}
 			search={(prev) => ({ role: prev.role ?? "controller" })}
 			className={cn(
-				"flex flex-col gap-0.5 rounded-md px-2 py-1.5 transition-colors",
+				"group flex flex-col gap-0.5 rounded-md px-2 py-1.5 transition-colors",
 				active ? "bg-selected" : "hover:bg-hover",
 			)}
 		>
 			<div className="flex items-center gap-2">
 				<StatusDot tone={toneForSessionState(session.state)} />
-				<span className="min-w-0 flex-1 truncate text-sm font-medium">
+				<span className="weight-hover min-w-0 flex-1 truncate text-sm">
 					{session.workflowName}
 				</span>
 				{session.needsYouCount > 0 ? (

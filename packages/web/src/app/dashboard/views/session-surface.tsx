@@ -24,6 +24,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { InputCopy } from "@/components/ui/input-copy";
 import { NotAvailable } from "@/components/ui/not-available";
 import { PageHeader, SectionLabel } from "@/components/ui/page-header";
 import { Switch } from "@/components/ui/switch";
@@ -33,6 +34,7 @@ import {
 	ThinkingStepsContent,
 	ThinkingStepsHeader,
 } from "@/components/ui/thinking-steps";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
 	useDashboardActions,
@@ -89,22 +91,33 @@ function ProcessTable({
 		<>
 			<PageHeader
 				title={projection.workflowName}
-				subtitle={`${projection.runtime.cwdName || "n/a"} · ${session?.state ?? projection.status}`}
+				subtitle={session?.state ?? projection.status}
 			>
 				<div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-					<span className={tabular}>
-						agents {session?.agents.active ?? model.pulse.runningCount}/
-						{session?.agents.max ?? model.pulse.maxConcurrentRuns ?? "n/a"}
-					</span>
-					<span className={tabular}>
-						{model.pulse.throughput.replace("tps", "tok/s")}
-					</span>
-					<span className={tabular}>tokens {model.pulse.totalTokens}</span>
-					<span className={tabular}>
-						ready {counts.ready} · done {counts.done}
-					</span>
+					<Tooltip content="Active / max concurrent agents">
+						<span className={tabular}>
+							agents {session?.agents.active ?? model.pulse.runningCount}/
+							{session?.agents.max ?? model.pulse.maxConcurrentRuns ?? "n/a"}
+						</span>
+					</Tooltip>
+					<Tooltip content="Token throughput">
+						<span className={tabular}>
+							{model.pulse.throughput.replace("tps", "tok/s")}
+						</span>
+					</Tooltip>
+					<Tooltip content="Total tokens this session">
+						<span className={tabular}>tokens {model.pulse.totalTokens}</span>
+					</Tooltip>
+					<Tooltip content="Work items ready to run · completed">
+						<span className={tabular}>
+							ready {counts.ready} · done {counts.done}
+						</span>
+					</Tooltip>
 				</div>
 			</PageHeader>
+			{session?.cwd ? (
+				<InputCopy value={session.cwd} variant="icon" className="max-w-xl" />
+			) : null}
 			<SessionControls session={session} projection={projection} />
 			<NeedsYouZone work={work} sessionId={projection.sessionId} />
 			<Card>
@@ -236,8 +249,10 @@ function NeedsYouZone({
 			item.stage === "blocked" || (item.operatorActions?.length ?? 0) > 0,
 	);
 	if (needs.length === 0) return null;
+	// Lift the attention zone a couple steps up the surface ladder so it reads as
+	// more prominent than the surrounding panels (elevation, not just a border).
 	return (
-		<Card className="border border-attention/20">
+		<Card offset={4} className="border border-attention/20">
 			<Card.Header>
 				<SectionLabel className="text-attention">needs you</SectionLabel>
 			</Card.Header>
@@ -286,11 +301,11 @@ function WorkItem({
 			? undefined
 			: formatTokens(work.tokens.total);
 	return (
-		<div className="flex flex-col gap-1.5 px-4 py-3">
+		<div className="group flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-hover">
 			<div className="flex items-start justify-between gap-3">
 				<div className="flex min-w-0 items-center gap-2">
 					<WorkStageDot stage={work.stage} />
-					<span className="truncate text-sm font-medium">
+					<span className="weight-hover truncate text-sm">
 						{workLabel(work)}
 					</span>
 					<span className="truncate font-mono text-xs text-muted-foreground">
