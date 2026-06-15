@@ -14,6 +14,7 @@ import {
 } from "@plot/session/protocol";
 import {
 	connectLocalControlClient,
+	localPlotServerRunning,
 	type LocalControlClient,
 } from "@plot/session/local-control-client";
 import { PlotDashboard } from "./dashboard.js";
@@ -99,6 +100,9 @@ export const openAndAttachPlotTuiSession = async (
 ): Promise<PlotTuiControlAttachment> => {
 	const client = await connectLocalControlClient({
 		cwd: options.cwd,
+		// The TUI never starts its own server — `plot web` owns the server. It only
+		// attaches to one that is already running (runPlotTui probes first).
+		autostart: false,
 		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
 		...(options.serverDir === undefined
 			? {}
@@ -321,7 +325,21 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 };
 
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	if (options.noServer) return runPlotTuiInProcess(options);
+	// `plot web` owns the server. The TUI attaches to a running Local Plot Server
+	// if one exists (e.g. started by `plot web`); otherwise — or with the explicit
+	// --no-server escape hatch — it runs an in-process session instead of starting
+	// a competing server of its own.
+	if (
+		options.noServer ||
+		!(await localPlotServerRunning({
+			cwd: options.cwd,
+			...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
+			...(options.serverDir === undefined
+				? {}
+				: { serverDir: options.serverDir }),
+		}))
+	)
+		return runPlotTuiInProcess(options);
 	const attachment = await openAndAttachPlotTuiSession(options);
 	let projection = attachment.projection;
 	let resolveStopped!: () => void;

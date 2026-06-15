@@ -141,6 +141,19 @@ const takeWelcome = async (records: AsyncQueue<PlotServerRecord>) => {
 	return record;
 };
 
+/**
+ * True when a healthy Local Plot Server is already running for these paths —
+ * a connect-only probe (never autostarts). Lets a client decide whether to
+ * attach to an existing server or fall back to running in-process.
+ */
+export const localPlotServerRunning = async (
+	options: LocalControlClientOptions = {},
+): Promise<boolean> => {
+	const paths = resolveLocalPlotServerPaths(options);
+	const token = await ensureLocalControlToken(paths);
+	return (await discover(paths, token.token)) !== undefined;
+};
+
 export const connectLocalControlClient = async (
 	options: LocalControlClientOptions = {},
 ): Promise<LocalControlClient> => {

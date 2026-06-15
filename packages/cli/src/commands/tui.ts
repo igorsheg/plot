@@ -8,14 +8,14 @@ export const tuiCommand = defineCommand({
 	meta: {
 		name: "tui",
 		description:
-			"Attach the terminal dashboard to a Local Plot Server session.",
+			"Open the terminal dashboard. Attaches to a running Local Plot Server (e.g. started by `plot web`); otherwise runs an in-process session. Never starts its own server.",
 	},
 	args: {
 		...sessionCommandArgs,
 		"no-server": {
 			type: "boolean",
 			description:
-				"Explicit escape hatch: run an in-process TUI instead of the Local Plot Server.",
+				"Always run an in-process session, even if a Local Plot Server is running.",
 		},
 	},
 	run: ({ args, rawArgs }) => {
