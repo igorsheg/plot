@@ -3,16 +3,16 @@ import { LoggerLive, withWideEvent } from "@plot/common/observability";
 import type { SessionHistoryEvent } from "@plot/session/protocol";
 import type { CreateAgentSession } from "@plot/session/agent-session-types";
 import { connectLocalControlClient } from "@plot/session/local-control-client";
+import {
+	startLocalPlotServerDaemon,
+	statusLocalPlotServerDaemon,
+	stopLocalPlotServerDaemon,
+} from "@plot/session/local-server-daemon";
 import { ensureLocalControlToken } from "@plot/session/local-server-auth";
 import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
 import type { PlotSessionEvent } from "@plot/session/plot-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
-import {
-	awaitShutdownSignal,
-	runLocalPlotServer,
-	startLocalPlotServer,
-	type LocalPlotServerHandle,
-} from "@plot/session/local-server";
+import { runLocalPlotServer } from "@plot/session/local-server";
 import {
 	runPlotSessionHostDaemon,
 	runPlotSessionHostOnce,
@@ -59,8 +59,6 @@ export interface ServeLocalOptions extends BaseRunOptions {
 	readonly writeStdout: (line: string) => Promise<void> | void;
 }
 export interface RunWebDashboardOptions extends BaseRunOptions {
-	readonly hostname?: string;
-	readonly port?: number;
 	readonly selectedSessionId?: string;
 	readonly role?: "observer" | "controller";
 	readonly explicitFleet?: boolean;
@@ -70,8 +68,13 @@ export interface RunWebDashboardOptions extends BaseRunOptions {
 }
 export interface StartedWebDashboard {
 	readonly url: string;
-	readonly server: LocalPlotServerHandle;
 	readonly stop: () => Promise<void>;
+}
+export interface LocalServiceOptions {
+	readonly cwd?: string;
+	readonly homeDir?: string;
+	readonly serverDir?: string;
+	readonly writeStdout: (line: string) => Promise<void> | void;
 }
 export interface RunDaemonOptions extends BaseRunOptions {
 	readonly onEvent?: (event: PlotSessionEvent) => Promise<void> | void;
@@ -311,45 +314,46 @@ export const serveLocal = (options: ServeLocalOptions): Promise<void> =>
 export const startWebDashboard = async (
 	options: RunWebDashboardOptions,
 ): Promise<StartedWebDashboard> => {
-	const webAssets = await loadPlotWebAssets();
-	const server = await startLocalPlotServer({
+	await loadPlotWebAssets();
+	const client = await connectLocalControlClient({
 		cwd: options.cwd,
 		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
 		...(options.serverDir === undefined
 			? {}
 			: { serverDir: options.serverDir }),
-		...(options.hostname === undefined ? {} : { hostname: options.hostname }),
-		...(options.port === undefined ? {} : { port: options.port }),
-		webAssets,
-		// Reuse a Local Plot Server that is already running (e.g. one a TUI
-		// autostarted) so the web attaches to the shared fleet instead of starting
-		// a competing server. Only starts one when none exists yet.
-		reuseExisting: true,
 	});
-	const token = await ensureLocalControlToken(server.paths);
-	const url = webDashboardUrl({
-		serverUrl: server.url,
-		token: token.token,
-		...(options.selectedSessionId === undefined
-			? {}
-			: { sessionId: options.selectedSessionId }),
-		...(options.role === undefined ? {} : { role: options.role }),
-		...(options.explicitFleet === undefined
-			? {}
-			: { explicitFleet: options.explicitFleet }),
-	});
-	await options.writeStdout(
-		`${JSON.stringify({ event: "plot_web_url", url, opened: !options.noOpen })}\n`,
-	);
-	if (!options.noOpen) {
-		try {
-			await (options.openBrowser ?? openBrowserDefault)(url);
-		} catch {
-			// The URL is already printed; keep the foreground server alive so the
-			// operator can paste it manually instead of silently daemonizing or exiting.
+	try {
+		const token = await ensureLocalControlToken(client.paths);
+		const index = await fetch(client.metadata.url);
+		if (!index.ok)
+			throw new Error(
+				"Local Plot Server is running without bundled web assets; restart it with `plot service restart`.",
+			);
+		const url = webDashboardUrl({
+			serverUrl: client.metadata.url,
+			token: token.token,
+			...(options.selectedSessionId === undefined
+				? {}
+				: { sessionId: options.selectedSessionId }),
+			...(options.role === undefined ? {} : { role: options.role }),
+			...(options.explicitFleet === undefined
+				? {}
+				: { explicitFleet: options.explicitFleet }),
+		});
+		await options.writeStdout(
+			`${JSON.stringify({ event: "plot_web_url", url, opened: !options.noOpen })}\n`,
+		);
+		if (!options.noOpen) {
+			try {
+				await (options.openBrowser ?? openBrowserDefault)(url);
+			} catch {
+				// The URL is already printed; the daemon keeps serving the dashboard.
+			}
 		}
+		return { url, stop: async () => undefined };
+	} finally {
+		client.close();
 	}
-	return { url, server, stop: server.stop };
 };
 
 export const runWebDashboard = (
@@ -363,15 +367,52 @@ export const runWebDashboard = (
 				role: options.role ?? "controller",
 			},
 			async () => {
-				// Hold the foreground until Ctrl-C, then run the server's cleanup
-				// (close sessions, remove metadata, drop the socket) before exiting —
-				// rather than leaving the process to be hard-killed.
-				const dashboard = await startWebDashboard(options);
-				try {
-					await awaitShutdownSignal();
-				} finally {
-					await dashboard.stop();
-				}
+				await startWebDashboard(options);
 			},
 		),
 	);
+
+export const startLocalService = async (
+	options: LocalServiceOptions,
+): Promise<void> => {
+	const metadata = await startLocalPlotServerDaemon({
+		...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
+		...(options.serverDir === undefined
+			? {}
+			: { serverDir: options.serverDir }),
+	});
+	await options.writeStdout(`${metadata.url}\n`);
+};
+
+export const statusLocalService = async (
+	options: LocalServiceOptions,
+): Promise<void> => {
+	const metadata = await statusLocalPlotServerDaemon({
+		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
+		...(options.serverDir === undefined
+			? {}
+			: { serverDir: options.serverDir }),
+	});
+	await options.writeStdout(
+		metadata === undefined ? "stopped\n" : `${metadata.url}\n`,
+	);
+};
+
+export const stopLocalService = async (
+	options: LocalServiceOptions,
+): Promise<void> => {
+	await stopLocalPlotServerDaemon({
+		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
+		...(options.serverDir === undefined
+			? {}
+			: { serverDir: options.serverDir }),
+	});
+};
+
+export const restartLocalService = async (
+	options: LocalServiceOptions,
+): Promise<void> => {
+	await stopLocalService(options);
+	await startLocalService(options);
+};

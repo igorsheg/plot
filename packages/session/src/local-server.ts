@@ -28,7 +28,10 @@ import {
 	defaultLocalPlotServerPort,
 	discoverHealthyLocalPlotServer,
 	healthCheckLocalPlotServer,
-	removeLocalPlotServerMetadata,
+	localPlotServerVersion,
+	readLocalPlotServerMetadata,
+	removeLocalPlotServerMetadataIfMatches,
+	sameLocalPlotServerRegistration,
 	writeLocalPlotServerMetadata,
 	type LocalPlotServerMetadata,
 } from "./local-server-metadata.js";
@@ -77,9 +80,9 @@ export interface LocalPlotServerOptions extends LocalPlotServerPathOptions {
 	>;
 	readonly webAssets?: LocalPlotWebAssets;
 	/**
-	 * Reuse a healthy server found in user-level metadata. Product client
-	 * autostart uses reuse; explicit `plot serve` / `plot web` foreground
-	 * commands do not, so Ctrl-C owns the process they started.
+	 * Reuse a healthy server found in user-level metadata. Product clients use
+	 * reuse; explicit `plot serve` foreground starts do not, so Ctrl-C owns the
+	 * process they started.
 	 */
 	readonly reuseExisting?: boolean;
 	readonly print?: (line: string) => Promise<void> | void;
@@ -93,7 +96,8 @@ export interface LocalPlotServerHandle {
 	readonly registry: ControlSessionRegistry;
 	readonly server?: Bun.Server<WebSocketData>;
 	readonly alreadyRunning: boolean;
-	readonly stop: () => Promise<void>;
+	readonly registrationLost: Promise<void>;
+	readonly stop: (options?: { readonly unregister?: boolean }) => Promise<void>;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -297,6 +301,7 @@ const makeOpenSession =
 
 const makeFetchHandler = (input: {
 	readonly startedAt: string;
+	readonly metadata: LocalPlotServerMetadata;
 	readonly token: LocalControlToken;
 	readonly registry: ControlSessionRegistry;
 	readonly paths: LocalPlotServerPaths;
@@ -328,6 +333,8 @@ const makeFetchHandler = (input: {
 			return Response.json({
 				ok: true,
 				name: "plot-local-server",
+				id: input.metadata.id,
+				version: input.metadata.version,
 				pid: process.pid,
 				startedAt: input.startedAt,
 				tokenFingerprint: input.token.fingerprint,
@@ -452,6 +459,7 @@ const bindServer = (input: {
 	readonly hostname: string;
 	readonly port: number;
 	readonly startedAt: string;
+	readonly metadata: LocalPlotServerMetadata;
 	readonly token: LocalControlToken;
 	readonly registry: ControlSessionRegistry;
 	readonly paths: LocalPlotServerPaths;
@@ -496,15 +504,26 @@ export const startLocalPlotServer = async (
 			paths,
 			registry,
 			alreadyRunning: true,
+			registrationLost: new Promise<void>(() => undefined),
 			stop: async () => undefined,
 		};
 	}
 	const startedAt = nowIso();
+	const registrationId = randomUUID();
+	const metadataFor = (url: string): LocalPlotServerMetadata => ({
+		id: registrationId,
+		version: localPlotServerVersion,
+		url,
+		pid: process.pid,
+		startedAt,
+		tokenFingerprint: token.fingerprint,
+	});
 	const startOnPort = (port: number) =>
 		bindServer({
 			hostname,
 			port,
 			startedAt,
+			metadata: metadataFor(listenUrl(hostname, port)),
 			token,
 			registry,
 			paths,
@@ -539,6 +558,8 @@ export const startLocalPlotServer = async (
 			return {
 				url: occupiedUrl,
 				metadata: {
+					id: healthy.id,
+					version: healthy.version,
 					url: occupiedUrl,
 					pid: healthy.pid,
 					startedAt: healthy.startedAt,
@@ -548,6 +569,7 @@ export const startLocalPlotServer = async (
 				paths,
 				registry,
 				alreadyRunning: true,
+				registrationLost: new Promise<void>(() => undefined),
 				stop: async () => undefined,
 			};
 		}
@@ -558,13 +580,26 @@ export const startLocalPlotServer = async (
 	if (boundPort === undefined)
 		throw new Error("local Plot server did not bind a TCP port");
 	const url = listenUrl(hostname, boundPort);
-	const metadata = {
-		url,
-		pid: process.pid,
-		startedAt,
-		tokenFingerprint: token.fingerprint,
-	};
+	const metadata = metadataFor(url);
 	await writeLocalPlotServerMetadata(paths, metadata);
+	let resolveRegistrationLost!: () => void;
+	const registrationLost = new Promise<void>((resolve) => {
+		resolveRegistrationLost = resolve;
+	});
+	let stopped = false;
+	const guard = setInterval(() => {
+		void (async () => {
+			if (stopped) return;
+			const current = await readLocalPlotServerMetadata(paths);
+			if (
+				current !== undefined &&
+				sameLocalPlotServerRegistration(current, metadata)
+			)
+				return;
+			resolveRegistrationLost();
+		})().catch(() => resolveRegistrationLost());
+	}, 10_000);
+	guard.unref?.();
 	await printListening(options.print, url, false);
 	return {
 		url,
@@ -574,12 +609,15 @@ export const startLocalPlotServer = async (
 		registry,
 		server,
 		alreadyRunning: false,
-		stop: async () => {
-			// Graceful shutdown of a foreground server: remove the metadata first so
-			// probes immediately see it gone, close the in-process sessions it hosts
-			// (flush close events to history, end their agent runs) rather than
-			// orphaning them, then drop the listening socket.
-			await removeLocalPlotServerMetadata(paths).catch(() => undefined);
+		registrationLost,
+		stop: async (stopOptions = {}) => {
+			if (stopped) return;
+			stopped = true;
+			clearInterval(guard);
+			if (stopOptions.unregister !== false)
+				await removeLocalPlotServerMetadataIfMatches(paths, metadata).catch(
+					() => undefined,
+				);
 			await Promise.all(
 				registry
 					.list()
@@ -611,9 +649,9 @@ export const runLocalPlotServer = async (
 ): Promise<void> => {
 	const handle = await startLocalPlotServer(options);
 	if (handle.alreadyRunning) return;
-	try {
-		await awaitShutdownSignal();
-	} finally {
-		await handle.stop();
-	}
+	const reason = await Promise.race([
+		awaitShutdownSignal().then(() => "signal" as const),
+		handle.registrationLost.then(() => "registration_lost" as const),
+	]);
+	await handle.stop({ unregister: reason === "signal" });
 };

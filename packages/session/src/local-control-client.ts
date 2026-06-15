@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { AsyncQueue } from "@plot/common/async-queue";
 import {
@@ -21,6 +20,7 @@ import {
 	readLocalPlotServerMetadata,
 	type LocalPlotServerMetadata,
 } from "./local-server-metadata.js";
+import { spawnLocalPlotServerDaemon } from "./local-server-daemon.js";
 import {
 	resolveLocalPlotServerPaths,
 	type LocalPlotServerPathOptions,
@@ -67,30 +67,6 @@ const websocketUrl = (url: string, token: string): string => {
 	parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
 	parsed.searchParams.set("token", token);
 	return parsed.toString();
-};
-
-const currentPlotServeCommand = (): { command: string; args: string[] } => {
-	const override = process.env["PLOT_LOCAL_SERVER_COMMAND"];
-	if (override !== undefined && override.trim() !== "") {
-		const [command, ...args] = override.trim().split(/\s+/);
-		if (command !== undefined) return { command, args };
-	}
-	const entrypoint = process.argv[1];
-	const exec = process.execPath;
-	if (entrypoint !== undefined && entrypoint !== exec)
-		return { command: exec, args: [entrypoint, "serve"] };
-	return { command: exec, args: ["serve"] };
-};
-
-const spawnLocalPlotServer = (cwd: string | undefined) => {
-	const { command, args } = currentPlotServeCommand();
-	const child = spawn(command, args, {
-		cwd,
-		detached: true,
-		stdio: "ignore",
-		env: process.env,
-	});
-	child.unref();
 };
 
 const discover = async (paths: LocalPlotServerPaths, token: string) => {
@@ -148,7 +124,7 @@ export const connectLocalControlClient = async (
 	const token = await ensureLocalControlToken(paths);
 	let metadata = await discover(paths, token.token);
 	if (metadata === undefined && options.autostart !== false) {
-		spawnLocalPlotServer(options.cwd);
+		spawnLocalPlotServerDaemon(options.cwd);
 		metadata = await waitForLocalPlotServer({
 			paths,
 			token: token.token,

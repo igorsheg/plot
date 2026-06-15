@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { ensureLocalControlToken } from "../src/local-server-auth.js";
 import {
+	localPlotServerVersion,
 	readLocalPlotServerMetadata,
 	writeLocalPlotServerMetadata,
 } from "../src/local-server-metadata.js";
@@ -122,6 +123,8 @@ describe("Local Plot Server", () => {
 		const paths = await tmpPaths();
 		const token = await ensureLocalControlToken(paths);
 		await writeLocalPlotServerMetadata(paths, {
+			id: "stale-test",
+			version: localPlotServerVersion,
 			url: "http://127.0.0.1:1",
 			pid: process.pid,
 			startedAt: "2000-01-01T00:00:00.000Z",

@@ -15,6 +15,7 @@
 		"./local-control-client": "./src/local-control-client.ts",
 		"./local-server": "./src/local-server.ts",
 		"./local-server-auth": "./src/local-server-auth.ts",
+		"./local-server-daemon": "./src/local-server-daemon.ts",
 		"./local-server-metadata": "./src/local-server-metadata.ts",
 		"./local-server-paths": "./src/local-server-paths.ts",
 		"./session-catalog": "./src/session-catalog.ts",

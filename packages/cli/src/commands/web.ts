@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import { loggingArgs, pathArgs, workflowArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
-import { baseOptions, bool, int, str } from "../options.js";
+import { baseOptions, bool, str } from "../options.js";
 import { runWebDashboard } from "../runtime.js";
 
 const roleFrom = (value: string | undefined): "observer" | "controller" =>
@@ -11,23 +11,12 @@ const roleFrom = (value: string | undefined): "observer" | "controller" =>
 export const webCommand = defineCommand({
 	meta: {
 		name: "web",
-		description: "Start the local web control plane and hold until Ctrl-C.",
+		description: "Open the web dashboard against the shared Local Plot Server.",
 	},
 	args: {
 		"session-id": {
 			...workflowArgs["session-id"],
 			description: "Existing Plot session id to open directly.",
-		},
-		hostname: {
-			type: "string",
-			description: "Listen hostname. Default: localhost.",
-			valueHint: "host",
-		},
-		port: {
-			type: "string",
-			description:
-				"Listen port. Default prefers the stable local Plot port; 0 uses an ephemeral port.",
-			valueHint: "port",
 		},
 		cwd: pathArgs.cwd,
 		...loggingArgs,
@@ -44,21 +33,16 @@ export const webCommand = defineCommand({
 		},
 		"no-open": {
 			type: "boolean",
-			description:
-				"Print the browser URL instead of opening it. The server still runs until Ctrl-C.",
+			description: "Print the browser URL instead of opening it.",
 		},
 	},
 	async run({ args, rawArgs }) {
 		const io = getCliIo();
 		const noOpen = bool(args, "no-open") || rawArgs.includes("--no-open");
-		const hostname = str(args, "hostname");
-		const port = int(args, "port");
 		try {
 			const selectedSessionId = str(args, "session-id");
 			await runWebDashboard({
 				...baseOptions(args),
-				...(hostname === undefined ? {} : { hostname }),
-				...(port === undefined ? {} : { port }),
 				...(selectedSessionId === undefined ? {} : { selectedSessionId }),
 				role: roleFrom(str(args, "role")),
 				...(bool(args, "fleet") || rawArgs.includes("--fleet")

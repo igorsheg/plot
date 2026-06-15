@@ -152,11 +152,19 @@ describe("control-protocol product entrypoints", () => {
 		const serverDir = await mkdtemp(join(tmpdir(), "plot-web-server-"));
 		tempDirs.push(serverDir);
 		const stdout: string[] = [];
+		const server = await startLocalPlotServer({
+			serverDir,
+			port: 0,
+			cwd,
+			webAssets: {
+				indexHtml: "<!doctype html><div id='root'></div>",
+				assets: [],
+			},
+		});
 		const dashboard = await startWebDashboard({
 			cwd,
 			sessionId: "web-test",
 			serverDir,
-			port: 0,
 			logLevel: "none",
 			logFormat: "json",
 			selectedSessionId: "existing-session",
@@ -171,9 +179,10 @@ describe("control-protocol product entrypoints", () => {
 			},
 		});
 		try {
-			expect((await fetch(dashboard.server.url)).status).toBe(200);
+			expect((await fetch(server.url)).status).toBe(200);
 		} finally {
 			await dashboard.stop();
+			await server.stop();
 			await sleep(50);
 		}
 

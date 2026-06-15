@@ -120,6 +120,7 @@ describe("plot CLI", () => {
 		expect(output).toContain("docs");
 		expect(output).toContain("run");
 		expect(output).toContain("web");
+		expect(output).toContain("service");
 	});
 
 	test("prints citty subcommand help", async () => {
@@ -150,7 +151,7 @@ describe("plot CLI", () => {
 
 		const output = stdout.join("");
 		expect(output).toContain(
-			"Start the local web control plane and hold until Ctrl-C.",
+			"Open the web dashboard against the shared Local Plot Server.",
 		);
 		expect(output).toContain("--no-open");
 		expect(output).toContain("--session-id");
