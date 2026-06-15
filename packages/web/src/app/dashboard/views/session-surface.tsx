@@ -27,6 +27,7 @@ import {
 import { InputCopy } from "@/components/ui/input-copy";
 import { NotAvailable } from "@/components/ui/not-available";
 import { PageHeader, SectionLabel } from "@/components/ui/page-header";
+import { Sparkline } from "@/components/ui/sparkline";
 import { Switch } from "@/components/ui/switch";
 import {
 	ThinkingStep,
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/thinking-steps";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { throughputSeries } from "../throughput-series";
 import {
 	useDashboardActions,
 	useDashboardMeta,
@@ -84,6 +86,7 @@ function ProcessTable({
 }) {
 	const model = dashboardModelFrom(projection);
 	const counts = projectionReadyDoneCounts(projection);
+	const tps = throughputSeries(projection.tokenSamples, Date.now());
 	const work = [...projection.running.values()].toSorted(
 		(a, b) => a.startedAtSeq - b.startedAtSeq,
 	);
@@ -100,9 +103,12 @@ function ProcessTable({
 							{session?.agents.max ?? model.pulse.maxConcurrentRuns ?? "n/a"}
 						</span>
 					</Tooltip>
-					<Tooltip content="Token throughput">
-						<span className={tabular}>
-							{model.pulse.throughput.replace("tps", "tok/s")}
+					<Tooltip content="Token throughput · last 60s">
+						<span className="flex items-center gap-2">
+							<Sparkline data={tps} />
+							<span className={tabular}>
+								{model.pulse.throughput.replace("tps", "tok/s")}
+							</span>
 						</span>
 					</Tooltip>
 					<Tooltip content="Total tokens this session">

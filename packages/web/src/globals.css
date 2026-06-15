@@ -488,6 +488,28 @@ p {
 	}
 }
 
+/* Sparkline motion-trail: a glowing pulse travels the line via offset-path. The
+   path itself is set inline (data-driven); this only drives the distance. */
+@keyframes throughput-trail {
+	from {
+		offset-distance: 0%;
+	}
+	to {
+		offset-distance: 100%;
+	}
+}
+
+.spark-trail {
+	animation: throughput-trail 3s cubic-bezier(0.2, 0.6, 0.6, 0.3) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.spark-trail {
+		animation: none;
+		opacity: 0;
+	}
+}
+
 /* FF's signature weight-on-hover: a title sits at `medium` and animates to
    `semibold` when its row (.group) is hovered. Real now that Inter is a
    self-hosted variable font with the wght axis. */
