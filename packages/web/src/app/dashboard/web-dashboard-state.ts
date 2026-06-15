@@ -5,7 +5,7 @@ import {
 	reduceSessionHistoryEvent,
 	type DashboardProjection,
 } from "@plot/control/projection";
-import type { PlotServerRecord } from "@plot/control/protocol";
+import type { PlotCommand, PlotServerRecord } from "@plot/control/protocol";
 import type { SessionHistoryEvent } from "@plot/control/session-history";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { useEffect, useMemo, useState } from "react";
@@ -32,7 +32,13 @@ export interface PlotWebDashboardState {
 	readonly selectedSessionId?: string | undefined;
 	readonly projection?: DashboardProjection | undefined;
 	readonly explicitFleet: boolean;
+	readonly controlRole: "observer" | "controller";
+	readonly sendCommand?: (
+		command: PlotCommand,
+		params?: unknown,
+	) => Promise<void>;
 	readonly lastError?: string | undefined;
+	readonly mutationError?: string | undefined;
 	readonly snapshotUnavailable?: boolean | undefined;
 }
 
@@ -149,6 +155,14 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 		const hash = new URLSearchParams(window.location.hash.slice(1));
 		return params.get("view") === "fleet" || hash.get("view") === "fleet";
 	}, []);
+	const controlRole = useMemo<"observer" | "controller">(() => {
+		if (typeof window === "undefined") return "controller";
+		const params = new URLSearchParams(window.location.search);
+		const hash = new URLSearchParams(window.location.hash.slice(1));
+		return (params.get("role") ?? hash.get("role")) === "observer"
+			? "observer"
+			: "controller";
+	}, []);
 	const requestedSessionId = useMemo(() => {
 		if (typeof window === "undefined") return undefined;
 		const params = new URLSearchParams(window.location.search);
@@ -159,6 +173,7 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 		connection: "connecting",
 		roster: [],
 		explicitFleet,
+		controlRole,
 		...(requestedSessionId === undefined
 			? {}
 			: { selectedSessionId: requestedSessionId }),
@@ -182,6 +197,24 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 					setState((current) => ({ ...current, connection: "connecting" }));
 					client = await connectBrowserPlotControl(handoff);
 					if (cancelled) return;
+					setState((current) => ({
+						...current,
+						sendCommand: async (command, params) => {
+							try {
+								await client!.request(command, params);
+								setState((latest) => ({
+									...latest,
+									mutationError: undefined,
+								}));
+							} catch (error) {
+								setState((latest) => ({
+									...latest,
+									mutationError: errorMessage(error),
+								}));
+								throw error;
+							}
+						},
+					}));
 					client.onRecord((record) => {
 						if (record.kind === "roster_event") {
 							setState((current) => applyRosterEvent(current, record));
@@ -220,6 +253,7 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 					if (selectedSessionId !== undefined) {
 						const attached = await client.attachSession({
 							sessionId: selectedSessionId,
+							role: controlRole,
 						});
 						setState((current) => {
 							const snapshotProjection = projectionFromSnapshot({
@@ -260,7 +294,7 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 			cancelled = true;
 			client?.close();
 		};
-	}, [explicitFleet, requestedSessionId]);
+	}, [controlRole, explicitFleet, requestedSessionId]);
 	return state;
 };
 

@@ -4,6 +4,7 @@ import {
 	formatDuration,
 	formatTokens,
 } from "@plot/control/dashboard-model";
+import type { OperatorAction } from "@plot/control/operator";
 import {
 	workLabel,
 	type DashboardProjection,
@@ -211,7 +212,7 @@ function SessionSurface({ state }: { state: PlotWebDashboardState }) {
 			{projection === undefined ? (
 				<SnapshotUnavailable state={state} />
 			) : (
-				<ProcessTable projection={projection} session={session} />
+				<ProcessTable projection={projection} session={session} state={state} />
 			)}
 		</div>
 	);
@@ -220,9 +221,11 @@ function SessionSurface({ state }: { state: PlotWebDashboardState }) {
 function ProcessTable({
 	projection,
 	session,
+	state,
 }: {
 	projection: DashboardProjection;
 	session?: PlotSessionSummary;
+	state: PlotWebDashboardState;
 }) {
 	const model = dashboardModelFrom(projection);
 	const counts = projectionReadyDoneCounts(projection);
@@ -249,7 +252,16 @@ function ProcessTable({
 					</span>
 				</div>
 			</Header>
-			<NeedsYouZone work={work} />
+			<SessionControls
+				session={session}
+				projection={projection}
+				state={state}
+			/>
+			<NeedsYouZone
+				work={work}
+				state={state}
+				sessionId={projection.sessionId}
+			/>
 			<Card>
 				<Card.Header>
 					<SectionTitle>work</SectionTitle>
@@ -276,7 +288,14 @@ function ProcessTable({
 										</Table.Cell>
 									</Table.Row>
 								) : (
-									work.map((item) => <WorkRow key={item.workKey} work={item} />)
+									work.map((item) => (
+										<WorkRow
+											key={item.workKey}
+											work={item}
+											state={state}
+											sessionId={projection.sessionId}
+										/>
+									))
 								)}
 							</Table.Body>
 						</Table.Element>
@@ -288,7 +307,88 @@ function ProcessTable({
 	);
 }
 
-function NeedsYouZone({ work }: { work: readonly RunningWorkProjection[] }) {
+function SessionControls({
+	session,
+	projection,
+	state,
+}: {
+	session?: PlotSessionSummary;
+	projection: DashboardProjection;
+	state: PlotWebDashboardState;
+}) {
+	const sessionId = projection.sessionId;
+	const controllerRequired = state.controlRole !== "controller";
+	const paused = session?.state === "paused" || projection.status === "paused";
+	const stopped =
+		session?.state === "stopped" || projection.status === "stopped";
+	const disabledReason = controllerRequired ? "controller required" : undefined;
+	const send = state.sendCommand;
+	const mutate = (command: Parameters<NonNullable<typeof send>>[0]) => {
+		if (!send || controllerRequired) return;
+		void send(command, { sessionId }).catch(() => undefined);
+	};
+	return (
+		<Card>
+			<Card.Body className="flex flex-wrap items-center justify-between gap-3 text-[12px]">
+				<div className="flex flex-wrap gap-2">
+					<Button
+						size="sm"
+						variant="tertiary"
+						disabled={controllerRequired || stopped}
+						title={disabledReason}
+						onClick={() => mutate(paused ? "resume_session" : "pause_session")}
+					>
+						{paused ? "Resume" : "Pause"}
+					</Button>
+					<Button
+						size="sm"
+						variant="tertiary"
+						disabled={controllerRequired || paused || stopped}
+						title={paused ? "rejected while paused" : disabledReason}
+						onClick={() => mutate("request_tick")}
+					>
+						Reconcile now
+					</Button>
+					<Button
+						size="sm"
+						variant="tertiary"
+						className="border-destructive/40 text-destructive"
+						disabled={controllerRequired || stopped}
+						title={disabledReason}
+						onClick={() => {
+							if (
+								typeof window !== "undefined" &&
+								!window.confirm(
+									"Close this Plot Session? Active Agent Runs will be interrupted; Session History is kept.",
+								)
+							)
+								return;
+							mutate("close_session");
+						}}
+					>
+						Close session
+					</Button>
+				</div>
+				{controllerRequired ? (
+					<span className={muted}>controller required</span>
+				) : null}
+				{state.mutationError ? (
+					<span className="text-destructive">{state.mutationError}</span>
+				) : null}
+			</Card.Body>
+		</Card>
+	);
+}
+
+function NeedsYouZone({
+	work,
+	state,
+	sessionId,
+}: {
+	work: readonly RunningWorkProjection[];
+	state: PlotWebDashboardState;
+	sessionId: string;
+}) {
 	const needs = work.filter(
 		(item) =>
 			item.stage === "blocked" || (item.operatorActions?.length ?? 0) > 0,
@@ -311,26 +411,12 @@ function NeedsYouZone({ work }: { work: readonly RunningWorkProjection[] }) {
 								{item.lastMeaningful}
 							</p>
 						</div>
-						<div className="flex flex-wrap gap-2">
-							{(item.operatorActions ?? []).length === 0 ? (
-								<Button size="sm" disabled>
-									Operator action pending
-								</Button>
-							) : (
-								item.operatorActions?.map((action) => (
-									<Button
-										key={action.id}
-										size="sm"
-										disabled
-										title={
-											action.disabledReason ?? "Phase 8 wires final controls"
-										}
-									>
-										{action.label}
-									</Button>
-								))
-							)}
-						</div>
+						<OperatorActionButtons
+							item={item}
+							state={state}
+							sessionId={sessionId}
+							prominent
+						/>
 					</div>
 				))}
 			</Card.Body>
@@ -338,7 +424,15 @@ function NeedsYouZone({ work }: { work: readonly RunningWorkProjection[] }) {
 	);
 }
 
-function WorkRow({ work }: { work: RunningWorkProjection }) {
+function WorkRow({
+	work,
+	state,
+	sessionId,
+}: {
+	work: RunningWorkProjection;
+	state: PlotWebDashboardState;
+	sessionId: string;
+}) {
 	const age =
 		work.startedAtMs === undefined
 			? "n/a"
@@ -368,9 +462,135 @@ function WorkRow({ work }: { work: RunningWorkProjection }) {
 				<div className="max-w-xl text-foreground">
 					{work.activity || <NA />}
 				</div>
+				<div className="mt-2">
+					<OperatorActionButtons
+						item={work}
+						state={state}
+						sessionId={sessionId}
+					/>
+				</div>
+				<div className="mt-2">
+					<InterruptRunButton item={work} state={state} sessionId={sessionId} />
+				</div>
 				<Timeline entries={work.timeline} />
 			</Table.Cell>
 		</Table.Row>
+	);
+}
+
+function actionVariant(action: OperatorAction): "primary" | "tertiary" {
+	return action.tone === "primary" ? "primary" : "tertiary";
+}
+
+function actionClassName(action: OperatorAction) {
+	return action.tone === "danger"
+		? "border-destructive/40 text-destructive"
+		: "";
+}
+
+function OperatorActionButtons({
+	item,
+	state,
+	sessionId,
+	prominent = false,
+}: {
+	item: RunningWorkProjection;
+	state: PlotWebDashboardState;
+	sessionId: string;
+	prominent?: boolean;
+}) {
+	const [pendingActionId, setPendingActionId] = useState<string | undefined>();
+	const actions = item.operatorActions ?? [];
+	if (actions.length === 0) return null;
+	const controllerRequired = state.controlRole !== "controller";
+	return (
+		<div className="flex flex-wrap items-center gap-2">
+			{actions.map((action) => {
+				const disabledReason =
+					action.disabledReason ??
+					(controllerRequired ? "controller required" : undefined);
+				return (
+					<Button
+						key={action.id}
+						size="sm"
+						variant={actionVariant(action)}
+						className={cn(actionClassName(action), prominent && "font-medium")}
+						disabled={
+							disabledReason !== undefined || pendingActionId !== undefined
+						}
+						title={disabledReason}
+						loading={pendingActionId === action.id}
+						onClick={() => {
+							if (!state.sendCommand || disabledReason !== undefined) return;
+							if (
+								action.confirm &&
+								typeof window !== "undefined" &&
+								!window.confirm(
+									`${action.confirm.title}${action.confirm.message ? `\n\n${action.confirm.message}` : ""}`,
+								)
+							)
+								return;
+							let comment: string | undefined;
+							if (action.requiresComment) {
+								if (typeof window === "undefined") return;
+								const entered = window.prompt("Comment required");
+								if (entered === null) return;
+								comment = entered;
+							}
+							setPendingActionId(action.id);
+							void state
+								.sendCommand("perform_operator_action", {
+									sessionId,
+									workKey: item.workKey,
+									actionId: action.id,
+									...(comment === undefined ? {} : { comment }),
+								})
+								.catch(() => undefined)
+								.finally(() => setPendingActionId(undefined));
+						}}
+					>
+						{action.label}
+					</Button>
+				);
+			})}
+			{controllerRequired ? (
+				<span className={muted}>controller required</span>
+			) : null}
+		</div>
+	);
+}
+
+function InterruptRunButton({
+	item,
+	state,
+	sessionId,
+}: {
+	item: RunningWorkProjection;
+	state: PlotWebDashboardState;
+	sessionId: string;
+}) {
+	if (!item.runId) return null;
+	const controllerRequired = state.controlRole !== "controller";
+	return (
+		<Button
+			size="sm"
+			variant="ghost"
+			className="text-destructive"
+			disabled={controllerRequired}
+			title={controllerRequired ? "controller required" : undefined}
+			onClick={() => {
+				if (!state.sendCommand || controllerRequired) return;
+				void state
+					.sendCommand("interrupt_agent_run", {
+						sessionId,
+						runId: item.runId,
+						workKey: item.workKey,
+					})
+					.catch(() => undefined);
+			}}
+		>
+			Interrupt Agent Run
+		</Button>
 	);
 }
 

@@ -40,6 +40,7 @@ const state = (
 	connection: "online",
 	roster: [],
 	explicitFleet: false,
+	controlRole: "controller",
 	...overrides,
 });
 
@@ -139,6 +140,50 @@ describe("plot web dashboard", () => {
 		expect(html).toContain("work:alpha");
 		expect(html).toContain("run-1");
 		expect(html).toContain("bun run check");
+	});
+
+	test("renders Operator Action confirm comment danger disabled and observer states", () => {
+		const session = summary({ id: "session-1", workflowName: "review" });
+		const event: SessionHistoryEvent = {
+			...workStarted("session-1"),
+			payload: {
+				run: {
+					workKey: "work:alpha",
+					runId: "run-1",
+					sourceId: "source",
+					display: { title: "Needs operator" },
+					operatorActions: [
+						{
+							id: "ship",
+							label: "Ship",
+							tone: "danger",
+							requiresComment: true,
+							confirm: { title: "Ship now?", message: "This is final." },
+						},
+						{ id: "hold", label: "Hold", disabledReason: "not ready" },
+					],
+				},
+			},
+		};
+		const projection = reduceSessionHistoryEvent(
+			emptyProjection("session-1", "review"),
+			event,
+		);
+		const html = renderToStaticMarkup(
+			<DashboardPage
+				state={state({
+					controlRole: "observer",
+					roster: [session],
+					selectedSessionId: "session-1",
+					projection,
+				})}
+			/>,
+		);
+
+		expect(html).toContain("Ship");
+		expect(html).toContain("Hold");
+		expect(html).toContain("not ready");
+		expect(html).toContain("controller required");
 	});
 
 	test("offline state preserves the last good frame", () => {

@@ -587,6 +587,9 @@ const startEligibleRuns = (
 			workKey: work.workKey,
 			...optionalSubject(work.subject),
 			...(work.display === undefined ? {} : { display: work.display }),
+			...(work.operatorActions === undefined
+				? {}
+				: { operatorActions: work.operatorActions }),
 		};
 		nextRunIndex++;
 		running.set(work.workKey, run);
@@ -1073,12 +1076,16 @@ export const makePlotAgentLayer = (
 			message.type === "observation"
 				? mailbox.offer(message)
 				: offerControl(message),
-		interruptAgentRun: async (input) =>
-			offerControl({
-				type: "interrupt_run",
+		interruptAgentRun: async (input) => {
+			const message = {
+				type: "interrupt_run" as const,
 				runId: input.runId,
 				...(input.workKey === undefined ? {} : { workKey: input.workKey }),
-			}),
+			};
+			if (actorStarted) return offerControl(message);
+			await runTick([message]);
+			return true;
+		},
 		pauseDispatch: async () => {
 			dispatchPaused = true;
 		},
@@ -1106,7 +1113,11 @@ export const makePlotAgentLayer = (
 			});
 			timer(safeDelay, { type: "wake" });
 		},
-		shutdown: async () => offerControl({ type: "shutdown" }),
+		shutdown: async () => {
+			if (actorStarted) return offerControl({ type: "shutdown" });
+			await runTick([{ type: "shutdown" }]);
+			return true;
+		},
 	};
 	return api;
 };

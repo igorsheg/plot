@@ -9,6 +9,7 @@ export const dashboardStatusSchema = z.enum([
 	"idle",
 	"running",
 	"shutting_down",
+	"paused",
 	"stopped",
 	"error",
 ]);
@@ -603,6 +604,12 @@ export const applySnapshot = (
 		const subtitle = previous?.subtitle ?? displayString(display, "subtitle");
 		const url = previous?.url ?? displayString(display, "url");
 		const labels = displayLabels(display);
+		const parsedActions = z
+			.array(operatorActionSchema)
+			.safeParse(run["operatorActions"]);
+		const operatorActions = parsedActions.success
+			? parsedActions.data
+			: previous?.operatorActions;
 		running.set(workKey, {
 			workKey,
 			runId: text(run["runId"]) ?? previous?.runId ?? "run",
@@ -612,7 +619,10 @@ export const applySnapshot = (
 			title: previous?.title ?? title ?? subtitle ?? subject ?? workKey,
 			...(subtitle === undefined ? {} : { subtitle }),
 			...(url === undefined ? {} : { url }),
-			stage: previous?.stage ?? "waiting",
+			stage:
+				operatorActions !== undefined && operatorActions.length > 0
+					? "blocked"
+					: (previous?.stage ?? "waiting"),
 			startedAtSeq: previous?.startedAtSeq ?? projection.frontier,
 			lastEventSeq: previous?.lastEventSeq ?? projection.frontier,
 			...(previous?.startedAtMs === undefined
@@ -634,9 +644,7 @@ export const applySnapshot = (
 			observations: previous?.observations ?? [],
 			timeline: previous?.timeline ?? [],
 			...(previous?.tokens === undefined ? {} : { tokens: previous.tokens }),
-			...(previous?.operatorActions === undefined
-				? {}
-				: { operatorActions: previous.operatorActions }),
+			...(operatorActions === undefined ? {} : { operatorActions }),
 		});
 	}
 	for (const key of running.keys()) {
@@ -738,6 +746,12 @@ const reduceWorkStarted = (
 	const subtitle = displayString(display, "subtitle");
 	const url = displayString(display, "url");
 	const labels = displayLabels(display);
+	const parsedActions = z
+		.array(operatorActionSchema)
+		.safeParse(run["operatorActions"]);
+	const operatorActions = parsedActions.success
+		? parsedActions.data
+		: undefined;
 	const work: RunningWorkProjection = {
 		workKey,
 		runId: text(run["runId"]) ?? "run",
@@ -747,7 +761,10 @@ const reduceWorkStarted = (
 		title: title ?? subtitle ?? subject ?? workKey,
 		...(subtitle === undefined ? {} : { subtitle }),
 		...(url === undefined ? {} : { url }),
-		stage: "starting",
+		stage:
+			operatorActions !== undefined && operatorActions.length > 0
+				? "blocked"
+				: "starting",
 		startedAtSeq: sequence,
 		lastEventSeq: sequence,
 		startedAtMs: observedAtMs,
@@ -764,6 +781,7 @@ const reduceWorkStarted = (
 		commands: [],
 		observations: [],
 		timeline: [{ atMs: observedAtMs, text: "work started" }],
+		...(operatorActions === undefined ? {} : { operatorActions }),
 	};
 	running.set(workKey, work);
 	return {
@@ -973,7 +991,12 @@ const reduceEventPayload = (
 	observedAtMs: number,
 ): DashboardProjection => {
 	if (type === "session_started") return { ...projection, status: "running" };
-	if (type === "session_shutdown") return { ...projection, status: "stopped" };
+	if (type === "session_paused") return { ...projection, status: "paused" };
+	if (type === "session_resumed") return { ...projection, status: "idle" };
+	if (type === "session_close_requested")
+		return { ...projection, status: "shutting_down" };
+	if (type === "session_shutdown" || type === "session_close_completed")
+		return { ...projection, status: "stopped" };
 	if (type === "tick_started")
 		return reduceTickStarted(
 			projection,

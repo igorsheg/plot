@@ -135,5 +135,5 @@ export const runPlotProtocolStdio = async (
 		);
 	}
 	for (const line of lines) await handleLine(line);
-	await Promise.resolve();
+	for (let i = 0; i < 4; i++) await Promise.resolve();
 };

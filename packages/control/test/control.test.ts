@@ -31,6 +31,7 @@ describe("@plot/control browser-safe schemas", () => {
 			type: "operator_observation_recorded",
 			payload: {
 				sessionId: "session-1",
+				sourceId: "source-1",
 				workKey: "work:1",
 				actionId: "approve",
 				actionLabel: "Approve",

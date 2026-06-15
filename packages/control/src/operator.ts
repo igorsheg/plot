@@ -54,6 +54,7 @@ export type OperatorObservationActor = z.infer<
 export const operatorObservationSchema = z
 	.object({
 		sessionId: nonEmptyStringSchema,
+		sourceId: nonEmptyStringSchema,
 		workKey: nonEmptyStringSchema,
 		actionId: nonEmptyStringSchema,
 		actionLabel: nonEmptyStringSchema,
@@ -61,6 +62,8 @@ export const operatorObservationSchema = z
 		comment: z.string().optional(),
 		actor: operatorObservationActorSchema.optional(),
 		clientId: nonEmptyStringSchema.optional(),
+		workDisplay: z.unknown().optional(),
+		workVersion: z.string().optional(),
 	})
 	.strict();
 export type OperatorObservation = z.infer<typeof operatorObservationSchema>;

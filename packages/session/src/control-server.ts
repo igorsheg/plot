@@ -20,6 +20,13 @@ export interface ControlSessionRuntimeOptions {
 	readonly onChanged?: (summary: PlotSessionSummary) => Promise<void> | void;
 }
 
+interface CurrentOperatorActionDeclaration {
+	readonly action: OperatorAction;
+	readonly sourceId: string;
+	readonly workDisplay?: unknown;
+	readonly workVersion?: string;
+}
+
 export interface ControlSessionRuntime {
 	readonly sessionId: string;
 	readonly epoch: string;
@@ -45,13 +52,17 @@ export interface ControlSessionRuntime {
 		readonly observers: number;
 		readonly controllers: number;
 	}) => Promise<PlotSessionSummary>;
+	readonly recordControlEvent: (
+		type: string,
+		payload?: unknown,
+	) => Promise<SessionHistoryEvent>;
 	readonly recordOperatorObservation: (
 		observation: OperatorObservation,
 	) => Promise<SessionHistoryEvent>;
 	readonly currentOperatorAction: (input: {
 		readonly workKey: string;
 		readonly actionId: string;
-	}) => Promise<OperatorAction | undefined>;
+	}) => Promise<CurrentOperatorActionDeclaration | undefined>;
 }
 
 export interface ControlSessionRegistry {
@@ -190,29 +201,29 @@ const readHistoryEventBySequence = async (
 	return all.events.find((event) => Number(event.sequence) === sequence);
 };
 
-const latestDeclaredActions = (
-	events: readonly SessionHistoryEvent[],
-	workKey: string,
-): readonly OperatorAction[] => {
-	for (const event of events.toReversed()) {
-		if (event.type !== "operator_actions_declared") continue;
-		if (!isRecord(event.payload) || event.payload["workKey"] !== workKey)
-			continue;
-		const actions = event.payload["actions"];
-		if (Array.isArray(actions)) return actions as readonly OperatorAction[];
+const actionsFromSnapshot = (snapshot: RuntimeSnapshot) => {
+	const latest = new Map<string, readonly OperatorAction[]>();
+	for (const run of snapshot.running.values()) {
+		const actions = (run as { readonly operatorActions?: unknown })
+			.operatorActions;
+		if (Array.isArray(actions)) latest.set(run.workKey, actions);
 	}
-	return [];
+	return latest;
 };
 
-const needsYouCountFrom = (events: readonly SessionHistoryEvent[]) => {
-	const latest = new Map<string, readonly OperatorAction[]>();
+const needsYouCountFrom = (
+	snapshot: RuntimeSnapshot,
+	events: readonly SessionHistoryEvent[],
+) => {
+	const latest = actionsFromSnapshot(snapshot);
 	for (const event of events) {
 		if (event.type !== "operator_actions_declared") continue;
 		if (!isRecord(event.payload)) continue;
 		const workKey = event.payload["workKey"];
 		const actions = event.payload["actions"];
 		if (typeof workKey !== "string" || !Array.isArray(actions)) continue;
-		latest.set(workKey, actions as readonly OperatorAction[]);
+		if (!latest.has(workKey))
+			latest.set(workKey, actions as readonly OperatorAction[]);
 	}
 	return [...latest.values()].filter((actions) =>
 		actions.some((action) => !action.disabledReason),
@@ -287,14 +298,36 @@ export const makeControlSessionRuntime = (
 			return appendControlEvent("session_resumed");
 		},
 		close: async () => {
+			await appendControlEvent("session_close_requested");
 			closed = true;
-			return options.session.shutdown();
+			const accepted = await options.session.shutdown();
+			await appendControlEvent("session_close_completed", { accepted });
+			return accepted;
 		},
-		requestTick: async () => options.session.tickOnce(),
+		requestTick: async () => {
+			await appendControlEvent("tick_requested");
+			return options.session.tickOnce();
+		},
 		interruptAgentRun: async (input) => {
-			const interrupt = options.session.interruptAgentRun;
-			if (!interrupt) return false;
-			return interrupt(input);
+			const snapshot = await options.session.snapshot();
+			const run = [...snapshot.running.values()].find(
+				(candidate) =>
+					candidate.runId === input.runId &&
+					(input.workKey === undefined || candidate.workKey === input.workKey),
+			);
+			if (!run) return false;
+			await appendControlEvent("agent_run_interrupt_requested", {
+				runId: input.runId,
+				workKey: input.workKey ?? run.workKey,
+				sourceId: run.sourceId,
+			});
+			const accepted = await options.session.interruptAgentRun(input);
+			await appendControlEvent("agent_run_interrupt_completed", {
+				runId: input.runId,
+				workKey: input.workKey ?? run.workKey,
+				accepted,
+			});
+			return accepted;
 		},
 		snapshot: () => options.session.snapshot(),
 		frontier: async () =>
@@ -331,22 +364,53 @@ export const makeControlSessionRuntime = (
 				cwd: options.cwd ?? labels.cwd,
 				cwdName: basename(options.cwd ?? labels.cwd) || labels.cwdName,
 				agents: { active: running.length, max: 100 },
-				needsYouCount: needsYouCountFrom(events),
+				needsYouCount: needsYouCountFrom(snapshot, events),
 				tokenThroughputPerSecond: null,
 				totalTokens: 0,
 				lastActivityAt: null,
 				attachments,
 			};
 		},
-		recordOperatorObservation: (observation) =>
-			appendControlEvent("operator_observation_recorded", observation),
-		currentOperatorAction: async (input) => {
-			const events = options.history
-				? (await options.history.readAll()).events
-				: memoryEvents;
-			return latestDeclaredActions(events, input.workKey).find(
-				(action) => action.id === input.actionId,
+		recordControlEvent: (type, payload) => appendControlEvent(type, payload),
+		recordOperatorObservation: async (observation) => {
+			const event = await appendControlEvent(
+				"operator_observation_recorded",
+				observation,
 			);
+			const accepted = await options.session.submitObservation({
+				type: "operator_observation",
+				data: observation,
+			});
+			if (!accepted) {
+				await appendControlEvent("operator_observation_submit_rejected", {
+					workKey: observation.workKey,
+					actionId: observation.actionId,
+				});
+				throw new Error(
+					"operator observation was recorded but not accepted by the Plot loop",
+				);
+			}
+			return event;
+		},
+		currentOperatorAction: async (input) => {
+			const snapshot = await options.session.snapshot();
+			const run = snapshot.running.get(input.workKey);
+			if (!run) return undefined;
+			const actions = (run as { readonly operatorActions?: unknown })
+				.operatorActions;
+			if (!Array.isArray(actions)) return undefined;
+			const action = (actions as readonly OperatorAction[]).find(
+				(candidate) => candidate.id === input.actionId,
+			);
+			if (!action) return undefined;
+			const display = (run as { readonly display?: unknown }).display;
+			const version = isRecord(display) ? display["version"] : undefined;
+			return {
+				action,
+				sourceId: run.sourceId,
+				...(display === undefined ? {} : { workDisplay: display }),
+				...(typeof version === "string" ? { workVersion: version } : {}),
+			};
 		},
 	};
 	return runtime;

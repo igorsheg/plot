@@ -420,11 +420,15 @@ export const makePlotProtocolLayer = (
 				const params = decodeRequestTickParams(request.params);
 				const runtime = getSession(registry, params.sessionId);
 				requireController(attachments, params.sessionId);
-				if (runtime.isPaused())
+				if (runtime.isPaused()) {
+					await runtime.recordControlEvent("tick_rejected", {
+						reason: "session_paused",
+					});
 					throw new PlotProtocolFailure({
 						code: "session_paused",
 						message: "cannot request tick while Plot Session is paused",
 					});
+				}
 				const result = await runtime.requestTick();
 				const lastSequence = await waitForRuntimeFrontier(runtime);
 				return [
@@ -456,18 +460,25 @@ export const makePlotProtocolLayer = (
 				const params = decodePerformOperatorActionParams(request.params);
 				const runtime = getSession(registry, params.sessionId);
 				requireController(attachments, params.sessionId);
-				const action = await runtime.currentOperatorAction(params);
-				validateOperatorAction(action, params);
+				const declaration = await runtime.currentOperatorAction(params);
+				validateOperatorAction(declaration?.action, params);
 				const timestamp = new Date().toISOString();
 				const observation: OperatorObservation = {
 					sessionId: params.sessionId,
+					sourceId: declaration!.sourceId,
 					workKey: params.workKey,
 					actionId: params.actionId,
-					actionLabel: action!.label,
+					actionLabel: declaration!.action.label,
 					timestamp,
 					...(params.comment === undefined ? {} : { comment: params.comment }),
 					actor: { role: "controller" },
 					clientId: connectionId,
+					...(declaration!.workDisplay === undefined
+						? {}
+						: { workDisplay: declaration!.workDisplay }),
+					...(declaration!.workVersion === undefined
+						? {}
+						: { workVersion: declaration!.workVersion }),
 				};
 				const event = await runtime.recordOperatorObservation(observation);
 				return [

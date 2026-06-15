@@ -28,6 +28,7 @@ export interface BrowserPlotControlClient {
 	readonly attachSession: (params: {
 		readonly sessionId: string;
 		readonly afterSequence?: number;
+		readonly role?: "observer" | "controller";
 	}) => Promise<{
 		readonly response: PlotSuccessResponseRecord;
 		readonly snapshot: unknown;
@@ -215,7 +216,7 @@ export const connectBrowserPlotControl = async (
 		attachSession: async (params) => {
 			const response = await request("attach_session", {
 				sessionId: params.sessionId,
-				role: "observer",
+				role: params.role ?? "observer",
 				...(params.afterSequence === undefined
 					? {}
 					: { afterSequence: params.afterSequence }),
