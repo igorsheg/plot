@@ -8,12 +8,7 @@ import {
 import type { PlotCommand, PlotServerRecord } from "@plot/control/protocol";
 import type { SessionHistoryEvent } from "@plot/control/session-history";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
-import { useEffect, useMemo, useState } from "react";
-import {
-	chooseInitialSession,
-	resolveSurface,
-	type DashboardSurface,
-} from "./fleet-model";
+import { useEffect, useState } from "react";
 import {
 	connectBrowserPlotControl,
 	readBrowserControlHandoff,
@@ -26,13 +21,14 @@ export type ConnectionState =
 	| "online"
 	| "offline";
 
+export type ControlRole = "observer" | "controller";
+
 export interface PlotWebDashboardState {
 	readonly connection: ConnectionState;
 	readonly roster: readonly PlotSessionSummary[];
 	readonly selectedSessionId?: string | undefined;
 	readonly projection?: DashboardProjection | undefined;
-	readonly explicitFleet: boolean;
-	readonly controlRole: "observer" | "controller";
+	readonly controlRole: ControlRole;
 	readonly sendCommand?: (
 		command: PlotCommand,
 		params?: unknown,
@@ -41,6 +37,14 @@ export interface PlotWebDashboardState {
 	readonly mutationError?: string | undefined;
 	readonly snapshotUnavailable?: boolean | undefined;
 }
+
+// Internal slice the hook actually owns (transport-driven). `selectedSessionId`
+// and `controlRole` are NOT stored here — they come from the router (path param
+// + search) and are merged in on return, so route changes are always reflected.
+type LiveState = Omit<
+	PlotWebDashboardState,
+	"selectedSessionId" | "controlRole"
+>;
 
 const errorMessage = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
@@ -111,26 +115,17 @@ const sessionsFromResponse = (record: PlotServerRecord) => {
 
 const refreshRoster = async (
 	client: BrowserPlotControlClient,
-	setState: (
-		update: (state: PlotWebDashboardState) => PlotWebDashboardState,
-	) => void,
+	setState: (update: (state: LiveState) => LiveState) => void,
 ) => {
 	const roster = await client.listSessions();
-	setState((state) => {
-		const selectedSessionId = chooseInitialSession({
-			roster,
-			currentSessionId: state.selectedSessionId,
-			explicitFleet: state.explicitFleet,
-		});
-		return { ...state, roster, selectedSessionId, connection: "online" };
-	});
+	setState((state) => ({ ...state, roster, connection: "online" }));
 	return roster;
 };
 
 const applyRosterEvent = (
-	state: PlotWebDashboardState,
+	state: LiveState,
 	record: Extract<PlotServerRecord, { kind: "roster_event" }>,
-): PlotWebDashboardState => {
+): LiveState => {
 	const roster =
 		record.event === "session_closed"
 			? state.roster.map((session) =>
@@ -140,48 +135,35 @@ const applyRosterEvent = (
 					record.session,
 					...state.roster.filter((session) => session.id !== record.session.id),
 				];
-	const selectedSessionId = chooseInitialSession({
-		roster,
-		currentSessionId: state.selectedSessionId,
-		explicitFleet: state.explicitFleet,
-	});
-	return { ...state, roster, selectedSessionId };
+	return { ...state, roster };
 };
 
-export const usePlotWebDashboardState = (): PlotWebDashboardState => {
-	const explicitFleet = useMemo(() => {
-		if (typeof window === "undefined") return false;
-		const params = new URLSearchParams(window.location.search);
-		const hash = new URLSearchParams(window.location.hash.slice(1));
-		return params.get("view") === "fleet" || hash.get("view") === "fleet";
-	}, []);
-	const controlRole = useMemo<"observer" | "controller">(() => {
-		if (typeof window === "undefined") return "controller";
-		const params = new URLSearchParams(window.location.search);
-		const hash = new URLSearchParams(window.location.hash.slice(1));
-		return (params.get("role") ?? hash.get("role")) === "observer"
-			? "observer"
-			: "controller";
-	}, []);
-	const requestedSessionId = useMemo(() => {
-		if (typeof window === "undefined") return undefined;
-		const params = new URLSearchParams(window.location.search);
-		const hash = new URLSearchParams(window.location.hash.slice(1));
-		return params.get("session") ?? hash.get("session") ?? undefined;
-	}, []);
-	const [state, setState] = useState<PlotWebDashboardState>({
+/**
+ * Live dashboard state for the active route. `sessionId` is the path param
+ * (undefined on the fleet route) and `role` the `?role=` search modifier; the
+ * hook (re)connects + attaches whenever either changes.
+ */
+export const usePlotWebDashboardState = ({
+	sessionId,
+	role,
+}: {
+	sessionId?: string | undefined;
+	role: ControlRole;
+}): PlotWebDashboardState => {
+	const [state, setState] = useState<LiveState>({
 		connection: "connecting",
 		roster: [],
-		explicitFleet,
-		controlRole,
-		...(requestedSessionId === undefined
-			? {}
-			: { selectedSessionId: requestedSessionId }),
 	});
 
 	useEffect(() => {
 		let cancelled = false;
 		let client: BrowserPlotControlClient | undefined;
+		// Switching sessions clears the prior projection while the new snapshot loads.
+		setState((current) => ({
+			...current,
+			projection: undefined,
+			snapshotUnavailable: undefined,
+		}));
 		const connect = async () => {
 			const handoff = readBrowserControlHandoff(window.location);
 			if (handoff === undefined) {
@@ -225,9 +207,8 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 						if (sessions !== undefined)
 							setState((current) => ({ ...current, roster: sessions }));
 						if (record.kind !== "session_event") return;
+						if (record.sessionId !== sessionId) return;
 						setState((current) => {
-							if (record.sessionId !== current.selectedSessionId)
-								return current;
 							const projection =
 								current.projection ??
 								emptyProjection(
@@ -245,25 +226,19 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 						});
 					});
 					const roster = await refreshRoster(client, setState);
-					const selectedSessionId = chooseInitialSession({
-						roster,
-						requestedSessionId,
-						explicitFleet,
-					});
-					if (selectedSessionId !== undefined) {
+					if (sessionId !== undefined) {
 						const attached = await client.attachSession({
-							sessionId: selectedSessionId,
-							role: controlRole,
+							sessionId,
+							role,
 						});
 						setState((current) => {
 							const snapshotProjection = projectionFromSnapshot({
-								sessionId: selectedSessionId,
+								sessionId,
 								roster: current.roster.length === 0 ? roster : current.roster,
 								snapshot: attached.snapshot,
 							});
 							return {
 								...current,
-								selectedSessionId,
 								projection:
 									current.projection !== undefined &&
 									current.projection.frontier > attached.lastSequence
@@ -294,15 +269,7 @@ export const usePlotWebDashboardState = (): PlotWebDashboardState => {
 			cancelled = true;
 			client?.close();
 		};
-	}, [controlRole, explicitFleet, requestedSessionId]);
-	return state;
-};
+	}, [role, sessionId]);
 
-export const surfaceForState = (
-	state: PlotWebDashboardState,
-): DashboardSurface =>
-	resolveSurface({
-		roster: state.roster,
-		selectedSessionId: state.selectedSessionId,
-		explicitFleet: state.explicitFleet,
-	});
+	return { ...state, selectedSessionId: sessionId, controlRole: role };
+};

@@ -4,8 +4,6 @@ import type {
 	PlotSessionSummary,
 } from "@plot/control/session-summary";
 
-export type DashboardSurface = "fleet" | "session";
-
 const stateRank: Record<PlotSessionState, number> = {
 	starting: 3,
 	watching: 5,
@@ -75,17 +73,6 @@ export const chooseInitialSession = (input: {
 	if (!input.explicitFleet && input.roster.length === 1)
 		return input.roster[0]?.id;
 	return undefined;
-};
-
-export const resolveSurface = (input: {
-	readonly roster: readonly PlotSessionSummary[];
-	readonly selectedSessionId?: string | undefined;
-	readonly explicitFleet: boolean;
-}): DashboardSurface => {
-	if (input.explicitFleet) return "fleet";
-	if (input.selectedSessionId !== undefined) return "session";
-	if (input.roster.length === 1) return "session";
-	return "fleet";
 };
 
 export const projectionReadyDoneCounts = (projection: DashboardProjection) => ({

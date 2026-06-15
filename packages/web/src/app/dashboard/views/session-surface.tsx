@@ -10,6 +10,7 @@ import {
 	workLabel,
 } from "@plot/control/projection";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
+import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 
@@ -53,12 +54,13 @@ export function SessionSurface() {
 
 	return (
 		<div className="flex flex-col gap-6 py-8">
-			<a
-				href="?view=fleet"
+			<Link
+				to="/"
+				search={(prev) => ({ role: prev.role ?? "controller" })}
 				className="inline-flex items-center gap-2 self-start text-xs text-muted-foreground hover:text-foreground"
 			>
 				<ArrowLeft size={14} /> all sessions
-			</a>
+			</Link>
 			{projection === undefined ? (
 				<SnapshotUnavailable lastError={lastError} />
 			) : (

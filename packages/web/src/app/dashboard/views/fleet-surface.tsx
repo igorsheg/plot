@@ -1,5 +1,6 @@
 import { formatAgo, formatTokens } from "@plot/control/dashboard-model";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Card } from "@/components/ui/card";
@@ -84,15 +85,17 @@ function FleetRow({
 	return (
 		<TableRow index={index}>
 			<TableCell>
-				<a
-					href={`?session=${encodeURIComponent(session.id)}`}
+				<Link
+					to="/session/$sessionId"
+					params={{ sessionId: session.id }}
+					search={(prev) => ({ role: prev.role ?? "controller" })}
 					className="block"
 				>
 					<span className="font-medium">{session.workflowName}</span>
 					<span className="mt-1 block max-w-56 truncate font-mono text-muted-foreground">
 						{session.workflowPath}
 					</span>
-				</a>
+				</Link>
 			</TableCell>
 			<TableCell>
 				<span>{session.cwdName}</span>

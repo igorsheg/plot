@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
 	emptyProjection,
 	reduceSessionHistoryEvent,
@@ -7,13 +7,44 @@ import type { SessionHistoryEvent } from "@plot/control/session-history";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { DashboardPage } from "../src/app/dashboard/DashboardPage";
 import {
 	chooseInitialSession,
 	sortPlotSessions,
 	visibleFleetSessions,
 } from "../src/app/dashboard/fleet-model";
 import type { PlotWebDashboardState } from "../src/app/dashboard/web-dashboard-state";
+
+// The router's <Link> needs a RouterProvider, and TanStack Router won't build
+// its route tree under bun's non-DOM test env. Stub <Link> to a plain anchor so
+// the surfaces — where the asserted markup actually comes from — render directly
+// through the DashboardProvider. The routing itself is declarative glue, and
+// the collapse decision (chooseInitialSession) is unit-tested below.
+mock.module("@tanstack/react-router", () => ({
+	Link: ({
+		children,
+		className,
+	}: {
+		children?: unknown;
+		className?: string;
+	}) => <a className={className}>{children as never}</a>,
+}));
+
+const { DashboardProvider } =
+	await import("../src/app/dashboard/dashboard-context");
+const { SessionSurface } =
+	await import("../src/app/dashboard/views/session-surface");
+const { TopBar } = await import("../src/app/dashboard/views/top-bar");
+
+// Render the dashboard chrome (TopBar) + session surface for a fixed frame,
+// mirroring what the router's RootLayout composes around the session route.
+function renderSession(override: PlotWebDashboardState): string {
+	return renderToStaticMarkup(
+		<DashboardProvider state={override}>
+			<TopBar />
+			<SessionSurface />
+		</DashboardProvider>,
+	);
+}
 
 const summary = (
 	overrides: Partial<PlotSessionSummary> & Pick<PlotSessionSummary, "id">,
@@ -39,7 +70,6 @@ const state = (
 ): PlotWebDashboardState => ({
 	connection: "online",
 	roster: [],
-	explicitFleet: false,
 	controlRole: "controller",
 	...overrides,
 });
@@ -84,25 +114,24 @@ describe("plot web dashboard", () => {
 		).not.toContain("stopped");
 	});
 
-	test("gracefully collapses a single reachable session to Level 1", () => {
+	test("a single reachable session collapses to /session and renders it", () => {
 		const session = summary({ id: "session-1", workflowName: "release" });
 		const projection = reduceSessionHistoryEvent(
 			emptyProjection("session-1", "release"),
 			workStarted("session-1"),
 		);
-		const html = renderToStaticMarkup(
-			<DashboardPage
-				state={state({
-					roster: [session],
-					selectedSessionId: "session-1",
-					projection,
-				})}
-			/>,
-		);
-
+		// The collapse decision itself (index route → session) is unit-tested here;
+		// the destination render is asserted below.
 		expect(
 			chooseInitialSession({ roster: [session], explicitFleet: false }),
 		).toBe("session-1");
+		const html = renderSession(
+			state({
+				roster: [session],
+				selectedSessionId: "session-1",
+				projection,
+			}),
+		);
 		expect(html).toContain("all sessions");
 		expect(html).toContain("Prepare package");
 	});
@@ -127,14 +156,12 @@ describe("plot web dashboard", () => {
 			(current, event) => reduceSessionHistoryEvent(current, event),
 			emptyProjection("session-1", "build"),
 		);
-		const html = renderToStaticMarkup(
-			<DashboardPage
-				state={state({
-					roster: [session],
-					selectedSessionId: "session-1",
-					projection,
-				})}
-			/>,
+		const html = renderSession(
+			state({
+				roster: [session],
+				selectedSessionId: "session-1",
+				projection,
+			}),
 		);
 
 		expect(html).toContain("work:alpha");
@@ -169,15 +196,13 @@ describe("plot web dashboard", () => {
 			emptyProjection("session-1", "review"),
 			event,
 		);
-		const html = renderToStaticMarkup(
-			<DashboardPage
-				state={state({
-					controlRole: "observer",
-					roster: [session],
-					selectedSessionId: "session-1",
-					projection,
-				})}
-			/>,
+		const html = renderSession(
+			state({
+				controlRole: "observer",
+				roster: [session],
+				selectedSessionId: "session-1",
+				projection,
+			}),
 		);
 
 		expect(html).toContain("Ship");
@@ -192,16 +217,14 @@ describe("plot web dashboard", () => {
 			emptyProjection("session-1", "docs"),
 			workStarted("session-1"),
 		);
-		const html = renderToStaticMarkup(
-			<DashboardPage
-				state={state({
-					connection: "offline",
-					lastError: "Local Plot Server connection closed",
-					roster: [session],
-					selectedSessionId: "session-1",
-					projection,
-				})}
-			/>,
+		const html = renderSession(
+			state({
+				connection: "offline",
+				lastError: "Local Plot Server connection closed",
+				roster: [session],
+				selectedSessionId: "session-1",
+				projection,
+			}),
 		);
 
 		expect(html).toContain("offline · last frame");

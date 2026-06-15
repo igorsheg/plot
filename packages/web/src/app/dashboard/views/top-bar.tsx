@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+
 import { Badge } from "@/components/ui/badge";
 import { useDashboardState } from "../dashboard-context";
 
@@ -26,9 +28,13 @@ export function TopBar() {
 	const { roster } = useDashboardState();
 	return (
 		<div className="flex items-center justify-between gap-4 py-5 text-xs text-muted-foreground">
-			<a href="?view=fleet" className="font-medium text-foreground">
+			<Link
+				to="/"
+				search={(prev) => ({ role: prev.role ?? "controller" })}
+				className="font-medium text-foreground"
+			>
 				plot
-			</a>
+			</Link>
 			<div className="flex items-center gap-3">
 				<ConnectionBadge />
 				<span className="hidden md:inline">

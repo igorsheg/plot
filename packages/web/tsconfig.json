@@ -15,6 +15,7 @@
 	},
 	"include": [
 		"src/main.tsx",
+		"src/router.tsx",
 		"src/globals.css",
 		"src/app/**/*.ts",
 		"src/app/**/*.tsx",
