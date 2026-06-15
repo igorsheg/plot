@@ -1,0 +1,46 @@
+import { describe, expect, test } from "bun:test";
+import { applySnapshot, emptyProjection } from "../src/projection.js";
+
+const snapshotData = (asOfSequence: number, running: readonly unknown[]) => ({
+	asOfSequence,
+	snapshot: { running },
+});
+
+const run = (workKey: string) => ({
+	workKey,
+	runId: `${workKey}-run`,
+	sourceId: "source",
+	display: { title: workKey },
+});
+
+describe("applySnapshot monotonicity", () => {
+	test("a stale snapshot does not overwrite newer event state", () => {
+		// Newer state: one running work item, frontier advanced to 20.
+		const live = applySnapshot(
+			emptyProjection("s", "wf"),
+			snapshotData(20, [run("w1")]),
+		);
+		expect(live.frontier).toBe(20);
+		expect(live.running.has("w1")).toBe(true);
+
+		// A stale idle snapshot (asOfSequence 10 < frontier 20) must be ignored —
+		// otherwise it clears the running work and the dashboard flips to idle.
+		// This is the two-source oscillation the TUI was hitting.
+		const afterStale = applySnapshot(live, snapshotData(10, []));
+		expect(afterStale).toBe(live);
+		expect(afterStale.frontier).toBe(20);
+		expect(afterStale.running.has("w1")).toBe(true);
+
+		// A newer snapshot applies and advances the frontier.
+		const afterFresh = applySnapshot(live, snapshotData(25, []));
+		expect(afterFresh.frontier).toBe(25);
+		expect(afterFresh.running.size).toBe(0);
+	});
+
+	test("snapshots without an asOfSequence still apply (initial attach frame)", () => {
+		const applied = applySnapshot(emptyProjection("s", "wf"), {
+			snapshot: { running: [run("w1")] },
+		});
+		expect(applied.running.has("w1")).toBe(true);
+	});
+});

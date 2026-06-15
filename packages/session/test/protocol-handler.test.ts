@@ -5,6 +5,10 @@ import { describe, expect, test } from "bun:test";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
+import {
+	makeControlSessionRegistry,
+	makeControlSessionRuntime,
+} from "../src/control-server.js";
 import { makePlotSessionLayer } from "../src/plot-session.js";
 import {
 	plotProtocolRequestId,
@@ -72,10 +76,69 @@ const makeProtocol = async (
 	};
 };
 
+// A protocol layer wired with an openSession factory (no preset session), so we
+// can exercise open_session. The factory counts invocations to prove a second
+// open for the same id reuses the live session instead of spawning a duplicate.
+const makeOpeningProtocol = async (sessionId = "session-1") => {
+	const sessionDir = await mkdtemp(join(tmpdir(), "plot-open-"));
+	const history = await createSessionHistoryStore({ sessionDir, sessionId });
+	const session = makePlotSessionLayer({
+		id: sessionId,
+		workflow,
+		sources: [],
+		runner,
+		sessionHistory: history,
+	});
+	const runtime = makeControlSessionRuntime({
+		session,
+		history,
+		cwd: sessionDir,
+		mode: "watch",
+	});
+	const registry = makeControlSessionRegistry();
+	let openCount = 0;
+	const protocol = makePlotProtocolLayer({
+		registry,
+		openSession: async () => {
+			openCount += 1;
+			return runtime;
+		},
+	});
+	return { protocol, registry, openCount: () => openCount };
+};
+
 const responseFor = (id: string) => (record: PlotServerRecord) =>
 	record.kind === "response" && record.id === id;
 
 describe("explicit Plot control protocol", () => {
+	test("a second open_session for the same id reuses the live session", async () => {
+		// Two clients (e.g. TUI + web) opening the same workflow must share one
+		// session. A duplicate host would keep pumping the original event stream
+		// while get_snapshot resolved to the new host, oscillating the dashboard.
+		const { protocol, registry, openCount } = await makeOpeningProtocol();
+
+		let pending = collectUntil(protocol.output(), responseFor("open-1"));
+		await protocol.submit(
+			request("open-1", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+
+		pending = collectUntil(protocol.output(), responseFor("open-2"));
+		await protocol.submit(
+			request("open-2", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+
+		expect(openCount()).toBe(1);
+		expect(registry.list().length).toBe(1);
+	});
+
 	test("has no hidden current session for session-scoped commands", async () => {
 		const { protocol } = await makeProtocol();
 		const pending = collectUntil(protocol.output(), responseFor("req-1"));

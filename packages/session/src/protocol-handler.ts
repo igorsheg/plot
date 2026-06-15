@@ -336,6 +336,26 @@ export const makePlotProtocolLayer = (
 						message: "open_session is not configured for this server",
 					});
 				const params = decodeOpenSessionParams(request.params);
+				// Reuse a live session already registered under this id rather than
+				// overwriting it with a second host. Two clients (e.g. TUI + web)
+				// opening the same workflow must share one session; otherwise the old
+				// host keeps pumping events while get_snapshot resolves to the new one,
+				// and the dashboard oscillates between the two.
+				const existing =
+					params.sessionId === undefined
+						? undefined
+						: registry.get(params.sessionId);
+				if (existing !== undefined) {
+					attachments.set(existing.sessionId, params.role ?? "controller");
+					startPump(existing);
+					const lastSequence = await existing.frontier();
+					return [
+						makeSuccessForRequest(request, {
+							lastSequence,
+							data: { session: await existing.summary(), lastSequence },
+						}),
+					];
+				}
 				const runtime = await options.openSession(params);
 				await registry.register(runtime);
 				await runtime.session.start();

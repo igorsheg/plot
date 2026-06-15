@@ -591,6 +591,16 @@ export const applySnapshot = (
 	const snapshot =
 		isRecord(data) && isRecord(data["snapshot"]) ? data["snapshot"] : undefined;
 	if (!snapshot) return projection;
+	// Monotonic guard: `asOfSequence` is the snapshot's frontier. A snapshot older
+	// than the events already reduced into this projection must not overwrite
+	// newer state — otherwise a periodic get_snapshot racing the event stream (or
+	// a divergent second session sharing the same id) makes the dashboard flip
+	// between states. Snapshots without an asOfSequence (e.g. the initial attach
+	// frame applied to an empty projection) always apply.
+	const asOfRaw = isRecord(data) ? data["asOfSequence"] : undefined;
+	const asOfSequence = typeof asOfRaw === "number" ? asOfRaw : undefined;
+	if (asOfSequence !== undefined && asOfSequence < projection.frontier)
+		return projection;
 	const runningValues = mapValues(snapshot["running"]);
 	const running = new Map(projection.running);
 	for (const run of runningValues) {
@@ -678,7 +688,11 @@ export const applySnapshot = (
 	const diagnostics = Array.isArray(snapshot["diagnostics"])
 		? snapshot["diagnostics"].slice(-5).map(diagnosticText)
 		: projection.diagnostics;
-	return { ...projection, running, diagnostics, scheduledWakes };
+	const frontier =
+		asOfSequence === undefined
+			? projection.frontier
+			: Math.max(projection.frontier, asOfSequence);
+	return { ...projection, frontier, running, diagnostics, scheduledWakes };
 };
 
 const diagnosticText = (diagnostic: unknown) =>
