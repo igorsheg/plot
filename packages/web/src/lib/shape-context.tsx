@@ -18,27 +18,43 @@ interface ShapeClasses {
 	item: string;
 	bg: string;
 	focusRing: string;
+	/** Outer radius of a merged selection run (looser than `bg`). */
+	mergedBg: string;
 	container: string;
 	button: string;
 	input: string;
+	// Numeric counterparts of `bg` / `mergedBg`, in px. Needed where individual
+	// corners are animated (the selected-background merge/split animation in
+	// `useMergeSplitBlocks`), which sets per-corner numeric border-radii rather
+	// than a class.
+	bgRadius: number;
+	mergedRadius: number;
 }
 
 const shapeMap: Record<ShapeVariant, ShapeClasses> = {
 	pill: {
 		item: "rounded-[20px]",
 		bg: "rounded-[20px]",
+		// +2px over `item` because the focus ring sits 2px outside the element,
+		// keeping the corners concentric (matches the rounded-mode 8px→10px bump).
 		focusRing: "rounded-[22px]",
+		mergedBg: "rounded-2xl",
 		container: "rounded-3xl",
 		button: "rounded-[20px]",
 		input: "rounded-[20px]",
+		bgRadius: 20,
+		mergedRadius: 16,
 	},
 	rounded: {
 		item: "rounded-lg",
 		bg: "rounded-lg",
 		focusRing: "rounded-[10px]",
+		mergedBg: "rounded-lg",
 		container: "rounded-xl",
 		button: "rounded-lg",
 		input: "rounded-lg",
+		bgRadius: 8,
+		mergedRadius: 8,
 	},
 };
 

@@ -4,18 +4,21 @@ import "@fontsource/inter";
 // oxlint-disable-next-line import/no-unassigned-import -- Vite CSS entry import.
 import "./globals.css";
 import { DashboardPage } from "./app/dashboard/DashboardPage";
+import { IconProvider } from "./lib/icon-context";
 import { ShapeProvider } from "./lib/shape-context";
 import { SurfaceProvider } from "./lib/surface-context";
 import { ThemeProvider } from "./lib/theme-context";
 
-// Fluid Functionalism providers: theme (light/dark), shape (corner radius), and
-// the surface substrate the elevation ladder steps up from.
+// Fluid Functionalism providers: theme (light/dark, T), shape (corner radius, R),
+// icon library (I), and the surface substrate the elevation ladder steps up from.
 const App = () => (
 	<ThemeProvider>
 		<ShapeProvider>
-			<SurfaceProvider value={1}>
-				<DashboardPage />
-			</SurfaceProvider>
+			<IconProvider>
+				<SurfaceProvider value={1}>
+					<DashboardPage />
+				</SurfaceProvider>
+			</IconProvider>
 		</ShapeProvider>
 	</ThemeProvider>
 );

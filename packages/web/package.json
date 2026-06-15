@@ -6,7 +6,7 @@
 		"dev": "vite --host 127.0.0.1",
 		"build": "vite build",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"lint": "oxlint src/main.tsx src/app src/components src/lib src/next-compat --tsconfig tsconfig.json",
+		"lint": "oxlint src/main.tsx src/app src/components src/hooks src/lib src/next-compat --tsconfig tsconfig.json",
 		"test": "bun test src test"
 	},
 	"dependencies": {
