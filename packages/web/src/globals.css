@@ -3,13 +3,24 @@
 
 @custom-variant dark (&:is(.dark *, .dark));
 
-/* Berkeley Mono (variable) — the dashboard's "machine data" face: tabular
-   numerics, identifiers, paths, and command snippets. A plain @font-face (not
-   a @theme entry); the relative url() lets Vite hash + bundle the file. The
-   family is registered as the `--font-mono` token in @theme below. */
+/* Self-hosted variable fonts. Plain @font-face rules (not @theme entries); the
+   relative url() lets Vite hash + bundle each file. Families are registered as
+   --font-sans / --font-mono tokens in @theme below.
+   - Inter is the UI sans; the opsz build carries both wght + opsz axes, which
+     the FF font-weight tokens drive for the weight-on-hover animation.
+   - Berkeley Mono is the "machine data" face: numerics, identifiers, paths,
+     and command snippets. */
+@font-face {
+	font-family: "Inter";
+	src: url("./fonts/InterVariable.woff2") format("woff2");
+	font-weight: 100 900;
+	font-style: normal;
+	font-display: swap;
+}
+
 @font-face {
 	font-family: "Berkeley Mono";
-	src: url("./app/BerkeleyMonoVariable.woff2") format("woff2");
+	src: url("./fonts/BerkeleyMonoVariable.woff2") format("woff2");
 	font-weight: 100 900;
 	font-style: normal;
 	font-display: swap;
@@ -19,8 +30,8 @@
    Fluid Functionalism theme (ported from mickadesign/fluid-functionalism).
    Elevation is an 8-level surface ladder, each level paired 1:1 with a shadow
    recipe. Interactive overlays (--hover/--active) are surface-relative so they
-   work on any elevation. Inter is the type face; not bundled here, so it falls
-   back to Geist / system-ui.
+   work on any elevation. Inter (sans) and Berkeley Mono are self-hosted via the
+   @font-face rules above.
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {

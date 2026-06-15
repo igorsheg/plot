@@ -7,9 +7,7 @@
 		"lib": ["ESNext", "DOM", "DOM.Iterable"],
 		"baseUrl": ".",
 		"paths": {
-			"@/*": ["src/*"],
-			"next/link": ["src/next-compat/link.tsx"],
-			"next/navigation": ["src/next-compat/navigation.ts"]
+			"@/*": ["src/*"]
 		},
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
@@ -23,9 +21,9 @@
 		"src/components/**/*.ts",
 		"src/components/**/*.tsx",
 		"src/lib/**/*.ts",
-		"src/next-compat/**/*.ts",
-		"src/next-compat/**/*.tsx",
-		"src/types/**/*.d.ts",
+		"src/lib/**/*.tsx",
+		"src/hooks/**/*.ts",
+		"src/hooks/**/*.tsx",
 		"test/**/*.ts",
 		"test/**/*.tsx"
 	]

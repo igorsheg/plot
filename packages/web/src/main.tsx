@@ -1,7 +1,5 @@
 import { createRoot } from "react-dom/client";
-// oxlint-disable-next-line import/no-unassigned-import -- bundled Fluid Functionalism font.
-import "@fontsource/inter";
-// oxlint-disable-next-line import/no-unassigned-import -- Vite CSS entry import.
+// oxlint-disable-next-line import/no-unassigned-import -- Vite CSS entry import (also loads self-hosted @font-face for Inter + Berkeley Mono).
 import "./globals.css";
 import { DashboardPage } from "./app/dashboard/DashboardPage";
 import { IconProvider } from "./lib/icon-context";

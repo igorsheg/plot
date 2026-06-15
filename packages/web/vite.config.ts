@@ -7,12 +7,6 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			"@": new URL("./src", import.meta.url).pathname,
-			"next/link": new URL("./src/next-compat/link.tsx", import.meta.url)
-				.pathname,
-			"next/navigation": new URL(
-				"./src/next-compat/navigation.ts",
-				import.meta.url,
-			).pathname,
 		},
 	},
 });
