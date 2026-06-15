@@ -45,7 +45,7 @@ import { projectionReadyDoneCounts } from "../fleet-model";
 import { OperatorActionButtons, InterruptRunButton } from "./operator-actions";
 import { WorkStageDot } from "./status";
 
-const tabular = "tabular-nums";
+const tabular = "font-mono tabular-nums";
 const muted = "text-muted-foreground";
 
 export function SessionSurface() {
@@ -308,7 +308,7 @@ function WorkRow({
 			</TableCell>
 			<TableCell>
 				<div className="font-medium">{workLabel(work)}</div>
-				<div className="max-w-72 truncate text-muted-foreground">
+				<div className="max-w-72 truncate font-mono text-muted-foreground">
 					{work.workKey}
 				</div>
 			</TableCell>
@@ -344,7 +344,7 @@ function Timeline({ entries }: { entries: RunningWorkProjection["timeline"] }) {
 				<span>timeline ({entries.length})</span>
 			</Disclosure.Trigger>
 			<Disclosure.Panel>
-				<div className="mt-2 flex flex-col gap-1 border-l border-border pl-3 text-xs text-muted-foreground">
+				<div className="mt-2 flex flex-col gap-1 border-l border-border pl-3 font-mono text-xs text-muted-foreground">
 					{entries.map((entry) => (
 						<div key={`${entry.atMs}-${entry.text}`}>
 							<span className={tabular}>
@@ -374,7 +374,7 @@ function RetrySection({ projection }: { projection: DashboardProjection }) {
 							key={`${wake.dueAtMs}-${wake.workKey ?? "session"}`}
 							className="flex justify-between gap-3"
 						>
-							<span>↻ {wake.workKey ?? "session"}</span>
+							<span className="font-mono">↻ {wake.workKey ?? "session"}</span>
 							<span className={cn(tabular, muted)}>
 								attempt {wake.attempt ?? "n/a"} · in{" "}
 								{formatDuration(wake.dueAtMs - Date.now())} ·{" "}

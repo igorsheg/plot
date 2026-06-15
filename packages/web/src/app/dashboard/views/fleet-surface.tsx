@@ -20,7 +20,7 @@ import { useDashboardState } from "../dashboard-context";
 import { stoppedSessionCount, visibleFleetSessions } from "../fleet-model";
 import { SessionStateIndicator } from "./status";
 
-const tabular = "tabular-nums";
+const tabular = "font-mono tabular-nums";
 
 export function FleetSurface() {
 	const { roster, connection, lastError } = useDashboardState();
@@ -89,14 +89,14 @@ function FleetRow({
 					className="block"
 				>
 					<span className="font-medium">{session.workflowName}</span>
-					<span className="mt-1 block max-w-56 truncate text-muted-foreground">
+					<span className="mt-1 block max-w-56 truncate font-mono text-muted-foreground">
 						{session.workflowPath}
 					</span>
 				</a>
 			</TableCell>
 			<TableCell>
 				<span>{session.cwdName}</span>
-				<span className="mt-1 block max-w-52 truncate text-muted-foreground">
+				<span className="mt-1 block max-w-52 truncate font-mono text-muted-foreground">
 					{session.cwd}
 				</span>
 			</TableCell>
