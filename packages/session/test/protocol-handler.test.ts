@@ -1,6 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, test } from "bun:test";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
@@ -59,6 +60,10 @@ const makeProtocol = async (
 		readonly sources?: readonly WorkSource[];
 		readonly runner?: WorkRunner;
 	} = {},
+	protocolOptions: Omit<
+		NonNullable<Parameters<typeof makePlotProtocolLayer>[0]>,
+		"session" | "sessionHistory" | "registry"
+	> = {},
 ) => {
 	const sessionDir = await mkdtemp(join(tmpdir(), "plot-protocol-"));
 	const history = await createSessionHistoryStore({ sessionDir, sessionId });
@@ -75,6 +80,7 @@ const makeProtocol = async (
 		history,
 		registry,
 		protocol: makePlotProtocolLayer({
+			...protocolOptions,
 			session,
 			sessionHistory: history,
 			registry,
@@ -180,6 +186,56 @@ describe("explicit Plot control protocol", () => {
 		expect(openCount()).toBe(2);
 		expect(firstEpoch).not.toBe(secondEpoch);
 		expect(registry.list().length).toBe(1);
+	});
+
+	test("connection-lifetime sessions close when the protocol connection closes", async () => {
+		const { protocol, registry } = await makeOpeningProtocol();
+
+		const pending = collectUntil(protocol.output(), responseFor("open"));
+		await protocol.submit(
+			request("open", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+				lifetime: "connection",
+			}),
+		);
+		await pending;
+		expect(registry.list().length).toBe(1);
+
+		await protocol.close();
+
+		expect(registry.list()).toEqual([]);
+	});
+
+	test("close_session asks the server to shut down after the last live session", async () => {
+		let shutdowns = 0;
+		const { protocol, registry } = await makeProtocol(
+			"session-1",
+			{},
+			{
+				shutdownServer: () => {
+					shutdowns++;
+				},
+			},
+		);
+
+		let pending = collectUntil(protocol.output(), responseFor("attach"));
+		await protocol.submit(
+			request("attach", "attach_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+		pending = collectUntil(protocol.output(), responseFor("close"));
+		await protocol.submit(
+			request("close", "close_session", { sessionId: "session-1" }),
+		);
+		await pending;
+		await sleep(0);
+
+		expect(registry.list()).toEqual([]);
+		expect(shutdowns).toBe(1);
 	});
 
 	test("has no hidden current session for session-scoped commands", async () => {

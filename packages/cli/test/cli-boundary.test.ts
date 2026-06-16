@@ -3,7 +3,7 @@ import {
 	decodePlotServerRecord,
 	plotProtocolVersion,
 } from "@plot/session/protocol";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -43,6 +43,15 @@ describe("plot CLI stdio process boundary", () => {
 				.splice(0)
 				.map((dir) => rm(dir, { recursive: true, force: true })),
 		);
+	});
+
+	test("keeps TUI out of CLI top-level imports", async () => {
+		const source = await readFile(
+			fileURLToPath(new URL("../src/cli.ts", import.meta.url)),
+			"utf8",
+		);
+		expect(source).not.toMatch(/^import .*@plot\/tui\/plot-tui/m);
+		expect(source).toContain('await import("@plot/tui/plot-tui")');
 	});
 
 	test("keeps spawned CLI stdout protocol-only and telemetry on stderr", async () => {

@@ -153,6 +153,6 @@ plot tui --workflow WORKFLOW.md
 plot web
 ```
 
-`plot run` creates a oneshot Plot Session. `plot tui` opens or attaches to this project/workflow watch session in the terminal dashboard. `plot web` starts a foreground web gateway for the shared Local Plot Server fleet roster and can drill into live sessions. All three use the explicit control protocol by default.
+`plot run` creates a oneshot Plot Session. `plot tui` opens a foreground terminal-owned watch session for this project/workflow; quitting it closes the session. `plot web` starts a foreground web gateway for the shared Local Plot Server fleet roster and can drill into live sessions. All three use the explicit control protocol by default.
 
 Plot stores project-local Session History under `.plot/sessions`. This is separate from pi-mono Agent Transcripts: Session History records Plot control-plane events and projection state, while Agent Transcripts remain the inner agent-session record.

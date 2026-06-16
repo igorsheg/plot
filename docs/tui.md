@@ -1,12 +1,12 @@
 # TUI
 
-The TUI is the terminal operator view for one attached Plot Session. Use `plot web` when you want the multi-session fleet view.
+The TUI is the foreground terminal owner for one live Plot Session. Use `plot web` when you want the multi-session fleet view.
 
 ```bash
 plot tui --workflow WORKFLOW.md
 ```
 
-By default it uses or autostarts the machine-local Plot Server and attaches over the explicit control protocol. The session appears in the shared roster used by other local clients. Quitting or pressing Ctrl-C detaches this UI only; use `plot stop` to close the session and `plot stop --all` to stop the whole local daemon. Use `--no-server` only as an explicit local test/escape hatch.
+By default it uses or autostarts the machine-local Plot Server and opens the session over the explicit control protocol. The session appears in the shared roster used by other local clients. Quitting or pressing Ctrl-C closes the session; if it was the last live session, the daemon shuts down too. Use `--no-server` only as an explicit local test/escape hatch.
 
 It is built as a Process Table, not a single log stream. The same per-session projection is used by the web drill-in view.
 

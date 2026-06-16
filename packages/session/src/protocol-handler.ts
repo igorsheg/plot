@@ -289,9 +289,21 @@ export const makePlotProtocolLayer = (
 		options.connectionId ?? "connection-1",
 	);
 	const attachments = new Map<string, "observer" | "controller">();
+	const ownedSessions = new Set<string>();
 	const eventPumps = new Set<string>();
 	let closed = false;
+	let shutdownScheduled = false;
 	const publishOutput = (record: PlotServerRecord) => output.publish(record);
+	const scheduleServerShutdownIfIdle = () => {
+		if (shutdownScheduled || registry.list().length !== 0) return;
+		if (!options.shutdownServer) return;
+		shutdownScheduled = true;
+		const timer = setTimeout(() => {
+			shutdownScheduled = false;
+			if (registry.list().length === 0) void options.shutdownServer?.();
+		}, 0);
+		timer.unref?.();
+	};
 	const attachSession = async (
 		runtime: ControlSessionRuntime,
 		role: "observer" | "controller",
@@ -317,6 +329,25 @@ export const makePlotProtocolLayer = (
 	const detachSession = async (sessionId: string) => {
 		attachments.delete(sessionId);
 		await registry.detach({ sessionId, connectionId });
+	};
+	const closeRuntime = async (runtime: ControlSessionRuntime) => {
+		try {
+			await runtime.close();
+		} finally {
+			ownedSessions.delete(runtime.sessionId);
+			await registry.unregister(runtime.sessionId).catch(() => undefined);
+		}
+	};
+	const closeOwnedSessions = async () => {
+		await Promise.all(
+			[...ownedSessions].map(async (sessionId) => {
+				const runtime = registry.get(sessionId);
+				if (runtime !== undefined)
+					await closeRuntime(runtime).catch(() => undefined);
+				else ownedSessions.delete(sessionId);
+			}),
+		);
+		scheduleServerShutdownIfIdle();
 	};
 
 	if (options.session) {
@@ -396,6 +427,11 @@ export const makePlotProtocolLayer = (
 				if (existing !== undefined) {
 					if (!(await attachSession(existing, params.role ?? "controller")))
 						return [];
+					if (
+						params.lifetime === "connection" &&
+						(params.role ?? "controller") === "controller"
+					)
+						ownedSessions.add(existing.sessionId);
 					const lastSequence = await existing.frontier();
 					return [
 						makeSuccessForRequest(request, {
@@ -432,6 +468,11 @@ export const makePlotProtocolLayer = (
 						await registry.unregister(runtime.sessionId).catch(() => undefined);
 						return [];
 					}
+					if (
+						params.lifetime === "connection" &&
+						(params.role ?? "controller") === "controller"
+					)
+						ownedSessions.add(runtime.sessionId);
 				} catch (error) {
 					await runtime.close().catch(() => undefined);
 					if (registered)
@@ -602,7 +643,9 @@ export const makePlotProtocolLayer = (
 				try {
 					accepted = await runtime.close();
 				} finally {
+					ownedSessions.delete(params.sessionId);
 					await registry.unregister(params.sessionId).catch(() => undefined);
+					scheduleServerShutdownIfIdle();
 				}
 				const lastSequence = await runtime.frontier();
 				return [
@@ -766,6 +809,7 @@ export const makePlotProtocolLayer = (
 		close: async () => {
 			if (closed) return;
 			closed = true;
+			await closeOwnedSessions();
 			attachments.clear();
 			await registry.detachConnection(connectionId);
 			requests.close();

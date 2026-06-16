@@ -29,7 +29,7 @@ plot tui --workflow WORKFLOW.md
 plot web
 ```
 
-`plot tui` opens the terminal dashboard for this project/workflow session. Quitting it detaches the UI; it does not close the session. `plot web` starts a small localhost web gateway, opens the browser, and proxies to the shared Local Plot Server. Pressing Ctrl-C in `plot web` stops only that web gateway. Use `plot stop` to close the current project/workflow session, or `plot stop --all` to stop all sessions and the daemon. Browser tabs detach when closed; they do not own session lifetime.
+`plot tui` opens a foreground, terminal-owned Plot Session for this project/workflow. Quitting or pressing Ctrl-C closes that session and stops the daemon too when it was the last live session. `plot web` starts a small localhost web gateway, opens the browser, and proxies to the shared Local Plot Server roster. Pressing Ctrl-C in `plot web` stops only that web gateway. Browser tabs detach when closed; they do not own session lifetime.
 
 ## Try the PR review example
 

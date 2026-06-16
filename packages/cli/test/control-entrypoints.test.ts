@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { connectLocalControlClient } from "@plot/session/local-control-client";
+import { statusLocalPlotServerDaemon } from "@plot/session/local-server-daemon";
 import { startLocalPlotServer } from "@plot/session/local-server";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
 import {
@@ -148,7 +149,7 @@ describe("control-protocol product entrypoints", () => {
 			await server.stop();
 			await sleep(50);
 		}
-	});
+	}, 10_000);
 
 	test("plot web prints a fragment handoff URL without opening the browser", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-web-control-"));
@@ -202,6 +203,28 @@ describe("control-protocol product entrypoints", () => {
 		expect(ws.protocol).toBe("ws:");
 		expect(ws.pathname).toBe("/ws");
 		expect(ws.searchParams.has("token")).toBe(true);
+	});
+
+	test("plot web does not autostart an empty daemon", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "plot-web-no-daemon-"));
+		tempDirs.push(cwd);
+		const serverDir = await mkdtemp(
+			join(tmpdir(), "plot-web-no-daemon-server-"),
+		);
+		tempDirs.push(serverDir);
+
+		await expect(
+			startWebDashboard({
+				cwd,
+				sessionId: "web-no-daemon-test",
+				serverDir,
+				logLevel: "none",
+				logFormat: "json",
+				noOpen: true,
+				writeStdout: () => undefined,
+			}),
+		).rejects.toThrow("Local Plot Server is not running");
+		expect(await statusLocalPlotServerDaemon({ serverDir })).toBeUndefined();
 	});
 
 	test("plot web holds the CLI until stopped", async () => {

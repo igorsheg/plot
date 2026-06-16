@@ -109,6 +109,7 @@ const openSessionParamsFrom = (
 ) => ({
 	sessionId: options.sessionId,
 	mode,
+	lifetime: "connection" as const,
 	role: "controller" as const,
 	cwd: options.cwd,
 	...(options.workflowPath === undefined
@@ -338,6 +339,7 @@ export const startWebDashboard = async (
 		...(options.serverDir === undefined
 			? {}
 			: { serverDir: options.serverDir }),
+		autostart: false,
 	});
 	const token = await ensureLocalControlToken(client.paths);
 	let gateway: ReturnType<typeof startPlotWebGateway>;

@@ -6,7 +6,7 @@ The web dashboard is the localhost control plane for the Local Plot Server roste
 plot web
 ```
 
-`plot web` uses or autostarts the shared machine-local Plot Server daemon, starts a foreground localhost web gateway for the bundled web app, opens the browser, prints the URL, and holds the terminal until Ctrl-C. The browser receives the gateway WebSocket handoff through a URL fragment, stores it in session storage, and scrubs the visible URL. The gateway proxies to the daemon; the daemon does not serve web assets.
+`plot web` uses the shared machine-local Plot Server daemon when live sessions exist, starts a foreground localhost web gateway for the bundled web app, opens the browser, prints the URL, and holds the terminal until Ctrl-C. The browser receives the gateway WebSocket handoff through a URL fragment, stores it in session storage, and scrubs the visible URL. The gateway proxies to the daemon; the daemon does not serve web assets.
 
 ## What it shows
 
@@ -39,8 +39,8 @@ Those sessions appear in the web roster.
 ## Lifecycle semantics
 
 - Closing the browser tab detaches the browser; it does not close the Plot Session.
-- Pressing Ctrl-C in `plot web` stops only the web gateway; the daemon and sessions keep running.
-- Use `plot stop` to close the current project/workflow session, or `plot stop --all` to stop all sessions and the daemon.
+- Pressing Ctrl-C in `plot web` stops only the web gateway.
+- `plot tui` owns its session: quitting or Ctrl-C closes that session, and the daemon exits if no live sessions remain.
 - Controller actions such as pause, resume, Reconcile now, interrupt Agent Run, close session, and Source-declared Operator Actions go through the explicit control protocol.
 - Operator Actions record Operator Observations in Session History. The web never calls Source code directly.
 - Session History is project-local and authoritative for control-plane state, not extension domain state. Extensions decide what work exists from their own durable source of truth.

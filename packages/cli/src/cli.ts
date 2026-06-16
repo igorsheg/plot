@@ -5,7 +5,6 @@ import {
 	type CommandDef,
 	type ParsedArgs,
 } from "citty";
-import { runPlotTui } from "@plot/tui/plot-tui";
 import { sessionCommandArgs } from "./args.js";
 import { getCliIo, setCliIo } from "./cli-context.js";
 import { authCommand } from "./commands/auth.js";
@@ -31,7 +30,8 @@ const rootArgs = {
 	},
 };
 
-const runRootTui = ({ args }: { args: ParsedArgs }) => {
+const runRootTui = async ({ args }: { args: ParsedArgs }) => {
+	const { runPlotTui } = await import("@plot/tui/plot-tui");
 	const io = getCliIo();
 	const noServer = bool(args, "no-server");
 	return runPlotTui({

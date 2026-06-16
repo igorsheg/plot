@@ -23,10 +23,10 @@ export const serveCommand = defineCommand({
 		},
 		...sessionCommandArgs,
 	},
-	run: ({ args, rawArgs }) => {
+	run: async ({ args, rawArgs }) => {
 		const io = getCliIo();
 		if (rawArgs.some((arg) => arg === "stdio")) return undefined;
-		return serveLocal({
+		await serveLocal({
 			...baseOptions(args),
 			...(str(args, "hostname") === undefined
 				? {}
@@ -34,6 +34,7 @@ export const serveCommand = defineCommand({
 			...(int(args, "port") === undefined ? {} : { port: int(args, "port")! }),
 			writeStdout: io.writeStdout,
 		});
+		process.exit(0);
 	},
 	subCommands: {
 		stdio: defineCommand({

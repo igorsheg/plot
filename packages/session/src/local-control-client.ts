@@ -136,7 +136,11 @@ export const connectLocalControlClient = async (
 		});
 	}
 	if (metadata === undefined)
-		throw new Error("Local Plot Server is not running and autostart failed");
+		throw new Error(
+			options.autostart === false
+				? "Local Plot Server is not running"
+				: "Local Plot Server is not running and autostart failed",
+		);
 
 	const ws = new WebSocket(websocketUrl(metadata.url, token.token));
 	const records = new AsyncQueue<PlotServerRecord>({ capacity: 1024 });

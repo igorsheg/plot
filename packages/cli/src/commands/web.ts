@@ -54,7 +54,7 @@ export const webCommand = defineCommand({
 		} catch (error) {
 			await writeCliStderr(
 				io,
-				`Error: ${errorMessage(error)}\nFix: Ensure the Local Plot Server can start and the web assets are bundled or built.\n`,
+				`Error: ${errorMessage(error)}\nFix: Start a live session with plot tui, then run plot web.\n`,
 			);
 			throw error;
 		}
