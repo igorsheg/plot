@@ -284,14 +284,24 @@ export const makePlotProtocolLayer = (
 	const attachSession = async (
 		runtime: ControlSessionRuntime,
 		role: "observer" | "controller",
-	) => {
+	): Promise<boolean> => {
+		if (closed) return false;
 		attachments.set(runtime.sessionId, role);
-		startPump(runtime);
 		await registry.attach({
 			sessionId: runtime.sessionId,
 			connectionId,
 			role,
 		});
+		if (closed) {
+			attachments.delete(runtime.sessionId);
+			await registry.detach({
+				sessionId: runtime.sessionId,
+				connectionId,
+			});
+			return false;
+		}
+		startPump(runtime);
+		return true;
 	};
 	const detachSession = async (sessionId: string) => {
 		attachments.delete(sessionId);
@@ -360,7 +370,8 @@ export const makePlotProtocolLayer = (
 						? undefined
 						: registry.get(params.sessionId);
 				if (existing !== undefined) {
-					await attachSession(existing, params.role ?? "controller");
+					if (!(await attachSession(existing, params.role ?? "controller")))
+						return [];
 					const lastSequence = await existing.frontier();
 					return [
 						makeSuccessForRequest(request, {
@@ -373,9 +384,22 @@ export const makePlotProtocolLayer = (
 					];
 				}
 				const runtime = await options.openSession(params);
+				if (closed) {
+					await runtime.session.shutdown().catch(() => undefined);
+					return [];
+				}
 				await registry.register(runtime);
+				if (closed) {
+					await runtime.close().catch(() => undefined);
+					return [];
+				}
 				await runtime.session.start();
-				await attachSession(runtime, params.role ?? "controller");
+				if (closed) {
+					await runtime.close().catch(() => undefined);
+					return [];
+				}
+				if (!(await attachSession(runtime, params.role ?? "controller")))
+					return [];
 				const lastSequence = await runtime.frontier();
 				return [
 					makeSuccessForRequest(request, {
@@ -390,7 +414,8 @@ export const makePlotProtocolLayer = (
 			case "attach_session": {
 				const params = decodeAttachSessionParams(request.params);
 				const runtime = getSession(registry, params.sessionId);
-				await attachSession(runtime, params.role ?? "observer");
+				if (!(await attachSession(runtime, params.role ?? "observer")))
+					return [];
 				const snapshot = wireSnapshot(await runtime.snapshot());
 				const lastSequence = await runtime.frontier();
 				const response = makeSuccessForRequest(request, {

@@ -179,7 +179,14 @@ describe("explicit Plot control protocol", () => {
 		);
 		await pending;
 
-		pending = collectUntil(protocol.output(), responseFor("attach-2"));
+		let sawAttach = false;
+		const replayedSequences: number[] = [];
+		pending = collectUntil(protocol.output(), (record) => {
+			if (responseFor("attach-2")(record)) sawAttach = true;
+			else if (sawAttach && record.kind === "session_event")
+				replayedSequences.push(Number(record.sequence));
+			return sawAttach && replayedSequences.length >= 2;
+		});
 		await protocol.submit(
 			request("attach-2", "attach_session", {
 				sessionId: "session-1",
@@ -198,6 +205,60 @@ describe("explicit Plot control protocol", () => {
 				data: expect.objectContaining({ snapshot: expect.any(Object) }),
 			}),
 		);
+		expect(replayedSequences).toEqual([1, 2]);
+	});
+
+	test("closing while open_session is in flight does not attach a dead connection", async () => {
+		const sessionDir = await mkdtemp(join(tmpdir(), "plot-open-close-"));
+		const history = await createSessionHistoryStore({
+			sessionDir,
+			sessionId: "session-1",
+		});
+		const session = makePlotSessionLayer({
+			id: "session-1",
+			workflow,
+			sources: [],
+			runner,
+			sessionHistory: history,
+		});
+		const runtime = makeControlSessionRuntime({
+			session,
+			history,
+			cwd: sessionDir,
+			mode: "watch",
+		});
+		const registry = makeControlSessionRegistry();
+		let releaseOpen!: () => void;
+		const openGate = new Promise<void>((resolve) => {
+			releaseOpen = resolve;
+		});
+		let openStarted!: () => void;
+		const openStartedPromise = new Promise<void>((resolve) => {
+			openStarted = resolve;
+		});
+		const protocol = makePlotProtocolLayer({
+			registry,
+			connectionId: "closing-client",
+			openSession: async () => {
+				openStarted();
+				await openGate;
+				return runtime;
+			},
+		});
+
+		const submitted = protocol.submit(
+			request("open", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+				cwd: sessionDir,
+			}),
+		);
+		await openStartedPromise;
+		await protocol.close();
+		releaseOpen();
+		await submitted;
+
+		expect(await registry.summaries()).toEqual([]);
 	});
 
 	test("session summaries count controller and observer attachments by connection", async () => {
