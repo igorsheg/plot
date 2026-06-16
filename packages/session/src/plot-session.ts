@@ -198,13 +198,27 @@ const nextSequence = (get: () => number, set: (n: number) => void) => {
 	set(next);
 	return plotSessionEventSequence(next);
 };
-const historyForPlotAgentEvent = (
+const compactTickResult = (result: TickResult) => ({
+	tickId: result.tickId,
+	selectedCount: result.selected.length,
+	startedCount: result.started.length,
+	completionCount: result.completions.length,
+	diagnosticCount: result.diagnostics.length,
+	...(result.diagnostics.length === 0
+		? {}
+		: { diagnostics: result.diagnostics }),
+});
+
+export const historyForPlotAgentEvent = (
 	event: PlotAgentEvent,
 ): SessionHistoryAppendInput => {
 	if (event.type === "tick_started")
 		return { type: "tick_started", payload: { tickId: event.tickId } };
 	if (event.type === "tick_completed")
-		return { type: "tick_completed", payload: { result: event.result } };
+		return {
+			type: "tick_completed",
+			payload: { result: compactTickResult(event.result) },
+		};
 	if (event.type === "wake_scheduled")
 		return { type: "wake_scheduled", payload: event };
 	if (event.type === "work_started")
@@ -316,7 +330,8 @@ export function makePlotSessionLayer(
 			message: "eventCapacity must be a positive integer",
 		});
 	const events = new EventHub<PlotSessionEvent>(eventCapacity);
-	let sequence = 0;
+	let sequence = 0,
+		shutdownPromise: Promise<boolean> | undefined;
 	const publish = (event: PlotSessionEvent) => events.publish(event);
 	const claimMemorySequence = () =>
 		nextSequence(
@@ -380,7 +395,7 @@ export function makePlotSessionLayer(
 		sources: options.sources,
 		runner,
 	});
-	void (async () => {
+	const agentEventsDone = (async () => {
 		for await (const event of plotAgent.events())
 			publish(
 				new PlotAgentEventEnvelope({
@@ -391,7 +406,7 @@ export function makePlotSessionLayer(
 					event,
 				}),
 			);
-	})();
+	})().catch(() => undefined);
 	return {
 		id: sessionId,
 		workflow: options.workflow,
@@ -466,12 +481,13 @@ export function makePlotSessionLayer(
 					? (await options.sessionHistory.frontier()).lastSequence
 					: sequence,
 			),
-		shutdown: async () =>
-			withWideEvent(
+		shutdown: async () => {
+			shutdownPromise ??= withWideEvent(
 				"plot_session.shutdown",
 				{ session_id: sessionId },
 				async () => {
 					const accepted = await plotAgent.shutdown();
+					await agentEventsDone;
 					publish(
 						new SessionShutdownEvent({
 							sessionId,
@@ -483,8 +499,11 @@ export function makePlotSessionLayer(
 								: claimMemorySequence(),
 						}),
 					);
+					events.close();
 					return accepted;
 				},
-			),
+			);
+			return shutdownPromise;
+		},
 	};
 }

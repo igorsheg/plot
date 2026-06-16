@@ -111,9 +111,15 @@ export interface PlotExtensionOperatorActionEvent extends PlotExtensionWorkEvent
 	readonly clientId?: string;
 }
 
+export interface PlotExtensionRuntimeContext {
+	readonly signal: AbortSignal;
+}
+
 export interface PlotExtensionRuntime {
 	/** Discover eligible domain work. No returned work means this tick is a no-op. */
-	readonly discover: () => MaybePromise<readonly PlotExtensionWork[]>;
+	readonly discover: (
+		context?: PlotExtensionRuntimeContext,
+	) => MaybePromise<readonly PlotExtensionWork[]>;
 	/** Optional callback after Plot claims work and before the inner agent runs. */
 	readonly started?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
 	/** Optional callback after the inner agent finishes successfully. */
@@ -131,7 +137,9 @@ export interface PlotExtensionRuntime {
 	/** Optional callback after Plot times out a run. */
 	readonly timedOut?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
 	/** Optional process/session cleanup. */
-	readonly shutdown?: () => MaybePromise<void>;
+	readonly shutdown?: (
+		context?: PlotExtensionRuntimeContext,
+	) => MaybePromise<void>;
 }
 
 export interface PlotExtension<Config = unknown> {

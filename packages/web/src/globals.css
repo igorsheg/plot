@@ -91,6 +91,9 @@
 	--destructive: #ef4444;
 	--destructive-light: #fef2f2;
 	--attention: #d97706;
+	/* third text ink (fainter than muted-foreground) + the single "live" accent */
+	--t3: #9aa0ad;
+	--live: #2f6df6;
 
 	--overlay: 0 0 0;
 	--hover: rgb(var(--overlay) / 0.04);
@@ -232,6 +235,9 @@
 	--destructive: #ef4444;
 	--destructive-light: #fef2f2;
 	--attention: #d97706;
+	/* third text ink (fainter than muted-foreground) + the single "live" accent */
+	--t3: #9aa0ad;
+	--live: #2f6df6;
 
 	--overlay: 0 0 0;
 	--hover: rgb(var(--overlay) / 0.04);
@@ -308,6 +314,8 @@
 
 	--destructive: #f87171;
 	--destructive-light: #450a0a;
+	--t3: #6b7078;
+	--live: #6699ff;
 
 	--overlay: 255 255 255;
 	--hover: rgb(var(--overlay) / 0.06);
@@ -350,6 +358,8 @@
 	--color-destructive: var(--destructive);
 	--color-destructive-light: var(--destructive-light);
 	--color-attention: var(--attention);
+	--color-t3: var(--t3);
+	--color-live: var(--live);
 	--color-hover: var(--hover);
 	--color-active: var(--active);
 

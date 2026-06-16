@@ -1,9 +1,13 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { AgentSessionEvent } from "../src/agent-session-types.js";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makePlotSessionLayer } from "../src/plot-session.js";
+import { createSessionHistoryStore } from "../src/session-history.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
 
 const workflow: WorkflowDefinition = {
@@ -85,6 +89,47 @@ describe("PlotSession", () => {
 			"plot_agent_event",
 		]);
 		expect(result.map((event) => Number(event.sequence))).toEqual([1, 2, 3]);
+	});
+
+	test("records compact tick history instead of full idle snapshots", async () => {
+		const sessionDir = await mkdtemp(join(tmpdir(), "plot-history-"));
+		const sessionHistory = await createSessionHistoryStore({
+			sessionDir,
+			sessionId: "compact",
+		});
+		const session = makePlotSessionLayer({
+			id: "compact",
+			workflow,
+			sources: [],
+			runner: { run: () => ({}) },
+			sessionHistory,
+		});
+
+		const completedEvent = collectN(
+			session.events(),
+			1,
+			(event) =>
+				event.type === "plot_agent_event" &&
+				event.event.type === "tick_completed",
+		);
+		await Promise.resolve();
+		await session.tickOnce();
+		await completedEvent;
+		const history = await sessionHistory.readAll();
+		const completed = history.events.find(
+			(event) => event.type === "tick_completed",
+		);
+
+		expect(completed?.payload).toEqual({
+			result: {
+				tickId: 1,
+				selectedCount: 0,
+				startedCount: 0,
+				completionCount: 0,
+				diagnosticCount: 0,
+			},
+		});
+		expect(JSON.stringify(completed?.payload)).not.toContain("snapshot");
 	});
 
 	test("wraps raw agent session events with session and run provenance", async () => {

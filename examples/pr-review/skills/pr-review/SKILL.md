@@ -15,7 +15,7 @@ You are not a checklist executor. You are a senior reviewer with codebase access
 - Do not flag issues you have not proved in code.
 - Do not pad reports with empty sections.
 - Match review depth to PR risk.
-- Use GitHub review structure well: one concise top-level review body plus inline review threads for line-specific findings. A single blob comment is a fallback, not the preferred shape.
+- Use GitHub review structure well: one concise top-level review body plus inline review threads for line-specific findings. The body should summarize, not repeat inline findings. A single blob comment is a fallback, not the preferred shape.
 - Write to the PR author in second person, consequence first, identifiers in backticks, no hedging when you have evidence, no bot phrasing, no emojis. Follow the workflow's Voice section when one exists.
 
 ## 1. Identify the target
@@ -126,7 +126,7 @@ For medium/large/high-risk PRs:
 
 ### Findings
 
-#### ![P0](https://img.shields.io/badge/P0-red?style=flat) [Finding title: the consequence, not the category] — `path:line`
+#### **<sub><sub>![P0 Badge](https://img.shields.io/badge/P0-red?style=flat)</sub></sub> [Finding title: the consequence, not the category]** — `path:line`
 
 **Impact:** [What breaks, when, for whom — consequence first.]
 **Fix:** [The concrete change, named.]
@@ -144,9 +144,9 @@ High/Medium/Low — [why].
 
 Use priority badges/severities. Use raw Shields URLs, not GitHub Camo URLs; GitHub rewrites external images through Camo when rendering Markdown.
 
-- ![P0](https://img.shields.io/badge/P0-red?style=flat) **P0**: correctness/security/data loss/boundary issue that should block merging.
-- ![P1](https://img.shields.io/badge/P1-orange?style=flat) **P1**: real issue that should be fixed but may not block.
-- ![P2](https://img.shields.io/badge/P2-yellow?style=flat) **P2**: cleanup, maintainability, clarity.
+- **<sub><sub>![P0 Badge](https://img.shields.io/badge/P0-red?style=flat)</sub></sub> P0**: correctness/security/data loss/boundary issue that should block merging.
+- **<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub> P1**: real issue that should be fixed but may not block.
+- **<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub> P2**: cleanup, maintainability, clarity.
 
 ## 8. Post with GitHub tools
 
@@ -158,7 +158,7 @@ gh pr review <number> --comment --body-file /tmp/review.md
 
 When the workflow maintains a durable anchor comment, follow the workflow's marker contract exactly and edit the anchor in place — never create a duplicate anchor.
 
-For line-specific findings, prefer creating one GitHub review with inline comments in the same API call:
+For line-specific findings, prefer creating one GitHub review with inline comments in the same API call. Keep the body lean: one status line plus a short human summary; put line-local detail in the inline comments.
 
 ```bash
 OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -166,14 +166,11 @@ PR=<number>
 HEAD=$(gh pr view "$PR" --json headRefOid -q .headRefOid)
 
 cat > /tmp/review-body.md <<EOF
-## PR Review
+### Plot Review
 
-**Disposition:** COMMENT
-**Verification:** ...
-**Head:** \`$HEAD\`
+**Comment · high confidence**
 
-### Summary
-...
+The change holds overall. I checked the lifecycle path and left one inline note where a late `setProjection` can recreate the render timer after shutdown.
 EOF
 
 cat > /tmp/review.json <<EOF
@@ -186,7 +183,7 @@ cat > /tmp/review.json <<EOF
       "path": "src/example.ts",
       "line": 42,
       "side": "RIGHT",
-      "body": "![P1](https://img.shields.io/badge/P1-orange?style=flat) **You clear the timer here, but a late `setProjection` recreates it.** Quit mid-stream and the clock keeps firing on a dead screen. Fix: gate `syncLiveRenderTimer` on a live flag. Evidence: `dashboard.ts:77` calls `syncLiveRenderTimer` unconditionally."
+      "body": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  You clear the timer here, but a late `setProjection` recreates it.** Quit mid-stream and the clock keeps firing on a dead screen. Fix: gate `syncLiveRenderTimer` on a live flag. Evidence: `dashboard.ts:77` calls `syncLiveRenderTimer` unconditionally."
     }
   ]
 }

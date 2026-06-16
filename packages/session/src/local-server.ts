@@ -176,6 +176,17 @@ const archivedSessionSummaries = async (paths: LocalPlotServerPaths) =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
+const countField = (
+	result: Record<string, unknown>,
+	arrayKey: string,
+	countKey: string,
+) => {
+	const value = result[arrayKey];
+	if (Array.isArray(value)) return value.length;
+	const count = result[countKey];
+	return typeof count === "number" ? count : 0;
+};
+
 const oneshotTickIsTerminal = (event: SessionHistoryEvent): boolean => {
 	if (event.type !== "tick_completed" || !isRecord(event.payload)) return false;
 	const result = event.payload["result"];
@@ -183,15 +194,9 @@ const oneshotTickIsTerminal = (event: SessionHistoryEvent): boolean => {
 	const snapshot = result["snapshot"];
 	const running = isRecord(snapshot) ? snapshot["running"] : undefined;
 	const runningSize = running instanceof Map ? running.size : 0;
-	const started = Array.isArray(result["started"])
-		? result["started"].length
-		: 0;
-	const selected = Array.isArray(result["selected"])
-		? result["selected"].length
-		: 0;
-	const completions = Array.isArray(result["completions"])
-		? result["completions"].length
-		: 0;
+	const started = countField(result, "started", "startedCount");
+	const selected = countField(result, "selected", "selectedCount");
+	const completions = countField(result, "completions", "completionCount");
 	return (
 		runningSize === 0 && started === 0 && selected === 0 && completions > 0
 	);

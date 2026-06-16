@@ -131,6 +131,20 @@ const messageDelta = (
 		workKey,
 	);
 
+const messagePartial = (sequence: number, delta: string, partial: string) =>
+	agentRunEvent(sequence, {
+		type: "message_update",
+		message: { role: "assistant", content: [] },
+		assistantMessageEvent: {
+			type: "text_delta",
+			delta,
+			partial: {
+				role: "assistant",
+				content: [{ type: "text", text: partial }],
+			},
+		},
+	});
+
 describe("Plot TUI projection", () => {
 	test("classifies operator stage from the tool kind, not prose", () => {
 		let projection = emptyProjection("default", "workflow");
@@ -258,6 +272,25 @@ describe("Plot TUI projection", () => {
 		expect(work?.eventCount).toBe(4);
 		expect(work?.messageCount).toBe(1);
 		expect(work?.toolUpdateCount).toBe(1);
+	});
+
+	test("accumulates assistant partial text instead of replacing with each delta", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(projection, messagePartial(2, "hello", "hello"));
+		projection = reduceRecord(
+			projection,
+			messagePartial(3, " world", "hello world"),
+		);
+		projection = reduceRecord(
+			projection,
+			messagePartial(4, "!", "hello world!"),
+		);
+
+		const work = projection.running.get("source:item:42");
+		expect(work?.activity).toBe("hello world!");
+		expect(work?.streaming).toBe(true);
+		expect(work?.messageCount).toBe(3);
 	});
 
 	test("surfaces streaming deltas as the live activity line", () => {

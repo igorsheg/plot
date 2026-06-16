@@ -354,14 +354,31 @@ const argTarget = (toolName: string, args: unknown): string | undefined => {
 	return text(args["path"]);
 };
 
+const messageContentText = (message: unknown): string | undefined => {
+	if (!isRecord(message)) return undefined;
+	const content = message["content"];
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return undefined;
+	const parts = content.flatMap((item) => {
+		if (!isRecord(item)) return [];
+		if (item["type"] === "text") return text(item["text"]) ?? [];
+		if (item["type"] === "thinking") return text(item["thinking"]) ?? [];
+		return [];
+	});
+	const combined = parts.join("");
+	return combined.trim().length === 0 ? undefined : combined;
+};
+
 const messageDelta = (event: Record<string, unknown>): string | undefined => {
 	const ame = event["assistantMessageEvent"];
 	if (isRecord(ame)) {
+		const partial = messageContentText(ame["partial"]);
+		if (partial !== undefined) return inlineText(partial, 120);
 		const delta = text(ame["delta"]);
-		if (delta !== undefined && delta.trim().length > 0)
-			return inlineText(delta, 120);
+		if (delta !== undefined && delta.trim().length > 0) return delta;
 	}
-	return undefined;
+	const message = messageContentText(event["message"]);
+	return message === undefined ? undefined : inlineText(message, 120);
 };
 
 type EventPhase = "turn" | "start" | "update" | "end" | "message" | "none";
@@ -759,10 +776,14 @@ const reduceTickCompleted = (
 	const tickId = typeof result["tickId"] === "number" ? result["tickId"] : 0;
 	const found = Array.isArray(result["selected"])
 		? result["selected"].length
-		: 0;
+		: typeof result["selectedCount"] === "number"
+			? result["selectedCount"]
+			: 0;
 	const started = Array.isArray(result["started"])
 		? result["started"].length
-		: 0;
+		: typeof result["startedCount"] === "number"
+			? result["startedCount"]
+			: 0;
 	const pulse: LoopPulse = { tickId, atMs: observedAtMs, found, started };
 	const activity =
 		found > 0
@@ -988,10 +1009,17 @@ const reduceAgentSessionEvent = (
 
 	// The live "now" line — resolved here so views render it verbatim.
 	const streaming =
-		classified.phase === "update" || classified.phase === "message";
+		classified.phase === "update" ||
+		(classified.phase === "message" && classified.type !== "message_end");
 	const activity =
 		classified.phase === "message"
-			? (classified.delta ?? previous.activity)
+			? classified.delta === undefined
+				? previous.activity
+				: previous.activityKind === "message" &&
+					  previous.streaming &&
+					  !classified.delta.startsWith(previous.activity)
+					? inlineText(`${previous.activity}${classified.delta}`, 120)
+					: inlineText(classified.delta, 120)
 			: classified.phase === "turn"
 				? "Thinking"
 				: classified.phase === "start" || classified.phase === "update"

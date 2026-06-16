@@ -70,23 +70,24 @@ const readFromDist = async (distDir: string): Promise<PlotWebAssets> => {
 	return { indexHtml, assets };
 };
 
+const isMissing = (error: unknown): boolean =>
+	typeof error === "object" &&
+	error !== null &&
+	"code" in error &&
+	(error as { readonly code?: unknown }).code === "ENOENT";
+
 export const tryLoadPlotWebAssets = async (): Promise<
 	PlotWebAssets | undefined
 > => {
-	const embedded = fromEmbedded();
-	if (embedded !== undefined) return embedded;
+	// Prefer a freshly built local web/dist so `bun run build` is reflected
+	// immediately in dev. A published CLI has no sibling web/dist (ENOENT), so it
+	// falls back to the bundle embedded at release time.
 	try {
 		return await readFromDist(localDistDir());
 	} catch (error) {
-		if (
-			typeof error === "object" &&
-			error !== null &&
-			"code" in error &&
-			(error as { readonly code?: unknown }).code === "ENOENT"
-		)
-			return undefined;
-		throw error;
+		if (!isMissing(error)) throw error;
 	}
+	return fromEmbedded();
 };
 
 export const loadPlotWebAssets = async (): Promise<PlotWebAssets> => {

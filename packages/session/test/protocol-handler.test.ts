@@ -713,8 +713,9 @@ describe("explicit Plot control protocol", () => {
 		expect((await session.snapshot()).running.size).toBe(0);
 		expect(registry.get("session-1")).toBeUndefined();
 		const events = (await history.readAll()).events;
+		const eventTypes = events.map((event) => event.type);
 		expect(events.length).toBeGreaterThan(0);
-		expect(events.map((event) => event.type)).toEqual(
+		expect(eventTypes).toEqual(
 			expect.arrayContaining([
 				"session_close_requested",
 				"work_completed",
@@ -722,6 +723,10 @@ describe("explicit Plot control protocol", () => {
 				"session_close_completed",
 			]),
 		);
+		expect(eventTypes.indexOf("session_shutdown")).toBeLessThan(
+			eventTypes.indexOf("session_close_completed"),
+		);
+		expect(events.at(-1)?.type).toBe("session_close_completed");
 	});
 
 	test("perform_operator_action rejects undeclared disabled and comment-required actions", async () => {

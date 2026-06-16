@@ -56,8 +56,16 @@ function RootLayout() {
 				<div className="flex min-h-0 flex-1">
 					<FleetRail />
 					<div className="min-w-0 flex-1 overflow-y-auto">
-						{/* Detail content stays width-capped inside the pane for readability. */}
-						<div className="mx-auto w-full max-w-5xl px-6 py-6">
+						{/* Session detail is full-bleed (it owns its own gutters so lane
+						    hairlines reach the pane edges); the fleet list stays
+						    width-capped and padded for readability. */}
+						<div
+							className={
+								params.sessionId === undefined
+									? "mx-auto w-full max-w-5xl px-6 py-6"
+									: "w-full"
+							}
+						>
 							<Outlet />
 						</div>
 					</div>

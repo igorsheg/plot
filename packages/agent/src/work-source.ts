@@ -14,6 +14,7 @@ export interface PhaseContext {
 	readonly sourceId: SourceId;
 	readonly tickId: TickId;
 	readonly snapshot: RuntimeSnapshot;
+	readonly signal: AbortSignal;
 }
 
 export interface WorkSourcePolicy {

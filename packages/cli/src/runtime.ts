@@ -150,7 +150,7 @@ const terminalRecordFor = (sessionId: string, record: unknown): boolean => {
 	return (
 		(r.kind === "session_event" &&
 			r.sessionId === sessionId &&
-			r.event?.type === "session_shutdown") ||
+			r.event?.type === "session_close_completed") ||
 		(r.kind === "roster_event" &&
 			r.session?.id === sessionId &&
 			(r.session.state === "stopped" || r.session.state === "error"))

@@ -267,8 +267,13 @@ describe("task-agnostic Plot agent", () => {
 				snapshot.observations.map((o) => setFact(`seen:${o.subject}`, true)),
 		};
 		const agent = makeAgent([source]);
+		const completed = waitForEvent(
+			agent.events(),
+			(event) => event.type === "tick_completed",
+		);
 		await agent.start();
 		await agent.offer({ type: "tick" });
+		await completed;
 		await agent.shutdown();
 		await yieldNow();
 		const snapshot = await agent.snapshot();
@@ -478,6 +483,69 @@ describe("task-agnostic Plot agent", () => {
 			"work_started",
 			"tick_completed",
 		]);
+	});
+
+	test("shutdown aborts the active tick and closes the event stream", async () => {
+		const entered = deferred<void>();
+		const aborted = deferred<void>();
+		const source: WorkSource = {
+			id: sourceId("shutdown-hook"),
+			observeTick: ({ signal }) => {
+				entered.resolve();
+				return new Promise<[]>((resolve) => {
+					signal.addEventListener(
+						"abort",
+						() => {
+							aborted.resolve();
+							resolve([]);
+						},
+						{ once: true },
+					);
+				});
+			},
+		};
+		const agent = makeAgent([source], succeedRunner(), {
+			tickIntervalMs: 60_000,
+		});
+		const seen: string[] = [];
+		const drained = (async () => {
+			for await (const event of agent.events()) seen.push(event.type);
+		})();
+
+		await agent.start();
+		await entered.promise;
+		await agent.shutdown();
+		await aborted.promise;
+		await drained;
+
+		expect(seen).toEqual(["tick_started"]);
+		expect(await agent.offer({ type: "tick" })).toBe(false);
+	});
+
+	test("shutdown does not wait for hooks that ignore abort", async () => {
+		const entered = deferred<void>();
+		const source: WorkSource = {
+			id: sourceId("shutdown-stuck-hook"),
+			observeTick: () => {
+				entered.resolve();
+				return never();
+			},
+		};
+		const agent = makeAgent([source], succeedRunner(), {
+			tickIntervalMs: 60_000,
+		});
+
+		await agent.start();
+		await entered.promise;
+		const result = await Promise.race([
+			agent.shutdown().then(() => "stopped" as const),
+			new Promise<"timed_out">((resolve) =>
+				setTimeout(() => resolve("timed_out"), 50),
+			),
+		]);
+
+		expect(result).toBe("stopped");
+		expect(await agent.offer({ type: "tick" })).toBe(false);
 	});
 
 	test("shutdown interrupts active runner work and clears running claims", async () => {

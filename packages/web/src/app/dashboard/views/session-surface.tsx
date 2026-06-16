@@ -5,7 +5,6 @@ import {
 	formatTokens,
 } from "@plot/control/dashboard-model";
 import {
-	type ActivityKind,
 	type DashboardProjection,
 	type RunningWorkProjection,
 	workLabel,
@@ -13,7 +12,7 @@ import {
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -37,10 +36,23 @@ import { projectionReadyDoneCounts } from "../fleet-model";
 import { throughputSeries } from "../throughput-series";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
-const tabular = "font-mono tabular-nums";
-const muted = "text-muted-foreground";
-// Bleed lanes to the edge of the max-w-5xl px-6 reading column.
-const bleed = "-mx-6";
+const mono = "font-mono tabular-nums";
+
+// hairline divider between inline meta segments (a 4px-rhythm column rule).
+function Divided({ children }: { children: readonly ReactNode[] }) {
+	return (
+		<>
+			{children.map((child, index) => (
+				<Fragment key={index}>
+					{index > 0 ? (
+						<span className="mx-3 h-2 w-px self-center bg-border" />
+					) : null}
+					{child}
+				</Fragment>
+			))}
+		</>
+	);
+}
 
 export function SessionSurface() {
 	const { roster, selectedSessionId, projection, lastError } =
@@ -52,16 +64,20 @@ export function SessionSurface() {
 		return <SnapshotUnavailable lastError={lastError} />;
 
 	return (
-		<div className="flex flex-col gap-5">
-			<Link
-				to="/"
-				search={(prev) => ({ role: prev.role ?? "controller" })}
-				className="inline-flex items-center gap-2 self-start text-xs text-muted-foreground transition-colors hover:text-foreground"
-			>
-				<ArrowLeft size={14} /> all sessions
-			</Link>
+		<div className="flex flex-col">
+			<div className="px-6 pt-5">
+				<Link
+					to="/"
+					search={(prev) => ({ role: prev.role ?? "controller" })}
+					className="inline-flex items-center gap-2 text-2xs text-t3 transition-colors hover:text-foreground"
+				>
+					<ArrowLeft size={13} /> all sessions
+				</Link>
+			</div>
 			{projection === undefined ? (
-				<SnapshotUnavailable lastError={lastError} />
+				<div className="px-6">
+					<SnapshotUnavailable lastError={lastError} />
+				</div>
 			) : (
 				<SessionDetail projection={projection} session={session} />
 			)}
@@ -89,62 +105,60 @@ function SessionDetail({
 			a.startedAtSeq - b.startedAtSeq,
 	);
 	const needs = work.filter(needsAttention);
+	const agentsActive = session?.agents.active ?? model.pulse.runningCount;
+	const agentsMax = session?.agents.max ?? model.pulse.maxConcurrentRuns;
 
 	return (
-		<div className="flex flex-col">
+		<div className="mt-3 flex flex-col">
 			{/* status bar — the one always-dense strip */}
-			<div className={cn(bleed, "border-b border-border px-6 pb-4")}>
-				<div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-					<h1 className="text-lg font-semibold tracking-[-0.02em]">
-						{projection.workflowName}
-					</h1>
-					<div
-						className={cn(
-							"flex flex-wrap items-center gap-x-4 gap-y-1 text-xs",
-							muted,
-						)}
-					>
-						<span className={tabular}>
-							agents {session?.agents.active ?? model.pulse.runningCount}/
-							{session?.agents.max ?? model.pulse.maxConcurrentRuns ?? "n/a"}
-						</span>
-						<span className="flex items-center gap-2">
-							<Sparkline data={tps} />
-							<span className={tabular}>
-								{model.pulse.throughput.replace("tps", "tok/s")}
-							</span>
-						</span>
-						<span className={tabular}>
-							{model.pulse.totalTokens} tok
-							{model.pulse.totalCost ? ` · ${model.pulse.totalCost}` : ""}
-						</span>
-						<span className={tabular}>
-							ready {counts.ready} · done {counts.done}
-						</span>
-					</div>
-				</div>
-				<div className={cn("mt-1 text-xs", muted)}>
+			<div className="sticky top-0 z-20 flex h-12 items-center border-b border-border bg-background px-6">
+				<span className="mr-2 size-1.5 shrink-0 rounded-full bg-live" />
+				<h1 className="text-sm font-medium tracking-[-0.01em]">
+					{projection.workflowName}
+				</h1>
+				<span className={cn("ml-2 text-2xs text-t3", mono)}>
 					<span className="capitalize">
 						{session?.state ?? projection.status}
 					</span>
-					{projection.runtime.model ? (
-						<span className={cn("ml-2", tabular)}>
-							· {projection.runtime.model}
-							{projection.runtime.thinking
-								? ` · thinking ${projection.runtime.thinking}`
-								: ""}
-						</span>
-					) : null}
+					{projection.runtime.model ? ` · ${projection.runtime.model}` : ""}
+				</span>
+				<div className={cn("ml-auto flex items-center text-2xs text-t3", mono)}>
+					<Divided>
+						{[
+							<>
+								<b className="font-normal text-muted-foreground">
+									{agentsActive}
+								</b>
+								/{agentsMax ?? "n/a"} agents
+							</>,
+							<span className="flex items-center gap-2">
+								<Sparkline data={tps} />
+								<span className="text-muted-foreground">
+									{model.pulse.throughput.replace("tps", "tok/s")}
+								</span>
+							</span>,
+							<>
+								<b className="font-normal text-muted-foreground">
+									{model.pulse.totalTokens}
+								</b>{" "}
+								tok
+								{model.pulse.totalCost ? ` · ${model.pulse.totalCost}` : ""}
+							</>,
+							<>
+								ready {counts.ready} · done {counts.done}
+							</>,
+						]}
+					</Divided>
 				</div>
 			</div>
 
 			{session?.cwd ? (
-				<div className="px-0 pt-4">
+				<div className="px-6 pt-4">
 					<InputCopy value={session.cwd} variant="icon" className="max-w-xl" />
 				</div>
 			) : null}
 
-			<div className="pt-3">
+			<div className="px-6 pt-3">
 				<SessionControls session={session} projection={projection} />
 			</div>
 
@@ -152,27 +166,22 @@ function SessionDetail({
 				<NeedsYouBand needs={needs} sessionId={projection.sessionId} />
 			) : null}
 
-			{/* lanes */}
-			<div className={cn(bleed, "mt-5")}>
-				<div
-					className={cn("px-6 pb-1 text-2xs uppercase tracking-wider", muted)}
-				>
-					running · {work.length}
-				</div>
-				{work.length === 0 ? (
-					<p className={cn("border-t border-border px-6 py-4 text-sm", muted)}>
-						No active work.
-					</p>
-				) : (
-					work.map((item) => (
-						<WorkLane
-							key={item.workKey}
-							work={item}
-							sessionId={projection.sessionId}
-						/>
-					))
-				)}
+			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
+				running · {work.length}
 			</div>
+			{work.length === 0 ? (
+				<p className="border-t border-border px-6 py-4 text-2xs text-t3">
+					No active work.
+				</p>
+			) : (
+				work.map((item) => (
+					<WorkLane
+						key={item.workKey}
+						work={item}
+						sessionId={projection.sessionId}
+					/>
+				))
+			)}
 
 			<DoneSection projection={projection} />
 			<RetrySection projection={projection} />
@@ -185,25 +194,11 @@ const needsAttention = (work: RunningWorkProjection) =>
 	work.stage === "failed" ||
 	(work.operatorActions?.length ?? 0) > 0;
 
-// stage / check word colours: success is the expected outcome and gets no
-// colour; only exceptions (needs-you, failure) are tinted.
-function stageTone(work: RunningWorkProjection): string {
+function stageToneText(work: RunningWorkProjection): string {
 	if (work.stage === "blocked") return "text-attention";
 	if (work.stage === "failed") return "text-destructive";
-	if (work.streaming) return "text-foreground";
-	return muted;
-}
-
-function StageRail({ work }: { work: RunningWorkProjection }) {
-	const tone =
-		work.stage === "blocked"
-			? "bg-attention"
-			: work.stage === "failed"
-				? "bg-destructive"
-				: work.streaming
-					? "bg-foreground"
-					: "bg-border";
-	return <span className={cn("h-6 w-[3px] shrink-0 rounded-full", tone)} />;
+	if (work.streaming) return "text-live";
+	return "text-t3";
 }
 
 function WorkLane({
@@ -222,70 +217,89 @@ function WorkLane({
 		work.tokens?.total === undefined
 			? undefined
 			: formatTokens(work.tokens.total);
+	const railTone =
+		work.stage === "blocked"
+			? "bg-attention"
+			: work.stage === "failed"
+				? "bg-destructive"
+				: work.streaming
+					? "bg-live"
+					: "bg-border";
 
 	return (
 		<div
 			className={cn(
 				"group border-t border-border",
-				work.streaming && "bg-muted/40",
+				work.streaming && "bg-live/5",
 			)}
 		>
-			{/* level 1 (rest) + level 2 (hover) */}
 			<button
 				type="button"
 				onClick={() => setOpen((value) => !value)}
-				className="flex w-full items-center gap-4 px-6 py-4 text-left transition-colors hover:bg-hover"
+				className="grid w-full grid-cols-[3px_1fr_auto_16px] items-center gap-x-4 px-6 py-4 text-left transition-colors hover:bg-hover"
 			>
-				<StageRail work={work} />
-				<div className="min-w-0 flex-1">
+				<span className={cn("h-6 w-[3px] rounded-[3px]", railTone)} />
+				<div className="min-w-0">
 					<div className="flex items-baseline gap-2">
 						<span className="weight-hover truncate text-sm">
 							{workLabel(work)}
 						</span>
-						<span className={cn("shrink-0 text-2xs", tabular, "text-border")}>
+						<span className={cn("shrink-0 text-2xs text-t3", mono)}>
 							{work.workKey}
 						</span>
 					</div>
 					<p
 						className={cn(
-							"mt-0.5 truncate text-xs",
-							work.streaming ? "shimmer-text" : muted,
+							"mt-1 truncate text-2xs",
+							mono,
+							work.streaming ? "shimmer-text" : "text-t3",
 						)}
 					>
 						{work.activity || work.lastMeaningful}
 					</p>
 				</div>
-				<div className="flex shrink-0 items-baseline gap-3">
+				<div className="flex items-baseline gap-4 justify-self-end whitespace-nowrap">
 					<span
 						className={cn(
-							"hidden items-baseline gap-3 text-2xs opacity-0 transition-opacity group-hover:opacity-100 sm:flex",
+							"flex items-baseline text-2xs text-t3 opacity-0 transition-opacity group-hover:opacity-100",
 							open && "opacity-100",
-							tabular,
-							muted,
+							mono,
 						)}
 					>
-						<span>t{work.turnCount}</span>
-						<span>{tokens ?? "—"}</span>
-						<CheckBadge work={work} />
-						<span>{age}</span>
-						<span className="text-border">{work.runId}</span>
+						<Divided>
+							{[
+								<>
+									t
+									<b className="font-normal text-muted-foreground">
+										{work.turnCount}
+									</b>
+								</>,
+								<b className="font-normal text-muted-foreground">
+									{tokens ?? "—"}
+								</b>,
+								<CheckBadge work={work} />,
+								<>{age}</>,
+								<span>{work.runId}</span>,
+							]}
+						</Divided>
 					</span>
-					<span className={cn("text-2xs", stageTone(work))}>{work.stage}</span>
-					<ChevronRight
-						size={14}
-						className={cn(
-							"text-muted-foreground opacity-0 transition group-hover:opacity-100",
-							open && "rotate-90 opacity-100",
-						)}
-					/>
+					<span className={cn("text-2xs", stageToneText(work))}>
+						{work.stage}
+					</span>
 				</div>
+				<ChevronRight
+					size={14}
+					className={cn(
+						"text-t3 opacity-0 transition group-hover:opacity-100",
+						open && "rotate-90 opacity-100",
+					)}
+				/>
 			</button>
 
-			{/* level 3 (open) */}
 			{open ? (
-				<div className="px-6 pb-5 pl-11">
+				<div className="px-6 pb-6 pl-10 text-2xs">
 					{work.phases.length > 0 ? <Spine work={work} /> : null}
-					<div className="grid gap-6 md:grid-cols-[1.5fr_1fr_1fr]">
+					<div className="grid md:grid-cols-[1.5fr_1fr_1fr]">
 						<Timeline work={work} />
 						<Commands work={work} />
 						<Observations work={work} />
@@ -304,42 +318,35 @@ function CheckBadge({ work }: { work: RunningWorkProjection }) {
 	if (work.check === "not-run") return null;
 	if (work.check === "failed")
 		return <span className="text-destructive">check failed</span>;
-	if (work.check === "running") return <span>check running</span>;
+	if (work.check === "running")
+		return <span className="text-live">check running</span>;
 	return <span>passed</span>;
 }
 
-// coalesced phases as proportional segments; the current (last) phase reads in
-// the foreground while it streams.
 function Spine({ work }: { work: RunningWorkProjection }) {
 	const total = work.phases.reduce((sum, phase) => sum + phase.count, 0) || 1;
 	return (
-		<div className="mb-4 mt-1">
-			<div className="flex h-1 gap-0.5">
-				{work.phases.map((phase, index) => {
-					const current = index === work.phases.length - 1 && work.streaming;
-					return (
-						<span
-							key={`${phase.kind}-${phase.startedAtMs}`}
-							className={cn(
-								"rounded-full",
-								current ? "bg-foreground" : "bg-border",
-							)}
-							style={{ flexGrow: Math.max(1, (phase.count / total) * 100) }}
-						/>
-					);
-				})}
+		<div className="mb-5">
+			<div className="mb-2 flex h-1 gap-0.5">
+				{work.phases.map((phase, index) => (
+					<span
+						key={`${phase.kind}-${phase.startedAtMs}`}
+						className={cn(
+							"rounded-full",
+							index === work.phases.length - 1 && work.streaming
+								? "bg-live"
+								: "bg-border",
+						)}
+						style={{ flexGrow: Math.max(1, (phase.count / total) * 100) }}
+					/>
+				))}
 			</div>
 			<div
-				className={cn(
-					"mt-2 flex flex-wrap gap-x-3 gap-y-1 text-2xs",
-					tabular,
-					muted,
-				)}
+				className={cn("flex flex-wrap gap-x-3 gap-y-1 text-2xs text-t3", mono)}
 			>
 				{work.phases.map((phase) => (
 					<span key={`label-${phase.kind}-${phase.startedAtMs}`}>
-						{kindLabel(phase.kind)}
-						<span className="text-border"> ·{phase.count}</span>
+						{phase.kind} ·{phase.count}
 					</span>
 				))}
 			</div>
@@ -347,84 +354,92 @@ function Spine({ work }: { work: RunningWorkProjection }) {
 	);
 }
 
-function kindLabel(kind: ActivityKind): string {
-	return kind;
+function Col({ title, children }: { title: string; children: ReactNode }) {
+	return (
+		<div className="border-l border-border px-6 first:border-l-0 first:pl-0">
+			<div className={cn("mb-3 text-2xs text-t3", mono)}>{title}</div>
+			{children}
+		</div>
+	);
 }
 
 function Timeline({ work }: { work: RunningWorkProjection }) {
 	const ordered = [...work.timeline].toSorted((a, b) => b.atMs - a.atMs);
 	return (
-		<div>
-			<div className={cn("mb-3 text-2xs", muted)}>
-				timeline
-				<span className="text-border">
-					{" "}
-					· {work.meaningfulCount} of {work.eventCount} events
-				</span>
-			</div>
+		<Col
+			title={`timeline · ${work.meaningfulCount} of ${work.eventCount} events`}
+		>
 			{ordered.length === 0 ? (
-				<p className={cn("text-xs", muted)}>No activity yet.</p>
+				<p className="text-2xs text-t3">No activity yet.</p>
 			) : (
-				<div className="flex flex-col gap-1">
+				<div className={mono}>
 					{ordered.map((entry, index) => (
 						<div
 							key={`${entry.atMs}-${entry.text}`}
-							className="grid grid-cols-[10px_1fr_auto] items-baseline gap-2"
+							className="grid grid-cols-[12px_1fr_auto] items-baseline gap-2 py-1"
 						>
 							<span
 								className={cn(
 									"size-1.5 justify-self-center self-center rounded-full",
-									index === 0 && work.streaming ? "bg-foreground" : "bg-border",
+									index === 0 && work.streaming
+										? "bg-live ring-[3px] ring-live/20"
+										: "bg-border",
 								)}
 							/>
-							<span className="text-xs text-foreground">{entry.text}</span>
-							<span className={cn("text-2xs", tabular, "text-border")}>
+							<span
+								className={cn(
+									"text-2xs",
+									index === 0 && work.streaming
+										? "text-foreground"
+										: "text-muted-foreground",
+								)}
+							>
+								{entry.text}
+							</span>
+							<span className="text-2xs text-t3">
 								{formatAgo(Date.now() - entry.atMs)}
 							</span>
 						</div>
 					))}
 				</div>
 			)}
-		</div>
+		</Col>
 	);
 }
 
 function Commands({ work }: { work: RunningWorkProjection }) {
 	if (work.commands.length === 0) return null;
 	return (
-		<div>
-			<div className={cn("mb-3 text-2xs", muted)}>commands</div>
-			<div className="flex flex-col gap-1.5">
+		<Col title="commands">
+			<div className={mono}>
 				{work.commands.map((command, index) => (
 					<div
 						key={`${index}-${command}`}
-						className={cn("truncate text-xs", tabular, muted)}
+						className="truncate py-1 text-2xs text-muted-foreground"
 					>
-						<span className="text-foreground">$</span> {command}
+						<span className={index === 0 ? "text-live" : "text-t3"}>$</span>{" "}
+						{command}
 					</div>
 				))}
 			</div>
-		</div>
+		</Col>
 	);
 }
 
 function Observations({ work }: { work: RunningWorkProjection }) {
 	if (work.observations.length === 0) return null;
 	return (
-		<div>
-			<div className={cn("mb-3 text-2xs", muted)}>observations</div>
-			<div className="flex flex-col gap-2">
-				{work.observations.map((observation, index) => (
-					<div
-						key={`${index}-${observation}`}
-						className="flex items-start gap-2 text-xs"
-					>
-						<span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground" />
-						<span>{observation}</span>
-					</div>
-				))}
-			</div>
-		</div>
+		<Col title="observations">
+			{work.observations.map((observation, index) => (
+				<div
+					key={`${index}-${observation}`}
+					className="grid grid-cols-[12px_1fr] gap-2 py-1"
+				>
+					<span className="size-1.5 justify-self-center self-center rounded-full bg-t3" />
+					<span className="text-2xs text-muted-foreground">{observation}</span>
+				</div>
+			))}
+		</Col>
 	);
 }
 
@@ -436,24 +451,24 @@ function NeedsYouBand({
 	sessionId: string;
 }) {
 	return (
-		<div
-			className={cn(
-				bleed,
-				"mt-5 border-y border-attention/30 bg-attention/5 px-6 py-4",
-			)}
-		>
-			<div className="text-2xs uppercase tracking-wider text-attention">
-				needs you
-			</div>
-			<div className="mt-3 flex flex-col gap-3">
+		<div className="relative mt-6 border-y border-border bg-attention/5 px-6 py-4">
+			<span className="absolute inset-y-0 left-0 w-0.5 bg-attention" />
+			<div className="flex flex-col gap-3">
 				{needs.map((item) => (
 					<div
 						key={item.workKey}
 						className="flex flex-wrap items-center justify-between gap-3"
 					>
 						<div className="min-w-0">
-							<p className="text-sm font-medium">{workLabel(item)}</p>
-							<p className={cn("text-xs", muted)}>{item.lastMeaningful}</p>
+							<p className="text-sm font-medium">
+								{workLabel(item)}
+								<span className={cn("ml-2 text-2xs text-t3", mono)}>
+									{item.workKey}
+								</span>
+							</p>
+							<p className="text-2xs text-muted-foreground">
+								{item.lastMeaningful}
+							</p>
 						</div>
 						<OperatorActionButtons
 							item={item}
@@ -485,7 +500,7 @@ function SessionControls({
 		session?.state === "stopped" || projection.status === "stopped";
 
 	return (
-		<div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+		<div className="flex flex-wrap items-center justify-between gap-3 text-2xs">
 			<div className="flex flex-wrap items-center gap-4">
 				<Switch
 					label={paused ? "Paused" : "Running"}
@@ -547,7 +562,7 @@ function SessionControls({
 				</Dialog>
 			</div>
 			{controllerBlockReason ? (
-				<span className={muted}>{controllerBlockReason}</span>
+				<span className="text-t3">{controllerBlockReason}</span>
 			) : null}
 			{mutationError ? (
 				<span className="text-destructive">{mutationError}</span>
@@ -559,57 +574,55 @@ function SessionControls({
 function DoneSection({ projection }: { projection: DashboardProjection }) {
 	if (projection.completed.length === 0) return null;
 	return (
-		<div className={cn(bleed, "mt-5")}>
-			<div className={cn("px-6 pb-1 text-2xs uppercase tracking-wider", muted)}>
+		<>
+			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
 				done · {projection.completed.length}
 			</div>
 			{projection.completed.slice(0, 8).map((entry) => (
 				<div
 					key={`${entry.workKey}-${entry.atMs}`}
-					className="flex items-baseline justify-between gap-3 border-t border-border px-6 py-3"
+					className="grid grid-cols-[3px_1fr_auto] items-center gap-x-4 border-t border-border px-6 py-3"
 				>
-					<span className={cn("truncate text-sm", muted)}>{entry.label}</span>
-					<span className={cn("shrink-0 text-2xs", tabular)}>
+					<span className="h-5 w-[3px] rounded-[3px] bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]" />
+					<span className="truncate text-sm text-muted-foreground">
+						{entry.label}
+					</span>
+					<span className={cn("shrink-0 text-2xs text-t3", mono)}>
 						<span
 							className={
-								entry.status === "succeeded" ? muted : "text-destructive"
+								entry.status === "succeeded" ? "text-t3" : "text-destructive"
 							}
 						>
 							{entry.status === "succeeded" ? entry.status : entry.message}
-						</span>
-						<span className="text-border">
-							{" "}
-							· {formatAgo(Date.now() - entry.atMs)}
-						</span>
+						</span>{" "}
+						· {formatAgo(Date.now() - entry.atMs)}
 					</span>
 				</div>
 			))}
-		</div>
+		</>
 	);
 }
 
 function RetrySection({ projection }: { projection: DashboardProjection }) {
 	if (projection.scheduledWakes.length === 0) return null;
 	return (
-		<div className={cn(bleed, "mt-5")}>
-			<div className={cn("px-6 pb-1 text-2xs uppercase tracking-wider", muted)}>
-				retry
-			</div>
+		<>
+			<div className="px-6 pt-6 pb-2 text-2xs text-t3">retry</div>
 			{projection.scheduledWakes.map((wake) => (
 				<div
 					key={`${wake.dueAtMs}-${wake.workKey ?? "session"}`}
 					className="flex items-baseline justify-between gap-3 border-t border-border px-6 py-3"
 				>
-					<span className={cn("text-sm", tabular)}>
+					<span className={cn("text-2xs text-muted-foreground", mono)}>
 						↻ {wake.workKey ?? "session"}
 					</span>
-					<span className={cn("shrink-0 text-2xs", tabular, muted)}>
+					<span className={cn("shrink-0 text-2xs text-t3", mono)}>
 						attempt {wake.attempt ?? "n/a"} · in{" "}
 						{formatDuration(wake.dueAtMs - Date.now())} · {wake.reason ?? "n/a"}
 					</span>
 				</div>
 			))}
-		</div>
+		</>
 	);
 }
 
@@ -619,7 +632,7 @@ function SnapshotUnavailable({
 	lastError?: string | undefined;
 }) {
 	return (
-		<div className={cn("space-y-2 py-4 text-sm", muted)}>
+		<div className="space-y-2 py-4 text-2xs text-t3">
 			<p>Snapshot unavailable for this Plot Session.</p>
 			{lastError ? <p>{lastError}</p> : null}
 		</div>

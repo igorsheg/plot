@@ -257,13 +257,13 @@ export const makePlotExtensionSourceBundle = (options: {
 		...(options.maxConcurrentRuns === undefined
 			? {}
 			: { policy: { maxConcurrentRuns: options.maxConcurrentRuns } }),
-		observeTick: async () => [
+		observeTick: async ({ signal }) => [
 			{
 				type: "plot.extension.discovered",
 				subject: subjectKey(String(source)),
 				data: [
 					...(await runMaybePromise("discover", String(source), () =>
-						options.runtime.discover(),
+						options.runtime.discover({ signal }),
 					)),
 				],
 			},
@@ -383,11 +383,11 @@ export const makePlotExtensionSourceBundle = (options: {
 			}
 			return proposals;
 		},
-		continueWork: async ({ work }) => {
+		continueWork: async ({ work, signal }) => {
 			const active = selectedWork.get(work.workKey);
 			if (active === undefined) return false;
 			const discovered = await runMaybePromise("discover", String(source), () =>
-				options.runtime.discover(),
+				options.runtime.discover({ signal }),
 			);
 			return discovered.some(
 				(candidate) =>
@@ -471,8 +471,9 @@ export const makePlotExtensionSourceBundle = (options: {
 			},
 		}),
 		shutdown: async () => {
+			const controller = new AbortController();
 			try {
-				await options.runtime.shutdown?.();
+				await options.runtime.shutdown?.({ signal: controller.signal });
 			} catch (error) {
 				await logHookError(error, "shutdown", source);
 			}

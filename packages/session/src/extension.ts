@@ -7,6 +7,7 @@ export type {
 	PlotExtensionFailedEvent,
 	PlotExtensionOperatorActionEvent,
 	PlotExtensionRuntime,
+	PlotExtensionRuntimeContext,
 	PlotExtensionSetupContext,
 	PlotExtensionTool,
 	PlotExtensionWork,

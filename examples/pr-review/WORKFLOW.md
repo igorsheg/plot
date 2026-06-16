@@ -69,9 +69,9 @@ Decide this tick's action from the anchor marker and PR head, one row each:
 ## Each tick
 
 1. Read the discovered phase above, then fetch the anchor and PR state yourself (`gh pr view`, `gh pr diff`, `gh api .../issues/<n>/comments`) — trust GitHub, not memory.
-2. **Reconcile the anchor before new work.** An interrupted tick may have left half-written findings or an out-of-date checklist: dedupe partial findings, fix the checklist, make the anchor match reality. Only then start phase work.
+2. **Reconcile the anchor before new work.** An interrupted tick may have left half-written findings or an out-of-date phase rail: dedupe partial findings, fix the rail, make the anchor match reality. Only then start phase work.
 3. Do the current phase's work. Read code, trace callers, run focused commands (`rg`, `bun test`, `bun run check`) when they buy confidence.
-4. Update the anchor using the template below: append the phase's findings, tick the checklist, advance the marker `status` to the next phase in the plan. Re-read the comment to verify the edit landed and the marker survived intact.
+4. Update the anchor using the template below: append the phase's findings, update the lean phase rail, advance the marker `status` to the next phase in the plan. Re-read the comment to verify the edit landed and the marker survived intact.
 5. Stop. Do not run the next phase in the same tick.
 
 ## Your workspace
@@ -90,7 +90,7 @@ All review state lives in one issue comment you maintain on the PR (the "anchor"
 <!-- plot-review:v1 status=<phase> head=<full-head-sha> tier=<trivial|lite|full> -->
 ```
 
-The marker is the commit point: update its `status` only when a phase is finished. Keys and values contain no spaces; `head` is the full 40-char SHA. The anchor is Plot's checkpoint, not a second polished code review. Keep it compact, structured, and easy for the next tick to parse. The findings you record there are your only memory between ticks — write enough evidence for a stranger to verify or drop each record without re-deriving everything.
+The marker is the commit point: update its `status` only when a phase is finished. Keys and values contain no spaces; `head` is the full 40-char SHA. The anchor is Plot's checkpoint, not a second polished code review. Keep the visible comment lean: status, phase rail, and posted review link. Put findings and durable evidence in collapsed details so the next tick can verify or drop records without re-deriving everything.
 
 ## prepare: risk tier and phase plan
 
@@ -100,7 +100,7 @@ Judge the diff yourself — you are better at this than a path regex. Consider s
 - `lite` — ordinary implementation changes: `prepare -> code_quality -> tests -> docs_agents -> synthesize -> post -> done`.
 - `full` — large, cross-package, or touching runtime/protocol/auth/process boundaries: all phases.
 
-Then prune: skip any specialist phase whose domain the diff does not touch. A TUI-only change does not need a `protocol` phase; a docs change does not need `security`. Record the chosen sequence in the anchor checklist so later ticks follow it. Spending seven phases on a ten-line diff is a failure of judgment, not thoroughness.
+Then prune: skip any specialist phase whose domain the diff does not touch. A TUI-only change does not need a `protocol` phase; a docs change does not need `security`. Record the chosen sequence in the anchor phase rail so later ticks follow it. Spending seven phases on a ten-line diff is a failure of judgment, not thoroughness.
 
 High-risk domains in this repo (lean toward `full` and the matching specialist phases): `packages/agent/**` (scheduler, claims, queueing, interruption, shutdown), `packages/session/src/protocol*` (JSONL framing, stdout contract, replay), `packages/session/src/pi-*` and anything auth (secret/state boundaries), `packages/session/src/extension*` (public SDK), `packages/cli/**` (process boundary, stdout/stderr split), `packages/tui/**` (terminal ownership, raw mode cleanup), `packages/common/**` (shared async primitives).
 
@@ -123,11 +123,11 @@ Wear only the current hat. Each hat states what NOT to flag because that is wher
 
 High signal, low noise. Severities:
 
-- ![P0](https://img.shields.io/badge/P0-red?style=flat) `critical` — verified correctness, security, data-loss, protocol, or production-risk issue in the changed code. Blocks.
-- ![P1](https://img.shields.io/badge/P1-orange?style=flat) `warning` — real issue worth fixing, not blocking.
-- ![P2](https://img.shields.io/badge/P2-yellow?style=flat) `suggestion` — cleanup or maintainability.
+- **<sub><sub>![P0 Badge](https://img.shields.io/badge/P0-red?style=flat)</sub></sub> P0** `critical` — verified correctness, security, data-loss, protocol, or production-risk issue in the changed code. Blocks.
+- **<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub> P1** `warning` — real issue worth fixing, not blocking.
+- **<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub> P2** `suggestion` — cleanup or maintainability.
 
-Disposition rubric, with an explicit bias toward approval: clean or suggestions-only → `COMMENT`; warnings without production risk → `COMMENT`; a verified P0 in code this PR changes → `REQUEST_CHANGES`. One non-critical warning in an otherwise clean PR is a comment, not a block.
+GitHub review event rubric, with an explicit bias toward approval: clean or suggestions-only → `COMMENT`; warnings without production risk → `COMMENT`; a verified P0 in code this PR changes → `REQUEST_CHANGES`. One non-critical warning in an otherwise clean PR is a comment, not a block.
 
 Out-of-scope discoveries: a serious pre-existing bug in code this PR does not change never blocks and never becomes a finding list entry. It becomes at most one short body note suggesting a separate issue, with path and one-line evidence.
 
@@ -154,14 +154,14 @@ Good: "Quit the TUI while a run is streaming and the render clock keeps firing o
 
 ## post: publishing the review
 
-Build one review API call (`gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input payload.json`, recipe in the skill) containing the body (template below) and inline `comments` entries for every finding whose `path:line` is part of this PR's diff — line-specific findings belong on the lines, as resolvable threads. Findings outside the diff go in the body only.
+Build one review API call (`gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input payload.json`, recipe in the skill) containing a lean body (template below) and inline `comments` entries for every finding whose `path:line` is part of this PR's diff. Line-specific findings belong on the lines, as resolvable threads; the review body is just a short human summary. Findings outside the diff go in the body only.
 
 Completion bar — all of these before setting `status=done`:
 
 - every synthesized finding was re-verified or dropped, none merely copied;
 - every in-diff finding has an inline comment entry; out-of-diff findings are body-only;
-- the disposition matches the rubric;
-- the review body links to the anchor, and the updated anchor links to the posted review;
+- the GitHub review event matches the event rubric;
+- the updated anchor links to the posted review;
 - on a re-review: every carried finding is either marked resolved or re-emitted, and author replies ("won't fix", "acknowledged", counter-arguments) are respected or answered with evidence.
 
 ## Failure handling
@@ -186,22 +186,33 @@ Transient GitHub errors are not blockers; fall back before reporting:
 
 ## Anchor template
 
-Use this exact structure for the anchor comment and keep it updated in place. The anchor is durable machine/human state for Plot, so keep findings as compact records. Do not copy the polished GitHub review body back into the anchor.
+Use this exact structure for the anchor comment and keep it updated in place. The visible anchor is a small PR status card; the collapsed details are the durable machine state. Do not copy the polished GitHub review body back into the anchor.
 
 ```md
 <!-- plot-review:v1 status=<phase> head=<full-sha> tier=<tier> -->
 
-## Plot Review State
+## Plot Review
 
-**Head:** `<full-sha>` · **Tier:** `<tier>` · **Phase:** `<current phase>`
+- **Status:** `<phase>` · **Tier:** `<tier>` · **Head:** `<short-sha>`
+- **Phases:** prepare ✓ → code_quality current → tests □ → synthesize □ → post □
+- **Review:** <posted review URL; omit until post>
 
-### Phases
+<details>
+<summary>Findings</summary>
+<br/>
 
-- [x] prepare — <one-line tier rationale>
-- [ ] code_quality
-- [ ] tests
-- [ ] synthesize
-- [ ] post
+- **P1** `path/to/file.ts:42` — <Finding title: the consequence, not the category>
+
+</details>
+
+<details>
+<summary>Checkpoint details</summary>
+<br/>
+
+### Phase notes
+
+- prepare — <one-line tier rationale>
+- tests — <one-line verification/coverage note>
 
 ### Finding records
 
@@ -209,58 +220,35 @@ Use this exact structure for the anchor comment and keep it updated in place. Th
   - Status: <candidate | verified | dropped | posted>
   - Impact: <one sentence consequence first>
   - Fix: <one concrete change>
-  - Evidence: <short code reference or command result; use `<details>` only if the evidence needs multiple lines>
+  - Evidence: <short code reference or command result; use nested `<details>` only if the evidence needs multiple lines>
 
 ### Carried from previous head
 
 <Only on re-review: prior findings pending verification against the new head, using the same compact record shape.>
 
-### Posted review
-
-<Only after post: link to the GitHub review.>
+</details>
 ```
 
-When the review completes, keep the heading `## Plot Review State`, set the marker and phase to `done`, mark posted findings as `Status: posted`, and add the posted review link. The GitHub review is the author-facing report; the anchor remains the checkpoint.
+For the phase rail, include only the chosen/pruned phases and mark them with `✓`, `current`, or `□`. If there are no findings, write `No findings yet.` inside the Findings details. When the review completes, keep the heading `## Plot Review`, set the marker/status to `done`, mark posted findings as `Status: posted` in checkpoint details, make every phase `✓`, and add the posted review link. The GitHub review is the author-facing report; the anchor remains the checkpoint.
 
 ## Review body template
 
 ```md
-## Plot Review
+### Plot Review
 
-**Disposition:** <COMMENT | REQUEST_CHANGES> · **Confidence:** <High/Medium/Low>
-**Verified:** <what you read and ran, plainly: "Traced the shutdown path, ran the dashboard suite (12 pass).">
+**<Comment | Changes requested> · <high | medium | low> confidence**
 
-<Two to four sentences, verdict first, written to the author: what their PR does, whether it holds, and the one thing to look at if anything. No throat-clearing.>
+<Two to four sentences, written to the author: what their PR does, what you checked, whether it holds, and what to look at if anything. No `Disposition`, `Verified`, finding index, or state-link boilerplate. In-diff findings live in inline threads.>
 
-### Findings
+<Only for findings that cannot be placed inline because they are outside the diff, add a short body-only note:>
 
-<Expand compact anchor records into author-facing prose. Use this shape:
-
-#### ![P1](https://img.shields.io/badge/P1-orange?style=flat) <Consequence-first title>
-
-<One short paragraph: what breaks, when, and why the author should care.>
-
-<Smallest code quote or expression that proves it. Use a fenced snippet in the real review when the evidence is code.>
-
-<One short paragraph explaining the mechanism.>
-
-**Fix:** <Specific change, ideally as a small branch, table, or bullet list.>
-
-In-diff findings also get inline comments. In the review body, keep evidence short and link the idea together; put line-local detail in the inline comment. Out-of-diff findings appear in the body only.>
-
-### Re-review
-
-<Only when applicable: `Resolved: n` / `Carried: n`, one line each.>
-
----
-
-_Review state: <link to anchor comment>_
+**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub> <Consequence-first title>** — <one sentence impact. Fix: specific change.>
 ```
 
 Inline comment bodies are compact teaching notes:
 
 ````md
-![P1](https://img.shields.io/badge/P1-orange?style=flat) **<Consequence-first title>**
+**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub> <Consequence-first title>**
 
 <What breaks in one or two sentences.>
 
@@ -275,4 +263,4 @@ Use `<details>` only when the proof needs multiple snippets.
 
 ## Final response
 
-End your message with one status line. After `post`: the disposition and inline comment count, e.g. `COMMENT, inline comments: 3`. After any other phase: `completed <phase>, next: <status>, findings: <n>`. If anything failed, state the exact failure instead.
+End your message with one status line. After `post`: the GitHub event and inline comment count, e.g. `COMMENT, inline comments: 3`. After any other phase: `completed <phase>, next: <status>, findings: <n>`. If anything failed, state the exact failure instead.
