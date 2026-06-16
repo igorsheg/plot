@@ -148,23 +148,12 @@ const isStale = (work: RunningWorkProjection, nowMs: number) =>
 
 const tokenTotal = (work: RunningWorkProjection) => work.tokens?.total ?? 0;
 
-const isRawEventChurn = (activity: string) =>
-	/\b(message_(update|delta)|reasoning_(update|delta)|tool_execution_update)\b/.test(
-		activity,
-	);
-
+// `activity` is already churn-resolved at reduce time (projection.ts), so the
+// view model renders it verbatim — falling back to the last meaningful action
+// only when the run hasn't produced a live line yet.
 const displayActivity = (work: RunningWorkProjection) => {
 	const activity = work.activity.trim();
-	if (activity.length === 0 || isRawEventChurn(activity))
-		return work.lastMeaningful;
-	if (
-		activity === "Thinking" &&
-		work.lastMeaningful !== "started" &&
-		work.lastMeaningful !== "waiting" &&
-		work.lastMeaningful !== "Thinking"
-	)
-		return work.lastMeaningful;
-	return activity;
+	return activity.length === 0 ? work.lastMeaningful : activity;
 };
 
 const sparkChars = "▁▂▃▄▅▆▇█";

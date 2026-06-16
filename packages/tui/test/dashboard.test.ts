@@ -38,15 +38,17 @@ const runningWork = (
 	lastEventAtMs: Date.now() - 1_000,
 	turnCount: 3,
 	eventCount: 7,
+	meaningfulCount: 4,
 	toolUpdateCount: 2,
 	messageCount: 1,
-	seenTurnIds: ["1", "2", "3"],
-	lastMessage: "working",
 	activity: "working",
+	activityKind: "run",
+	streaming: false,
 	lastMeaningful: "working",
 	check: "not-run",
 	commands: [],
 	observations: [],
+	phases: [],
 	timeline: [],
 	...overrides,
 });
@@ -182,7 +184,9 @@ describe("PlotDashboard", () => {
 							workKey: "source:item:42",
 							primary: "#42",
 							title: "Item 42",
-							activity: "code_quality: message_update",
+							// activity is churn-resolved at reduce time; an empty live
+							// line falls back to the last meaningful action.
+							activity: "",
 							lastMeaningful: "reviewing changed files",
 						}),
 					],
@@ -194,7 +198,6 @@ describe("PlotDashboard", () => {
 		const rendered = stripAnsi(dashboard.render(120).join("\n"));
 
 		expect(rendered).toContain("reviewing changed files");
-		expect(rendered).not.toContain("message_update");
 	});
 
 	test("shows humanized streaming activity in fleet rows", () => {

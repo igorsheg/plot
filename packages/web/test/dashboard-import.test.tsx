@@ -149,7 +149,12 @@ describe("plot web dashboard", () => {
 				runId: "run-1",
 				sourceId: "source",
 				eventType: "tool_execution_start",
-				event: { type: "tool_execution_start", command: "bun run check" },
+				event: {
+					type: "tool_execution_start",
+					toolName: "bash",
+					args: { command: "bun run check" },
+					toolCallId: "tc-2",
+				},
 			},
 		};
 		const projection = [workStarted("session-1"), agentEvent].reduce(
