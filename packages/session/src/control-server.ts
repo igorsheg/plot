@@ -33,6 +33,7 @@ export interface ControlSessionRuntime {
 	readonly session: PlotSessionShape;
 	readonly history?: SessionHistoryStore;
 	readonly isPaused: () => boolean;
+	readonly isClosing: () => boolean;
 	readonly isClosed: () => boolean;
 	readonly pause: () => Promise<SessionHistoryEvent>;
 	readonly resume: () => Promise<SessionHistoryEvent>;
@@ -67,6 +68,7 @@ export interface ControlSessionRuntime {
 
 export interface ControlSessionRegistry {
 	readonly register: (runtime: ControlSessionRuntime) => Promise<void>;
+	readonly unregister: (sessionId: string) => Promise<void>;
 	readonly get: (sessionId: string) => ControlSessionRuntime | undefined;
 	readonly list: () => readonly ControlSessionRuntime[];
 	readonly summary: (
@@ -252,7 +254,9 @@ export const makeControlSessionRuntime = (
 	);
 	const memoryEvents: SessionHistoryEvent[] = [];
 	let paused = false;
+	let closing = false;
 	let closed = false;
+	let closePromise: Promise<boolean> | undefined;
 	let memorySequence = 0;
 	const sessionId = options.session.id;
 	const epoch = options.history?.epoch ?? sessionId;
@@ -300,6 +304,7 @@ export const makeControlSessionRuntime = (
 		session: options.session,
 		...(options.history === undefined ? {} : { history: options.history }),
 		isPaused: () => paused,
+		isClosing: () => closing,
 		isClosed: () => closed,
 		pause: async () => {
 			paused = true;
@@ -312,11 +317,17 @@ export const makeControlSessionRuntime = (
 			return appendControlEvent("session_resumed");
 		},
 		close: async () => {
-			await appendControlEvent("session_close_requested");
-			closed = true;
-			const accepted = await options.session.shutdown();
-			await appendControlEvent("session_close_completed", { accepted });
-			return accepted;
+			if (closePromise !== undefined) return closePromise;
+			closing = true;
+			closePromise = (async () => {
+				await appendControlEvent("session_close_requested");
+				const accepted = await options.session.shutdown();
+				closed = true;
+				await appendControlEvent("session_close_completed", { accepted });
+				eventHub.close();
+				return accepted;
+			})();
+			return closePromise;
 		},
 		requestTick: async () => {
 			await appendControlEvent("tick_requested");
@@ -368,11 +379,13 @@ export const makeControlSessionRuntime = (
 				mode: options.mode ?? "watch",
 				state: closed
 					? "stopped"
-					: paused
-						? "paused"
-						: running.length > 0
-							? "acting"
-							: "idle",
+					: closing
+						? "stopping"
+						: paused
+							? "paused"
+							: running.length > 0
+								? "acting"
+								: "idle",
 				workflowName: labels.workflowName,
 				workflowPath: options.workflowPath ?? labels.workflowPath,
 				cwd: options.cwd ?? labels.cwd,
@@ -456,7 +469,7 @@ export const makeControlSessionRegistry = (): ControlSessionRegistry => {
 		const runtime = sessions.get(sessionId);
 		if (!runtime) return;
 		roster.publish({
-			type: runtime.isClosed() ? "session_closed" : "session_changed",
+			type: "session_changed",
 			session: await runtime.summary(countsFor(sessionId)),
 		});
 	};
@@ -467,6 +480,14 @@ export const makeControlSessionRegistry = (): ControlSessionRegistry => {
 				type: "session_opened",
 				session: await runtime.summary(countsFor(runtime.sessionId)),
 			});
+		},
+		unregister: async (sessionId) => {
+			const runtime = sessions.get(sessionId);
+			if (!runtime) return;
+			const session = await runtime.summary(countsFor(sessionId));
+			sessions.delete(sessionId);
+			attachments.delete(sessionId);
+			roster.publish({ type: "session_closed", session });
 		},
 		get: (sessionId) => sessions.get(sessionId),
 		list: () => [...sessions.values()],

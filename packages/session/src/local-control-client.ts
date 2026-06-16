@@ -21,11 +21,7 @@ import {
 	readLocalPlotServerMetadata,
 	type LocalPlotServerMetadata,
 } from "./local-server-metadata.js";
-import {
-	spawnLocalPlotServerDaemon,
-	stopLocalPlotServerDaemon,
-} from "./local-server-daemon.js";
-import type { PlotSessionSummary } from "@plot/control/session-summary";
+import { spawnLocalPlotServerDaemon } from "./local-server-daemon.js";
 import {
 	resolveLocalPlotServerPaths,
 	type LocalPlotServerPathOptions,
@@ -125,11 +121,6 @@ const takeWelcome = async (records: AsyncQueue<PlotServerRecord>) => {
 	return record;
 };
 
-const sessionsFrom = (data: unknown): readonly PlotSessionSummary[] =>
-	isRecord(data) && Array.isArray(data["sessions"])
-		? (data["sessions"] as readonly PlotSessionSummary[])
-		: [];
-
 export const connectLocalControlClient = async (
 	options: LocalControlClientOptions = {},
 ): Promise<LocalControlClient> => {
@@ -228,16 +219,4 @@ export const connectLocalControlClient = async (
 		closeSession: (params) => request("close_session", params),
 		close: () => ws.close(),
 	};
-};
-
-export const isLivePlotSession = (session: PlotSessionSummary): boolean =>
-	session.state !== "stopped" && session.state !== "error";
-
-export const stopLocalPlotServerIfIdle = async (
-	client: LocalControlClient,
-): Promise<boolean> => {
-	const response = await client.request("list_sessions", {});
-	const sessions = sessionsFrom(response.data);
-	if (sessions.some(isLivePlotSession)) return false;
-	return stopLocalPlotServerDaemon({ serverDir: client.paths.serverDir });
 };

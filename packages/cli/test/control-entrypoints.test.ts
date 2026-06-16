@@ -160,10 +160,6 @@ describe("control-protocol product entrypoints", () => {
 			serverDir,
 			port: 0,
 			cwd,
-			webAssets: {
-				indexHtml: "<!doctype html><div id='root'></div>",
-				assets: [],
-			},
 		});
 		const dashboard = await startWebDashboard({
 			cwd,
@@ -183,7 +179,8 @@ describe("control-protocol product entrypoints", () => {
 			},
 		});
 		try {
-			expect((await fetch(server.url)).status).toBe(200);
+			expect((await fetch(server.url)).status).toBe(404);
+			expect((await fetch(dashboard.url)).status).toBe(200);
 		} finally {
 			await dashboard.stop();
 			await server.stop();
@@ -217,10 +214,6 @@ describe("control-protocol product entrypoints", () => {
 			serverDir,
 			port: 0,
 			cwd,
-			webAssets: {
-				indexHtml: "<!doctype html><div id='root'></div>",
-				assets: [],
-			},
 		});
 		let release!: () => void;
 		const stopped = new Promise<void>((resolve) => {

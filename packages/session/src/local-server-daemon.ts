@@ -33,9 +33,15 @@ const isProcessRunning = (pid: number): boolean => {
 
 const signalProcess = (pid: number, signal: NodeJS.Signals): void => {
 	try {
-		process.kill(pid, signal);
+		// Detached daemons own their process group on POSIX; kill the group so
+		// agent children do not survive a hard daemon stop.
+		process.kill(process.platform === "win32" ? pid : -pid, signal);
 	} catch {
-		// The process may already have exited; stop is idempotent.
+		try {
+			process.kill(pid, signal);
+		} catch {
+			// The process may already have exited; stop is idempotent.
+		}
 	}
 };
 

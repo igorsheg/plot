@@ -202,7 +202,7 @@ describe("plot CLI faux provider boundary", () => {
 			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"request_tick","params":{"sessionId":"default"}}\n`,
 		);
 		const partialStdout = await waitForStdout(stdoutReader, (text) =>
-			text.includes("agent_run_event"),
+			text.includes("hello from spawned faux"),
 		);
 		child.stdin.write(
 			`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-2","command":"close_session","params":{"sessionId":"default"}}\n`,

@@ -189,32 +189,15 @@ describe("Local Plot Server", () => {
 		}
 	});
 
-	test("serves bundled web assets without weakening control auth", async () => {
+	test("does not serve web assets from the control daemon", async () => {
 		const paths = await tmpPaths();
 		const server = await startLocalPlotServer({
 			serverDir: paths.serverDir,
 			port: 0,
-			webAssets: {
-				indexHtml: "<!doctype html><script src='/assets/app.js'></script>",
-				assets: [
-					{
-						path: "/assets/app.js",
-						contentType: "text/javascript; charset=utf-8",
-						body: "globalThis.__plotWeb = true;",
-					},
-				],
-			},
 		});
 		try {
-			const index = await fetch(`${server.url}/`);
-			expect(index.status).toBe(200);
-			expect(index.headers.get("content-type")).toContain("text/html");
-			expect(await index.text()).toContain("/assets/app.js");
-
-			const asset = await fetch(`${server.url}/assets/app.js`);
-			expect(asset.status).toBe(200);
-			expect(asset.headers.get("content-type")).toContain("text/javascript");
-			expect(await asset.text()).toContain("__plotWeb");
+			expect((await fetch(`${server.url}/`)).status).toBe(404);
+			expect((await fetch(`${server.url}/assets/app.js`)).status).toBe(404);
 			expect((await fetch(`${server.url}/health`)).status).toBe(401);
 		} finally {
 			await server.stop();

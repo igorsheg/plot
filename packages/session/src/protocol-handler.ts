@@ -20,6 +20,7 @@ import type {
 	OperatorAction,
 	OperatorObservation,
 } from "@plot/control/operator";
+import type { PlotSessionSummary } from "@plot/control/session-summary";
 import type { PlotSessionShape } from "./plot-session.js";
 import type { PlotAuthShape } from "./pi-auth.js";
 import {
@@ -70,6 +71,8 @@ export interface PlotProtocolLayerOptions {
 	readonly openSession?: (
 		params: OpenSessionParams,
 	) => Promise<ControlSessionRuntime>;
+	readonly listArchivedSessions?: () => Promise<readonly PlotSessionSummary[]>;
+	readonly shutdownServer?: () => Promise<void> | void;
 	readonly connectionId?: string;
 }
 export interface PlotProtocolShape {
@@ -239,6 +242,14 @@ const wireSnapshot = (snapshot: unknown): unknown => {
 	};
 };
 
+const mergeSessionSummaries = (
+	live: readonly PlotSessionSummary[],
+	archived: readonly PlotSessionSummary[],
+): readonly PlotSessionSummary[] => {
+	const liveIds = new Set(live.map((session) => session.id));
+	return [...live, ...archived.filter((session) => !liveIds.has(session.id))];
+};
+
 const makeSuccessForRequest = (
 	request: PlotClientRecord,
 	input: {
@@ -331,12 +342,17 @@ export const makePlotProtocolLayer = (
 	})();
 
 	const startPump = (runtime: ControlSessionRuntime) => {
-		if (eventPumps.has(runtime.sessionId)) return;
-		eventPumps.add(runtime.sessionId);
+		const pumpKey = `${runtime.sessionId}:${runtime.epoch}`;
+		if (eventPumps.has(pumpKey)) return;
+		eventPumps.add(pumpKey);
 		void (async () => {
-			for await (const event of runtime.events()) {
-				if (!attachments.has(runtime.sessionId)) continue;
-				publishOutput(makePlotSessionEventRecord(event));
+			try {
+				for await (const event of runtime.events()) {
+					if (!attachments.has(runtime.sessionId)) continue;
+					publishOutput(makePlotSessionEventRecord(event));
+				}
+			} finally {
+				eventPumps.delete(pumpKey);
 			}
 		})();
 	};
@@ -347,12 +363,15 @@ export const makePlotProtocolLayer = (
 		switch (request.command as PlotCommand) {
 			case "ping":
 				return [makeSuccessForRequest(request, { data: { pong: true } })];
-			case "list_sessions":
+			case "list_sessions": {
+				const live = await registry.summaries();
+				const archived = (await options.listArchivedSessions?.()) ?? [];
 				return [
 					makeSuccessForRequest(request, {
-						data: { sessions: await registry.summaries() },
+						data: { sessions: mergeSessionSummaries(live, archived) },
 					}),
 				];
+			}
 			case "open_session": {
 				if (!options.openSession)
 					throw new PlotProtocolFailure({
@@ -369,6 +388,11 @@ export const makePlotProtocolLayer = (
 					params.sessionId === undefined
 						? undefined
 						: registry.get(params.sessionId);
+				if (existing?.isClosing())
+					throw new PlotProtocolFailure({
+						code: "session_closed",
+						message: `Plot Session ${existing.sessionId} is closing`,
+					});
 				if (existing !== undefined) {
 					if (!(await attachSession(existing, params.role ?? "controller")))
 						return [];
@@ -384,22 +408,36 @@ export const makePlotProtocolLayer = (
 					];
 				}
 				const runtime = await options.openSession(params);
-				if (closed) {
-					await runtime.session.shutdown().catch(() => undefined);
-					return [];
-				}
-				await registry.register(runtime);
-				if (closed) {
+				let registered = false;
+				try {
+					if (closed) {
+						await runtime.session.shutdown().catch(() => undefined);
+						return [];
+					}
+					await registry.register(runtime);
+					registered = true;
+					if (closed) {
+						await runtime.close().catch(() => undefined);
+						await registry.unregister(runtime.sessionId).catch(() => undefined);
+						return [];
+					}
+					await runtime.session.start();
+					if (closed) {
+						await runtime.close().catch(() => undefined);
+						await registry.unregister(runtime.sessionId).catch(() => undefined);
+						return [];
+					}
+					if (!(await attachSession(runtime, params.role ?? "controller"))) {
+						await runtime.close().catch(() => undefined);
+						await registry.unregister(runtime.sessionId).catch(() => undefined);
+						return [];
+					}
+				} catch (error) {
 					await runtime.close().catch(() => undefined);
-					return [];
+					if (registered)
+						await registry.unregister(runtime.sessionId).catch(() => undefined);
+					throw error;
 				}
-				await runtime.session.start();
-				if (closed) {
-					await runtime.close().catch(() => undefined);
-					return [];
-				}
-				if (!(await attachSession(runtime, params.role ?? "controller")))
-					return [];
 				const lastSequence = await runtime.frontier();
 				return [
 					makeSuccessForRequest(request, {
@@ -414,6 +452,11 @@ export const makePlotProtocolLayer = (
 			case "attach_session": {
 				const params = decodeAttachSessionParams(request.params);
 				const runtime = getSession(registry, params.sessionId);
+				if (runtime.isClosing())
+					throw new PlotProtocolFailure({
+						code: "session_closed",
+						message: `Plot Session ${params.sessionId} is closing`,
+					});
 				if (!(await attachSession(runtime, params.role ?? "observer")))
 					return [];
 				const snapshot = wireSnapshot(await runtime.snapshot());
@@ -555,12 +598,34 @@ export const makePlotProtocolLayer = (
 				const params = decodeCloseSessionParams(request.params);
 				const runtime = getSession(registry, params.sessionId);
 				requireController(attachments, params.sessionId);
-				const accepted = await runtime.close();
-				const lastSequence = await waitForRuntimeFrontier(runtime);
-				await registry.publishChanged(params.sessionId);
+				let accepted = false;
+				try {
+					accepted = await runtime.close();
+				} finally {
+					await registry.unregister(params.sessionId).catch(() => undefined);
+				}
+				const lastSequence = await runtime.frontier();
 				return [
 					makeSuccessForRequest(request, { lastSequence, data: { accepted } }),
 				];
+			}
+			case "shutdown_server": {
+				if (!options.shutdownServer)
+					throw new PlotProtocolFailure({
+						code: "invalid_request",
+						message: "shutdown_server is not configured for this server",
+					});
+				await Promise.all(
+					registry.list().map(async (runtime) => {
+						await runtime.close().catch(() => undefined);
+						await registry.unregister(runtime.sessionId).catch(() => undefined);
+					}),
+				);
+				const timer = setTimeout(() => {
+					void options.shutdownServer?.();
+				}, 0);
+				timer.unref?.();
+				return [makeSuccessForRequest(request, { data: { accepted: true } })];
 			}
 			case "auth_providers": {
 				if (!options.auth)

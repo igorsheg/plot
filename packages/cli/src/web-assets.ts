@@ -1,8 +1,18 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { LocalPlotWebAssets } from "@plot/session/local-server";
 import { embeddedPlotWebAssets } from "./web-assets.generated.js";
+
+export interface PlotWebAsset {
+	readonly path: string;
+	readonly contentType: string;
+	readonly body: string | Uint8Array;
+}
+
+export interface PlotWebAssets {
+	readonly indexHtml: string;
+	readonly assets: readonly PlotWebAsset[];
+}
 
 const contentTypes = new Map([
 	[".css", "text/css; charset=utf-8"],
@@ -20,7 +30,7 @@ const contentTypeFor = (path: string): string =>
 const decodeBase64 = (value: string): Uint8Array =>
 	new Uint8Array(Buffer.from(value, "base64"));
 
-const fromEmbedded = (): LocalPlotWebAssets | undefined => {
+const fromEmbedded = (): PlotWebAssets | undefined => {
 	if (embeddedPlotWebAssets === undefined) return undefined;
 	return {
 		indexHtml: embeddedPlotWebAssets.indexHtml,
@@ -46,7 +56,7 @@ const walkFiles = async (root: string, directory = root): Promise<string[]> => {
 	return files.flat();
 };
 
-const readFromDist = async (distDir: string): Promise<LocalPlotWebAssets> => {
+const readFromDist = async (distDir: string): Promise<PlotWebAssets> => {
 	const indexPath = join(distDir, "index.html");
 	const indexHtml = await readFile(indexPath, "utf8");
 	const files = (await walkFiles(distDir)).filter((path) => path !== indexPath);
@@ -61,7 +71,7 @@ const readFromDist = async (distDir: string): Promise<LocalPlotWebAssets> => {
 };
 
 export const tryLoadPlotWebAssets = async (): Promise<
-	LocalPlotWebAssets | undefined
+	PlotWebAssets | undefined
 > => {
 	const embedded = fromEmbedded();
 	if (embedded !== undefined) return embedded;
@@ -79,7 +89,7 @@ export const tryLoadPlotWebAssets = async (): Promise<
 	}
 };
 
-export const loadPlotWebAssets = async (): Promise<LocalPlotWebAssets> => {
+export const loadPlotWebAssets = async (): Promise<PlotWebAssets> => {
 	const assets = await tryLoadPlotWebAssets();
 	if (assets === undefined)
 		throw new Error(

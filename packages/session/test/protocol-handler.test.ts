@@ -69,10 +69,16 @@ const makeProtocol = async (
 		runner: overrides.runner ?? runner,
 		sessionHistory: history,
 	});
+	const registry = makeControlSessionRegistry();
 	return {
 		session,
 		history,
-		protocol: makePlotProtocolLayer({ session, sessionHistory: history }),
+		registry,
+		protocol: makePlotProtocolLayer({
+			session,
+			sessionHistory: history,
+			registry,
+		}),
 	};
 };
 
@@ -81,27 +87,29 @@ const makeProtocol = async (
 // open for the same id reuses the live session instead of spawning a duplicate.
 const makeOpeningProtocol = async (sessionId = "session-1") => {
 	const sessionDir = await mkdtemp(join(tmpdir(), "plot-open-"));
-	const history = await createSessionHistoryStore({ sessionDir, sessionId });
-	const session = makePlotSessionLayer({
-		id: sessionId,
-		workflow,
-		sources: [],
-		runner,
-		sessionHistory: history,
-	});
-	const runtime = makeControlSessionRuntime({
-		session,
-		history,
-		cwd: sessionDir,
-		mode: "watch",
-	});
 	const registry = makeControlSessionRegistry();
 	let openCount = 0;
 	const protocol = makePlotProtocolLayer({
 		registry,
 		openSession: async () => {
 			openCount += 1;
-			return runtime;
+			const history = await createSessionHistoryStore({
+				sessionDir,
+				sessionId,
+			});
+			const session = makePlotSessionLayer({
+				id: sessionId,
+				workflow,
+				sources: [],
+				runner,
+				sessionHistory: history,
+			});
+			return makeControlSessionRuntime({
+				session,
+				history,
+				cwd: sessionDir,
+				mode: "watch",
+			});
 		},
 	});
 	return { protocol, registry, openCount: () => openCount };
@@ -136,6 +144,41 @@ describe("explicit Plot control protocol", () => {
 		await pending;
 
 		expect(openCount()).toBe(1);
+		expect(registry.list().length).toBe(1);
+	});
+
+	test("open_session creates a fresh epoch after close_session unregisters", async () => {
+		const { protocol, registry, openCount } = await makeOpeningProtocol();
+
+		let pending = collectUntil(protocol.output(), responseFor("open-1"));
+		await protocol.submit(
+			request("open-1", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+		const firstEpoch = registry.get("session-1")?.epoch;
+
+		pending = collectUntil(protocol.output(), responseFor("close-1"));
+		await protocol.submit(
+			request("close-1", "close_session", { sessionId: "session-1" }),
+		);
+		await pending;
+		expect(registry.get("session-1")).toBeUndefined();
+
+		pending = collectUntil(protocol.output(), responseFor("open-2"));
+		await protocol.submit(
+			request("open-2", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+		const secondEpoch = registry.get("session-1")?.epoch;
+
+		expect(openCount()).toBe(2);
+		expect(firstEpoch).not.toBe(secondEpoch);
 		expect(registry.list().length).toBe(1);
 	});
 
@@ -588,10 +631,13 @@ describe("explicit Plot control protocol", () => {
 			id: sourceId("source-1"),
 			selectWork: () => [{ workKey: workKey("work:1") }],
 		};
-		const { protocol, session, history } = await makeProtocol("session-1", {
-			sources: [source],
-			runner: { run: () => new Promise(() => undefined) },
-		});
+		const { protocol, session, history, registry } = await makeProtocol(
+			"session-1",
+			{
+				sources: [source],
+				runner: { run: () => new Promise(() => undefined) },
+			},
+		);
 		await session.tickOnce();
 		let pending = collectUntil(protocol.output(), responseFor("attach"));
 		await protocol.submit(
@@ -609,6 +655,7 @@ describe("explicit Plot control protocol", () => {
 		const records = await pending;
 		expect(records.at(-1)).toEqual(expect.objectContaining({ ok: true }));
 		expect((await session.snapshot()).running.size).toBe(0);
+		expect(registry.get("session-1")).toBeUndefined();
 		const events = (await history.readAll()).events;
 		expect(events.length).toBeGreaterThan(0);
 		expect(events.map((event) => event.type)).toEqual(

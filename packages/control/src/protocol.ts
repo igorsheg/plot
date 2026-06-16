@@ -48,6 +48,7 @@ export const plotCommandSchema = z.enum([
 	"interrupt_agent_run",
 	"perform_operator_action",
 	"get_snapshot",
+	"shutdown_server",
 	"ping",
 	"auth_providers",
 	"auth_status",

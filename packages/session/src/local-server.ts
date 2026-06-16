@@ -43,6 +43,7 @@ import {
 import {
 	applyStoppedOneshotRetention,
 	catalogEntryFromSummary,
+	readPlotSessionCatalog,
 	refreshPlotSessionCatalogFromHistory,
 	upsertPlotSessionCatalogEntry,
 } from "./session-catalog.js";
@@ -57,17 +58,6 @@ interface WebSocketData {
 	lastSeenAt: number;
 }
 
-export interface LocalPlotWebAsset {
-	readonly path: string;
-	readonly contentType: string;
-	readonly body: string | Uint8Array;
-}
-
-export interface LocalPlotWebAssets {
-	readonly indexHtml: string;
-	readonly assets: readonly LocalPlotWebAsset[];
-}
-
 export interface LocalPlotServerOptions extends LocalPlotServerPathOptions {
 	readonly hostname?: string;
 	readonly port?: number;
@@ -76,9 +66,8 @@ export interface LocalPlotServerOptions extends LocalPlotServerPathOptions {
 	readonly registry?: ControlSessionRegistry;
 	readonly protocolOptions?: Omit<
 		PlotProtocolLayerOptions,
-		"registry" | "openSession"
+		"registry" | "openSession" | "listArchivedSessions" | "shutdownServer"
 	>;
-	readonly webAssets?: LocalPlotWebAssets;
 	/**
 	 * Reuse a healthy server found in user-level metadata. Product clients use
 	 * reuse; explicit `plot serve` foreground starts do not, so Ctrl-C owns the
@@ -97,6 +86,7 @@ export interface LocalPlotServerHandle {
 	readonly server?: Bun.Server<WebSocketData>;
 	readonly alreadyRunning: boolean;
 	readonly registrationLost: Promise<void>;
+	readonly shutdownRequested: Promise<void>;
 	readonly stop: (options?: { readonly unregister?: boolean }) => Promise<void>;
 }
 
@@ -147,33 +137,6 @@ const allowedOrigin = (origin: string | null): boolean => {
 
 const unauthorized = () => new Response("unauthorized\n", { status: 401 });
 
-const normalizeAssetPath = (path: string): string =>
-	path.startsWith("/") ? path : `/${path}`;
-
-const isAssetRequest = (path: string): boolean =>
-	path.startsWith("/assets/") || path === "/favicon.ico";
-
-const cacheHeadersFor = (asset: LocalPlotWebAsset): HeadersInit => ({
-	"content-type": asset.contentType,
-	"cache-control": "public, max-age=31536000, immutable",
-});
-
-const arrayBufferFrom = (bytes: Uint8Array): ArrayBuffer => {
-	const copy = new Uint8Array(bytes.byteLength);
-	copy.set(bytes);
-	return copy.buffer;
-};
-
-const bodyForAsset = (asset: LocalPlotWebAsset): BodyInit =>
-	typeof asset.body === "string"
-		? asset.body
-		: new Blob([arrayBufferFrom(asset.body)]);
-
-const indexHeaders: HeadersInit = {
-	"content-type": "text/html; charset=utf-8",
-	"cache-control": "no-store",
-};
-
 const closeWithError = (
 	ws: Bun.ServerWebSocket<WebSocketData>,
 	code: string,
@@ -205,6 +168,11 @@ const updateCatalogForRuntime = async (
 	await applyStoppedOneshotRetention({ paths });
 };
 
+const archivedSessionSummaries = async (paths: LocalPlotServerPaths) =>
+	(await readPlotSessionCatalog(paths)).entries
+		.filter((entry) => entry.stale !== true)
+		.map((entry) => entry.summary);
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
@@ -229,11 +197,15 @@ const oneshotTickIsTerminal = (event: SessionHistoryEvent): boolean => {
 	);
 };
 
-const startOneshotTerminalMonitor = (runtime: ControlSessionRuntime) => {
+const startOneshotTerminalMonitor = (
+	runtime: ControlSessionRuntime,
+	registry: ControlSessionRegistry,
+) => {
 	void (async () => {
 		for await (const event of runtime.events()) {
 			if (!oneshotTickIsTerminal(event)) continue;
 			await runtime.close();
+			await registry.unregister(runtime.sessionId);
 			break;
 		}
 	})().catch(() => undefined);
@@ -294,7 +266,7 @@ const makeOpenSession =
 			},
 		});
 		if ((params.mode ?? "watch") === "oneshot")
-			startOneshotTerminalMonitor(runtime);
+			startOneshotTerminalMonitor(runtime, input.registry);
 		await updateCatalogForRuntime(input.paths, runtime);
 		return runtime;
 	};
@@ -308,21 +280,15 @@ const makeFetchHandler = (input: {
 	readonly cwd: string;
 	readonly protocolOptions?: Omit<
 		PlotProtocolLayerOptions,
-		"registry" | "openSession"
+		"registry" | "openSession" | "listArchivedSessions" | "shutdownServer"
 	>;
-	readonly webAssets?: LocalPlotWebAssets;
+	readonly shutdownServer: () => Promise<void> | void;
 }) => {
 	const openSession = makeOpenSession({
 		paths: input.paths,
 		cwd: input.cwd,
 		registry: input.registry,
 	});
-	const webAssetMap = new Map(
-		(input.webAssets?.assets ?? []).map((asset) => [
-			normalizeAssetPath(asset.path),
-			asset,
-		]),
-	);
 	return (request: Request, server: Bun.Server<WebSocketData>): Response => {
 		const url = new URL(request.url);
 		if (url.pathname === "/health") {
@@ -340,18 +306,8 @@ const makeFetchHandler = (input: {
 				tokenFingerprint: input.token.fingerprint,
 			});
 		}
-		if (url.pathname !== "/ws") {
-			const asset = webAssetMap.get(url.pathname);
-			if (asset !== undefined)
-				return new Response(bodyForAsset(asset), {
-					headers: cacheHeadersFor(asset),
-				});
-			if (input.webAssets !== undefined && !isAssetRequest(url.pathname))
-				return new Response(input.webAssets.indexHtml, {
-					headers: indexHeaders,
-				});
+		if (url.pathname !== "/ws")
 			return new Response("not found\n", { status: 404 });
-		}
 		if (!allowedOrigin(request.headers.get("origin")))
 			return new Response("forbidden origin\n", { status: 403 });
 		if (!localControlTokenMatches(input.token.token, tokenFromRequest(request)))
@@ -367,6 +323,8 @@ const makeFetchHandler = (input: {
 			],
 			registry: input.registry,
 			openSession,
+			listArchivedSessions: () => archivedSessionSummaries(input.paths),
+			shutdownServer: input.shutdownServer,
 			connectionId: `ws-${randomUUID()}`,
 		});
 		const output = new AsyncQueue<PlotServerRecord>({
@@ -467,9 +425,9 @@ const bindServer = (input: {
 	readonly cwd: string;
 	readonly protocolOptions?: Omit<
 		PlotProtocolLayerOptions,
-		"registry" | "openSession"
+		"registry" | "openSession" | "listArchivedSessions" | "shutdownServer"
 	>;
-	readonly webAssets?: LocalPlotWebAssets;
+	readonly shutdownServer: () => Promise<void> | void;
 }): Bun.Server<WebSocketData> =>
 	Bun.serve<WebSocketData>({
 		hostname: input.hostname,
@@ -506,6 +464,7 @@ export const startLocalPlotServer = async (
 			registry,
 			alreadyRunning: true,
 			registrationLost: new Promise<void>(() => undefined),
+			shutdownRequested: new Promise<void>(() => undefined),
 			stop: async () => undefined,
 		};
 	}
@@ -518,6 +477,10 @@ export const startLocalPlotServer = async (
 		pid: process.pid,
 		startedAt,
 		tokenFingerprint: token.fingerprint,
+	});
+	let resolveShutdownRequested!: () => void;
+	const shutdownRequested = new Promise<void>((resolve) => {
+		resolveShutdownRequested = resolve;
 	});
 	const startOnPort = (port: number) =>
 		bindServer({
@@ -532,9 +495,7 @@ export const startLocalPlotServer = async (
 			...(options.protocolOptions === undefined
 				? {}
 				: { protocolOptions: options.protocolOptions }),
-			...(options.webAssets === undefined
-				? {}
-				: { webAssets: options.webAssets }),
+			shutdownServer: resolveShutdownRequested,
 		});
 	const stablePort = options.stablePort ?? defaultLocalPlotServerPort;
 	const firstPort = requestedPort ?? stablePort;
@@ -571,6 +532,7 @@ export const startLocalPlotServer = async (
 				registry,
 				alreadyRunning: true,
 				registrationLost: new Promise<void>(() => undefined),
+				shutdownRequested: new Promise<void>(() => undefined),
 				stop: async () => undefined,
 			};
 		}
@@ -611,6 +573,7 @@ export const startLocalPlotServer = async (
 		server,
 		alreadyRunning: false,
 		registrationLost,
+		shutdownRequested,
 		stop: async (stopOptions = {}) => {
 			if (stopped) return;
 			stopped = true;
@@ -653,6 +616,7 @@ export const runLocalPlotServer = async (
 	const reason = await Promise.race([
 		awaitShutdownSignal().then(() => "signal" as const),
 		handle.registrationLost.then(() => "registration_lost" as const),
+		handle.shutdownRequested.then(() => "shutdown_requested" as const),
 	]);
-	await handle.stop({ unregister: reason === "signal" });
+	await handle.stop({ unregister: reason !== "registration_lost" });
 };

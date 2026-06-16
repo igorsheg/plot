@@ -22,16 +22,6 @@ export const version = "0.0.0";
 export { processCliIo } from "./io.js";
 export type { PlotCliIo } from "./io.js";
 
-const subCommands = {
-	"list-models": listModelsCommand,
-	auth: authCommand,
-	docs: docsCommand,
-	run: runCommand,
-	web: webCommand,
-	stop: stopCommand,
-	_serve: serveCommand,
-};
-
 const rootArgs = {
 	...sessionCommandArgs,
 	"no-server": {
@@ -53,6 +43,26 @@ const runRootTui = ({ args }: { args: ParsedArgs }) => {
 	});
 };
 
+const tuiCommand = defineCommand({
+	meta: {
+		name: "tui",
+		description: "Open the terminal dashboard for one Plot Session.",
+	},
+	args: rootArgs,
+	run: runRootTui,
+});
+
+const subCommands = {
+	"list-models": listModelsCommand,
+	auth: authCommand,
+	docs: docsCommand,
+	run: runCommand,
+	tui: tuiCommand,
+	web: webCommand,
+	stop: stopCommand,
+	_serve: serveCommand,
+};
+
 const rootMeta = {
 	name: "plot",
 	version,
@@ -63,13 +73,6 @@ const rootCommand = defineCommand({
 	meta: rootMeta,
 	args: rootArgs,
 	subCommands,
-	run: runRootTui,
-});
-
-const rootTuiCommand = defineCommand({
-	meta: rootMeta,
-	args: rootArgs,
-	run: runRootTui,
 });
 
 const stringOptions = new Set([
@@ -139,10 +142,11 @@ export const runPlotCli = async (
 		);
 		return;
 	}
-	await runCittyCommand(rootTuiCommand, {
-		rawArgs: [...args],
-		showUsage: false,
-	});
+	await io.writeStdout(
+		stripInternalCommands(
+			await renderUsage(rootCommand as unknown as CommandDef),
+		),
+	);
 };
 
 export const makePlotCommand = (_io: PlotCliIo = processCliIo()) => ({
