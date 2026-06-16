@@ -325,7 +325,12 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 						work({
 							id: `github:${repo}:pr:${pr.number}`,
 							version: `${pr.headRefOid ?? pr.headRefName}:${phase}`,
-							...(draftBlocked ? { blocked: "draft pull request" } : {}),
+							...(draftBlocked
+								? {
+										status: "blocked" as const,
+										blockedReason: "draft pull request",
+									}
+								: {}),
 							title: `Review ${repo} PR #${pr.number}: ${pr.title} (${phase})`,
 							url: pr.url,
 							subject: `github:${repo}:pr:${pr.number}`,

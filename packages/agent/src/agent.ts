@@ -16,6 +16,7 @@ import type {
 	ScheduleWakeProposal,
 	SkippedWork,
 	SourceId,
+	WorkRecord,
 	SubjectKey,
 	TickResult,
 	WorkItem,
@@ -32,6 +33,7 @@ interface RuntimeState {
 	readonly observations: readonly Observation[];
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
+	readonly work: ReadonlyMap<WorkKey, WorkRecord>;
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
 	readonly scheduledWakes: readonly Domain.ScheduledWake[];
 	readonly retries: ReadonlyMap<WorkKey, RetryState>;
@@ -126,6 +128,7 @@ const initialState: RuntimeState = {
 	observations: [],
 	completions: [],
 	diagnostics: [],
+	work: new Map(),
 	running: new Map(),
 	scheduledWakes: [],
 	retries: new Map(),
@@ -175,6 +178,7 @@ const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	observations: [...state.observations],
 	completions: [...state.completions],
 	diagnostics: [...state.diagnostics],
+	work: new Map(state.work),
 	running: new Map(state.running),
 	scheduledWakes: state.scheduledWakes.filter(
 		(wake) => wake.dueAtMs > Date.now(),
@@ -257,6 +261,19 @@ const applyFactProposals = (
 	}
 	return next;
 };
+
+const applyWorkProposals = (
+	work: ReadonlyMap<WorkKey, WorkRecord>,
+	proposals: readonly ReconcileProposal[],
+) => {
+	const next = new Map(work);
+	for (const proposal of proposals) {
+		if (proposal.type === "upsert_work")
+			next.set(proposal.work.workKey, proposal.work);
+		else if (proposal.type === "remove_work") next.delete(proposal.workKey);
+	}
+	return next;
+};
 interface RetryBackoff {
 	readonly initialDelayMs: number;
 	readonly maxDelayMs: number;
@@ -322,6 +339,7 @@ const beginTick = (
 	historyLimit: number,
 ) => {
 	const running = new Map(state.running),
+		work = new Map(state.work),
 		completions: Completion[] = [],
 		diagnostics: Diagnostic[] = [],
 		completedRuns: WorkRun[] = [];
@@ -397,6 +415,23 @@ const beginTick = (
 			const d = completionDiagnostic(completion);
 			if (d) diagnostics.push(d);
 		}
+	for (const completion of completions) {
+		const record = work.get(completion.workKey);
+		if (record?.currentRunId !== completion.runId) continue;
+		work.set(completion.workKey, {
+			workKey: record.workKey,
+			sourceId: record.sourceId,
+			status: completion.status === "succeeded" ? "done" : "failed",
+			...(record.subject === undefined ? {} : { subject: record.subject }),
+			...(record.display === undefined ? {} : { display: record.display }),
+			...(record.blockedReason === undefined
+				? {}
+				: { blockedReason: record.blockedReason }),
+			...(record.operatorActions === undefined
+				? {}
+				: { operatorActions: record.operatorActions }),
+		});
+	}
 	const now = Date.now();
 	const applied = applyCompletionRetries(
 		state.retries,
@@ -413,6 +448,7 @@ const beginTick = (
 			observations: [...state.observations, ...drained.observations],
 			completions: [...state.completions, ...completions],
 			diagnostics: [...state.diagnostics, ...diagnostics],
+			work,
 			running,
 			retries: applied.retries,
 			scheduledWakes: [
@@ -490,6 +526,7 @@ const applyReconciled = (
 		{
 			...state,
 			facts: applyFactProposals(state.facts, proposals),
+			work: applyWorkProposals(state.work, proposals),
 			observations: [],
 			completions: [],
 			diagnostics: [...state.diagnostics, ...diagnostics],
@@ -513,6 +550,7 @@ const interruptRunningWork = (
 	historyLimit: number,
 ) => {
 	const running = new Map(state.running),
+		work = new Map(state.work),
 		completions: Completion[] = [],
 		diagnostics: Diagnostic[] = [],
 		interruptedRuns: WorkRun[] = [],
@@ -521,6 +559,21 @@ const interruptRunningWork = (
 		const run = running.get(proposal.workKey);
 		if (!run) continue;
 		running.delete(proposal.workKey);
+		const record = work.get(proposal.workKey);
+		if (record?.currentRunId === run.runId)
+			work.set(proposal.workKey, {
+				workKey: record.workKey,
+				sourceId: record.sourceId,
+				status: "pending",
+				...(record.subject === undefined ? {} : { subject: record.subject }),
+				...(record.display === undefined ? {} : { display: record.display }),
+				...(record.blockedReason === undefined
+					? {}
+					: { blockedReason: record.blockedReason }),
+				...(record.operatorActions === undefined
+					? {}
+					: { operatorActions: record.operatorActions }),
+			});
 		interruptedRuns.push(run);
 		interruptedKeys.add(proposal.workKey);
 		const completion: Completion = {
@@ -541,6 +594,7 @@ const interruptRunningWork = (
 				...state,
 				completions: [...state.completions, ...completions],
 				diagnostics: [...state.diagnostics, ...diagnostics],
+				work,
 				running,
 			},
 			historyLimit,
@@ -594,6 +648,7 @@ const startEligibleRuns = (
 	blockedThisTick: ReadonlySet<WorkKey> = new Set(),
 ) => {
 	const running = new Map(state.running),
+		workRecords = new Map(state.work),
 		runningBySource = runningCountBySource(running),
 		started: { run: WorkRun; selection: WorkSelection }[] = [],
 		skipped: SkippedWork[] = [],
@@ -660,19 +715,32 @@ const startEligibleRuns = (
 			workKey: work.workKey,
 			...optionalSubject(work.subject),
 			...(work.display === undefined ? {} : { display: work.display }),
-			...(work.operatorActions === undefined
-				? {}
-				: { operatorActions: work.operatorActions }),
 		};
 		nextRunIndex++;
 		running.set(work.workKey, run);
+		const previous = workRecords.get(work.workKey);
+		const display = work.display ?? previous?.display;
+		const operatorActions = work.operatorActions ?? previous?.operatorActions;
+		workRecords.set(work.workKey, {
+			workKey: work.workKey,
+			sourceId: selection.source.id,
+			status: "running",
+			...optionalSubject(work.subject ?? previous?.subject),
+			...(display === undefined ? {} : { display }),
+			...(operatorActions === undefined ? {} : { operatorActions }),
+			currentRunId: run.runId,
+		});
 		runningBySource.set(
 			selection.source.id,
 			(runningBySource.get(selection.source.id) ?? 0) + 1,
 		);
 		started.push({ run, selection });
 	}
-	return { state: { ...state, running, nextRunIndex }, started, skipped };
+	return {
+		state: { ...state, work: workRecords, running, nextRunIndex },
+		started,
+		skipped,
+	};
 };
 
 export const makePlotAgentLayer = (
@@ -851,11 +919,30 @@ export const makePlotAgentLayer = (
 			const d = completionDiagnostic(completion);
 			return d === undefined ? [] : [d];
 		});
+		const work = new Map(state.work);
+		for (const completion of completions) {
+			const record = work.get(completion.workKey);
+			if (record?.currentRunId !== completion.runId) continue;
+			work.set(completion.workKey, {
+				workKey: record.workKey,
+				sourceId: record.sourceId,
+				status: "failed",
+				...(record.subject === undefined ? {} : { subject: record.subject }),
+				...(record.display === undefined ? {} : { display: record.display }),
+				...(record.blockedReason === undefined
+					? {}
+					: { blockedReason: record.blockedReason }),
+				...(record.operatorActions === undefined
+					? {}
+					: { operatorActions: record.operatorActions }),
+			});
+		}
 		state = boundStateHistory(
 			{
 				...state,
 				completions: [...state.completions, ...completions],
 				diagnostics: [...state.diagnostics, ...diagnostics],
+				work,
 				running: new Map(),
 				scheduledWakes: [],
 				retries: new Map(),
@@ -863,7 +950,7 @@ export const makePlotAgentLayer = (
 			historyLimit,
 		);
 		for (const completion of completions)
-			publishEvent({ type: "work_completed", completion });
+			publishEvent({ type: "attempt_completed", completion });
 		interruptRunHandles(completedRuns);
 		for (const run of completedRuns) {
 			lastActivityAt.delete(run.runId);
@@ -1077,7 +1164,7 @@ export const makePlotAgentLayer = (
 				const tickId = state.tickId;
 				publishEvent({ type: "tick_started", tickId });
 				for (const completion of began.completions)
-					publishEvent({ type: "work_completed", completion });
+					publishEvent({ type: "attempt_completed", completion });
 				interruptRunHandles(began.completedRuns);
 				for (const run of began.completedRuns) {
 					lastActivityAt.delete(run.runId);
@@ -1174,6 +1261,12 @@ export const makePlotAgentLayer = (
 					reconcileDiagnostics,
 					historyLimit,
 				);
+				for (const proposal of proposals) {
+					if (proposal.type === "upsert_work")
+						publishEvent({ type: "work_observed", work: proposal.work });
+					else if (proposal.type === "remove_work")
+						publishEvent({ type: "work_removed", workKey: proposal.workKey });
+				}
 				const wakeProposals = proposals.filter(
 					(p): p is ScheduleWakeProposal => p.type === "schedule_wake",
 				);
@@ -1190,7 +1283,7 @@ export const makePlotAgentLayer = (
 				);
 				state = interrupted.state;
 				for (const completion of interrupted.completions)
-					publishEvent({ type: "work_completed", completion });
+					publishEvent({ type: "attempt_completed", completion });
 				interruptRunHandles(interrupted.interruptedRuns);
 				for (const run of interrupted.interruptedRuns) {
 					lastActivityAt.delete(run.runId);
@@ -1288,7 +1381,7 @@ export const makePlotAgentLayer = (
 				state = startedResult.state;
 				const runSnapshot = snapshotFrom(state);
 				for (const { run, selection } of startedResult.started) {
-					publishEvent({ type: "work_started", run });
+					publishEvent({ type: "attempt_started", run });
 					lastActivityAt.set(run.runId, Date.now());
 					scheduleStallTimer(run);
 					const runController = new AbortController();

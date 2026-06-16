@@ -164,25 +164,41 @@ const eventToHistoryFallback = (
 				},
 			);
 		}
-		if (agentEvent["type"] === "work_started")
+		if (agentEvent["type"] === "attempt_started")
 			return synthesizeHistoryEvent(
 				sessionId,
 				epoch,
 				sequence,
-				"work_started",
+				"attempt_started",
 				{
 					run: agentEvent["run"],
 				},
 			);
-		if (agentEvent["type"] === "work_completed")
+		if (agentEvent["type"] === "attempt_completed")
 			return synthesizeHistoryEvent(
 				sessionId,
 				epoch,
 				sequence,
-				"work_completed",
+				"attempt_completed",
 				{
 					completion: agentEvent["completion"],
 				},
+			);
+		if (agentEvent["type"] === "work_observed")
+			return synthesizeHistoryEvent(
+				sessionId,
+				epoch,
+				sequence,
+				"work_observed",
+				{ work: agentEvent["work"] },
+			);
+		if (agentEvent["type"] === "work_removed")
+			return synthesizeHistoryEvent(
+				sessionId,
+				epoch,
+				sequence,
+				"work_removed",
+				{ workKey: agentEvent["workKey"] },
 			);
 		if (agentEvent["type"] === "wake_scheduled")
 			return synthesizeHistoryEvent(
@@ -227,27 +243,12 @@ const labelsFromWorkflow = (session: PlotSessionShape) => {
 	return { workflowPath, cwd, workflowName, cwdName: basename(cwd) || cwd };
 };
 
-const actionsFromSnapshot = (snapshot: RuntimeSnapshot) => {
-	const latest = new Map<string, readonly OperatorAction[]>();
-	for (const run of snapshot.running.values()) {
-		const actions = (run as { readonly operatorActions?: unknown })
-			.operatorActions;
-		if (Array.isArray(actions)) latest.set(run.workKey, actions);
-	}
-	return latest;
-};
-
-const needsYouCountFrom = (
-	snapshot: RuntimeSnapshot,
-	declaredActions: ReadonlyMap<string, readonly OperatorAction[]>,
-) => {
-	const latest = actionsFromSnapshot(snapshot);
-	for (const [workKey, actions] of declaredActions)
-		if (!latest.has(workKey)) latest.set(workKey, actions);
-	return [...latest.values()].filter((actions) =>
-		actions.some((action) => !action.disabledReason),
+const needsYouCountFrom = (snapshot: RuntimeSnapshot) =>
+	[...snapshot.work.values()].filter(
+		(work) =>
+			work.status === "blocked" &&
+			(work.operatorActions ?? []).some((action) => !action.disabledReason),
 	).length;
-};
 
 export const makeControlSessionRuntime = (
 	options: ControlSessionRuntimeOptions,
@@ -256,7 +257,6 @@ export const makeControlSessionRuntime = (
 		options.eventCapacity ?? 256,
 	);
 	const memoryEvents: SessionHistoryEvent[] = [];
-	const declaredActions = new Map<string, readonly OperatorAction[]>();
 	let paused = false;
 	let closing = false;
 	let closed = false;
@@ -266,17 +266,6 @@ export const makeControlSessionRuntime = (
 	const epoch = options.history?.epoch ?? sessionId;
 	const publish = async (event: SessionHistoryEvent) => {
 		if (!options.history) memoryEvents.push(event);
-		if (event.type === "operator_actions_declared" && isRecord(event.payload)) {
-			const workKey = event.payload["workKey"];
-			const actions = event.payload["actions"];
-			if (typeof workKey === "string" && Array.isArray(actions))
-				declaredActions.set(workKey, actions as readonly OperatorAction[]);
-		}
-		if (event.type === "work_completed" && isRecord(event.payload)) {
-			const completion = event.payload["completion"];
-			const workKey = isRecord(completion) ? completion["workKey"] : undefined;
-			if (typeof workKey === "string") declaredActions.delete(workKey);
-		}
 		eventHub.publish(event);
 		await options.onChanged?.(await runtime.summary());
 	};
@@ -399,7 +388,7 @@ export const makeControlSessionRuntime = (
 				cwd: options.cwd ?? labels.cwd,
 				cwdName: basename(options.cwd ?? labels.cwd) || labels.cwdName,
 				agents: { active: running.length, max: 100 },
-				needsYouCount: needsYouCountFrom(snapshot, declaredActions),
+				needsYouCount: needsYouCountFrom(snapshot),
 				tokenThroughputPerSecond: null,
 				totalTokens: 0,
 				lastActivityAt: null,
@@ -429,20 +418,17 @@ export const makeControlSessionRuntime = (
 		},
 		currentOperatorAction: async (input) => {
 			const snapshot = await options.session.snapshot();
-			const run = snapshot.running.get(input.workKey);
-			if (!run) return undefined;
-			const actions = (run as { readonly operatorActions?: unknown })
-				.operatorActions;
-			if (!Array.isArray(actions)) return undefined;
-			const action = (actions as readonly OperatorAction[]).find(
+			const work = snapshot.work.get(input.workKey);
+			if (!work) return undefined;
+			const action = (work.operatorActions ?? []).find(
 				(candidate) => candidate.id === input.actionId,
 			);
 			if (!action) return undefined;
-			const display = (run as { readonly display?: unknown }).display;
+			const display = work.display;
 			const version = isRecord(display) ? display["version"] : undefined;
 			return {
 				action,
-				sourceId: run.sourceId,
+				sourceId: work.sourceId,
 				...(display === undefined ? {} : { workDisplay: display }),
 				...(typeof version === "string" ? { workVersion: version } : {}),
 			};

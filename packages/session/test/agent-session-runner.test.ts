@@ -18,6 +18,7 @@ const context = {
 		observations: [],
 		completions: [],
 		diagnostics: [],
+		work: new Map(),
 		running: new Map(),
 	},
 	signal: new AbortController().signal,

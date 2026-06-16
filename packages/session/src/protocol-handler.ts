@@ -236,6 +236,7 @@ const wireSnapshot = (snapshot: unknown): unknown => {
 	const record = snapshot as Record<string, unknown>;
 	return {
 		...record,
+		work: wireMap(record["work"]),
 		running: wireMap(record["running"]),
 		retries: wireMap(record["retries"]),
 		facts: wireMap(record["facts"]),

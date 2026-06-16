@@ -5,8 +5,9 @@ import {
 	formatTokens,
 } from "@plot/control/dashboard-model";
 import {
+	type AgentAttemptProjection,
 	type DashboardProjection,
-	type RunningWorkProjection,
+	type WorkItemProjection,
 	workLabel,
 } from "@plot/control/projection";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
@@ -54,6 +55,11 @@ function Divided({ children }: { children: readonly ReactNode[] }) {
 	);
 }
 
+type WorkSurface = {
+	readonly item: WorkItemProjection;
+	readonly attempt?: AgentAttemptProjection | undefined;
+};
+
 export function SessionSurface() {
 	const { roster, selectedSessionId, projection, lastError } =
 		useDashboardState();
@@ -99,11 +105,22 @@ function SessionDetail({
 		const last = samples[samples.length - 1];
 		return last === undefined ? [] : throughputSeries(samples, last.atMs);
 	}, [samples]);
-	const work = [...projection.running.values()].toSorted(
-		(a, b) =>
-			Number(needsAttention(b)) - Number(needsAttention(a)) ||
-			a.startedAtSeq - b.startedAtSeq,
-	);
+	const work = [...projection.work.values()]
+		.filter((item) => item.status !== "done")
+		.map(
+			(item): WorkSurface => ({
+				item,
+				attempt:
+					item.currentRunId === undefined
+						? undefined
+						: projection.attempts.get(item.currentRunId),
+			}),
+		)
+		.toSorted(
+			(a, b) =>
+				Number(needsAttention(b)) - Number(needsAttention(a)) ||
+				(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
+		);
 	const needs = work.filter(needsAttention);
 	const agentsActive = session?.agents.active ?? model.pulse.runningCount;
 	const agentsMax = session?.agents.max ?? model.pulse.maxConcurrentRuns;
@@ -167,7 +184,7 @@ function SessionDetail({
 			) : null}
 
 			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
-				running · {work.length}
+				work · {work.length}
 			</div>
 			{work.length === 0 ? (
 				<p className="border-t border-border px-6 py-4 text-2xs text-t3">
@@ -176,7 +193,7 @@ function SessionDetail({
 			) : (
 				work.map((item) => (
 					<WorkLane
-						key={item.workKey}
+						key={item.item.workKey}
 						work={item}
 						sessionId={projection.sessionId}
 					/>
@@ -189,15 +206,13 @@ function SessionDetail({
 	);
 }
 
-const needsAttention = (work: RunningWorkProjection) =>
-	work.stage === "blocked" ||
-	work.stage === "failed" ||
-	(work.operatorActions?.length ?? 0) > 0;
+const needsAttention = (work: WorkSurface) =>
+	work.item.status === "blocked" || work.item.status === "failed";
 
-function stageToneText(work: RunningWorkProjection): string {
-	if (work.stage === "blocked") return "text-attention";
-	if (work.stage === "failed") return "text-destructive";
-	if (work.streaming) return "text-live";
+function statusToneText(work: WorkSurface): string {
+	if (work.item.status === "blocked") return "text-attention";
+	if (work.item.status === "failed") return "text-destructive";
+	if (work.attempt?.streaming) return "text-live";
 	return "text-t3";
 }
 
@@ -205,24 +220,31 @@ function WorkLane({
 	work,
 	sessionId,
 }: {
-	work: RunningWorkProjection;
+	work: WorkSurface;
 	sessionId: string;
 }) {
-	const [open, setOpen] = useState(work.streaming || needsAttention(work));
+	const { item, attempt } = work;
+	const [open, setOpen] = useState(
+		(attempt?.streaming ?? false) || needsAttention(work),
+	);
 	const age =
-		work.startedAtMs === undefined
+		attempt?.startedAtMs === undefined
 			? "n/a"
-			: formatDuration(Date.now() - work.startedAtMs);
+			: formatDuration(Date.now() - attempt.startedAtMs);
 	const tokens =
-		work.tokens?.total === undefined
+		attempt?.tokens?.total === undefined
 			? undefined
-			: formatTokens(work.tokens.total);
+			: formatTokens(attempt.tokens.total);
+	const activity =
+		item.status === "blocked" && item.blockedReason !== undefined
+			? item.blockedReason
+			: (attempt?.activity ?? item.status);
 	const railTone =
-		work.stage === "blocked"
+		item.status === "blocked"
 			? "bg-attention"
-			: work.stage === "failed"
+			: item.status === "failed"
 				? "bg-destructive"
-				: work.streaming
+				: attempt?.streaming
 					? "bg-live"
 					: "bg-border";
 
@@ -230,7 +252,7 @@ function WorkLane({
 		<div
 			className={cn(
 				"group border-t border-border",
-				work.streaming && "bg-live/5",
+				attempt?.streaming && "bg-live/5",
 			)}
 		>
 			<button
@@ -242,20 +264,20 @@ function WorkLane({
 				<div className="min-w-0">
 					<div className="flex items-baseline gap-2">
 						<span className="weight-hover truncate text-sm">
-							{workLabel(work)}
+							{workLabel(item)}
 						</span>
 						<span className={cn("shrink-0 text-2xs text-t3", mono)}>
-							{work.workKey}
+							{item.workKey}
 						</span>
 					</div>
 					<p
 						className={cn(
 							"mt-1 truncate text-2xs",
 							mono,
-							work.streaming ? "shimmer-text" : "text-t3",
+							attempt?.streaming ? "shimmer-text" : "text-t3",
 						)}
 					>
-						{work.activity || work.lastMeaningful}
+						{activity}
 					</p>
 				</div>
 				<div className="flex items-baseline gap-4 justify-self-end whitespace-nowrap">
@@ -271,20 +293,20 @@ function WorkLane({
 								<>
 									t
 									<b className="font-normal text-muted-foreground">
-										{work.turnCount}
+										{attempt?.turnCount ?? 0}
 									</b>
 								</>,
 								<b className="font-normal text-muted-foreground">
 									{tokens ?? "—"}
 								</b>,
-								<CheckBadge work={work} />,
+								<CheckBadge attempt={attempt} />,
 								<>{age}</>,
-								<span>{work.runId}</span>,
+								<span>{attempt?.runId ?? "—"}</span>,
 							]}
 						</Divided>
 					</span>
-					<span className={cn("text-2xs", stageToneText(work))}>
-						{work.stage}
+					<span className={cn("text-2xs", statusToneText(work))}>
+						{item.status}
 					</span>
 				</div>
 				<ChevronRight
@@ -298,15 +320,25 @@ function WorkLane({
 
 			{open ? (
 				<div className="px-6 pb-6 pl-10 text-2xs">
-					{work.phases.length > 0 ? <Spine work={work} /> : null}
-					<div className="grid md:grid-cols-[1.5fr_1fr_1fr]">
-						<Timeline work={work} />
-						<Commands work={work} />
-						<Observations work={work} />
-					</div>
+					{attempt !== undefined && attempt.phases.length > 0 ? (
+						<Spine attempt={attempt} />
+					) : null}
+					{attempt === undefined ? null : (
+						<div className="grid md:grid-cols-[1.5fr_1fr_1fr]">
+							<Timeline attempt={attempt} />
+							<Commands attempt={attempt} />
+							<Observations attempt={attempt} />
+						</div>
+					)}
 					<div className="mt-4 flex flex-wrap items-center gap-2">
-						<OperatorActionButtons item={work} sessionId={sessionId} />
-						<InterruptRunButton item={work} sessionId={sessionId} />
+						<OperatorActionButtons item={item} sessionId={sessionId} />
+						{attempt === undefined ? null : (
+							<InterruptRunButton
+								item={item}
+								attempt={attempt}
+								sessionId={sessionId}
+							/>
+						)}
 					</div>
 				</div>
 			) : null}
@@ -314,26 +346,27 @@ function WorkLane({
 	);
 }
 
-function CheckBadge({ work }: { work: RunningWorkProjection }) {
-	if (work.check === "not-run") return null;
-	if (work.check === "failed")
+function CheckBadge({ attempt }: { attempt?: AgentAttemptProjection }) {
+	if (attempt === undefined || attempt.check === "not-run") return null;
+	if (attempt.check === "failed")
 		return <span className="text-destructive">check failed</span>;
-	if (work.check === "running")
+	if (attempt.check === "running")
 		return <span className="text-live">check running</span>;
 	return <span>passed</span>;
 }
 
-function Spine({ work }: { work: RunningWorkProjection }) {
-	const total = work.phases.reduce((sum, phase) => sum + phase.count, 0) || 1;
+function Spine({ attempt }: { attempt: AgentAttemptProjection }) {
+	const total =
+		attempt.phases.reduce((sum, phase) => sum + phase.count, 0) || 1;
 	return (
 		<div className="mb-5">
 			<div className="mb-2 flex h-1 gap-0.5">
-				{work.phases.map((phase, index) => (
+				{attempt.phases.map((phase, index) => (
 					<span
 						key={`${phase.kind}-${phase.startedAtMs}`}
 						className={cn(
 							"rounded-full",
-							index === work.phases.length - 1 && work.streaming
+							index === attempt.phases.length - 1 && attempt.streaming
 								? "bg-live"
 								: "bg-border",
 						)}
@@ -344,7 +377,7 @@ function Spine({ work }: { work: RunningWorkProjection }) {
 			<div
 				className={cn("flex flex-wrap gap-x-3 gap-y-1 text-2xs text-t3", mono)}
 			>
-				{work.phases.map((phase) => (
+				{attempt.phases.map((phase) => (
 					<span key={`label-${phase.kind}-${phase.startedAtMs}`}>
 						{phase.kind} ·{phase.count}
 					</span>
@@ -363,11 +396,11 @@ function Col({ title, children }: { title: string; children: ReactNode }) {
 	);
 }
 
-function Timeline({ work }: { work: RunningWorkProjection }) {
-	const ordered = [...work.timeline].toSorted((a, b) => b.atMs - a.atMs);
+function Timeline({ attempt }: { attempt: AgentAttemptProjection }) {
+	const ordered = [...attempt.timeline].toSorted((a, b) => b.atMs - a.atMs);
 	return (
 		<Col
-			title={`timeline · ${work.meaningfulCount} of ${work.eventCount} events`}
+			title={`timeline · ${attempt.meaningfulCount} of ${attempt.eventCount} events`}
 		>
 			{ordered.length === 0 ? (
 				<p className="text-2xs text-t3">No activity yet.</p>
@@ -381,7 +414,7 @@ function Timeline({ work }: { work: RunningWorkProjection }) {
 							<span
 								className={cn(
 									"size-1.5 justify-self-center self-center rounded-full",
-									index === 0 && work.streaming
+									index === 0 && attempt.streaming
 										? "bg-live ring-[3px] ring-live/20"
 										: "bg-border",
 								)}
@@ -389,7 +422,7 @@ function Timeline({ work }: { work: RunningWorkProjection }) {
 							<span
 								className={cn(
 									"text-2xs",
-									index === 0 && work.streaming
+									index === 0 && attempt.streaming
 										? "text-foreground"
 										: "text-muted-foreground",
 								)}
@@ -407,12 +440,12 @@ function Timeline({ work }: { work: RunningWorkProjection }) {
 	);
 }
 
-function Commands({ work }: { work: RunningWorkProjection }) {
-	if (work.commands.length === 0) return null;
+function Commands({ attempt }: { attempt: AgentAttemptProjection }) {
+	if (attempt.commands.length === 0) return null;
 	return (
 		<Col title="commands">
 			<div className={mono}>
-				{work.commands.map((command, index) => (
+				{attempt.commands.map((command, index) => (
 					<div
 						key={`${index}-${command}`}
 						className="truncate py-1 text-2xs text-muted-foreground"
@@ -426,11 +459,11 @@ function Commands({ work }: { work: RunningWorkProjection }) {
 	);
 }
 
-function Observations({ work }: { work: RunningWorkProjection }) {
-	if (work.observations.length === 0) return null;
+function Observations({ attempt }: { attempt: AgentAttemptProjection }) {
+	if (attempt.observations.length === 0) return null;
 	return (
 		<Col title="observations">
-			{work.observations.map((observation, index) => (
+			{attempt.observations.map((observation, index) => (
 				<div
 					key={`${index}-${observation}`}
 					className="grid grid-cols-[12px_1fr] gap-2 py-1"
@@ -447,14 +480,14 @@ function NeedsYouBand({
 	needs,
 	sessionId,
 }: {
-	needs: readonly RunningWorkProjection[];
+	needs: readonly WorkSurface[];
 	sessionId: string;
 }) {
 	return (
 		<div className="relative mt-6 border-y border-border bg-attention/5 px-6 py-4">
 			<span className="absolute inset-y-0 left-0 w-0.5 bg-attention" />
 			<div className="flex flex-col gap-3">
-				{needs.map((item) => (
+				{needs.map(({ item }) => (
 					<div
 						key={item.workKey}
 						className="flex flex-wrap items-center justify-between gap-3"
@@ -467,7 +500,7 @@ function NeedsYouBand({
 								</span>
 							</p>
 							<p className="text-2xs text-muted-foreground">
-								{item.lastMeaningful}
+								{item.blockedReason ?? item.status}
 							</p>
 						</div>
 						<OperatorActionButtons

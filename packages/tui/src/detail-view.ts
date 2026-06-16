@@ -1,12 +1,10 @@
-import {
-	workLabel,
-	type RunningWorkProjection,
-} from "@plot/control/projection";
+import { workLabel } from "@plot/control/projection";
 import {
 	formatAgo,
 	formatCost,
 	formatDuration,
 	formatTokens,
+	type WorkRowModel,
 } from "@plot/control/dashboard-model";
 import {
 	asLine,
@@ -22,8 +20,8 @@ import { style } from "./style.js";
 
 const blankDetail = () => blank();
 
-const tokenLine = (selected: RunningWorkProjection): string => {
-	const tokens = selected.tokens;
+const tokenLine = (selected: WorkRowModel): string => {
+	const tokens = selected.attempt?.tokens;
 	if (tokens === undefined) return "tokens none yet";
 	const parts = [
 		`${formatTokens(tokens.total ?? 0)} tokens`,
@@ -37,63 +35,73 @@ const tokenLine = (selected: RunningWorkProjection): string => {
 };
 
 export const detailBodyLines = (
-	selected: RunningWorkProjection,
+	selected: WorkRowModel,
 	nowMs = Date.now(),
 ): readonly DashboardLine[] => {
+	const { work, attempt } = selected;
 	const age =
-		selected.startedAtMs === undefined
+		attempt?.startedAtMs === undefined
 			? "n/a"
-			: formatDuration(nowMs - selected.startedAtMs);
+			: formatDuration(nowMs - attempt.startedAtMs);
 	return [
-		...(selected.subtitle === undefined
-			? []
-			: [item(selected.subtitle, style.muted)]),
-		...(selected.url === undefined ? [] : [item(selected.url, style.accent)]),
+		...(work.subtitle === undefined ? [] : [item(work.subtitle, style.muted)]),
+		...(work.url === undefined ? [] : [item(work.url, style.accent)]),
 		blankDetail(),
 		section("Status"),
-		item(`${style.stage[selected.stage](`${selected.stage} for ${age}`)}`),
-		item(
-			style.muted(
-				`turn ${selected.turnCount} · ${selected.eventCount} events · verification ${selected.check}`,
-			),
-		),
+		item(`${style.stage[work.status](`${work.status} for ${age}`)}`),
+		...(work.blockedReason === undefined
+			? []
+			: [item(work.blockedReason, style.warn)]),
+		...(attempt === undefined
+			? []
+			: [
+					item(
+						style.muted(
+							`turn ${attempt.turnCount} · ${attempt.eventCount} events · verification ${attempt.check} · attempt ${attempt.stage}`,
+						),
+					),
+				]),
 		item(tokenLine(selected), style.muted),
 		blankDetail(),
 		section("Now"),
 		item(
 			`${quoteActivity(selected.activity)}${
-				selected.lastEventAtMs === undefined
+				attempt?.lastEventAtMs === undefined
 					? ""
-					: style.muted(` · ${formatAgo(nowMs - selected.lastEventAtMs)}`)
+					: style.muted(` · ${formatAgo(nowMs - attempt.lastEventAtMs)}`)
 			}`,
 		),
-		blankDetail(),
-		section("Recent"),
-		...(selected.timeline.length === 0
-			? [emptyItem(style.muted)]
-			: selected.timeline.map((entry) =>
-					item(
-						`${style.dim(formatAgo(nowMs - entry.atMs).padEnd(12))} ${entry.text}`,
-					),
-				)),
-		blankDetail(),
-		section("Commands"),
-		...(selected.commands.length === 0
-			? [emptyItem(style.muted)]
-			: selected.commands.map((command) => item(command, style.muted))),
-		...(selected.observations.length === 0
+		...(attempt === undefined
 			? []
 			: [
 					blankDetail(),
-					section("Notes"),
-					...selected.observations.map((observation) => item(observation)),
+					section("Recent"),
+					...(attempt.timeline.length === 0
+						? [emptyItem(style.muted)]
+						: attempt.timeline.map((entry) =>
+								item(
+									`${style.dim(formatAgo(nowMs - entry.atMs).padEnd(12))} ${entry.text}`,
+								),
+							)),
+					blankDetail(),
+					section("Commands"),
+					...(attempt.commands.length === 0
+						? [emptyItem(style.muted)]
+						: attempt.commands.map((command) => item(command, style.muted))),
+					...(attempt.observations.length === 0
+						? []
+						: [
+								blankDetail(),
+								section("Notes"),
+								...attempt.observations.map((observation) => item(observation)),
+							]),
 				]),
 	];
 };
 
 export const detailViewLines = (input: {
 	readonly header: readonly DashboardLine[];
-	readonly selected: RunningWorkProjection | undefined;
+	readonly selected: WorkRowModel | undefined;
 	readonly scrollOffset: number;
 	readonly viewportRows: number;
 }): readonly DashboardLine[] => {
@@ -107,10 +115,12 @@ export const detailViewLines = (input: {
 	}
 	const body = detailBodyLines(input.selected);
 	return [
-		asLine(`${style.border("╭─ ")}${style.brand(workLabel(input.selected))}`),
+		asLine(
+			`${style.border("╭─ ")}${style.brand(workLabel(input.selected.work))}`,
+		),
 		...body.slice(input.scrollOffset, input.scrollOffset + input.viewportRows),
 		footer(
-			`j/k scroll   ${input.selected.url === undefined ? "" : "o open   "}esc back   q quit`,
+			`j/k scroll   ${input.selected.work.url === undefined ? "" : "o open   "}esc back   q quit`,
 			style.muted,
 		),
 	];

@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { PlotDashboard } from "../src/dashboard.js";
 import { emptyProjection } from "@plot/control/projection";
-import type { RunningWorkProjection } from "@plot/control/projection";
+import type {
+	AgentAttemptProjection,
+	WorkItemProjection,
+} from "@plot/control/projection";
 
 const fixedNowMs = 1_700_000_000_000;
 
@@ -24,10 +27,20 @@ const escape = String.fromCharCode(27);
 const stripAnsi = (text: string) =>
 	text.replace(new RegExp(`${escape}\\[[0-9;]*m`, "g"), "");
 
+type RunningFixture = AgentAttemptProjection & {
+	readonly primary?: string;
+	readonly title: string;
+	readonly subtitle?: string;
+	readonly url?: string;
+	readonly status?: WorkItemProjection["status"];
+	readonly operatorActions?: WorkItemProjection["operatorActions"];
+	readonly blockedReason?: string;
+};
+
 const runningWork = (
-	overrides: Partial<RunningWorkProjection> & { workKey: string },
-): RunningWorkProjection => ({
-	runId: "run-1",
+	overrides: Partial<RunningFixture> & { workKey: string },
+): RunningFixture => ({
+	runId: overrides.runId ?? `run-${overrides.workKey}`,
 	sourceId: "extension:worker",
 	subject: overrides.workKey,
 	title: overrides.workKey,
@@ -51,6 +64,38 @@ const runningWork = (
 	phases: [],
 	timeline: [],
 	...overrides,
+});
+
+const surfaces = (attemptsByWorkKey: ReadonlyMap<string, RunningFixture>) => ({
+	work: new Map(
+		[...attemptsByWorkKey.entries()].map(([workKey, attempt]) => [
+			workKey,
+			{
+				workKey,
+				sourceId: attempt.sourceId,
+				...(attempt.subject === undefined ? {} : { subject: attempt.subject }),
+				...(attempt.primary === undefined ? {} : { primary: attempt.primary }),
+				title: attempt.title,
+				...(attempt.subtitle === undefined
+					? {}
+					: { subtitle: attempt.subtitle }),
+				...(attempt.url === undefined ? {} : { url: attempt.url }),
+				labels: [],
+				status:
+					attempt.status ?? (attempt.stage === "failed" ? "failed" : "running"),
+				...(attempt.operatorActions === undefined
+					? {}
+					: { operatorActions: attempt.operatorActions }),
+				...(attempt.blockedReason === undefined
+					? {}
+					: { blockedReason: attempt.blockedReason }),
+				currentRunId: attempt.runId,
+			} satisfies WorkItemProjection,
+		]),
+	),
+	attempts: new Map(
+		[...attemptsByWorkKey.values()].map((attempt) => [attempt.runId, attempt]),
+	),
 });
 
 describe("PlotDashboard", () => {
@@ -113,33 +158,35 @@ describe("PlotDashboard", () => {
 						{ atMs: fixedNowMs - 20_000, tokens: 10_000 },
 						{ atMs: fixedNowMs - 10_000, tokens: 12_000 },
 					],
-					running: new Map([
-						[
-							"a",
-							runningWork({
-								workKey: "a",
-								primary: "#42",
-								title: "Item 42",
-								stage: "verifying",
-								activity: "Running: bun run check",
-								lastMeaningful: "Running: bun run check",
-								check: "running",
-								tokens: { total: 8_000 },
-							}),
-						],
-						[
-							"b",
-							runningWork({
-								workKey: "b",
-								primary: "#43",
-								title: "Item 43",
-								stage: "finishing",
-								activity: "Posting review",
-								lastMeaningful: "Posting review",
-								tokens: { total: 4_000 },
-							}),
-						],
-					]),
+					...surfaces(
+						new Map([
+							[
+								"a",
+								runningWork({
+									workKey: "a",
+									primary: "#42",
+									title: "Item 42",
+									stage: "verifying",
+									activity: "Running: bun run check",
+									lastMeaningful: "Running: bun run check",
+									check: "running",
+									tokens: { total: 8_000 },
+								}),
+							],
+							[
+								"b",
+								runningWork({
+									workKey: "b",
+									primary: "#43",
+									title: "Item 43",
+									stage: "finishing",
+									activity: "Posting review",
+									lastMeaningful: "Posting review",
+									tokens: { total: 4_000 },
+								}),
+							],
+						]),
+					),
 				},
 				backoff_queue: {
 					...base,
@@ -177,20 +224,22 @@ describe("PlotDashboard", () => {
 			{
 				...emptyProjection("default", "workflow"),
 				status: "running",
-				running: new Map([
-					[
-						"source:item:42",
-						runningWork({
-							workKey: "source:item:42",
-							primary: "#42",
-							title: "Item 42",
-							// activity is churn-resolved at reduce time; an empty live
-							// line falls back to the last meaningful action.
-							activity: "",
-							lastMeaningful: "reviewing changed files",
-						}),
-					],
-				]),
+				...surfaces(
+					new Map([
+						[
+							"source:item:42",
+							runningWork({
+								workKey: "source:item:42",
+								primary: "#42",
+								title: "Item 42",
+								// activity is churn-resolved at reduce time; an empty live
+								// line falls back to the last meaningful action.
+								activity: "",
+								lastMeaningful: "reviewing changed files",
+							}),
+						],
+					]),
+				),
 			},
 			actions,
 		);
@@ -205,19 +254,21 @@ describe("PlotDashboard", () => {
 			{
 				...emptyProjection("default", "workflow"),
 				status: "running",
-				running: new Map([
-					[
-						"source:item:42",
-						runningWork({
-							workKey: "source:item:42",
-							primary: "#42",
-							title: "Item 42",
-							activity:
-								"agent message streaming: checking the selected-row URL behavior",
-							lastMeaningful: "started",
-						}),
-					],
-				]),
+				...surfaces(
+					new Map([
+						[
+							"source:item:42",
+							runningWork({
+								workKey: "source:item:42",
+								primary: "#42",
+								title: "Item 42",
+								activity:
+									"agent message streaming: checking the selected-row URL behavior",
+								lastMeaningful: "started",
+							}),
+						],
+					]),
+				),
 			},
 			actions,
 		);
@@ -228,7 +279,7 @@ describe("PlotDashboard", () => {
 		expect(rendered).not.toContain("│     started");
 	});
 
-	test("renders a two-line board row per running work", () => {
+	test("renders a two-line board row per visible work item", () => {
 		const running = new Map([
 			[
 				"source:item:42",
@@ -259,7 +310,7 @@ describe("PlotDashboard", () => {
 				...emptyProjection("default", "workflow"),
 				status: "running",
 				frontier: 10,
-				running,
+				...surfaces(running),
 			},
 			actions,
 		);
@@ -293,7 +344,7 @@ describe("PlotDashboard", () => {
 		const projection = {
 			...emptyProjection("default", "workflow"),
 			status: "running" as const,
-			running,
+			...surfaces(running),
 		};
 		const dashboard = new PlotDashboard(projection, {
 			...actions,
@@ -327,13 +378,18 @@ describe("PlotDashboard", () => {
 					workKey: "source:item:41",
 					primary: "#41",
 					title: "Fix auth",
-					stage: "blocked",
+					status: "blocked",
+					blockedReason: "gh auth required",
 					lastMeaningful: "gh auth required",
 				}),
 			],
 		]);
 		const dashboard = new PlotDashboard(
-			{ ...emptyProjection("default", "workflow"), status: "running", running },
+			{
+				...emptyProjection("default", "workflow"),
+				status: "running",
+				...surfaces(running),
+			},
 			actions,
 		);
 
@@ -400,7 +456,7 @@ describe("PlotDashboard", () => {
 			],
 		]);
 		const dashboard = new PlotDashboard(
-			{ ...emptyProjection("default", "workflow"), running },
+			{ ...emptyProjection("default", "workflow"), ...surfaces(running) },
 			{
 				...actions,
 				openUrl: (url) => {
@@ -452,16 +508,18 @@ describe("PlotDashboard", () => {
 		const dashboard = new PlotDashboard(
 			{
 				...emptyProjection("default", "workflow"),
-				running: new Map([
-					[
-						"source:item:41",
-						runningWork({
-							workKey: "source:item:41",
-							primary: "#41",
-							title: "Item 41",
-						}),
-					],
-				]),
+				...surfaces(
+					new Map([
+						[
+							"source:item:41",
+							runningWork({
+								workKey: "source:item:41",
+								primary: "#41",
+								title: "Item 41",
+							}),
+						],
+					]),
+				),
 				completed: [
 					{
 						workKey: "source:item:42",
@@ -490,17 +548,19 @@ describe("PlotDashboard", () => {
 		const dashboard = new PlotDashboard(
 			{
 				...emptyProjection("default", "workflow"),
-				running: new Map([
-					[
-						"source:item:41",
-						runningWork({
-							workKey: "source:item:41",
-							primary: "#41",
-							title: "Item 41",
-							url: "https://example.com/pr/41",
-						}),
-					],
-				]),
+				...surfaces(
+					new Map([
+						[
+							"source:item:41",
+							runningWork({
+								workKey: "source:item:41",
+								primary: "#41",
+								title: "Item 41",
+								url: "https://example.com/pr/41",
+							}),
+						],
+					]),
+				),
 				completed: [
 					{
 						workKey: "source:item:42",
@@ -530,7 +590,7 @@ describe("PlotDashboard", () => {
 		const dashboard = new PlotDashboard(
 			{
 				...emptyProjection("default", "workflow"),
-				debugEvents: ["#2 agent_session_event", "#1 work_started"],
+				debugEvents: ["#2 agent_session_event", "#1 attempt_started"],
 			},
 			{
 				...actions,
@@ -551,10 +611,10 @@ describe("PlotDashboard", () => {
 	describe("live render clock", () => {
 		const runningProjection = () => ({
 			...emptyProjection("default", "workflow"),
-			running: new Map([["work-1", runningWork({ workKey: "work-1" })]]),
+			...surfaces(new Map([["work-1", runningWork({ workKey: "work-1" })]])),
 		});
 
-		test("running work drives render requests between start and stop", async () => {
+		test("visible running work drives render requests between start and stop", async () => {
 			let renders = 0;
 			const dashboard = new PlotDashboard(runningProjection(), {
 				...actions,

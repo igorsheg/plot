@@ -12,6 +12,7 @@ export type {
 	PlotExtensionTool,
 	PlotExtensionWork,
 	PlotExtensionWorkEvent,
+	PlotExtensionWorkStatus,
 	PlotToolContext,
 	ToolDefinition,
 	WorkDisplay,

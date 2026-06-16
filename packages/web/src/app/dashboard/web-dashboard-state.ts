@@ -99,10 +99,12 @@ const projectionFromSnapshot = (input: {
 
 const normalizeWireSnapshot = (snapshot: unknown) => {
 	if (!isRecord(snapshot)) return snapshot;
+	const work = normalizeMapLike(snapshot["work"]);
 	const running = normalizeMapLike(snapshot["running"]);
 	const retries = normalizeMapLike(snapshot["retries"]);
 	return {
 		...snapshot,
+		...(work === undefined ? {} : { work }),
 		...(running === undefined ? {} : { running }),
 		...(retries === undefined ? {} : { retries }),
 	};

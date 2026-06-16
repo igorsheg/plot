@@ -2,14 +2,16 @@ import { createJiti } from "jiti/static";
 import { dirname, isAbsolute, resolve } from "node:path";
 import {
 	interruptWork,
-	removeFact,
+	removeWork,
 	setFact,
 	sourceId,
 	subjectKey,
+	upsertWork,
 	workKey,
 	type Completion,
 	type SourceId,
 	type WorkKey,
+	type WorkRecord,
 } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
@@ -96,23 +98,29 @@ const workKeyForExtensionWork = (
 	);
 const discoveredFactKey = (source: SourceId) =>
 	`extension.discovered:${source}`;
-const workStatusFactKey = (source: SourceId, workId: string) =>
-	`extension.work_status:${source}:${workId}`;
-const workStatusFactPrefix = (source: SourceId) =>
-	`extension.work_status:${source}:`;
 const releasedReason = (source: SourceId) =>
 	`work is no longer discovered by source ${source}`;
-const isBlocked = (work: PlotExtensionWork) =>
-	work.blocked !== undefined && work.blocked !== false;
-/**
- * Named claim lifecycle for one discovered work id, recorded as a fact so
- * snapshots and the protocol always answer "why is this work not running?".
- */
-type WorkClaimStatus =
-	| { readonly status: "pending" }
-	| { readonly status: "running" }
-	| { readonly status: "draining" }
-	| { readonly status: "blocked"; readonly reason?: string };
+const isBlocked = (work: PlotExtensionWork) => work.status === "blocked";
+const workRecordFor = (
+	extension: PlotExtension,
+	source: SourceId,
+	work: PlotExtensionWork,
+	status: WorkRecord["status"],
+	currentRunId?: string,
+): WorkRecord => ({
+	workKey: workKeyForExtensionWork(extension, work),
+	sourceId: source,
+	status,
+	subject: toSubject(work),
+	...(work.display === undefined ? {} : { display: work.display }),
+	...(work.blockedReason === undefined
+		? {}
+		: { blockedReason: work.blockedReason }),
+	...(work.operatorActions === undefined
+		? {}
+		: { operatorActions: work.operatorActions }),
+	...(currentRunId === undefined ? {} : { currentRunId }),
+});
 const currentWorkKeys = (
 	extension: PlotExtension,
 	works: readonly PlotExtensionWork[],
@@ -270,9 +278,10 @@ export const makePlotExtensionSourceBundle = (options: {
 		],
 		reconcile: async ({ snapshot }) => {
 			const proposals = [];
-			let discoveredWorks = decodeDiscoveredWorks(
+			const previousDiscoveredWorks = decodeDiscoveredWorks(
 				snapshot.facts.get(discoveredFactKey(source)),
 			);
+			let discoveredWorks = previousDiscoveredWorks;
 			const latestDiscovery = snapshot.observations.findLast(
 				(observation) =>
 					observation.type === "plot.extension.discovered" &&
@@ -281,6 +290,11 @@ export const makePlotExtensionSourceBundle = (options: {
 			const shouldWriteDiscoveredFact = latestDiscovery !== undefined;
 			if (latestDiscovery !== undefined)
 				discoveredWorks = decodeDiscoveredWorks(latestDiscovery.data);
+			for (const work of discoveredWorks)
+				selectedWork.set(
+					workKeyForExtensionWork(options.extension, work),
+					work,
+				);
 			for (const observation of snapshot.observations) {
 				if (observation.type !== "operator_observation") continue;
 				if (!isObjectRecord(observation.data)) continue;
@@ -303,6 +317,14 @@ export const makePlotExtensionSourceBundle = (options: {
 				const work = selectedWork.get(completion.workKey);
 				if (work === undefined) continue;
 				await invokeCompletionHook(options.runtime, source, work, completion);
+				if (
+					!discoveredWorks.some(
+						(candidate) =>
+							workKeyForExtensionWork(options.extension, candidate) ===
+							completion.workKey,
+					)
+				)
+					selectedWork.delete(completion.workKey);
 			}
 			// Completion hooks may update the source's durable state, but this
 			// tick's discovery was observed before those hooks ran. Suppress only
@@ -321,6 +343,10 @@ export const makePlotExtensionSourceBundle = (options: {
 				proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
 			const currentKeys = currentWorkKeys(options.extension, discoveredWorks);
 			const currentIds = new Set(discoveredWorks.map((work) => work.id));
+			const previousKeys = currentWorkKeys(
+				options.extension,
+				previousDiscoveredWorks,
+			);
 			// Symphony-style claim semantics. A running work is one of:
 			// - current: its exact key is still discovered -> leave it running;
 			// - superseded: its key is gone but its work id is still discovered
@@ -330,52 +356,70 @@ export const makePlotExtensionSourceBundle = (options: {
 			// - released: its work id is no longer discovered at all (terminal
 			//   state: PR closed, work done, target vanished) -> interrupt.
 			const drainingIds = new Set<string>();
+			const runningIds = new Set<string>();
+			const drainingKeys = new Set<WorkKey>();
 			for (const run of snapshot.running.values()) {
-				if (run.sourceId !== source || currentKeys.has(run.workKey)) continue;
+				if (run.sourceId !== source) continue;
 				const known = selectedWork.get(run.workKey);
+				if (currentKeys.has(run.workKey)) {
+					if (known !== undefined) runningIds.add(known.id);
+					continue;
+				}
 				if (known !== undefined && currentIds.has(known.id)) {
 					drainingIds.add(known.id);
+					drainingKeys.add(run.workKey);
+					proposals.push(
+						upsertWork(
+							workRecordFor(
+								options.extension,
+								source,
+								known,
+								"draining",
+								run.runId,
+							),
+						),
+					);
 					continue;
 				}
 				proposals.push(interruptWork(run.workKey, releasedReason(source)));
 			}
-			// Record the named claim status per work id, and drop statuses for
-			// ids that are no longer discovered (released).
-			const runningIds = new Set<string>();
-			for (const run of snapshot.running.values()) {
-				if (run.sourceId !== source) continue;
-				const known = selectedWork.get(run.workKey);
-				if (known !== undefined && currentKeys.has(run.workKey))
-					runningIds.add(known.id);
-			}
 			for (const work of discoveredWorks) {
-				const status: WorkClaimStatus = runningIds.has(work.id)
-					? { status: "running" }
+				const status: WorkRecord["status"] = runningIds.has(work.id)
+					? "running"
 					: drainingIds.has(work.id)
-						? { status: "draining" }
+						? "draining"
 						: isBlocked(work)
-							? {
-									status: "blocked",
-									...(typeof work.blocked === "string"
-										? { reason: work.blocked }
-										: {}),
-								}
-							: { status: "pending" };
-				const factKey = workStatusFactKey(source, work.id);
-				if (
-					JSON.stringify(snapshot.facts.get(factKey)) !== JSON.stringify(status)
-				)
-					proposals.push(setFact(factKey, status));
+							? "blocked"
+							: "pending";
+				const currentRunId = [...snapshot.running.values()].find((run) => {
+					if (run.sourceId !== source) return false;
+					return (
+						run.workKey === workKeyForExtensionWork(options.extension, work)
+					);
+				})?.runId;
+				proposals.push(
+					upsertWork(
+						workRecordFor(
+							options.extension,
+							source,
+							work,
+							status,
+							currentRunId,
+						),
+					),
+				);
 			}
-			const statusPrefix = workStatusFactPrefix(source);
-			for (const factKey of snapshot.facts.keys()) {
-				if (!factKey.startsWith(statusPrefix)) continue;
-				const workId = factKey.slice(statusPrefix.length);
-				if (currentIds.has(workId)) continue;
-				proposals.push(removeFact(factKey));
-				if (options.onWorkReleased !== undefined) {
+			for (const key of previousKeys) {
+				if (currentKeys.has(key) || drainingKeys.has(key)) continue;
+				proposals.push(removeWork(key));
+				const previous = previousDiscoveredWorks.find(
+					(work) => workKeyForExtensionWork(options.extension, work) === key,
+				);
+				if (!snapshot.running.has(key) && previous !== undefined)
+					selectedWork.delete(key);
+				if (previous !== undefined && options.onWorkReleased !== undefined) {
 					try {
-						await options.onWorkReleased(workId);
+						await options.onWorkReleased(previous.id);
 					} catch (error) {
 						await logHookError(error, "work_released", source);
 					}

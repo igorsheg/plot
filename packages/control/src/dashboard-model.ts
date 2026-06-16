@@ -1,12 +1,14 @@
 import { z } from "zod";
 import {
 	activityToneSchema,
-	runningWorkProjectionSchema,
+	agentAttemptProjectionSchema,
+	workItemProjectionSchema,
 	workLabel,
-	workStageSchema,
+	workStatusSchema,
+	type AgentAttemptProjection,
 	type DashboardProjection,
-	type RunningWorkProjection,
-	type WorkStage,
+	type WorkItemProjection,
+	type WorkStatus,
 } from "./projection.js";
 import { nonNegativeIntegerSchema } from "./session-summary.js";
 
@@ -52,9 +54,10 @@ export type AttentionItemModel = z.infer<typeof attentionItemModelSchema>;
 
 export const workRowModelSchema = z
 	.object({
-		work: runningWorkProjectionSchema,
+		work: workItemProjectionSchema,
+		attempt: agentAttemptProjectionSchema.optional(),
 		label: z.string(),
-		stage: workStageSchema,
+		status: workStatusSchema,
 		age: z.string(),
 		turns: z.string(),
 		tokens: z.string(),
@@ -139,21 +142,28 @@ export const formatAgo = (ms: number) => `${formatDuration(ms)} ago`;
 
 const staleThresholdMs = 2 * 60 * 1000;
 
-const needsAttention = (stage: WorkStage) =>
-	stage === "blocked" || stage === "failed";
+const needsAttention = (status: WorkStatus) =>
+	status === "blocked" || status === "failed";
 
-const isStale = (work: RunningWorkProjection, nowMs: number) =>
-	work.lastEventAtMs !== undefined &&
-	nowMs - work.lastEventAtMs > staleThresholdMs;
+const isStale = (attempt: AgentAttemptProjection | undefined, nowMs: number) =>
+	attempt?.lastEventAtMs !== undefined &&
+	nowMs - attempt.lastEventAtMs > staleThresholdMs;
 
-const tokenTotal = (work: RunningWorkProjection) => work.tokens?.total ?? 0;
+const tokenTotal = (attempt: AgentAttemptProjection | undefined) =>
+	attempt?.tokens?.total ?? 0;
 
 // `activity` is already churn-resolved at reduce time (projection.ts), so the
 // view model renders it verbatim — falling back to the last meaningful action
 // only when the run hasn't produced a live line yet.
-const displayActivity = (work: RunningWorkProjection) => {
-	const activity = work.activity.trim();
-	return activity.length === 0 ? work.lastMeaningful : activity;
+const displayActivity = (
+	work: WorkItemProjection,
+	attempt: AgentAttemptProjection | undefined,
+) => {
+	if (work.status === "blocked" && work.blockedReason !== undefined)
+		return work.blockedReason;
+	if (attempt === undefined) return work.status;
+	const activity = attempt.activity.trim();
+	return activity.length === 0 ? attempt.lastMeaningful : activity;
 };
 
 const sparkChars = "▁▂▃▄▅▆▇█";
@@ -192,23 +202,28 @@ const tokenThroughput = (
 	return { rate, graph };
 };
 
-const workRow = (work: RunningWorkProjection, nowMs: number): WorkRowModel => ({
+const workRow = (
+	work: WorkItemProjection,
+	attempt: AgentAttemptProjection | undefined,
+	nowMs: number,
+): WorkRowModel => ({
 	work,
+	...(attempt === undefined ? {} : { attempt }),
 	label: workLabel(work),
-	stage: work.stage,
+	status: work.status,
 	age:
-		work.startedAtMs === undefined
+		attempt?.startedAtMs === undefined
 			? "n/a"
-			: formatDuration(nowMs - work.startedAtMs),
-	turns: `t${work.turnCount}`,
-	tokens: formatTokens(tokenTotal(work)),
-	activity: displayActivity(work),
+			: formatDuration(nowMs - attempt.startedAtMs),
+	turns: attempt === undefined ? "t0" : `t${attempt.turnCount}`,
+	tokens: formatTokens(tokenTotal(attempt)),
+	activity: displayActivity(work, attempt),
 	lastEventAgo:
-		work.lastEventAtMs === undefined
+		attempt?.lastEventAtMs === undefined
 			? ""
-			: formatAgo(nowMs - work.lastEventAtMs),
-	stale: isStale(work, nowMs),
-	attention: needsAttention(work.stage),
+			: formatAgo(nowMs - attempt.lastEventAtMs),
+	stale: isStale(attempt, nowMs),
+	attention: needsAttention(work.status),
 });
 
 const attentionFrom = (
@@ -219,7 +234,7 @@ const attentionFrom = (
 		.filter((row) => row.attention)
 		.map((row) => ({
 			workKey: row.work.workKey,
-			text: `${row.label} ${row.stage} · ${row.work.lastMeaningful} · ${row.lastEventAgo}`,
+			text: `${row.label} ${row.status} · ${row.activity}${row.lastEventAgo ? ` · ${row.lastEventAgo}` : ""}`,
 		})),
 	...rows
 		.filter((row) => row.stale && !row.attention)
@@ -234,12 +249,21 @@ export const dashboardModelFrom = (
 	projection: DashboardProjection,
 	nowMs = Date.now(),
 ): DashboardModel => {
-	const rows = [...projection.running.values()]
-		.map((work) => workRow(work, nowMs))
+	const rows = [...projection.work.values()]
+		.filter((work) => work.status !== "done")
+		.map((work) =>
+			workRow(
+				work,
+				work.currentRunId === undefined
+					? undefined
+					: projection.attempts.get(work.currentRunId),
+				nowMs,
+			),
+		)
 		.toSorted(
 			(a, b) =>
 				Number(b.attention) - Number(a.attention) ||
-				a.work.startedAtSeq - b.work.startedAtSeq,
+				(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
 		);
 	const throughput = tokenThroughput(projection.tokenSamples, nowMs);
 	const totalTokens = formatTokens(projection.usageTotals.tokens);
@@ -268,7 +292,7 @@ export const dashboardModelFrom = (
 								: { reason: nextWake.reason }),
 						},
 					}),
-			runningCount: rows.length,
+			runningCount: projection.attempts.size,
 			...(projection.runtime.maxConcurrentRuns === undefined
 				? {}
 				: { maxConcurrentRuns: projection.runtime.maxConcurrentRuns }),
@@ -285,7 +309,7 @@ export const dashboardModelFrom = (
 			const work =
 				wake.workKey === undefined
 					? undefined
-					: projection.running.get(wake.workKey);
+					: projection.work.get(wake.workKey);
 			return {
 				inSeconds: Math.ceil(Math.max(0, wake.dueAtMs - nowMs) / 1000),
 				...(wake.reason === undefined ? {} : { reason: wake.reason }),

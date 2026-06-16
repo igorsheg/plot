@@ -718,7 +718,7 @@ describe("explicit Plot control protocol", () => {
 		expect(eventTypes).toEqual(
 			expect.arrayContaining([
 				"session_close_requested",
-				"work_completed",
+				"attempt_completed",
 				"session_shutdown",
 				"session_close_completed",
 			]),

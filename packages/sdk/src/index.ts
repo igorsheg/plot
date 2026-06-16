@@ -34,6 +34,8 @@ export interface OperatorAction {
 	readonly confirm?: OperatorActionConfirm;
 }
 
+export type PlotExtensionWorkStatus = "pending" | "blocked";
+
 export interface PlotExtensionWork {
 	/** Stable domain identity, e.g. github:acme/web:pr:42 or jira:EPIC-123. */
 	readonly id: string;
@@ -46,13 +48,14 @@ export interface PlotExtensionWork {
 	/** Optional grouping key. Defaults to id when adapted into Plot internals. */
 	readonly subject?: string;
 	/**
-	 * Hold this work without releasing it. Blocked work keeps its claim and
-	 * stays visible, but is not dispatched and running attempts are not
-	 * interrupted. Pass a string to record the reason (e.g. "waiting for
-	 * author reply"). Omitting the work from discover entirely means the
-	 * opposite: the work is released and running attempts are stopped.
+	 * Source-visible scheduling state. Defaults to pending.
+	 *
+	 * Blocked work keeps its claim and stays visible, but is not dispatched and
+	 * running attempts are not interrupted. Omitting the work from discovery means
+	 * the opposite: the work is released and running attempts are stopped.
 	 */
-	readonly blocked?: boolean | string;
+	readonly status?: PlotExtensionWorkStatus;
+	readonly blockedReason?: string;
 	/** Optional generic display hints. TUI/web own rendering; hints have no scheduling semantics. */
 	readonly display?: WorkDisplay;
 	/** Source-declared choices a human controller may perform on this work item. */

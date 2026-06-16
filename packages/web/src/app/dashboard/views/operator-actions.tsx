@@ -1,5 +1,8 @@
 import type { OperatorAction } from "@plot/control/operator";
-import type { RunningWorkProjection } from "@plot/control/projection";
+import type {
+	AgentAttemptProjection,
+	WorkItemProjection,
+} from "@plot/control/projection";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -36,7 +39,7 @@ function OperatorActionButton({
 	prominent,
 }: {
 	action: OperatorAction;
-	item: RunningWorkProjection;
+	item: WorkItemProjection;
 	sessionId: string;
 	prominent: boolean;
 }) {
@@ -149,7 +152,7 @@ export function OperatorActionButtons({
 	sessionId,
 	prominent = false,
 }: {
-	item: RunningWorkProjection;
+	item: WorkItemProjection;
 	sessionId: string;
 	prominent?: boolean;
 }) {
@@ -172,15 +175,16 @@ export function OperatorActionButtons({
 
 export function InterruptRunButton({
 	item,
+	attempt,
 	sessionId,
 }: {
-	item: RunningWorkProjection;
+	item: WorkItemProjection;
+	attempt: AgentAttemptProjection;
 	sessionId: string;
 }) {
 	const { interruptRun } = useDashboardActions();
 	const { isController, controllerBlockReason } = useDashboardMeta();
-	if (!item.runId) return null;
-	const runId = item.runId;
+	const runId = attempt.runId;
 	return (
 		<Button
 			size="sm"

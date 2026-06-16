@@ -130,11 +130,6 @@ export const scheduleWake = (
 			: { attempt: positiveInt(options.attempt) }),
 	};
 };
-export type ReconcileProposal =
-	| SetFactProposal
-	| RemoveFactProposal
-	| InterruptWorkProposal
-	| ScheduleWakeProposal;
 
 export interface WorkDisplay {
 	readonly kind?: string;
@@ -157,6 +152,51 @@ export interface OperatorAction {
 	readonly requiresComment?: boolean;
 	readonly confirm?: OperatorActionConfirm;
 }
+export type WorkStatus =
+	| "pending"
+	| "running"
+	| "blocked"
+	| "draining"
+	| "done"
+	| "failed";
+
+export interface WorkRecord {
+	readonly workKey: WorkKey;
+	readonly sourceId: SourceId;
+	readonly status: WorkStatus;
+	readonly subject?: SubjectKey;
+	readonly display?: WorkDisplay;
+	readonly blockedReason?: string;
+	readonly operatorActions?: readonly OperatorAction[];
+	readonly currentRunId?: RunId;
+}
+
+export interface UpsertWorkProposal {
+	readonly type: "upsert_work";
+	readonly work: WorkRecord;
+}
+export const upsertWork = (work: WorkRecord): UpsertWorkProposal => ({
+	type: "upsert_work",
+	work,
+});
+
+export interface RemoveWorkProposal {
+	readonly type: "remove_work";
+	readonly workKey: WorkKey;
+}
+export const removeWork = (key: WorkKey): RemoveWorkProposal => ({
+	type: "remove_work",
+	workKey: key,
+});
+
+export type ReconcileProposal =
+	| SetFactProposal
+	| RemoveFactProposal
+	| InterruptWorkProposal
+	| ScheduleWakeProposal
+	| UpsertWorkProposal
+	| RemoveWorkProposal;
+
 export interface WorkItem {
 	readonly workKey: WorkKey;
 	readonly subject?: SubjectKey;
@@ -170,7 +210,6 @@ export interface WorkRun {
 	readonly workKey: WorkKey;
 	readonly subject?: SubjectKey;
 	readonly display?: WorkDisplay;
-	readonly operatorActions?: readonly OperatorAction[];
 }
 export interface WorkResult {
 	readonly output?: unknown;
@@ -229,6 +268,7 @@ export interface RuntimeSnapshot {
 	readonly observations: readonly Observation[];
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
+	readonly work: ReadonlyMap<WorkKey, WorkRecord>;
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
 	readonly scheduledWakes?: readonly ScheduledWake[];
 	readonly retries?: ReadonlyMap<WorkKey, RetryState>;
@@ -247,6 +287,8 @@ export interface TickResult {
 export type PlotAgentEvent =
 	| { readonly type: "tick_started"; readonly tickId: TickId }
 	| { readonly type: "tick_completed"; readonly result: TickResult }
+	| { readonly type: "work_observed"; readonly work: WorkRecord }
+	| { readonly type: "work_removed"; readonly workKey: WorkKey }
 	| {
 			readonly type: "wake_scheduled";
 			readonly delayMs: PositiveInt;
@@ -254,8 +296,8 @@ export type PlotAgentEvent =
 			readonly workKey?: WorkKey;
 			readonly attempt?: PositiveInt;
 	  }
-	| { readonly type: "work_started"; readonly run: WorkRun }
-	| { readonly type: "work_completed"; readonly completion: Completion };
+	| { readonly type: "attempt_started"; readonly run: WorkRun }
+	| { readonly type: "attempt_completed"; readonly completion: Completion };
 export type PlotAgentMessage =
 	| { readonly type: "tick" }
 	| { readonly type: "observation"; readonly observation: Observation }

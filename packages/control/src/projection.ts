@@ -16,16 +16,24 @@ export const dashboardStatusSchema = z.enum([
 export type DashboardStatus = z.infer<typeof dashboardStatusSchema>;
 export type TuiStatus = DashboardStatus;
 
-export const workStageSchema = z.enum([
+export const workStatusSchema = z.enum([
+	"pending",
+	"running",
+	"blocked",
+	"draining",
+	"done",
+	"failed",
+]);
+export type WorkStatus = z.infer<typeof workStatusSchema>;
+
+export const attemptStageSchema = z.enum([
 	"starting",
-	"waiting",
 	"working",
 	"verifying",
 	"finishing",
-	"blocked",
 	"failed",
 ]);
-export type WorkStage = z.infer<typeof workStageSchema>;
+export type AttemptStage = z.infer<typeof attemptStageSchema>;
 
 // The agent can only ever call pi-mono's closed builtin tool set
 // (bash, edit, find, grep, ls, read, write). Every streamed event therefore
@@ -163,17 +171,32 @@ export type AgentTranscriptReference = z.infer<
 	typeof agentTranscriptReferenceSchema
 >;
 
-export const runningWorkProjectionSchema = z
+export const workItemProjectionSchema = z
 	.object({
 		workKey: z.string(),
-		runId: z.string(),
 		sourceId: z.string(),
 		subject: z.string().optional(),
 		primary: z.string().optional(),
 		title: z.string(),
 		subtitle: z.string().optional(),
 		url: z.string().optional(),
-		stage: workStageSchema,
+		version: z.string().optional(),
+		labels: z.array(z.string()).readonly(),
+		status: workStatusSchema,
+		blockedReason: z.string().optional(),
+		operatorActions: z.array(operatorActionSchema).readonly().optional(),
+		currentRunId: z.string().optional(),
+	})
+	.strict();
+export type WorkItemProjection = z.infer<typeof workItemProjectionSchema>;
+
+export const agentAttemptProjectionSchema = z
+	.object({
+		runId: z.string(),
+		workKey: z.string(),
+		sourceId: z.string(),
+		subject: z.string().optional(),
+		stage: attemptStageSchema,
 		startedAtSeq: nonNegativeIntegerSchema,
 		lastEventSeq: nonNegativeIntegerSchema,
 		startedAtMs: nonNegativeIntegerSchema.optional(),
@@ -197,10 +220,11 @@ export const runningWorkProjectionSchema = z
 		activeTool: activeToolSchema.optional(),
 		tokens: tokenUsageProjectionSchema.optional(),
 		transcript: agentTranscriptReferenceSchema.optional(),
-		operatorActions: z.array(operatorActionSchema).readonly().optional(),
 	})
 	.strict();
-export type RunningWorkProjection = z.infer<typeof runningWorkProjectionSchema>;
+export type AgentAttemptProjection = z.infer<
+	typeof agentAttemptProjectionSchema
+>;
 
 export const completedWorkProjectionSchema = z
 	.object({
@@ -239,7 +263,8 @@ export const dashboardProjectionSchema = z
 		pulse: loopPulseSchema.optional(),
 		usageTotals: usageTotalsSchema,
 		tokenSamples: z.array(tokenSampleSchema).readonly(),
-		running: z.map(z.string(), runningWorkProjectionSchema).readonly(),
+		work: z.map(z.string(), workItemProjectionSchema).readonly(),
+		attempts: z.map(z.string(), agentAttemptProjectionSchema).readonly(),
 		completed: z.array(completedWorkProjectionSchema).readonly(),
 		diagnostics: z.array(z.string()).readonly(),
 		scheduledWakes: z.array(scheduledWakeProjectionSchema).readonly(),
@@ -269,7 +294,8 @@ export const emptyProjection = (
 	frontier: 0,
 	usageTotals: { tokens: 0 },
 	tokenSamples: [],
-	running: new Map(),
+	work: new Map(),
+	attempts: new Map(),
 	completed: [],
 	diagnostics: [],
 	scheduledWakes: [],
@@ -538,9 +564,9 @@ const extractUsage = (event: unknown): UsageDelta | undefined => {
 };
 
 const addUsage = (
-	previous: RunningWorkProjection["tokens"],
+	previous: AgentAttemptProjection["tokens"],
 	delta: UsageDelta,
-): NonNullable<RunningWorkProjection["tokens"]> => ({
+): NonNullable<AgentAttemptProjection["tokens"]> => ({
 	input: (previous?.input ?? 0) + (delta.input ?? 0),
 	output: (previous?.output ?? 0) + (delta.output ?? 0),
 	total: (previous?.total ?? 0) + delta.total,
@@ -595,17 +621,12 @@ const accumulatePhase = (
 	].slice(-PHASE_MAX);
 };
 
-const isObservation = (message: string) =>
-	/\b(note|observation|finding|issue|warning|error)\b/i.test(message);
-
 const deriveStage = (
-	previous: WorkStage,
+	previous: AttemptStage,
 	kind: ActivityKind,
 	phase: EventPhase,
 	isError: boolean,
-	hasOperatorActions: boolean,
-): WorkStage => {
-	if (hasOperatorActions) return "blocked";
+): AttemptStage => {
 	if (isError) return "failed";
 	if (kind === "finish") return "finishing";
 	if (kind === "test") return "verifying";
@@ -620,18 +641,77 @@ export const workLabel = (work: {
 }) =>
 	work.primary === undefined ? work.title : `${work.primary} ${work.title}`;
 
-const baseRunningWork = (
+const workItemFromRecord = (
+	record: Record<string, unknown>,
+	previous: WorkItemProjection | undefined,
+): WorkItemProjection => {
+	const display = displayFrom(record["display"]);
+	const primary = displayString(display, "primary") ?? previous?.primary;
+	const title =
+		displayString(display, "title") ??
+		text(record["title"]) ??
+		previous?.title ??
+		text(record["subject"]) ??
+		text(record["workKey"]) ??
+		"work";
+	const subtitle = displayString(display, "subtitle") ?? previous?.subtitle;
+	const url = displayString(display, "url") ?? previous?.url;
+	const version = displayString(display, "version") ?? previous?.version;
+	const labels = displayLabels(display);
+	const hasLabels = Array.isArray(display?.["labels"]);
+	const parsedActions = z
+		.array(operatorActionSchema)
+		.safeParse(record["operatorActions"]);
+	const status = workStatusSchema.safeParse(record["status"]);
+	const currentRunId = text(record["currentRunId"]);
+	const subject = text(record["subject"]) ?? previous?.subject;
+	const blockedReason = text(record["blockedReason"]);
+	const operatorActions = parsedActions.success
+		? parsedActions.data
+		: previous?.operatorActions;
+	return {
+		workKey: text(record["workKey"]) ?? previous?.workKey ?? "work",
+		sourceId: text(record["sourceId"]) ?? previous?.sourceId ?? "source",
+		...(subject === undefined ? {} : { subject }),
+		...(primary === undefined ? {} : { primary }),
+		title,
+		...(subtitle === undefined ? {} : { subtitle }),
+		...(url === undefined ? {} : { url }),
+		...(version === undefined ? {} : { version }),
+		labels: hasLabels ? labels : (previous?.labels ?? []),
+		status: status.success ? status.data : (previous?.status ?? "pending"),
+		...(blockedReason === undefined ? {} : { blockedReason }),
+		...(operatorActions === undefined ? {} : { operatorActions }),
+		...(currentRunId === undefined ? {} : { currentRunId }),
+	};
+};
+
+const workItemFromRun = (
+	run: Record<string, unknown>,
+	previous: WorkItemProjection | undefined,
+	status: WorkStatus,
+	currentRunId?: string,
+): WorkItemProjection =>
+	workItemFromRecord(
+		{
+			...run,
+			status,
+			...(currentRunId === undefined ? {} : { currentRunId }),
+		},
+		previous,
+	);
+
+const baseAgentAttempt = (
 	workKey: string,
 	runId: string,
 	sourceId: string,
-	stage: WorkStage,
+	stage: AttemptStage,
 	seq: number,
 	atMs: number | undefined,
-): RunningWorkProjection => ({
+): AgentAttemptProjection => ({
 	workKey,
 	runId,
 	sourceId,
-	title: workKey,
 	stage,
 	startedAtSeq: seq,
 	lastEventSeq: seq,
@@ -663,60 +743,53 @@ export const applySnapshot = (
 	const asOfSequence = typeof asOfRaw === "number" ? asOfRaw : undefined;
 	if (asOfSequence !== undefined && asOfSequence < projection.frontier)
 		return projection;
+	const workValues = mapValues(snapshot["work"]);
+	const work = new Map(projection.work);
+	for (const item of workValues) {
+		if (!isRecord(item)) continue;
+		const key = text(item["workKey"]);
+		if (key === undefined) continue;
+		work.set(key, workItemFromRecord(item, work.get(key)));
+	}
+	for (const key of work.keys()) {
+		if (
+			!workValues.some(
+				(item) => isRecord(item) && text(item["workKey"]) === key,
+			)
+		)
+			work.delete(key);
+	}
+
 	const runningValues = mapValues(snapshot["running"]);
-	const running = new Map(projection.running);
+	const attempts = new Map(projection.attempts);
 	for (const run of runningValues) {
 		if (!isRecord(run)) continue;
 		const workKey = text(run["workKey"]) ?? "work";
-		const subject = text(run["subject"]);
-		const previous = running.get(workKey);
-		const display = displayFrom(run["display"]);
-		const primary = previous?.primary ?? displayString(display, "primary");
-		const title = displayString(display, "title");
-		const subtitle = previous?.subtitle ?? displayString(display, "subtitle");
-		const url = previous?.url ?? displayString(display, "url");
-		const labels = displayLabels(display);
-		const parsedActions = z
-			.array(operatorActionSchema)
-			.safeParse(run["operatorActions"]);
-		const operatorActions = parsedActions.success
-			? parsedActions.data
-			: previous?.operatorActions;
-		const fresh = baseRunningWork(
-			workKey,
-			text(run["runId"]) ?? previous?.runId ?? "run",
-			text(run["sourceId"]) ?? previous?.sourceId ?? "source",
-			operatorActions !== undefined && operatorActions.length > 0
-				? "blocked"
-				: (previous?.stage ?? "waiting"),
-			previous?.startedAtSeq ?? projection.frontier,
-			previous?.startedAtMs,
-		);
-		running.set(workKey, {
-			...fresh,
+		const runId = text(run["runId"]) ?? "run";
+		const previous = attempts.get(runId);
+		const attempt = {
+			...baseAgentAttempt(
+				workKey,
+				runId,
+				text(run["sourceId"]) ?? previous?.sourceId ?? "source",
+				previous?.stage ?? "starting",
+				previous?.startedAtSeq ?? projection.frontier,
+				previous?.startedAtMs,
+			),
 			...previous,
-			workKey,
-			...(subject === undefined ? {} : { subject }),
-			...(primary === undefined ? {} : { primary }),
-			title: previous?.title ?? title ?? subtitle ?? subject ?? workKey,
-			...(subtitle === undefined ? {} : { subtitle }),
-			...(url === undefined ? {} : { url }),
-			stage:
-				operatorActions !== undefined && operatorActions.length > 0
-					? "blocked"
-					: (previous?.stage ?? "waiting"),
-			lastMeaningful:
-				previous?.lastMeaningful ?? (labels.join(",") || "started"),
-			...(operatorActions === undefined ? {} : { operatorActions }),
-		});
+			...(text(run["subject"]) === undefined
+				? {}
+				: { subject: text(run["subject"]) }),
+		};
+		attempts.set(runId, attempt);
+		if (!work.has(workKey))
+			work.set(workKey, workItemFromRun(run, undefined, "running", runId));
 	}
-	for (const key of running.keys()) {
+	for (const key of attempts.keys()) {
 		if (
-			!runningValues.some(
-				(run) => isRecord(run) && text(run["workKey"]) === key,
-			)
+			!runningValues.some((run) => isRecord(run) && text(run["runId"]) === key)
 		)
-			running.delete(key);
+			attempts.delete(key);
 	}
 	const scheduledWakes = Array.isArray(snapshot["scheduledWakes"])
 		? snapshot["scheduledWakes"].filter(isRecord).flatMap((wake) => {
@@ -745,7 +818,14 @@ export const applySnapshot = (
 		asOfSequence === undefined
 			? projection.frontier
 			: Math.max(projection.frontier, asOfSequence);
-	return { ...projection, frontier, running, diagnostics, scheduledWakes };
+	return {
+		...projection,
+		frontier,
+		work,
+		attempts,
+		diagnostics,
+		scheduledWakes,
+	};
 };
 
 const diagnosticText = (diagnostic: unknown) =>
@@ -802,76 +882,124 @@ const reduceTickCompleted = (
 	return { ...projection, status: "idle", pulse, activity, diagnostics };
 };
 
-const reduceWorkStarted = (
+const reduceWorkObserved = (
+	projection: DashboardProjection,
+	record: Record<string, unknown>,
+): DashboardProjection => {
+	const item = workItemFromRecord(
+		record,
+		projection.work.get(text(record["workKey"]) ?? ""),
+	);
+	return {
+		...projection,
+		work: new Map(projection.work).set(item.workKey, item),
+	};
+};
+
+const reduceWorkRemoved = (
+	projection: DashboardProjection,
+	workKey: unknown,
+): DashboardProjection => {
+	const key = text(workKey);
+	if (key === undefined) return projection;
+	const work = new Map(projection.work);
+	work.delete(key);
+	return { ...projection, work };
+};
+
+const reduceAttemptStarted = (
 	projection: DashboardProjection,
 	run: Record<string, unknown>,
 	sequence: number,
 	observedAtMs: number,
 ): DashboardProjection => {
 	const workKey = text(run["workKey"]) ?? "work";
-	const subject = text(run["subject"]);
-	const running = new Map(projection.running);
-	const display = displayFrom(run["display"]);
-	const primary = displayString(display, "primary");
-	const title = displayString(display, "title");
-	const subtitle = displayString(display, "subtitle");
-	const url = displayString(display, "url");
-	const labels = displayLabels(display);
-	const parsedActions = z
-		.array(operatorActionSchema)
-		.safeParse(run["operatorActions"]);
-	const operatorActions = parsedActions.success
-		? parsedActions.data
-		: undefined;
-	const blocked = operatorActions !== undefined && operatorActions.length > 0;
-	const base = baseRunningWork(
-		workKey,
-		text(run["runId"]) ?? "run",
-		text(run["sourceId"]) ?? "source",
-		blocked ? "blocked" : "starting",
-		sequence,
-		observedAtMs,
-	);
-	const work: RunningWorkProjection = {
-		...base,
-		...(subject === undefined ? {} : { subject }),
-		...(primary === undefined ? {} : { primary }),
-		title: title ?? subtitle ?? subject ?? workKey,
-		...(subtitle === undefined ? {} : { subtitle }),
-		...(url === undefined ? {} : { url }),
+	const runId = text(run["runId"]) ?? "run";
+	const attempts = new Map(projection.attempts);
+	const work = new Map(projection.work);
+	const previousWork = work.get(workKey);
+	const item = workItemFromRun(run, previousWork, "running", runId);
+	work.set(workKey, item);
+	const attempt: AgentAttemptProjection = {
+		...baseAgentAttempt(
+			workKey,
+			runId,
+			text(run["sourceId"]) ?? "source",
+			"starting",
+			sequence,
+			observedAtMs,
+		),
+		...(text(run["subject"]) === undefined
+			? {}
+			: { subject: text(run["subject"]) }),
 		activity: "Starting work",
-		lastMeaningful: labels.join(",") || "started",
-		timeline: [{ atMs: observedAtMs, text: "work started", kind: "wait" }],
-		...(operatorActions === undefined ? {} : { operatorActions }),
+		lastMeaningful: item.labels.join(",") || "started",
+		timeline: [{ atMs: observedAtMs, text: "attempt started", kind: "wait" }],
 	};
-	running.set(workKey, work);
+	attempts.set(runId, attempt);
 	return {
 		...projection,
-		running,
+		work,
+		attempts,
 		activity: prependActivity(projection.activity, {
 			atMs: observedAtMs,
 			tone: "info",
-			text: `${workLabel(work)} started`,
+			text: `${workLabel(item)} started`,
 		}),
 	};
 };
 
-const reduceWorkCompleted = (
+const reduceAttemptCompleted = (
 	projection: DashboardProjection,
 	completion: Record<string, unknown>,
 	observedAtMs: number,
 ): DashboardProjection => {
 	const workKey = text(completion["workKey"]) ?? "work";
+	const runId = text(completion["runId"]);
 	const status = text(completion["status"]) ?? "completed";
 	const error = text(completion["error"]);
-	const running = new Map(projection.running);
-	const prior = running.get(workKey);
-	running.delete(workKey);
-	const label = prior === undefined ? workKey : workLabel(prior);
+	const attempts = new Map(projection.attempts);
+	const work = new Map(projection.work);
+	const priorAttempt =
+		runId === undefined
+			? [...attempts.values()].find((attempt) => attempt.workKey === workKey)
+			: attempts.get(runId);
+	if (priorAttempt !== undefined) attempts.delete(priorAttempt.runId);
+	const priorWork = work.get(workKey);
+	const label = priorWork === undefined ? workKey : workLabel(priorWork);
 	const ok = status === "succeeded";
+	if (ok) work.delete(workKey);
+	else if (priorWork !== undefined)
+		work.set(workKey, {
+			workKey: priorWork.workKey,
+			sourceId: priorWork.sourceId,
+			...(priorWork.subject === undefined
+				? {}
+				: { subject: priorWork.subject }),
+			...(priorWork.primary === undefined
+				? {}
+				: { primary: priorWork.primary }),
+			title: priorWork.title,
+			...(priorWork.subtitle === undefined
+				? {}
+				: { subtitle: priorWork.subtitle }),
+			...(priorWork.url === undefined ? {} : { url: priorWork.url }),
+			...(priorWork.version === undefined
+				? {}
+				: { version: priorWork.version }),
+			labels: priorWork.labels,
+			status: "failed",
+			...(priorWork.blockedReason === undefined
+				? {}
+				: { blockedReason: priorWork.blockedReason }),
+			...(priorWork.operatorActions === undefined
+				? {}
+				: { operatorActions: priorWork.operatorActions }),
+		});
 	return {
 		...projection,
-		running,
+		work,
+		attempts,
 		activity: prependActivity(projection.activity, {
 			atMs: observedAtMs,
 			tone: ok ? "ok" : "bad",
@@ -884,7 +1012,7 @@ const reduceWorkCompleted = (
 				status,
 				message: error ?? "completed",
 				atMs: observedAtMs,
-				...(prior?.url === undefined ? {} : { url: prior.url }),
+				...(priorWork?.url === undefined ? {} : { url: priorWork.url }),
 			},
 			...projection.completed,
 		].slice(0, 20),
@@ -927,9 +1055,13 @@ const reduceAgentSessionEvent = (
 	observedAtMs: number,
 ): DashboardProjection => {
 	const workKey = text(event["workKey"]);
+	const runId = text(event["runId"]);
 	if (workKey === undefined) return projection;
-	const running = new Map(projection.running);
-	const previous = running.get(workKey);
+	const attempts = new Map(projection.attempts);
+	const previous =
+		runId === undefined
+			? [...attempts.values()].find((attempt) => attempt.workKey === workKey)
+			: attempts.get(runId);
 	if (previous === undefined) return projection;
 
 	const rawEvent = event["event"];
@@ -1049,10 +1181,7 @@ const reduceAgentSessionEvent = (
 			? appendBounded(previous.commands, target, 8)
 			: previous.commands;
 
-	const observations =
-		timelineWorthy && isObservation(timelineText)
-			? appendBounded(previous.observations, timelineText, 8)
-			: previous.observations;
+	const observations = previous.observations;
 
 	const check = isCheck
 		? classified.phase === "start" || classified.phase === "update"
@@ -1064,13 +1193,9 @@ const reduceAgentSessionEvent = (
 				: previous.check
 		: previous.check;
 
-	const hasOperatorActions =
-		previous.operatorActions !== undefined &&
-		previous.operatorActions.length > 0;
-
-	const next: RunningWorkProjection = {
+	const next: AgentAttemptProjection = {
 		...previous,
-		runId: text(event["runId"]) ?? previous.runId,
+		runId: runId ?? previous.runId,
 		sourceId: text(event["sourceId"]) ?? previous.sourceId,
 		...(subject === undefined ? {} : { subject }),
 		stage: deriveStage(
@@ -1078,7 +1203,6 @@ const reduceAgentSessionEvent = (
 			kind,
 			classified.phase,
 			classified.isError,
-			hasOperatorActions,
 		),
 		lastEventSeq: sequence,
 		lastEventAtMs: observedAtMs,
@@ -1114,31 +1238,9 @@ const reduceAgentSessionEvent = (
 	} else if (classified.phase === "end") {
 		delete next.activeTool;
 	}
-	running.set(workKey, next);
-	return { ...projection, usageTotals, tokenSamples, running };
-};
-
-const reduceOperatorActionsDeclared = (
-	projection: DashboardProjection,
-	payload: Record<string, unknown>,
-): DashboardProjection => {
-	const workKey = text(payload["workKey"]);
-	if (workKey === undefined) return projection;
-	const parsed = z.array(operatorActionSchema).safeParse(payload["actions"]);
-	if (!parsed.success) return projection;
-	const running = new Map(projection.running);
-	const previous = running.get(workKey);
-	if (previous === undefined) return projection;
-	running.set(workKey, {
-		...previous,
-		operatorActions: parsed.data,
-		stage: parsed.data.length > 0 ? "blocked" : previous.stage,
-		lastMeaningful:
-			parsed.data.length > 0
-				? "operator action declared"
-				: previous.lastMeaningful,
-	});
-	return { ...projection, running };
+	attempts.delete(previous.runId);
+	attempts.set(next.runId, next);
+	return { ...projection, usageTotals, tokenSamples, attempts };
 };
 
 const reduceEventPayload = (
@@ -1169,20 +1271,21 @@ const reduceEventPayload = (
 				: payload,
 			observedAtMs,
 		);
-	if (type === "work_started" && isRecord(payload)) {
-		const run = isRecord(payload["run"]) ? payload["run"] : payload;
-		return reduceWorkStarted(projection, run, sequence, observedAtMs);
+	if (type === "work_observed" && isRecord(payload)) {
+		const work = isRecord(payload["work"]) ? payload["work"] : payload;
+		return reduceWorkObserved(projection, work);
 	}
-	if (
-		(type === "work_completed" ||
-			type === "agent_run_completed" ||
-			type === "agent_run_interrupted") &&
-		isRecord(payload)
-	) {
+	if (type === "work_removed" && isRecord(payload))
+		return reduceWorkRemoved(projection, payload["workKey"]);
+	if (type === "attempt_started" && isRecord(payload)) {
+		const run = isRecord(payload["run"]) ? payload["run"] : payload;
+		return reduceAttemptStarted(projection, run, sequence, observedAtMs);
+	}
+	if (type === "attempt_completed" && isRecord(payload)) {
 		const completion = isRecord(payload["completion"])
 			? payload["completion"]
 			: payload;
-		return reduceWorkCompleted(projection, completion, observedAtMs);
+		return reduceAttemptCompleted(projection, completion, observedAtMs);
 	}
 	if (
 		(type === "agent_session_event" || type === "agent_run_event") &&
@@ -1202,8 +1305,6 @@ const reduceEventPayload = (
 				5,
 			),
 		};
-	if (type === "operator_actions_declared" && isRecord(payload))
-		return reduceOperatorActionsDeclared(projection, payload);
 	if (type === "operator_observation_recorded" && isRecord(payload))
 		return {
 			...projection,

@@ -203,9 +203,9 @@ describe("Plot extension source adapter", () => {
 		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
 		const first = await agent.tickOnce();
 		const run = first.started[0];
-		expect(run?.operatorActions).toEqual([
-			{ id: "approve", label: "Approve", tone: "primary" },
-		]);
+		expect(
+			(await agent.snapshot()).work.get(run!.workKey)?.operatorActions,
+		).toEqual([{ id: "approve", label: "Approve", tone: "primary" }]);
 		await agent.offer({
 			type: "observation",
 			observation: {
@@ -311,8 +311,8 @@ describe("Plot extension source adapter", () => {
 		expect(interrupted).toEqual([]);
 	});
 
-	test("blocked work holds its claim: no dispatch, no interrupt, status fact", async () => {
-		let blocked: string | false = false;
+	test("blocked work holds its claim: no dispatch, no interrupt, work record", async () => {
+		let blockedReason: string | undefined;
 		const started = deferred<void>();
 		const releaseRun = deferred<string>();
 		let aborts = 0;
@@ -330,7 +330,9 @@ describe("Plot extension source adapter", () => {
 						id: "github:acme/web:pr:7",
 						version: "sha-1",
 						title: "Review PR #7",
-						...(blocked === false ? {} : { blocked }),
+						...(blockedReason === undefined
+							? {}
+							: { status: "blocked" as const, blockedReason }),
 					},
 				],
 			},
@@ -353,7 +355,7 @@ describe("Plot extension source adapter", () => {
 		await agent.tickOnce();
 		await started.promise;
 		// Work becomes blocked while an attempt is running: hold, don't kill.
-		blocked = "waiting for author reply";
+		blockedReason = "waiting for author reply";
 		const second = await agent.tickOnce();
 		expect(second.completions).toHaveLength(0);
 		expect(aborts).toBe(0);
@@ -363,19 +365,22 @@ describe("Plot extension source adapter", () => {
 		expect(third.completions).toContainEqual(
 			expect.objectContaining({ status: "succeeded", output: "done" }),
 		);
-		// Still blocked: the work is not redispatched, and the named claim
-		// status is visible in facts with its reason.
+		// Still blocked: the work is not redispatched, and the visible work
+		// registry carries the blocked reason.
 		const fourth = await agent.tickOnce();
 		expect(fourth.started).toHaveLength(0);
 		const snapshot = await agent.snapshot();
 		expect(
-			snapshot.facts.get(
-				"extension.work_status:extension:github-pr-reviewer:github:acme/web:pr:7",
+			snapshot.work.get(
+				workKey("extension:github-pr-reviewer:github:acme/web:pr:7:sha-1"),
 			),
-		).toEqual({ status: "blocked", reason: "waiting for author reply" });
+		).toMatchObject({
+			status: "blocked",
+			blockedReason: "waiting for author reply",
+		});
 	});
 
-	test("claim status facts track running and released transitions", async () => {
+	test("work registry tracks running and released transitions", async () => {
 		let works: readonly { id: string; version: string }[] = [
 			{ id: "github:acme/web:pr:9", version: "sha-1" },
 		];
@@ -393,17 +398,18 @@ describe("Plot extension source adapter", () => {
 			run: () => new Promise(() => {}),
 		});
 		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
-		const factKey =
-			"extension.work_status:extension:github-pr-reviewer:github:acme/web:pr:9";
+		const key = workKey(
+			"extension:github-pr-reviewer:github:acme/web:pr:9:sha-1",
+		);
 		await agent.tickOnce();
 		await agent.tickOnce();
-		expect((await agent.snapshot()).facts.get(factKey)).toEqual({
+		expect((await agent.snapshot()).work.get(key)).toMatchObject({
 			status: "running",
 		});
 		works = [];
 		await agent.tickOnce();
 		await agent.tickOnce();
-		expect((await agent.snapshot()).facts.has(factKey)).toBe(false);
+		expect((await agent.snapshot()).work.has(key)).toBe(false);
 	});
 
 	test("released work id interrupts the running attempt", async () => {

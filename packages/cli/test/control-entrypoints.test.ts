@@ -127,7 +127,7 @@ describe("control-protocol product entrypoints", () => {
 			expect(visible.state).not.toBe("stopped");
 
 			await running;
-			expect(seenEvents).toContain("work_completed");
+			expect(seenEvents).toContain("attempt_completed");
 			const after = await observer.request("list_sessions", {});
 			const stopped = (
 				after.data as {
@@ -142,7 +142,7 @@ describe("control-protocol product entrypoints", () => {
 				join(paths.sessionDir, sessionId, "history.jsonl"),
 				"utf8",
 			);
-			expect(history).toContain('"type":"work_completed"');
+			expect(history).toContain('"type":"attempt_completed"');
 			expect(history).toContain('"type":"session_shutdown"');
 		} finally {
 			observer.close();

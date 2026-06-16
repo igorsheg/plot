@@ -18,8 +18,8 @@ import { style } from "./style.js";
 const rowGlyph = (row: WorkRowModel) => {
 	if (row.attention) return style.bad("▲");
 	if (row.stale) return style.dim("○");
-	if (row.stage === "waiting" || row.stage === "starting")
-		return style.muted("◌");
+	if (row.status === "pending") return style.muted("◌");
+	if (row.status === "draining") return style.warn("◌");
 	return style.ok("●");
 };
 
@@ -33,11 +33,11 @@ const workRowLines = (
 	const activeFor = row.age === "n/a" ? row.age : `${row.age} active`;
 	const first = item(`${marker} ${rowGlyph(row)} ${label}`);
 	const second = item(
-		`    ${style.stage[row.stage](row.stage)}${style.muted(` · ${activeFor} · ${row.turns}`)}`,
+		`    ${style.stage[row.status](row.status)}${style.muted(` · ${activeFor} · ${row.turns}`)}`,
 	);
 	const activity = quoteActivity(row.activity);
 	const third = item(
-		`    ${row.stage === "working" && !row.stale && !row.attention ? shimmerText(activity, nowMs) : style.muted(activity)}`,
+		`    ${row.attempt?.stage === "working" && !row.stale && !row.attention ? shimmerText(activity, nowMs) : style.muted(activity)}`,
 	);
 	return [first, second, third];
 };
@@ -130,7 +130,7 @@ export const fleetViewLines = (input: {
 			? model.scheduled.filter((wake) => wake.reason !== undefined)
 			: model.scheduled;
 	const workTitle =
-		`Agents${model.work.length === 0 ? "" : ` · ${model.work.length} running`}` +
+		`Work${model.work.length === 0 ? "" : ` · ${model.work.length} visible`}` +
 		(scheduled.length > 0 ? ` · ${scheduled.length} scheduled` : "");
 	const workLines =
 		model.work.length === 0

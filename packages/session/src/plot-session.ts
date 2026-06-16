@@ -219,11 +219,18 @@ export const historyForPlotAgentEvent = (
 			type: "tick_completed",
 			payload: { result: compactTickResult(event.result) },
 		};
+	if (event.type === "work_observed")
+		return { type: "work_observed", payload: { work: event.work } };
+	if (event.type === "work_removed")
+		return { type: "work_removed", payload: { workKey: event.workKey } };
 	if (event.type === "wake_scheduled")
 		return { type: "wake_scheduled", payload: event };
-	if (event.type === "work_started")
-		return { type: "work_started", payload: { run: event.run } };
-	return { type: "work_completed", payload: { completion: event.completion } };
+	if (event.type === "attempt_started")
+		return { type: "attempt_started", payload: { run: event.run } };
+	return {
+		type: "attempt_completed",
+		payload: { completion: event.completion },
+	};
 };
 const resolveValue = async <A>(
 	value: A | ((context: WorkRunnerContext) => Promise<A> | A),

@@ -454,7 +454,7 @@ describe("task-agnostic Plot agent", () => {
 		const agent = makeAgent([source], runner, { maxRunDurationMs: 1 });
 		const completed = (async () => {
 			for await (const event of agent.events()) {
-				if (event.type === "work_completed") return event.completion;
+				if (event.type === "attempt_completed") return event.completion;
 			}
 			return undefined;
 		})();
@@ -480,7 +480,7 @@ describe("task-agnostic Plot agent", () => {
 		const events = await pending;
 		expect(events.map((event) => event.type)).toEqual([
 			"tick_started",
-			"work_started",
+			"attempt_started",
 			"tick_completed",
 		]);
 	});
@@ -736,14 +736,14 @@ describe("task-agnostic Plot agent", () => {
 		const completed = waitForEvent(
 			agent.events(),
 			(event) =>
-				event.type === "work_completed" && event.completion.workKey === key,
+				event.type === "attempt_completed" && event.completion.workKey === key,
 		);
 		await agent.start();
 		const event = await completed;
 		await agent.shutdown();
 		expect(event).toEqual(
 			expect.objectContaining({
-				type: "work_completed",
+				type: "attempt_completed",
 				completion: expect.objectContaining({ status: "timed_out" }),
 			}),
 		);

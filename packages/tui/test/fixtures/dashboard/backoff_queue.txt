@@ -7,7 +7,7 @@
 │                                                                                                                       
 │ ▲ ATTENTION (1)                                                                                                       
 │   ● runner failed: rate limit exhausted                                                                               
-├─ Agents · 2 scheduled                                                                                                 
+├─ Work · 2 scheduled                                                                                                   
 │   no active work — watching · next tick in 2s                                                                         
 │     ↻ retry in 2s · attempt 4 · rate limit exhausted                                                                  
 │     ↻ wake in 10s · poll                                                                                              
