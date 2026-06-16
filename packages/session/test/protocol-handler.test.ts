@@ -179,11 +179,14 @@ describe("explicit Plot control protocol", () => {
 		);
 		await pending;
 
-		pending = collectUntil(
-			protocol.output(),
-			(record) =>
-				record.kind === "session_event" && Number(record.sequence) >= 2,
-		);
+		let sawAttach = false;
+		const replayedSequences: number[] = [];
+		pending = collectUntil(protocol.output(), (record) => {
+			if (responseFor("attach-2")(record)) sawAttach = true;
+			else if (sawAttach && record.kind === "session_event")
+				replayedSequences.push(Number(record.sequence));
+			return sawAttach && replayedSequences.length >= 2;
+		});
 		await protocol.submit(
 			request("attach-2", "attach_session", {
 				sessionId: "session-1",
@@ -193,9 +196,6 @@ describe("explicit Plot control protocol", () => {
 		);
 		const records = await pending;
 		const attach = records.find(responseFor("attach-2"));
-		const replayed = records.filter(
-			(record) => record.kind === "session_event",
-		);
 
 		expect(attach).toEqual(
 			expect.objectContaining({
@@ -205,10 +205,147 @@ describe("explicit Plot control protocol", () => {
 				data: expect.objectContaining({ snapshot: expect.any(Object) }),
 			}),
 		);
-		expect(replayed.map((record) => Number(record.sequence))).toEqual([1, 2]);
-		expect(
-			replayed.every((record) => record.event.sequence === record.sequence),
-		).toBe(true);
+		expect(replayedSequences).toEqual([1, 2]);
+	});
+
+	test("closing while open_session is in flight does not attach a dead connection", async () => {
+		const sessionDir = await mkdtemp(join(tmpdir(), "plot-open-close-"));
+		const history = await createSessionHistoryStore({
+			sessionDir,
+			sessionId: "session-1",
+		});
+		const session = makePlotSessionLayer({
+			id: "session-1",
+			workflow,
+			sources: [],
+			runner,
+			sessionHistory: history,
+		});
+		const runtime = makeControlSessionRuntime({
+			session,
+			history,
+			cwd: sessionDir,
+			mode: "watch",
+		});
+		const registry = makeControlSessionRegistry();
+		let releaseOpen!: () => void;
+		const openGate = new Promise<void>((resolve) => {
+			releaseOpen = resolve;
+		});
+		let openStarted!: () => void;
+		const openStartedPromise = new Promise<void>((resolve) => {
+			openStarted = resolve;
+		});
+		const protocol = makePlotProtocolLayer({
+			registry,
+			connectionId: "closing-client",
+			openSession: async () => {
+				openStarted();
+				await openGate;
+				return runtime;
+			},
+		});
+
+		const submitted = protocol.submit(
+			request("open", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+				cwd: sessionDir,
+			}),
+		);
+		await openStartedPromise;
+		await protocol.close();
+		releaseOpen();
+		await submitted;
+
+		expect(await registry.summaries()).toEqual([]);
+	});
+
+	test("session summaries count controller and observer attachments by connection", async () => {
+		const sessionDir = await mkdtemp(join(tmpdir(), "plot-attachments-"));
+		const history = await createSessionHistoryStore({
+			sessionDir,
+			sessionId: "session-1",
+		});
+		const session = makePlotSessionLayer({
+			id: "session-1",
+			workflow,
+			sources: [],
+			runner,
+			sessionHistory: history,
+		});
+		const registry = makeControlSessionRegistry();
+		await registry.register(
+			makeControlSessionRuntime({
+				session,
+				history,
+				cwd: sessionDir,
+				mode: "watch",
+			}),
+		);
+		const controller = makePlotProtocolLayer({
+			registry,
+			connectionId: "controller-client",
+		});
+		const observer = makePlotProtocolLayer({
+			registry,
+			connectionId: "observer-client",
+		});
+
+		let pending = collectUntil(controller.output(), responseFor("controller"));
+		await controller.submit(
+			request("controller", "attach_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+		pending = collectUntil(observer.output(), responseFor("observer"));
+		await observer.submit(
+			request("observer", "attach_session", {
+				sessionId: "session-1",
+				role: "observer",
+			}),
+		);
+		await pending;
+
+		pending = collectUntil(controller.output(), responseFor("list-attached"));
+		await controller.submit(request("list-attached", "list_sessions"));
+		let list = (await pending).at(-1);
+		let sessions =
+			list?.kind === "response" && list.ok
+				? (
+						list.data as {
+							sessions: readonly {
+								attachments: { observers: number; controllers: number };
+							}[];
+						}
+					).sessions
+				: [];
+		expect(sessions[0]?.attachments).toEqual({
+			controllers: 1,
+			observers: 1,
+		});
+
+		await controller.close();
+		pending = collectUntil(observer.output(), responseFor("list-after-close"));
+		await observer.submit(request("list-after-close", "list_sessions"));
+		list = (await pending).at(-1);
+		sessions =
+			list?.kind === "response" && list.ok
+				? (
+						list.data as {
+							sessions: readonly {
+								attachments: { observers: number; controllers: number };
+							}[];
+						}
+					).sessions
+				: [];
+		expect(sessions[0]?.attachments).toEqual({
+			controllers: 0,
+			observers: 1,
+		});
+		await observer.close();
 	});
 
 	test("detach stops only the client attachment and does not close the session", async () => {

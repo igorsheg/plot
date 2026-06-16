@@ -69,10 +69,24 @@ export interface ControlSessionRegistry {
 	readonly register: (runtime: ControlSessionRuntime) => Promise<void>;
 	readonly get: (sessionId: string) => ControlSessionRuntime | undefined;
 	readonly list: () => readonly ControlSessionRuntime[];
+	readonly summary: (
+		sessionId: string,
+	) => Promise<PlotSessionSummary | undefined>;
+	readonly summaries: () => Promise<readonly PlotSessionSummary[]>;
 	readonly rosterEvents: () => AsyncIterable<{
 		readonly type: "session_opened" | "session_changed" | "session_closed";
 		readonly session: PlotSessionSummary;
 	}>;
+	readonly attach: (input: {
+		readonly sessionId: string;
+		readonly connectionId: string;
+		readonly role: "observer" | "controller";
+	}) => Promise<void>;
+	readonly detach: (input: {
+		readonly sessionId: string;
+		readonly connectionId: string;
+	}) => Promise<void>;
+	readonly detachConnection: (connectionId: string) => Promise<void>;
 	readonly publishChanged: (sessionId: string) => Promise<void>;
 }
 
@@ -422,12 +436,30 @@ export const makeControlSessionRegistry = (): ControlSessionRegistry => {
 		readonly type: "session_opened" | "session_changed" | "session_closed";
 		readonly session: PlotSessionSummary;
 	}>(256);
-	const attachmentCounts = new Map<
-		string,
-		{ observers: number; controllers: number }
-	>();
-	const countsFor = (sessionId: string) =>
-		attachmentCounts.get(sessionId) ?? { observers: 0, controllers: 0 };
+	const attachments = new Map<string, Map<string, "observer" | "controller">>();
+	const countsFor = (sessionId: string) => {
+		const roles = attachments.get(sessionId);
+		if (!roles) return { observers: 0, controllers: 0 };
+		let observers = 0;
+		let controllers = 0;
+		for (const role of roles.values()) {
+			if (role === "controller") controllers += 1;
+			else observers += 1;
+		}
+		return { observers, controllers };
+	};
+	const removeEmptyAttachmentSet = (sessionId: string) => {
+		const roles = attachments.get(sessionId);
+		if (roles !== undefined && roles.size === 0) attachments.delete(sessionId);
+	};
+	const publishChanged = async (sessionId: string) => {
+		const runtime = sessions.get(sessionId);
+		if (!runtime) return;
+		roster.publish({
+			type: runtime.isClosed() ? "session_closed" : "session_changed",
+			session: await runtime.summary(countsFor(sessionId)),
+		});
+	};
 	return {
 		register: async (runtime) => {
 			sessions.set(runtime.sessionId, runtime);
@@ -438,14 +470,40 @@ export const makeControlSessionRegistry = (): ControlSessionRegistry => {
 		},
 		get: (sessionId) => sessions.get(sessionId),
 		list: () => [...sessions.values()],
-		rosterEvents: () => roster.subscribe(),
-		publishChanged: async (sessionId) => {
+		summary: async (sessionId) => {
 			const runtime = sessions.get(sessionId);
-			if (!runtime) return;
-			roster.publish({
-				type: runtime.isClosed() ? "session_closed" : "session_changed",
-				session: await runtime.summary(countsFor(sessionId)),
-			});
+			return runtime?.summary(countsFor(sessionId));
 		},
+		summaries: () =>
+			Promise.all(
+				[...sessions.values()].map((runtime) =>
+					runtime.summary(countsFor(runtime.sessionId)),
+				),
+			),
+		rosterEvents: () => roster.subscribe(),
+		attach: async ({ sessionId, connectionId, role }) => {
+			let roles = attachments.get(sessionId);
+			if (roles === undefined) {
+				roles = new Map();
+				attachments.set(sessionId, roles);
+			}
+			roles.set(connectionId, role);
+			await publishChanged(sessionId);
+		},
+		detach: async ({ sessionId, connectionId }) => {
+			attachments.get(sessionId)?.delete(connectionId);
+			removeEmptyAttachmentSet(sessionId);
+			await publishChanged(sessionId);
+		},
+		detachConnection: async (connectionId) => {
+			const changed: string[] = [];
+			for (const [sessionId, roles] of attachments) {
+				if (!roles.delete(connectionId)) continue;
+				changed.push(sessionId);
+				removeEmptyAttachmentSet(sessionId);
+			}
+			await Promise.all(changed.map((sessionId) => publishChanged(sessionId)));
+		},
+		publishChanged,
 	};
 };

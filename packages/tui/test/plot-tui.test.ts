@@ -44,7 +44,7 @@ describe("Plot TUI", () => {
 		expect(typeof runPlotTui).toBe("function");
 	});
 
-	test("opens through the Local Plot Server and detach leaves the session registered", async () => {
+	test("opens through the Local Plot Server and explicit detach leaves the session registered", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-tui-control-"));
 		tempDirs.push(cwd);
 		const serverDir = await mkdtemp(join(tmpdir(), "plot-tui-server-"));

@@ -6,8 +6,8 @@ import { serveLocal, serveStdio } from "../runtime.js";
 
 export const serveCommand = defineCommand({
 	meta: {
-		name: "serve",
-		description: "Run the localhost Local Plot Server until Ctrl-C.",
+		name: "_serve",
+		description: "Internal: run the localhost Local Plot Server until Ctrl-C.",
 	},
 	args: {
 		hostname: {

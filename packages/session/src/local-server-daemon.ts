@@ -48,8 +48,8 @@ const currentPlotServeCommand = (): { command: string; args: string[] } => {
 	const entrypoint = process.argv[1];
 	const exec = process.execPath;
 	if (entrypoint !== undefined && entrypoint !== exec)
-		return { command: exec, args: [entrypoint, "serve"] };
-	return { command: exec, args: ["serve"] };
+		return { command: exec, args: [entrypoint, "_serve"] };
+	return { command: exec, args: ["_serve"] };
 };
 
 export const spawnLocalPlotServerDaemon = (cwd: string | undefined): void => {
@@ -115,8 +115,12 @@ export const stopLocalPlotServerDaemon = async (
 		return false;
 	}
 
-	// Only signal the authenticated registered process. A stale metadata PID may
-	// have been reused by another process; healthcheck auth is the guardrail.
+	// Only signal another authenticated registered process. Test/SDK foreground
+	// servers can share this process; daemon-stop must never SIGTERM itself.
+	if (healthy.pid === process.pid) return false;
+
+	// A stale metadata PID may have been reused by another process; healthcheck
+	// auth is the guardrail.
 	signalProcess(healthy.pid, "SIGTERM");
 	if (await awaitProcessStopped(healthy.pid, options.timeoutMs ?? 5_000)) {
 		await removeLocalPlotServerMetadata(paths).catch(() => undefined);

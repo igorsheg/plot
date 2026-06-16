@@ -452,6 +452,7 @@ const websocketHandlers = {
 	close(ws: Bun.ServerWebSocket<WebSocketData>) {
 		clearInterval(ws.data.heartbeat);
 		ws.data.output.close();
+		void ws.data.protocol.close().catch(() => undefined);
 	},
 };
 

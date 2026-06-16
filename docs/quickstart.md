@@ -25,18 +25,18 @@ plot run --workflow WORKFLOW.md
 Open dashboards:
 
 ```bash
-plot tui --workflow WORKFLOW.md
+plot --workflow WORKFLOW.md
 plot web
 ```
 
-`plot tui` attaches the terminal dashboard to one Plot Session. `plot web` starts the localhost fleet control plane in the foreground for every Plot Session the Local Plot Server knows about. Quitting a UI detaches that client; it does not close the Plot Session. Press Ctrl-C in the `plot web` terminal to stop that foreground Local Plot Server process. These are localhost control connections only, not remote exposure.
+`plot` opens the terminal dashboard for this project/workflow session. `plot web` opens the localhost fleet control panel for every Plot Session the Local Plot Server knows about and holds the terminal until Ctrl-C. Pressing Ctrl-C in `plot` closes that session; pressing Ctrl-C in `plot web` stops only the web command. Use `plot stop` to close the current project/workflow session, or `plot stop --all` to stop all sessions and the shared Local Plot Server. Browser tabs detach when closed; they do not own session lifetime. These are localhost control connections only, not remote exposure.
 
 ## Try the PR review example
 
 From this repository, on a branch with a GitHub pull request:
 
 ```bash
-plot tui --workflow examples/pr-review/WORKFLOW.md
+plot --workflow examples/pr-review/WORKFLOW.md
 ```
 
 The example uses:

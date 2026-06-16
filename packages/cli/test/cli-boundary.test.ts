@@ -51,7 +51,7 @@ describe("plot CLI stdio process boundary", () => {
 			[
 				"bun",
 				fileURLToPath(new URL("../src/main.ts", import.meta.url)),
-				"serve",
+				"_serve",
 				"stdio",
 				"--workflow",
 				workflow.path,

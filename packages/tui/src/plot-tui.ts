@@ -14,6 +14,7 @@ import {
 } from "@plot/session/protocol";
 import {
 	connectLocalControlClient,
+	stopLocalPlotServerIfIdle,
 	type LocalControlClient,
 } from "@plot/session/local-control-client";
 import { PlotDashboard } from "./dashboard.js";
@@ -37,6 +38,7 @@ export interface PlotTuiControlAttachment {
 	readonly client: LocalControlClient;
 	readonly projection: DashboardProjection;
 	readonly sessionId: string;
+	readonly closeSession: () => Promise<void>;
 	readonly detach: () => Promise<void>;
 }
 
@@ -137,6 +139,10 @@ export const openAndAttachPlotTuiSession = async (
 			...applySnapshot(base, { snapshot: attached.snapshot }),
 			frontier: attached.lastSequence,
 			status: "running",
+		},
+		closeSession: async () => {
+			await client.closeSession({ sessionId: options.sessionId });
+			await stopLocalPlotServerIfIdle(client);
 		},
 		detach: async () => {
 			await client.detachSession({ sessionId: options.sessionId });
@@ -405,7 +411,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		shutdown: () => {
 			resolveStopped();
 			setStatus("shutting_down");
-			void attachment.detach().finally(() => tui.stop());
+			void attachment.closeSession().finally(() => tui.stop());
 		},
 		openUrl,
 		height: () => terminal.rows,
@@ -441,7 +447,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	} finally {
 		dashboard.stopLiveUpdates();
 		tui.stop();
-		await attachment.detach().catch(() => undefined);
+		await attachment.closeSession().catch(() => undefined);
 		attachment.client.close();
 	}
 };
