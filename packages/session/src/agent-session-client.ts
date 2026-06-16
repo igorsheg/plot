@@ -33,6 +33,13 @@ export interface PromptAgentSessionOptions {
 	readonly prompt: string;
 	readonly promptOptions?: PromptOptions;
 	readonly log?: Fields;
+	readonly signal?: AbortSignal;
+	readonly maxTurns?: number;
+	readonly shouldContinue?: (turnNumber: number) => Promise<boolean> | boolean;
+	readonly continuationPrompt?: (
+		turnNumber: number,
+		maxTurns: number,
+	) => Promise<string> | string;
 }
 export interface AgentSessionClientShape {
 	readonly prompt: (
@@ -80,6 +87,15 @@ const sessionEventLogLevel = (event: AgentSessionEvent): WideEventLevel =>
 	event.type === "tool_execution_update"
 		? "debug"
 		: "info";
+const defaultContinuationPrompt = (turnNumber: number, maxTurns: number) => `
+Continuation guidance:
+
+- The previous agent turn completed normally, but this work is still active.
+- This is continuation turn #${turnNumber} of ${maxTurns} for the current Agent Run.
+- Resume from the current workspace and conversation context instead of restarting from scratch.
+- The original task instructions and prior turn context are already present in this session.
+- Focus on remaining work and do not end the turn while the work stays active unless you are truly blocked.
+`;
 export const makeAgentSessionClientLayer = (
 	options: AgentSessionClientLayerOptions = {},
 ): AgentSessionClientShape => {
@@ -91,21 +107,51 @@ export const makeAgentSessionClientLayer = (
 				const queue = new AsyncQueue<AgentSessionEvent>();
 				let session: AgentSession | undefined;
 				let unsubscribe: (() => void) | undefined;
+				let closed = false;
+				const abort = () =>
+					queue.fail(
+						new AgentSessionClientError({
+							phase: session ? "prompt" : "create",
+							message: "agent session interrupted",
+						}),
+					);
+				if (request.signal?.aborted) abort();
+				request.signal?.addEventListener("abort", abort, { once: true });
 				void (async () => {
 					try {
+						if (request.signal?.aborted) return;
 						const result = await withWideEvent(
 							"agent_session.create",
 							log,
 							() => create(request.create),
 						);
 						session = result.session;
+						if (closed || request.signal?.aborted) {
+							await disposeSession(session);
+							if (request.signal?.aborted) abort();
+							return;
+						}
 						unsubscribe = session.subscribe((event: AgentSessionEvent) => {
 							queue.offer(event);
-							if (event.type === "agent_end") queue.close();
 						});
-						await withWideEvent("agent_session.prompt", log, () =>
-							session!.prompt(request.prompt, request.promptOptions),
-						);
+						const maxTurns = request.maxTurns ?? 1;
+						if (!Number.isInteger(maxTurns) || maxTurns < 1)
+							throw new Error("maxTurns must be a positive integer");
+						for (let turnNumber = 1; turnNumber <= maxTurns; turnNumber++) {
+							if (request.signal?.aborted) return;
+							const prompt =
+								turnNumber === 1
+									? request.prompt
+									: await (request.continuationPrompt?.(turnNumber, maxTurns) ??
+											defaultContinuationPrompt(turnNumber, maxTurns));
+							await withWideEvent(
+								"agent_session.prompt",
+								{ ...log, turn_number: turnNumber },
+								() => session!.prompt(prompt, request.promptOptions),
+							);
+							if (turnNumber >= maxTurns) break;
+							if (!(await request.shouldContinue?.(turnNumber))) break;
+						}
 						queue.close();
 					} catch (error) {
 						queue.fail(createError(session ? "prompt" : "create", error));
@@ -124,6 +170,8 @@ export const makeAgentSessionClientLayer = (
 						yield event;
 					}
 				} finally {
+					closed = true;
+					request.signal?.removeEventListener("abort", abort);
 					unsubscribe?.();
 					if (session) await disposeSession(session);
 				}

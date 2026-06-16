@@ -224,7 +224,7 @@ describe("task-agnostic Plot agent", () => {
 			reconcile: () =>
 				ticks === 1
 					? [
-							scheduleWake(1, {
+							scheduleWake(50, {
 								reason: "retry later",
 								workKey: workKey("wake-source:item:1"),
 								attempt: 4,
@@ -247,7 +247,7 @@ describe("task-agnostic Plot agent", () => {
 		expect((await agent.snapshot()).scheduledWakes).toEqual([
 			{
 				dueAtMs: expect.any(Number),
-				delayMs: 1,
+				delayMs: 50,
 				reason: "retry later",
 				workKey: "wake-source:item:1",
 				attempt: 4,
@@ -369,11 +369,13 @@ describe("task-agnostic Plot agent", () => {
 			id: sourceId("rerun"),
 			selectWork: () => [{ workKey: key }],
 		};
-		const agent = makeAgent([source]);
+		const agent = makeAgent([source], succeedRunner(), {
+			continuationDelayMs: 1,
+		});
 		await agent.tickOnce();
 		await yieldNow();
 		const second = await agent.tickOnce();
-		await yieldNow();
+		await new Promise((resolve) => setTimeout(resolve, 5));
 		const third = await agent.tickOnce();
 		expect(second.completions).toHaveLength(1);
 		expect(third.started).toHaveLength(1);
@@ -592,7 +594,7 @@ describe("task-agnostic Plot agent", () => {
 		);
 	});
 
-	test("backed-off work becomes eligible again and success clears attempts", async () => {
+	test("backed-off work becomes eligible again and success schedules continuation", async () => {
 		const key = workKey("recovers:1");
 		let failures = 1;
 		const source: WorkSource = {
@@ -606,7 +608,10 @@ describe("task-agnostic Plot agent", () => {
 				return {};
 			},
 		};
-		const agent = makeAgent([source], runner, { retryInitialDelayMs: 1 });
+		const agent = makeAgent([source], runner, {
+			retryInitialDelayMs: 1,
+			continuationDelayMs: 1,
+		});
 		await agent.tickOnce();
 		await yieldNow();
 		await agent.tickOnce(); // records the failure; retry due in 1ms
@@ -618,7 +623,9 @@ describe("task-agnostic Plot agent", () => {
 		expect(fourth.completions).toContainEqual(
 			expect.objectContaining({ status: "succeeded", workKey: key }),
 		);
-		expect(fourth.snapshot.retries?.has(key)).toBe(false);
+		expect(fourth.snapshot.retries?.get(key)).toEqual(
+			expect.objectContaining({ attempt: 1, kind: "continuation" }),
+		);
 	});
 
 	test("stalled runs are interrupted after the inactivity timeout", async () => {
@@ -641,6 +648,37 @@ describe("task-agnostic Plot agent", () => {
 			}),
 		);
 		expect(second.snapshot.running.has(key)).toBe(false);
+	});
+
+	test("stall timeout wakes the actor instead of waiting for poll cadence", async () => {
+		const key = workKey("stall-wake:1");
+		const source: WorkSource = {
+			id: sourceId("stall-wake"),
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) ? [] : [{ workKey: key }],
+		};
+		const agent = makeAgent(
+			[source],
+			{ run: () => never() },
+			{
+				stallTimeoutMs: 5,
+				tickIntervalMs: 60_000,
+			},
+		);
+		const completed = waitForEvent(
+			agent.events(),
+			(event) =>
+				event.type === "work_completed" && event.completion.workKey === key,
+		);
+		await agent.start();
+		const event = await completed;
+		await agent.shutdown();
+		expect(event).toEqual(
+			expect.objectContaining({
+				type: "work_completed",
+				completion: expect.objectContaining({ status: "timed_out" }),
+			}),
+		);
 	});
 
 	test("emitted observations keep an active run alive past the stall timeout", async () => {

@@ -207,6 +207,7 @@ export interface ScheduledWake {
 export interface RetryState {
 	readonly attempt: PositiveInt;
 	readonly nextEligibleAtMs: number;
+	readonly kind?: "failure" | "continuation";
 	readonly lastError?: string;
 }
 export type WorkSkipReason =

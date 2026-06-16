@@ -242,6 +242,7 @@ export const createPlotSessionHost = async (
 		agentRunner: {
 			prompt: workflow.prompt,
 			create: agentRunnerCreate,
+			maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
 			...(workspaceTemplateData === undefined
 				? {}
 				: { templateData: workspaceTemplateData }),

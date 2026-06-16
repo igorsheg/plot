@@ -146,10 +146,15 @@ describe("Plot extension source adapter", () => {
 			run: () => ({ output: "ok" }),
 		});
 
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgentLayer({
+			sources: [bundle.source],
+			runner,
+			continuationDelayMs: 1,
+		});
 		const first = await agent.tickOnce();
 		await Promise.resolve();
 		const second = await agent.tickOnce();
+		await new Promise((resolve) => setTimeout(resolve, 5));
 		const third = await agent.tickOnce();
 
 		expect(first.started).toEqual([

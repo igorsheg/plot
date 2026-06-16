@@ -25,6 +25,7 @@ export interface WorkflowAgentConfig {
 	readonly excludeTools?: readonly string[] | undefined;
 	readonly noTools?: AgentToolMode | undefined;
 	readonly allowProjectConfig?: boolean | undefined;
+	readonly maxTurns?: number | undefined;
 }
 export interface WorkflowWorkspaceConfig {
 	readonly root: string;
@@ -189,6 +190,7 @@ const decodeRuntimeConfig = (
 							allowProjectConfig: agent["allowProjectConfig"] as
 								| boolean
 								| undefined,
+							maxTurns: agent["maxTurns"] as number | undefined,
 						},
 					}
 				: {}),

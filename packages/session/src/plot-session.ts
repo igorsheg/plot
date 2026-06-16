@@ -135,6 +135,7 @@ interface AgentSessionRunnerConfig extends Omit<
 > {
 	readonly onEvent?: (event: AgentSessionEvent) => Promise<void> | void;
 	readonly wrapRunner?: (runner: WorkRunner) => WorkRunner;
+	readonly maxTurns?: number;
 	/** Extra prompt-template data merged over the work's template context. */
 	readonly templateData?: (
 		context: WorkRunnerContext,
@@ -243,10 +244,22 @@ const makeAgentRunner = (
 			config.promptOptions === undefined
 				? undefined
 				: await resolveValue(config.promptOptions, context);
+		const maxTurns = config.maxTurns ?? 20;
+		if (!Number.isInteger(maxTurns) || maxTurns < 1)
+			throw new PlotSessionError({
+				message: "agent.maxTurns must be a positive integer",
+			});
 		const request: PromptAgentSessionOptions = {
 			prompt,
 			...(create === undefined ? {} : { create }),
 			...(promptOptions === undefined ? {} : { promptOptions }),
+			signal: context.signal,
+			...(context.shouldContinue === undefined
+				? {}
+				: {
+						maxTurns,
+						shouldContinue: context.shouldContinue,
+					}),
 			log: {
 				source_id: context.sourceId,
 				run_id: context.run.runId,

@@ -18,6 +18,7 @@ export interface WorkRunnerContext {
 	readonly snapshot: RuntimeSnapshot;
 	readonly signal: AbortSignal;
 	readonly emitObservation: (observation: Observation) => MaybePromise<boolean>;
+	readonly shouldContinue?: (turnNumber: number) => MaybePromise<boolean>;
 }
 
 export interface WorkRunner {

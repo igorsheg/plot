@@ -383,6 +383,19 @@ export const makePlotExtensionSourceBundle = (options: {
 			}
 			return proposals;
 		},
+		continueWork: async ({ work }) => {
+			const active = selectedWork.get(work.workKey);
+			if (active === undefined) return false;
+			const discovered = await runMaybePromise("discover", String(source), () =>
+				options.runtime.discover(),
+			);
+			return discovered.some(
+				(candidate) =>
+					!isBlocked(candidate) &&
+					workKeyForExtensionWork(options.extension, candidate) ===
+						work.workKey,
+			);
+		},
 		selectWork: ({ snapshot }) => {
 			// Id-level claims: while any version of a work id is still running
 			// (including a superseded version draining out), do not dispatch

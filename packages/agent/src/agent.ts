@@ -105,7 +105,10 @@ export interface PlotAgentLayerOptions {
 	readonly queueCapacity?: number;
 	readonly eventCapacity?: number;
 	readonly historyLimit?: number;
+	/** Scheduler poll cadence. Default: 30s. */
 	readonly tickIntervalMs?: number;
+	/** Clean successful runs re-check after this delay. Default: 1s. */
+	readonly continuationDelayMs?: number;
 	readonly maxRunDurationMs?: number;
 	/** Interrupt a run after this much time with no emitted observations. */
 	readonly stallTimeoutMs?: number;
@@ -262,35 +265,58 @@ const applyCompletionRetries = (
 	retries: ReadonlyMap<WorkKey, RetryState>,
 	completions: readonly Completion[],
 	backoff: RetryBackoff,
+	continuationDelayMs: number,
 	now: number,
 ) => {
 	const next = new Map(retries);
-	const scheduledDelays: number[] = [];
+	const scheduledWakes: Domain.ScheduledWake[] = [];
 	for (const completion of completions) {
 		if (completion.status === "failed" || completion.status === "timed_out") {
 			const attempt = (next.get(completion.workKey)?.attempt ?? 0) + 1;
 			const delayMs = retryDelayMs(attempt, backoff);
+			const dueAtMs = now + delayMs;
 			next.set(completion.workKey, {
 				attempt,
-				nextEligibleAtMs: now + delayMs,
+				nextEligibleAtMs: dueAtMs,
+				kind: "failure",
 				...(completion.error === undefined
 					? {}
 					: { lastError: completion.error }),
 			});
-			scheduledDelays.push(delayMs);
+			scheduledWakes.push({
+				dueAtMs,
+				delayMs,
+				reason: "retry",
+				workKey: completion.workKey,
+				attempt,
+			});
+		} else if (completion.status === "succeeded") {
+			const dueAtMs = now + continuationDelayMs;
+			next.set(completion.workKey, {
+				attempt: 1,
+				nextEligibleAtMs: dueAtMs,
+				kind: "continuation",
+			});
+			scheduledWakes.push({
+				dueAtMs,
+				delayMs: continuationDelayMs,
+				reason: "continuation",
+				workKey: completion.workKey,
+				attempt: 1,
+			});
 		} else {
-			// Success clears the attempt counter; interruption is a
-			// reconciliation decision, not a failure to back off from.
+			// Interruption is a reconciliation decision, not a failure to back off from.
 			next.delete(completion.workKey);
 		}
 	}
-	return { retries: next, scheduledDelays };
+	return { retries: next, scheduledWakes };
 };
 const beginTick = (
 	state: RuntimeState,
 	drained: DrainedMessages,
 	stalledRuns: readonly TimedOutRun[],
 	backoff: RetryBackoff,
+	continuationDelayMs: number,
 	historyLimit: number,
 ) => {
 	const running = new Map(state.running),
@@ -374,8 +400,10 @@ const beginTick = (
 		state.retries,
 		completions,
 		backoff,
+		continuationDelayMs,
 		now,
 	);
+	const completedKeys = new Set(completions.map((c) => c.workKey));
 	const next = boundStateHistory(
 		{
 			...state,
@@ -386,8 +414,13 @@ const beginTick = (
 			running,
 			retries: applied.retries,
 			scheduledWakes: [
-				...state.scheduledWakes,
-				...drained.requestedWakes,
+				...state.scheduledWakes.filter(
+					(wake) =>
+						wake.dueAtMs > now &&
+						(wake.workKey === undefined || !completedKeys.has(wake.workKey)),
+				),
+				...drained.requestedWakes.filter((wake) => wake.dueAtMs > now),
+				...applied.scheduledWakes,
 			].toSorted((a, b) => a.dueAtMs - b.dueAtMs),
 		},
 		historyLimit,
@@ -397,7 +430,7 @@ const beginTick = (
 		completions,
 		diagnostics,
 		completedRuns,
-		retryDelays: applied.scheduledDelays,
+		retryWakes: applied.scheduledWakes,
 	};
 };
 const applyObserved = (
@@ -428,6 +461,14 @@ const wakeScheduledEvent = (proposal: ScheduleWakeProposal) => ({
 	...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
 	...(proposal.workKey === undefined ? {} : { workKey: proposal.workKey }),
 	...(proposal.attempt === undefined ? {} : { attempt: proposal.attempt }),
+});
+
+const wakeScheduledEventFromWake = (wake: Domain.ScheduledWake) => ({
+	type: "wake_scheduled" as const,
+	delayMs: wake.delayMs,
+	...(wake.reason === undefined ? {} : { reason: wake.reason }),
+	...(wake.workKey === undefined ? {} : { workKey: wake.workKey }),
+	...(wake.attempt === undefined ? {} : { attempt: wake.attempt }),
 });
 
 const applyReconciled = (
@@ -513,6 +554,22 @@ const runningCountBySource = (running: ReadonlyMap<WorkKey, WorkRun>) => {
 	for (const run of running.values())
 		counts.set(run.sourceId, (counts.get(run.sourceId) ?? 0) + 1);
 	return counts;
+};
+const releaseDueRetriesForAbsentWork = (
+	state: RuntimeState,
+	selected: readonly WorkSelection[],
+	now: number,
+): RuntimeState => {
+	const activeKeys = new Set<WorkKey>(state.running.keys());
+	for (const selection of selected) activeKeys.add(selection.work.workKey);
+	let changed = false;
+	const retries = new Map(state.retries);
+	for (const [key, retry] of retries) {
+		if (retry.nextEligibleAtMs > now || activeKeys.has(key)) continue;
+		retries.delete(key);
+		changed = true;
+	}
+	return changed ? { ...state, retries } : state;
 };
 const startEligibleRuns = (
 	state: RuntimeState,
@@ -633,14 +690,16 @@ export const makePlotAgentLayer = (
 			256,
 			"historyLimit must be a positive integer",
 		);
-	const tickIntervalMs =
-		options.tickIntervalMs === undefined
-			? undefined
-			: positive(
-					options.tickIntervalMs,
-					1,
-					"tickIntervalMs must be a positive integer",
-				);
+	const tickIntervalMs = positive(
+		options.tickIntervalMs,
+		30_000,
+		"tickIntervalMs must be a positive integer",
+	);
+	const continuationDelayMs = positive(
+		options.continuationDelayMs,
+		1_000,
+		"continuationDelayMs must be a positive integer",
+	);
 	const maxRunDurationMs =
 		options.maxRunDurationMs === undefined
 			? undefined
@@ -693,6 +752,7 @@ export const makePlotAgentLayer = (
 		events = new EventHub<PlotAgentEvent>(eventCapacity),
 		runHandles = new Map<WorkKey, RunHandle>(),
 		timers = new Set<AbortController>(),
+		stallTimers = new Map<Domain.RunId, AbortController>(),
 		// Last emitObservation per active run; drives stall detection.
 		lastActivityAt = new Map<Domain.RunId, number>();
 	const publishSnapshot = (s: RuntimeState) => {
@@ -712,6 +772,16 @@ export const makePlotAgentLayer = (
 			return false;
 		});
 		return c;
+	};
+	const clearStallTimer = (run: WorkRun) => {
+		const stallTimer = stallTimers.get(run.runId);
+		if (stallTimer) stallTimer.abort();
+		stallTimers.delete(run.runId);
+	};
+	const scheduleStallTimer = (run: WorkRun) => {
+		if (stallTimeoutMs === undefined) return;
+		clearStallTimer(run);
+		stallTimers.set(run.runId, timer(stallTimeoutMs + 1, { type: "wake" }));
 	};
 	const interruptRunHandles = (runs: readonly WorkRun[]) => {
 		for (const run of runs) {
@@ -756,6 +826,7 @@ export const makePlotAgentLayer = (
 		const startedAt = Date.now();
 		const emitObservation = async (observation: Observation) => {
 			lastActivityAt.set(run.runId, Date.now());
+			scheduleStallTimer(run);
 			return mailbox.offer({
 				type: "observation",
 				observation:
@@ -764,6 +835,17 @@ export const makePlotAgentLayer = (
 						: observation,
 			});
 		};
+		const shouldContinue = selection.source.continueWork
+			? (turnNumber: number) =>
+					selection.source.continueWork!({
+						sourceId: selection.source.id,
+						tickId: runSnapshot.tickId,
+						snapshot: snapshotFrom(state),
+						run,
+						work: selection.work,
+						turnNumber,
+					})
+			: undefined;
 		try {
 			const result = await runner.run({
 				sourceId: selection.source.id,
@@ -773,6 +855,7 @@ export const makePlotAgentLayer = (
 				snapshot: runSnapshot,
 				signal,
 				emitObservation,
+				...(shouldContinue === undefined ? {} : { shouldContinue }),
 			});
 			if (signal.aborted) throw new Error("work run interrupted");
 			const completion: Completion = {
@@ -844,6 +927,7 @@ export const makePlotAgentLayer = (
 				drained,
 				stalledRuns,
 				retryBackoff,
+				continuationDelayMs,
 				historyLimit,
 			);
 			state = began.state;
@@ -852,10 +936,16 @@ export const makePlotAgentLayer = (
 			for (const completion of began.completions)
 				publishEvent({ type: "work_completed", completion });
 			interruptRunHandles(began.completedRuns);
-			for (const run of began.completedRuns) lastActivityAt.delete(run.runId);
-			// Wake the loop when a backed-off work item becomes eligible again,
+			for (const run of began.completedRuns) {
+				lastActivityAt.delete(run.runId);
+				clearStallTimer(run);
+			}
+			// Wake the loop when backed-off or continuation work becomes eligible,
 			// so retries do not wait for the next interval tick.
-			for (const delayMs of began.retryDelays) timer(delayMs, { type: "wake" });
+			for (const wake of began.retryWakes) {
+				publishEvent(wakeScheduledEventFromWake(wake));
+				timer(wake.delayMs, { type: "wake" });
+			}
 			const observeResults = await Promise.all(
 				sources.map((source) =>
 					runHook(
@@ -928,8 +1018,10 @@ export const makePlotAgentLayer = (
 			for (const completion of interrupted.completions)
 				publishEvent({ type: "work_completed", completion });
 			interruptRunHandles(interrupted.interruptedRuns);
-			for (const run of interrupted.interruptedRuns)
+			for (const run of interrupted.interruptedRuns) {
 				lastActivityAt.delete(run.runId);
+				clearStallTimer(run);
+			}
 			const policyDiagnostics: readonly Diagnostic[] = policy.validate
 				? await Promise.resolve(policy.validate(snapshotFrom(state))).catch(
 						(error: unknown) => [
@@ -989,6 +1081,11 @@ export const makePlotAgentLayer = (
 			const selectDiagnostics = selectResults.flatMap((r) => r.diagnostics);
 			if (selectDiagnostics.length)
 				state = applyDiagnostics(state, selectDiagnostics, historyLimit);
+			state = releaseDueRetriesForAbsentWork(
+				state,
+				selectedWithSources,
+				Date.now(),
+			);
 			const startedResult = startEligibleRuns(
 				state,
 				selectedWithSources,
@@ -1000,6 +1097,7 @@ export const makePlotAgentLayer = (
 			for (const { run, selection } of startedResult.started) {
 				publishEvent({ type: "work_started", run });
 				lastActivityAt.set(run.runId, Date.now());
+				scheduleStallTimer(run);
 				const controller = new AbortController();
 				runHandles.set(run.workKey, { run, controller });
 				void executeWorkRun(selection, run, runSnapshot, controller.signal);
@@ -1059,7 +1157,7 @@ export const makePlotAgentLayer = (
 						}
 						const tick = await runTick([message]);
 						running = !tick.shutdownRequested;
-						if (running && tickIntervalMs !== undefined) {
+						if (running) {
 							const token = ++nextTickToken;
 							activeTickToken = token;
 							timer(tickIntervalMs, { type: "scheduled_tick", token });
@@ -1067,6 +1165,7 @@ export const makePlotAgentLayer = (
 					}
 					for (const handle of runHandles.values()) handle.controller.abort();
 					for (const c of timers) c.abort();
+					stallTimers.clear();
 				},
 			),
 		tickOnce: async () => (await runTick()).result,
