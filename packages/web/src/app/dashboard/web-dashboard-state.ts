@@ -9,6 +9,7 @@ import type { PlotCommand, PlotServerRecord } from "@plot/control/protocol";
 import type { SessionHistoryEvent } from "@plot/control/session-history";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { useEffect, useState } from "react";
+import { createProjectionCoalescer } from "./projection-coalescer";
 import {
 	connectBrowserPlotControl,
 	readBrowserControlHandoff,
@@ -136,54 +137,18 @@ const sessionsFromResponse = (record: PlotServerRecord) => {
 		: undefined;
 };
 
-const refreshRoster = async (
-	client: BrowserPlotControlClient,
-	setState: (update: (state: LiveState) => LiveState) => void,
-) => {
-	const roster = await client.listSessions();
-	setState((state) => ({ ...state, roster, connection: "online" }));
-	return roster;
-};
-
-const refreshProjection = async (
-	client: BrowserPlotControlClient,
-	setState: (update: (state: LiveState) => LiveState) => void,
-	sessionId: string,
-) => {
-	const response = await client.request("get_snapshot", { sessionId });
-	const snapshot = snapshotFromResponse(response);
-	if (snapshot === undefined) return;
-	setState((state) => {
-		const roster = state.roster;
-		const base = state.projection ?? projectionBase({ sessionId, roster });
-		return {
-			...state,
-			projection: applySnapshot(base, {
-				snapshot: normalizeWireSnapshot(snapshot.snapshot),
-				...(snapshot.asOfSequence === undefined
-					? {}
-					: { asOfSequence: snapshot.asOfSequence }),
-			}),
-			snapshotUnavailable: false,
-		};
-	});
-};
-
-const applyRosterEvent = (
-	state: LiveState,
+const nextRoster = (
+	roster: readonly PlotSessionSummary[],
 	record: Extract<PlotServerRecord, { kind: "roster_event" }>,
-): LiveState => {
-	const roster =
-		record.event === "session_closed"
-			? state.roster.map((session) =>
-					session.id === record.session.id ? record.session : session,
-				)
-			: [
-					record.session,
-					...state.roster.filter((session) => session.id !== record.session.id),
-				];
-	return { ...state, roster };
-};
+): readonly PlotSessionSummary[] =>
+	record.event === "session_closed"
+		? roster.map((session) =>
+				session.id === record.session.id ? record.session : session,
+			)
+		: [
+				record.session,
+				...roster.filter((session) => session.id !== record.session.id),
+			];
 
 /**
  * Live dashboard state for the active route. `sessionId` is the path param
@@ -206,6 +171,40 @@ export const usePlotWebDashboardState = ({
 		let cancelled = false;
 		let client: BrowserPlotControlClient | undefined;
 		let scheduledRefresh: number | undefined;
+		// `live` is the authoritative reduced projection; reduction runs on every
+		// event, but the coalescer bounds how often it reaches React state.
+		let live: DashboardProjection | undefined;
+		let roster: readonly PlotSessionSummary[] = [];
+		const coalescer = createProjectionCoalescer({
+			intervalMs: 100,
+			publish: (projection) => {
+				if (cancelled) return;
+				setState((current) => ({
+					...current,
+					projection,
+					snapshotUnavailable: false,
+				}));
+			},
+		});
+
+		const setRoster = (next: readonly PlotSessionSummary[]) => {
+			roster = next;
+			setState((current) => ({
+				...current,
+				roster: next,
+				connection: "online",
+			}));
+		};
+
+		const applyWireSnapshot = (snapshot: unknown, asOfSequence?: number) => {
+			if (sessionId === undefined) return;
+			live = applySnapshot(live ?? projectionBase({ sessionId, roster }), {
+				snapshot: normalizeWireSnapshot(snapshot),
+				...(asOfSequence === undefined ? {} : { asOfSequence }),
+			});
+			coalescer.replace(live);
+		};
+
 		const scheduleSnapshotRefresh = () => {
 			if (sessionId === undefined || client === undefined) return;
 			if (scheduledRefresh !== undefined) return;
@@ -213,11 +212,18 @@ export const usePlotWebDashboardState = ({
 				scheduledRefresh = undefined;
 				if (cancelled || client === undefined || sessionId === undefined)
 					return;
-				void refreshProjection(client, setState, sessionId).catch(
-					() => undefined,
-				);
+				void client
+					.request("get_snapshot", { sessionId })
+					.then((response) => {
+						const snapshot = snapshotFromResponse(response);
+						return snapshot === undefined
+							? undefined
+							: applyWireSnapshot(snapshot.snapshot, snapshot.asOfSequence);
+					})
+					.catch(() => undefined);
 			}, 250);
 		};
+
 		// Switching sessions clears the prior projection while the new snapshot loads.
 		setState((current) => ({
 			...current,
@@ -259,74 +265,48 @@ export const usePlotWebDashboardState = ({
 					}));
 					client.onRecord((record) => {
 						const snapshot = snapshotFromResponse(record);
-						if (snapshot !== undefined && sessionId !== undefined) {
-							setState((current) => {
-								const base =
-									current.projection ??
-									projectionBase({ sessionId, roster: current.roster });
-								return {
-									...current,
-									projection: applySnapshot(base, {
-										snapshot: normalizeWireSnapshot(snapshot.snapshot),
-										...(snapshot.asOfSequence === undefined
-											? {}
-											: { asOfSequence: snapshot.asOfSequence }),
-									}),
-									snapshotUnavailable: false,
-								};
-							});
-						}
+						if (snapshot !== undefined && sessionId !== undefined)
+							applyWireSnapshot(snapshot.snapshot, snapshot.asOfSequence);
 						if (record.kind === "roster_event") {
-							setState((current) => applyRosterEvent(current, record));
-							void refreshRoster(client!, setState).catch(() => undefined);
+							setRoster(nextRoster(roster, record));
+							void client!
+								.listSessions()
+								.then(setRoster)
+								.catch(() => undefined);
 							return;
 						}
 						const sessions = sessionsFromResponse(record);
-						if (sessions !== undefined)
-							setState((current) => ({ ...current, roster: sessions }));
+						if (sessions !== undefined) setRoster(sessions);
 						if (record.kind !== "session_event") return;
 						if (record.sessionId !== sessionId) return;
-						setState((current) => {
-							const projection =
-								current.projection ??
-								emptyProjection(
-									record.sessionId,
-									workflowNameFor(current.roster, record.sessionId),
-									runtimeFor(current.roster, record.sessionId),
-								);
-							return {
-								...current,
-								projection: reduceSessionHistoryEvent(
-									projection,
-									record.event as SessionHistoryEvent,
-								),
-							};
-						});
+						const base =
+							live ??
+							emptyProjection(
+								record.sessionId,
+								workflowNameFor(roster, record.sessionId),
+								runtimeFor(roster, record.sessionId),
+							);
+						live = reduceSessionHistoryEvent(
+							base,
+							record.event as SessionHistoryEvent,
+						);
+						coalescer.push(live);
 						scheduleSnapshotRefresh();
 					});
-					const roster = await refreshRoster(client, setState);
+					setRoster(await client.listSessions());
 					if (sessionId !== undefined) {
-						const attached = await client.attachSession({
+						const attached = await client.attachSession({ sessionId, role });
+						const snapshotProjection = projectionFromSnapshot({
 							sessionId,
-							role,
+							roster,
+							snapshot: attached.snapshot,
+							asOfSequence: attached.lastSequence,
 						});
-						setState((current) => {
-							const snapshotProjection = projectionFromSnapshot({
-								sessionId,
-								roster: current.roster.length === 0 ? roster : current.roster,
-								snapshot: attached.snapshot,
-								asOfSequence: attached.lastSequence,
-							});
-							return {
-								...current,
-								projection:
-									current.projection !== undefined &&
-									current.projection.frontier > attached.lastSequence
-										? current.projection
-										: snapshotProjection,
-								snapshotUnavailable: false,
-							};
-						});
+						live =
+							live !== undefined && live.frontier > attached.lastSequence
+								? live
+								: snapshotProjection;
+						coalescer.replace(live);
 					}
 					return;
 				} catch (error) {
@@ -347,6 +327,7 @@ export const usePlotWebDashboardState = ({
 		void connect();
 		return () => {
 			cancelled = true;
+			coalescer.dispose();
 			if (scheduledRefresh !== undefined) window.clearTimeout(scheduledRefresh);
 			client?.close();
 		};
