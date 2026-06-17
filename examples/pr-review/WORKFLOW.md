@@ -18,6 +18,7 @@ agent:
   provider: openai-codex
   model: gpt-5.5
   thinking: low
+  maxTurns: 1
   allowProjectConfig: true
 extension:
   source: ./github-pr-reviewer.extension.ts
@@ -80,7 +81,7 @@ The anchor marker records the next phase to perform. Decide this run from GitHub
 2. Reconcile the anchor before new work: dedupe partial records, fix an invalid phase rail, carry prior-head findings, and make the marker match reality.
 3. Run exactly one phase hat. Do not mix hats inside a phase.
 4. Write the checkpoint: update findings/phase notes, advance `status` to the next chosen phase only when the current phase is complete, and re-read the comment to verify the edit landed.
-5. Continue with the next chosen phase only if it is still useful and bounded. Otherwise stop with the final status line.
+5. Continue with the next chosen phase only if it is still useful and bounded. Hard cap: after two review hats (`code_quality`, `security`, `runtime_lifecycle`, `protocol`, `tests`, `docs_agents`) in this Agent Run, checkpoint and stop unless the next phase is `post`.
 
 Checkpointing is the commit point. Everything before the marker edit is disposable; everything after it may be skipped by the next run.
 
