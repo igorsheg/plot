@@ -262,15 +262,59 @@ const applyFactProposals = (
 	return next;
 };
 
+// Reconciliation can update display metadata, but active Agent Runs stay
+// Plot-owned until completion, timeout, shutdown, or an interrupt_work proposal.
+const activeWorkRecord = (
+	run: WorkRun,
+	record: WorkRecord | undefined,
+): WorkRecord => ({
+	workKey: run.workKey,
+	sourceId: run.sourceId,
+	status: record?.status === "draining" ? "draining" : "running",
+	...optionalSubject(record?.subject ?? run.subject),
+	...(record?.display === undefined
+		? run.display === undefined
+			? {}
+			: { display: run.display }
+		: { display: record.display }),
+	...(record?.blockedReason === undefined
+		? {}
+		: { blockedReason: record.blockedReason }),
+	...(record?.operatorActions === undefined
+		? {}
+		: { operatorActions: record.operatorActions }),
+	currentRunId: run.runId,
+});
 const applyWorkProposals = (
 	work: ReadonlyMap<WorkKey, WorkRecord>,
+	running: ReadonlyMap<WorkKey, WorkRun>,
 	proposals: readonly ReconcileProposal[],
 ) => {
 	const next = new Map(work);
+	const interruptedKeys = new Set(
+		proposals.flatMap((proposal) =>
+			proposal.type === "interrupt_work" ? [proposal.workKey] : [],
+		),
+	);
 	for (const proposal of proposals) {
-		if (proposal.type === "upsert_work")
-			next.set(proposal.work.workKey, proposal.work);
-		else if (proposal.type === "remove_work") next.delete(proposal.workKey);
+		if (proposal.type === "upsert_work") {
+			const active = running.get(proposal.work.workKey);
+			next.set(
+				proposal.work.workKey,
+				active === undefined
+					? proposal.work
+					: activeWorkRecord(active, proposal.work),
+			);
+		} else if (proposal.type === "remove_work") {
+			const active = running.get(proposal.workKey);
+			if (active === undefined || interruptedKeys.has(proposal.workKey))
+				next.delete(proposal.workKey);
+			else
+				next.set(
+					proposal.workKey,
+					activeWorkRecord(active, next.get(proposal.workKey)),
+				);
+		}
 	}
 	return next;
 };
@@ -526,7 +570,7 @@ const applyReconciled = (
 		{
 			...state,
 			facts: applyFactProposals(state.facts, proposals),
-			work: applyWorkProposals(state.work, proposals),
+			work: applyWorkProposals(state.work, state.running, proposals),
 			observations: [],
 			completions: [],
 			diagnostics: [...state.diagnostics, ...diagnostics],
@@ -1262,10 +1306,16 @@ export const makePlotAgentLayer = (
 					historyLimit,
 				);
 				for (const proposal of proposals) {
-					if (proposal.type === "upsert_work")
-						publishEvent({ type: "work_observed", work: proposal.work });
-					else if (proposal.type === "remove_work")
+					if (proposal.type === "upsert_work") {
+						const work = state.work.get(proposal.work.workKey);
+						if (work !== undefined)
+							publishEvent({ type: "work_observed", work });
+					} else if (
+						proposal.type === "remove_work" &&
+						!state.work.has(proposal.workKey)
+					) {
 						publishEvent({ type: "work_removed", workKey: proposal.workKey });
+					}
 				}
 				const wakeProposals = proposals.filter(
 					(p): p is ScheduleWakeProposal => p.type === "schedule_wake",
