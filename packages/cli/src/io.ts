@@ -6,6 +6,7 @@ export interface PlotCliIo {
 	readonly writeStdout: (text: string) => Promise<void> | void;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
 	readonly createAgentSession?: CreateAgentSession;
+	readonly runTui?: (options: unknown) => Promise<void> | void;
 }
 
 class PlotCliIoError extends Error {
