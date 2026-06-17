@@ -6,10 +6,10 @@
 │                                                                                                                       
 ├─ Work · 2 visible                                                                                                     
 │ › ● #42 Item 42                                                                                                       
-│     running · 5s active · t3                                                                                          
+│     running · 5s active · t3 · 8.0k                                                                                   
 │     Running: bun run check                                                                                            
 │   ● #43 Item 43                                                                                                       
-│     running · 5s active · t3                                                                                          
+│     running · 5s active · t3 · 4.0k                                                                                   
 │     Posting review                                                                                                    
 │                                                                                                                       
 ├─ Activity                                                                                                             

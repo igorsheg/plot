@@ -45,7 +45,11 @@ const workObserved = (sequence: number, status = "pending") =>
 const workRemoved = (sequence: number) =>
 	eventRecord(sequence, "work_removed", { workKey: "source:item:42" });
 
-const workStarted = (sequence: number, workKey = "source:item:42") =>
+const workStarted = (
+	sequence: number,
+	workKey = "source:item:42",
+	labels: readonly string[] = [],
+) =>
 	plotAgentEvent(sequence, {
 		type: "attempt_started",
 		run: {
@@ -57,6 +61,7 @@ const workStarted = (sequence: number, workKey = "source:item:42") =>
 				primary: "#42",
 				title: "Fix checkout totals",
 				url: "https://example.com/pr/42",
+				...(labels.length === 0 ? {} : { labels }),
 			},
 		},
 	});
@@ -154,6 +159,21 @@ const messagePartial = (sequence: number, delta: string, partial: string) =>
 			partial: {
 				role: "assistant",
 				content: [{ type: "text", text: partial }],
+			},
+		},
+	});
+
+const messageEndWithUsage = (sequence: number) =>
+	agentRunEvent(sequence, {
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [],
+			usage: {
+				input: 1000,
+				output: 200,
+				totalTokens: 1200,
+				cost: { total: 0.42 },
 			},
 		},
 	});
@@ -270,11 +290,15 @@ describe("Plot TUI projection", () => {
 
 	test("feeds fleet activity from work lifecycle, not raw event spam", () => {
 		let projection = emptyProjection("default", "workflow");
-		projection = reduceRecord(projection, workStarted(1));
-		projection = reduceRecord(projection, bashStart(2, "bun run check"));
 		projection = reduceRecord(
 			projection,
-			plotAgentEvent(3, {
+			workStarted(1, "source:item:42", ["phase:post", "incremental"]),
+		);
+		projection = reduceRecord(projection, bashStart(2, "bun run check"));
+		projection = reduceRecord(projection, messageEndWithUsage(3));
+		projection = reduceRecord(
+			projection,
+			plotAgentEvent(4, {
 				type: "attempt_completed",
 				completion: {
 					workKey: "source:item:42",
@@ -290,10 +314,14 @@ describe("Plot TUI projection", () => {
 		expect(projection.activity[0]?.tone).toBe("ok");
 		expect(projection.completed[0]).toMatchObject({
 			workKey: "source:item:42",
+			runId: "run-1",
 			label: "#42 Fix checkout totals",
 			status: "succeeded",
 			url: "https://example.com/pr/42",
+			labels: ["phase:post", "incremental"],
+			tokens: { input: 1000, output: 200, total: 1200, cost: 0.42 },
 		});
+		expect(projection.completed[0]?.durationMs).toBeGreaterThanOrEqual(0);
 		expect(projection.completed[0]?.atMs).toBeGreaterThan(0);
 		expect(projection.debugEvents.length).toBeGreaterThanOrEqual(3);
 	});
