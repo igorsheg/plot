@@ -414,9 +414,44 @@ describe("PlotDashboard", () => {
 
 		expect(rendered).toContain("tick #42");
 		expect(rendered).toContain("no active work — watching");
-		expect(rendered).toContain("next tick in");
+		expect(rendered).toContain("next wake in");
 		expect(rendered).not.toContain("none\nnone");
 	});
+
+	test("shows periodic ticks separately from retry wakes", () =>
+		withFixedNow(() => {
+			const dashboard = new PlotDashboard(
+				{
+					...emptyProjection("default", "workflow", {
+						cwd: "/repo/epic",
+						cwdName: "epic",
+						skills: [],
+						skillPaths: [],
+						tickIntervalMs: 10_000,
+					}),
+					status: "running",
+					pulse: {
+						tickId: 42,
+						atMs: fixedNowMs - 3_000,
+						found: 0,
+						started: 0,
+					},
+					scheduledWakes: [
+						{
+							dueAtMs: fixedNowMs + 26_000,
+							delayMs: 30_000,
+							workKey: "source:item:42",
+						},
+					],
+				},
+				actions,
+			);
+
+			const rendered = stripAnsi(dashboard.render(120).join("\n"));
+
+			expect(rendered).toContain("next tick in 7s");
+			expect(rendered).toContain("retry in 26s");
+		}));
 
 	test("requires a second q to shut down and esc cancels", () => {
 		let shutdowns = 0;
@@ -495,7 +530,7 @@ describe("PlotDashboard", () => {
 			);
 
 			const rendered = stripAnsi(dashboard.render(120).join("\n"));
-			expect(rendered).toContain("Completed");
+			expect(rendered).toContain("Recent runs");
 			expect(rendered).toContain("3s ago");
 			expect(rendered).toContain("#42 Item 42 succeeded · review posted");
 

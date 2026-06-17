@@ -3,13 +3,13 @@
 ╭─ PLOT  workflow  ◉ idle
 │
 │  0/4 agents active      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁
-│  tick #44 · 5s ago · found 1      next wake in 2s
+│  tick #44 · 5s ago · found 1      retry in 2s
 │
 │
 │ ▲ ATTENTION (1)
 │   ● runner failed: rate limit exhausted
-├─ Agents · 2 scheduled
-│   no active work — watching · next tick in 2s
+├─ Work · 2 scheduled
+│   no active work — watching · next wake in 2s
 │     ↻ retry in 2s · attempt 4 · rate limit exhausted
 │     ↻ wake in 10s · poll
 │

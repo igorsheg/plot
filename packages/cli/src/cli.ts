@@ -30,11 +30,17 @@ const rootArgs = {
 	},
 };
 
-const runRootTui = async ({ args }: { args: ParsedArgs }) => {
-	const { runPlotTui } = await import("@plot/tui/plot-tui");
+const runRootTui = async ({
+	args,
+	rawArgs,
+}: {
+	args: ParsedArgs;
+	rawArgs: readonly string[];
+}) => {
 	const io = getCliIo();
-	const noServer = bool(args, "no-server");
-	return runPlotTui({
+	const runTui = io.runTui ?? (await import("@plot/tui/plot-tui")).runPlotTui;
+	const noServer = bool(args, "no-server") || rawArgs.includes("--no-server");
+	return runTui({
 		...baseOptions(args),
 		...(noServer ? { noServer: true } : {}),
 		...(io.createAgentSession === undefined
@@ -69,10 +75,17 @@ const rootMeta = {
 	description: "A control plane for long-running coding agents.",
 };
 
+const rootTuiCommand = defineCommand({
+	meta: rootMeta,
+	args: rootArgs,
+	run: runRootTui,
+});
+
 const rootCommand = defineCommand({
 	meta: rootMeta,
 	args: rootArgs,
 	subCommands,
+	run: runRootTui,
 });
 
 const stringOptions = new Set([
@@ -116,7 +129,7 @@ const subCommandInvocation = (args: readonly string[]) => {
 				commandName: arg as keyof typeof subCommands,
 				args: [...args.slice(0, index), ...args.slice(index + 1)],
 			};
-		return undefined;
+		return null;
 	}
 	return undefined;
 };
@@ -132,6 +145,14 @@ export const runPlotCli = async (
 	}
 	setCliIo(io);
 	const subCommand = subCommandInvocation(args);
+	if (subCommand === null) {
+		await io.writeStdout(
+			stripInternalCommands(
+				await renderUsage(rootCommand as unknown as CommandDef),
+			),
+		);
+		return;
+	}
 	if (subCommand !== undefined) {
 		await runCittyCommand(
 			subCommands[subCommand.commandName] as unknown as CommandDef,
@@ -142,11 +163,10 @@ export const runPlotCli = async (
 		);
 		return;
 	}
-	await io.writeStdout(
-		stripInternalCommands(
-			await renderUsage(rootCommand as unknown as CommandDef),
-		),
-	);
+	await runCittyCommand(rootTuiCommand as unknown as CommandDef, {
+		rawArgs: [...args],
+		showUsage: false,
+	});
 };
 
 export const makePlotCommand = (_io: PlotCliIo = processCliIo()) => ({

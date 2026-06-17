@@ -258,9 +258,21 @@ export class PlotDashboard implements Component {
 				: `${style.text(`tick #${pulse.tick.id}`)}${style.muted(
 						` · ${pulse.tick.ago}`,
 					)}${pulse.tick.found > 0 ? style.muted(` · found ${pulse.tick.found}`) : ""}`;
+		const scheduleText = [
+			...(pulse.nextTick === undefined
+				? []
+				: [
+						`${style.muted("next tick in ")}${style.text(`${pulse.nextTick.inSeconds}s`)}`,
+					]),
+			...(pulse.nextWake === undefined
+				? []
+				: [
+						`${style.muted(`${pulse.nextWake.kind === "retry" ? "retry" : "next wake"} in `)}${style.text(`${pulse.nextWake.inSeconds}s`)}`,
+					]),
+		].join(style.dim("      "));
 		const wakeText =
-			pulse.nextWake !== undefined
-				? `${style.muted("next wake in ")}${style.text(`${pulse.nextWake.inSeconds}s`)}`
+			scheduleText.length > 0
+				? scheduleText
 				: pulse.runningCount > 0
 					? undefined
 					: style.muted("no wake scheduled");

@@ -25,6 +25,7 @@ export type PulseTickModel = z.infer<typeof pulseTickModelSchema>;
 export const pulseNextWakeModelSchema = z
 	.object({
 		inSeconds: nonNegativeIntegerSchema,
+		kind: z.enum(["wake", "retry"]).optional(),
 		reason: z.string().optional(),
 	})
 	.strict();
@@ -33,6 +34,7 @@ export type PulseNextWakeModel = z.infer<typeof pulseNextWakeModelSchema>;
 export const pulseModelSchema = z
 	.object({
 		tick: pulseTickModelSchema.optional(),
+		nextTick: pulseNextWakeModelSchema.optional(),
 		nextWake: pulseNextWakeModelSchema.optional(),
 		runningCount: nonNegativeIntegerSchema,
 		maxConcurrentRuns: nonNegativeIntegerSchema.optional(),
@@ -61,6 +63,7 @@ export const workRowModelSchema = z
 		age: z.string(),
 		turns: z.string(),
 		tokens: z.string(),
+		meta: z.string(),
 		activity: z.string(),
 		lastEventAgo: z.string(),
 		stale: z.boolean(),
@@ -86,6 +89,7 @@ export const completedRowModelSchema = z
 		status: z.string(),
 		message: z.string(),
 		ago: z.string(),
+		meta: z.string().optional(),
 		tone: activityToneSchema,
 		url: z.string().optional(),
 	})
@@ -202,29 +206,56 @@ const tokenThroughput = (
 	return { rate, graph };
 };
 
+const compactLabels = (labels: readonly string[] | undefined) =>
+	(labels ?? []).slice(0, 4).join(" · ");
+
+const shortRunId = (runId: string | undefined) => {
+	if (runId === undefined) return undefined;
+	if (runId.length <= 12) return runId;
+	return `${runId.slice(0, 8)}…${runId.slice(-4)}`;
+};
+
+const tokenMeta = (tokens: AgentAttemptProjection["tokens"] | undefined) => {
+	const total = tokens?.total ?? 0;
+	if (total === 0) return undefined;
+	return `${formatTokens(total)} tok${tokens?.cost === undefined || tokens.cost === 0 ? "" : ` · ${formatCost(tokens.cost)}`}`;
+};
+
 const workRow = (
 	work: WorkItemProjection,
 	attempt: AgentAttemptProjection | undefined,
 	nowMs: number,
-): WorkRowModel => ({
-	work,
-	...(attempt === undefined ? {} : { attempt }),
-	label: workLabel(work),
-	status: work.status,
-	age:
+): WorkRowModel => {
+	const age =
 		attempt?.startedAtMs === undefined
 			? "n/a"
-			: formatDuration(nowMs - attempt.startedAtMs),
-	turns: attempt === undefined ? "t0" : `t${attempt.turnCount}`,
-	tokens: formatTokens(tokenTotal(attempt)),
-	activity: displayActivity(work, attempt),
-	lastEventAgo:
-		attempt?.lastEventAtMs === undefined
-			? ""
-			: formatAgo(nowMs - attempt.lastEventAtMs),
-	stale: isStale(attempt, nowMs),
-	attention: needsAttention(work.status),
-});
+			: formatDuration(nowMs - attempt.startedAtMs);
+	const turns = attempt === undefined ? "t0" : `t${attempt.turnCount}`;
+	const tokens = formatTokens(tokenTotal(attempt));
+	const labels = compactLabels(work.labels);
+	return {
+		work,
+		...(attempt === undefined ? {} : { attempt }),
+		label: workLabel(work),
+		status: work.status,
+		age,
+		turns,
+		tokens,
+		meta: [
+			age === "n/a" ? age : `${age} active`,
+			turns,
+			...(tokens === "0" ? [] : [tokens]),
+			...(labels === "" ? [] : [labels]),
+		].join(" · "),
+		activity: displayActivity(work, attempt),
+		lastEventAgo:
+			attempt?.lastEventAtMs === undefined
+				? ""
+				: formatAgo(nowMs - attempt.lastEventAtMs),
+		stale: isStale(attempt, nowMs),
+		attention: needsAttention(work.status),
+	};
+};
 
 const attentionFrom = (
 	rows: readonly WorkRowModel[],
@@ -268,6 +299,25 @@ export const dashboardModelFrom = (
 	const throughput = tokenThroughput(projection.tokenSamples, nowMs);
 	const totalTokens = formatTokens(projection.usageTotals.tokens);
 	const nextWake = projection.scheduledWakes[0];
+	const tickIntervalMs = projection.runtime.tickIntervalMs;
+	const nextTick =
+		projection.pulse === undefined ||
+		tickIntervalMs === undefined ||
+		projection.status === "stopped" ||
+		projection.status === "shutting_down"
+			? undefined
+			: Math.ceil(
+					Math.max(0, projection.pulse.atMs + tickIntervalMs - nowMs) / 1000,
+				);
+	const recentRuns = projection.completed.slice(0, 5);
+	const duplicateLabels = new Set(
+		recentRuns
+			.map((entry) => entry.label)
+			.filter(
+				(label, _index, labels) =>
+					labels.filter((candidate) => candidate === label).length > 1,
+			),
+	);
 	return {
 		pulse: {
 			...(projection.pulse === undefined
@@ -280,6 +330,13 @@ export const dashboardModelFrom = (
 							started: projection.pulse.started,
 						},
 					}),
+			...(nextTick === undefined
+				? {}
+				: {
+						nextTick: {
+							inSeconds: nextTick,
+						},
+					}),
 			...(nextWake === undefined
 				? {}
 				: {
@@ -287,6 +344,7 @@ export const dashboardModelFrom = (
 							inSeconds: Math.ceil(
 								Math.max(0, nextWake.dueAtMs - nowMs) / 1000,
 							),
+							kind: nextWake.workKey === undefined ? "wake" : "retry",
 							...(nextWake.reason === undefined
 								? {}
 								: { reason: nextWake.reason }),
@@ -318,14 +376,30 @@ export const dashboardModelFrom = (
 				...(wake.attempt === undefined ? {} : { attempt: wake.attempt }),
 			};
 		}),
-		completed: projection.completed.slice(0, 5).map((entry) => ({
-			label: entry.label,
-			status: entry.status,
-			message: entry.message,
-			ago: formatAgo(nowMs - entry.atMs),
-			tone: entry.status === "succeeded" ? "ok" : "bad",
-			...(entry.url === undefined ? {} : { url: entry.url }),
-		})),
+		completed: recentRuns.map((entry) => {
+			const labels = compactLabels(entry.labels);
+			const run = duplicateLabels.has(entry.label)
+				? shortRunId(entry.runId)
+				: undefined;
+			const tokens = tokenMeta(entry.tokens);
+			const meta = [
+				...(labels === "" ? [] : [labels]),
+				...(entry.durationMs === undefined
+					? []
+					: [formatDuration(entry.durationMs)]),
+				...(tokens === undefined ? [] : [tokens]),
+				...(run === undefined ? [] : [`run ${run}`]),
+			].join(" · ");
+			return {
+				label: entry.label,
+				status: entry.status,
+				message: entry.message,
+				ago: formatAgo(nowMs - entry.atMs),
+				...(meta === "" ? {} : { meta }),
+				tone: entry.status === "succeeded" ? "ok" : "bad",
+				...(entry.url === undefined ? {} : { url: entry.url }),
+			};
+		}),
 		activity: projection.activity.slice(0, 20).map((entry) => ({
 			ago: formatAgo(nowMs - entry.atMs),
 			tone: entry.tone,

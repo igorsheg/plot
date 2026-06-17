@@ -229,11 +229,15 @@ export type AgentAttemptProjection = z.infer<
 export const completedWorkProjectionSchema = z
 	.object({
 		workKey: z.string(),
+		runId: z.string().optional(),
 		label: z.string(),
 		status: z.string(),
 		message: z.string(),
 		atMs: nonNegativeIntegerSchema,
+		durationMs: nonNegativeIntegerSchema.optional(),
 		url: z.string().optional(),
+		labels: z.array(z.string()).readonly().optional(),
+		tokens: tokenUsageProjectionSchema.optional(),
 	})
 	.strict();
 export type CompletedWorkProjection = z.infer<
@@ -967,6 +971,11 @@ const reduceAttemptCompleted = (
 	if (priorAttempt !== undefined) attempts.delete(priorAttempt.runId);
 	const priorWork = work.get(workKey);
 	const label = priorWork === undefined ? workKey : workLabel(priorWork);
+	const completedRunId = runId ?? priorAttempt?.runId;
+	const durationMs =
+		priorAttempt?.startedAtMs === undefined
+			? undefined
+			: Math.max(0, observedAtMs - priorAttempt.startedAtMs);
 	const ok = status === "succeeded";
 	if (ok) work.delete(workKey);
 	else if (priorWork !== undefined)
@@ -1008,11 +1017,19 @@ const reduceAttemptCompleted = (
 		completed: [
 			{
 				workKey,
+				...(completedRunId === undefined ? {} : { runId: completedRunId }),
 				label,
 				status,
 				message: error ?? "completed",
 				atMs: observedAtMs,
+				...(durationMs === undefined ? {} : { durationMs }),
 				...(priorWork?.url === undefined ? {} : { url: priorWork.url }),
+				...(priorWork?.labels === undefined
+					? {}
+					: { labels: priorWork.labels }),
+				...(priorAttempt?.tokens === undefined
+					? {}
+					: { tokens: priorAttempt.tokens }),
 			},
 			...projection.completed,
 		].slice(0, 20),

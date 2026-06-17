@@ -30,10 +30,9 @@ const workRowLines = (
 ): readonly DashboardLine[] => {
 	const marker = selected ? style.label("›") : " ";
 	const label = row.stale ? style.row.stale(row.label) : style.text(row.label);
-	const activeFor = row.age === "n/a" ? row.age : `${row.age} active`;
 	const first = item(`${marker} ${rowGlyph(row)} ${label}`);
 	const second = item(
-		`    ${style.stage[row.status](row.status)}${style.muted(` · ${activeFor} · ${row.turns}`)}`,
+		`    ${style.stage[row.status](row.status)}${style.muted(` · ${row.meta}`)}`,
 	);
 	const activity = quoteActivity(row.activity);
 	const third = item(
@@ -58,14 +57,15 @@ const completionRowLine = (row: CompletedRowModel): DashboardLine => {
 		row.message === "completed" || row.message === row.status
 			? ""
 			: ` · ${row.message}`;
+	const meta = row.meta === undefined ? "" : ` · ${row.meta}`;
 	return item(
-		`  ${cell(row.ago, 12, style.dim)} ${glyph} ${style.text(row.label)} ${style.muted(`${row.status}${message}`)}`,
+		`  ${cell(row.ago, 12, style.dim)} ${glyph} ${style.text(row.label)} ${style.muted(`${row.status}${message}${meta}`)}`,
 	);
 };
 
 const emptyWorkLine = (model: DashboardModel): DashboardLine => {
 	const wake = model.pulse.nextWake;
-	const suffix = wake === undefined ? "" : ` · next tick in ${wake.inSeconds}s`;
+	const suffix = wake === undefined ? "" : ` · next wake in ${wake.inSeconds}s`;
 	return item(`  no active work — watching${suffix}`, style.muted);
 };
 
@@ -145,7 +145,7 @@ export const fleetViewLines = (input: {
 	const completionBlock =
 		completionLines.length === 0
 			? []
-			: [blank(), section("Completed"), ...completionLines];
+			: [blank(), section("Recent runs"), ...completionLines];
 	const maxActivityRows =
 		model.work.length === 0 && completionLines.length === 0 ? 8 : 4;
 	const activityLines =

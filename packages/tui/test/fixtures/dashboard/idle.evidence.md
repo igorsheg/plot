@@ -5,8 +5,8 @@
 │  0/4 agents active      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁
 │  tick #42 · 3s ago      next wake in 26s
 │
-├─ Agents · 1 scheduled
-│   no active work — watching · next tick in 26s
+├─ Work · 1 scheduled
+│   no active work — watching · next wake in 26s
 │     ↻ wake in 26s · poll
 │
 ├─ Activity

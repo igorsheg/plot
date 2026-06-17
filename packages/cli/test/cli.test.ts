@@ -6,7 +6,7 @@ import {
 import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runPlotCli } from "../src/cli.js";
 
 const tempDirs: string[] = [];
@@ -138,6 +138,58 @@ describe("plot CLI", () => {
 		const output = stdout.join("");
 		expect(output).toContain("plot [OPTIONS]");
 		expect(output).not.toContain("_serve");
+	});
+
+	test("runs the root TUI entrypoint when no subcommand is provided", async () => {
+		const workflowPath = await makeWorkflowFile();
+		const stdout: string[] = [];
+		const calls: unknown[] = [];
+
+		await runPlotCli(
+			[
+				"--workflow",
+				workflowPath,
+				"--cwd",
+				dirname(workflowPath),
+				"--no-server",
+			],
+			{
+				stdin: chunks([]),
+				writeStdout: (line) => {
+					stdout.push(line);
+				},
+				runTui: (options) => {
+					calls.push(options);
+				},
+			},
+		);
+
+		expect(stdout).toEqual([]);
+		expect(calls).toEqual([
+			expect.objectContaining({
+				workflowPath,
+				cwd: dirname(workflowPath),
+				noServer: true,
+			}),
+		]);
+	});
+
+	test("prints usage instead of running TUI for an unknown subcommand", async () => {
+		const stdout: string[] = [];
+		const calls: unknown[] = [];
+
+		await runPlotCli(["wat"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+			runTui: (options) => {
+				calls.push(options);
+			},
+		});
+
+		expect(stdout.join("")).toContain("plot [OPTIONS]");
+		expect(calls).toEqual([]);
 	});
 
 	test("allows root options before a subcommand", async () => {
