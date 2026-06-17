@@ -127,7 +127,7 @@ plot --workflow WORKFLOW.md
 plot web
 ```
 
-The TUI attaches to one Plot Session. The web dashboard rolls up every Plot Session in the Local Plot Server roster and drills into the same per-session projection. Pressing Ctrl-C in `plot` closes that Plot Session; pressing Ctrl-C in `plot web` stops the web command. Closing a browser tab only detaches that web client. Use `plot stop --all` to stop the daemon and all sessions.
+The TUI owns one Plot Session. The web dashboard rolls up every Plot Session in the Local Plot Server roster and drills into the same per-session projection. Pressing Ctrl-C in `plot` closes that Plot Session and stops the daemon if it was the last live session; pressing Ctrl-C in `plot web` stops the web command. Closing a browser tab only detaches that web client. Use `plot stop --all` as the emergency stop for daemon and sessions.
 
 It shows:
 

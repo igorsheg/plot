@@ -26,6 +26,7 @@ function makeFakeSession(options?: {
 	let listener: AgentSessionEventListener | undefined;
 	let disposed = false;
 	let unsubscribed = false;
+	const prompts: string[] = [];
 	const events: readonly AgentSessionEvent[] = options?.events ?? [
 		{ type: "agent_start" },
 		{ type: "agent_end", messages: [], willRetry: false },
@@ -38,7 +39,8 @@ function makeFakeSession(options?: {
 				unsubscribed = true;
 			};
 		},
-		prompt: async () => {
+		prompt: async (prompt: string) => {
+			prompts.push(prompt);
 			if (options?.promptError) throw options.promptError;
 			for (const event of events) listener?.(event);
 		},
@@ -49,7 +51,7 @@ function makeFakeSession(options?: {
 
 	return {
 		session,
-		state: () => ({ disposed, unsubscribed }),
+		state: () => ({ disposed, prompts, unsubscribed }),
 	};
 }
 
@@ -65,7 +67,36 @@ describe("agent session client", () => {
 			"agent_start",
 			"agent_end",
 		]);
-		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
+		expect(fake.state()).toEqual({
+			disposed: true,
+			prompts: ["hello"],
+			unsubscribed: true,
+		});
+	});
+
+	test("continues on the same session while requested", async () => {
+		const fake = makeFakeSession();
+		const client = makeAgentSessionClientLayer({
+			createAgentSession: async () => fakeResult(fake.session),
+		});
+
+		const events = await collect(
+			client.prompt({
+				prompt: "first",
+				maxTurns: 3,
+				shouldContinue: (turn) => turn < 2,
+			}),
+		);
+		expect(events.map((event) => event.type)).toEqual([
+			"agent_start",
+			"agent_end",
+			"agent_start",
+			"agent_end",
+		]);
+		expect(fake.state().prompts).toEqual([
+			"first",
+			expect.stringContaining("continuation turn #2 of 3"),
+		]);
 	});
 
 	test("ends the stream when prompting resolves without an agent_end event", async () => {
@@ -76,7 +107,11 @@ describe("agent session client", () => {
 
 		const events = await collect(client.prompt({ prompt: "hello" }));
 		expect(events.map((event) => event.type)).toEqual(["agent_start"]);
-		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
+		expect(fake.state()).toEqual({
+			disposed: true,
+			prompts: ["hello"],
+			unsubscribed: true,
+		});
 	});
 
 	test("fails the stream with a typed adapter error when prompting fails", async () => {
@@ -93,6 +128,10 @@ describe("agent session client", () => {
 		}
 		expect(error).toBeInstanceOf(AgentSessionClientError);
 		expect((error as AgentSessionClientError).phase).toBe("prompt");
-		expect(fake.state()).toEqual({ disposed: true, unsubscribed: true });
+		expect(fake.state()).toEqual({
+			disposed: true,
+			prompts: ["hello"],
+			unsubscribed: true,
+		});
 	});
 });

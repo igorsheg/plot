@@ -119,9 +119,9 @@ describe("plot CLI", () => {
 		expect(output).toContain("list-models");
 		expect(output).toContain("docs");
 		expect(output).toContain("run");
+		expect(output).toContain("tui");
 		expect(output).toContain("web");
 		expect(output).toContain("stop");
-		expect(output).not.toContain("tui");
 		expect(output).not.toContain("service");
 		expect(output).not.toContain("_serve");
 	});

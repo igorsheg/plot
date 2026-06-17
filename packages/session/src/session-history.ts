@@ -281,10 +281,10 @@ export const createSessionHistoryStore = async (
 				recoverOptions.error ??
 				"agent run interrupted by previous Session History epoch recovery";
 			const appended: SessionHistoryEvent[] = [];
-			for (const run of rebuilt.projection.running.values()) {
+			for (const run of rebuilt.projection.attempts.values()) {
 				appended.push(
 					await store.append({
-						type: "agent_run_interrupted",
+						type: "attempt_completed",
 						timestamp,
 						payload: {
 							completion: {

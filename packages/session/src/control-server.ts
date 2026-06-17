@@ -33,6 +33,7 @@ export interface ControlSessionRuntime {
 	readonly session: PlotSessionShape;
 	readonly history?: SessionHistoryStore;
 	readonly isPaused: () => boolean;
+	readonly isClosing: () => boolean;
 	readonly isClosed: () => boolean;
 	readonly pause: () => Promise<SessionHistoryEvent>;
 	readonly resume: () => Promise<SessionHistoryEvent>;
@@ -67,6 +68,7 @@ export interface ControlSessionRuntime {
 
 export interface ControlSessionRegistry {
 	readonly register: (runtime: ControlSessionRuntime) => Promise<void>;
+	readonly unregister: (sessionId: string) => Promise<void>;
 	readonly get: (sessionId: string) => ControlSessionRuntime | undefined;
 	readonly list: () => readonly ControlSessionRuntime[];
 	readonly summary: (
@@ -133,35 +135,70 @@ const eventToHistoryFallback = (
 					tickId: agentEvent["tickId"],
 				},
 			);
-		if (agentEvent["type"] === "tick_completed")
+		if (agentEvent["type"] === "tick_completed") {
+			const result = isRecord(agentEvent["result"]) ? agentEvent["result"] : {};
+			const selected = result["selected"];
+			const started = result["started"];
+			const completions = result["completions"];
+			const diagnostics = result["diagnostics"];
 			return synthesizeHistoryEvent(
 				sessionId,
 				epoch,
 				sequence,
 				"tick_completed",
 				{
-					result: agentEvent["result"],
+					result: {
+						tickId: result["tickId"],
+						selectedCount: Array.isArray(selected) ? selected.length : 0,
+						startedCount: Array.isArray(started) ? started.length : 0,
+						completionCount: Array.isArray(completions)
+							? completions.length
+							: 0,
+						diagnosticCount: Array.isArray(diagnostics)
+							? diagnostics.length
+							: 0,
+						...(Array.isArray(diagnostics) && diagnostics.length > 0
+							? { diagnostics }
+							: {}),
+					},
 				},
 			);
-		if (agentEvent["type"] === "work_started")
+		}
+		if (agentEvent["type"] === "attempt_started")
 			return synthesizeHistoryEvent(
 				sessionId,
 				epoch,
 				sequence,
-				"work_started",
+				"attempt_started",
 				{
 					run: agentEvent["run"],
 				},
 			);
-		if (agentEvent["type"] === "work_completed")
+		if (agentEvent["type"] === "attempt_completed")
 			return synthesizeHistoryEvent(
 				sessionId,
 				epoch,
 				sequence,
-				"work_completed",
+				"attempt_completed",
 				{
 					completion: agentEvent["completion"],
 				},
+			);
+		if (agentEvent["type"] === "work_observed")
+			return synthesizeHistoryEvent(
+				sessionId,
+				epoch,
+				sequence,
+				"work_observed",
+				{ work: agentEvent["work"] },
+			);
+		if (agentEvent["type"] === "work_removed")
+			return synthesizeHistoryEvent(
+				sessionId,
+				epoch,
+				sequence,
+				"work_removed",
+				{ workKey: agentEvent["workKey"] },
 			);
 		if (agentEvent["type"] === "wake_scheduled")
 			return synthesizeHistoryEvent(
@@ -206,43 +243,12 @@ const labelsFromWorkflow = (session: PlotSessionShape) => {
 	return { workflowPath, cwd, workflowName, cwdName: basename(cwd) || cwd };
 };
 
-const readHistoryEventBySequence = async (
-	history: SessionHistoryStore | undefined,
-	sequence: number,
-): Promise<SessionHistoryEvent | undefined> => {
-	if (!history) return undefined;
-	const all = await history.readAll();
-	return all.events.find((event) => Number(event.sequence) === sequence);
-};
-
-const actionsFromSnapshot = (snapshot: RuntimeSnapshot) => {
-	const latest = new Map<string, readonly OperatorAction[]>();
-	for (const run of snapshot.running.values()) {
-		const actions = (run as { readonly operatorActions?: unknown })
-			.operatorActions;
-		if (Array.isArray(actions)) latest.set(run.workKey, actions);
-	}
-	return latest;
-};
-
-const needsYouCountFrom = (
-	snapshot: RuntimeSnapshot,
-	events: readonly SessionHistoryEvent[],
-) => {
-	const latest = actionsFromSnapshot(snapshot);
-	for (const event of events) {
-		if (event.type !== "operator_actions_declared") continue;
-		if (!isRecord(event.payload)) continue;
-		const workKey = event.payload["workKey"];
-		const actions = event.payload["actions"];
-		if (typeof workKey !== "string" || !Array.isArray(actions)) continue;
-		if (!latest.has(workKey))
-			latest.set(workKey, actions as readonly OperatorAction[]);
-	}
-	return [...latest.values()].filter((actions) =>
-		actions.some((action) => !action.disabledReason),
+const needsYouCountFrom = (snapshot: RuntimeSnapshot) =>
+	[...snapshot.work.values()].filter(
+		(work) =>
+			work.status === "blocked" &&
+			(work.operatorActions ?? []).some((action) => !action.disabledReason),
 	).length;
-};
 
 export const makeControlSessionRuntime = (
 	options: ControlSessionRuntimeOptions,
@@ -252,7 +258,9 @@ export const makeControlSessionRuntime = (
 	);
 	const memoryEvents: SessionHistoryEvent[] = [];
 	let paused = false;
+	let closing = false;
 	let closed = false;
+	let closePromise: Promise<boolean> | undefined;
 	let memorySequence = 0;
 	const sessionId = options.session.id;
 	const epoch = options.history?.epoch ?? sessionId;
@@ -274,18 +282,13 @@ export const makeControlSessionRuntime = (
 		await publish(event);
 		return event;
 	};
-	void (async () => {
+	const sessionEventsDone = (async () => {
 		for await (const event of options.session.events()) {
-			const sequence = Number(
-				(event as { readonly sequence?: unknown }).sequence ?? 0,
+			const historyEvent = eventToHistoryFallback(
+				event as { readonly type?: unknown; readonly sequence?: unknown },
+				sessionId,
+				epoch,
 			);
-			const historyEvent =
-				(await readHistoryEventBySequence(options.history, sequence)) ??
-				eventToHistoryFallback(
-					event as { readonly type?: unknown; readonly sequence?: unknown },
-					sessionId,
-					epoch,
-				);
 			if (!options.history)
 				memorySequence = Math.max(
 					memorySequence,
@@ -293,13 +296,14 @@ export const makeControlSessionRuntime = (
 				);
 			await publish(historyEvent);
 		}
-	})();
+	})().catch(() => undefined);
 	const runtime: ControlSessionRuntime = {
 		sessionId,
 		epoch,
 		session: options.session,
 		...(options.history === undefined ? {} : { history: options.history }),
 		isPaused: () => paused,
+		isClosing: () => closing,
 		isClosed: () => closed,
 		pause: async () => {
 			paused = true;
@@ -312,11 +316,18 @@ export const makeControlSessionRuntime = (
 			return appendControlEvent("session_resumed");
 		},
 		close: async () => {
-			await appendControlEvent("session_close_requested");
-			closed = true;
-			const accepted = await options.session.shutdown();
-			await appendControlEvent("session_close_completed", { accepted });
-			return accepted;
+			if (closePromise !== undefined) return closePromise;
+			closing = true;
+			closePromise = (async () => {
+				await appendControlEvent("session_close_requested");
+				const accepted = await options.session.shutdown();
+				await sessionEventsDone;
+				closed = true;
+				await appendControlEvent("session_close_completed", { accepted });
+				eventHub.close();
+				return accepted;
+			})();
+			return closePromise;
 		},
 		requestTick: async () => {
 			await appendControlEvent("tick_requested");
@@ -359,26 +370,25 @@ export const makeControlSessionRuntime = (
 			const labels = labelsFromWorkflow(options.session);
 			const snapshot = await options.session.snapshot();
 			const running = [...snapshot.running.values()];
-			const events = options.history
-				? (await options.history.readAll()).events
-				: memoryEvents;
 			return {
 				id: sessionId,
 				epoch,
 				mode: options.mode ?? "watch",
 				state: closed
 					? "stopped"
-					: paused
-						? "paused"
-						: running.length > 0
-							? "acting"
-							: "idle",
+					: closing
+						? "stopping"
+						: paused
+							? "paused"
+							: running.length > 0
+								? "acting"
+								: "idle",
 				workflowName: labels.workflowName,
 				workflowPath: options.workflowPath ?? labels.workflowPath,
 				cwd: options.cwd ?? labels.cwd,
 				cwdName: basename(options.cwd ?? labels.cwd) || labels.cwdName,
 				agents: { active: running.length, max: 100 },
-				needsYouCount: needsYouCountFrom(snapshot, events),
+				needsYouCount: needsYouCountFrom(snapshot),
 				tokenThroughputPerSecond: null,
 				totalTokens: 0,
 				lastActivityAt: null,
@@ -408,20 +418,17 @@ export const makeControlSessionRuntime = (
 		},
 		currentOperatorAction: async (input) => {
 			const snapshot = await options.session.snapshot();
-			const run = snapshot.running.get(input.workKey);
-			if (!run) return undefined;
-			const actions = (run as { readonly operatorActions?: unknown })
-				.operatorActions;
-			if (!Array.isArray(actions)) return undefined;
-			const action = (actions as readonly OperatorAction[]).find(
+			const work = snapshot.work.get(input.workKey);
+			if (!work) return undefined;
+			const action = (work.operatorActions ?? []).find(
 				(candidate) => candidate.id === input.actionId,
 			);
 			if (!action) return undefined;
-			const display = (run as { readonly display?: unknown }).display;
+			const display = work.display;
 			const version = isRecord(display) ? display["version"] : undefined;
 			return {
 				action,
-				sourceId: run.sourceId,
+				sourceId: work.sourceId,
 				...(display === undefined ? {} : { workDisplay: display }),
 				...(typeof version === "string" ? { workVersion: version } : {}),
 			};
@@ -456,7 +463,7 @@ export const makeControlSessionRegistry = (): ControlSessionRegistry => {
 		const runtime = sessions.get(sessionId);
 		if (!runtime) return;
 		roster.publish({
-			type: runtime.isClosed() ? "session_closed" : "session_changed",
+			type: "session_changed",
 			session: await runtime.summary(countsFor(sessionId)),
 		});
 	};
@@ -467,6 +474,14 @@ export const makeControlSessionRegistry = (): ControlSessionRegistry => {
 				type: "session_opened",
 				session: await runtime.summary(countsFor(runtime.sessionId)),
 			});
+		},
+		unregister: async (sessionId) => {
+			const runtime = sessions.get(sessionId);
+			if (!runtime) return;
+			const session = await runtime.summary(countsFor(sessionId));
+			sessions.delete(sessionId);
+			attachments.delete(sessionId);
+			roster.publish({ type: "session_closed", session });
 		},
 		get: (sessionId) => sessions.get(sessionId),
 		list: () => [...sessions.values()],

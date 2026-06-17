@@ -44,7 +44,7 @@ describe("Plot TUI", () => {
 		expect(typeof runPlotTui).toBe("function");
 	});
 
-	test("opens through the Local Plot Server and explicit detach leaves the session registered", async () => {
+	test("opens through the Local Plot Server and close stops the owned session", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-tui-control-"));
 		tempDirs.push(cwd);
 		const serverDir = await mkdtemp(join(tmpdir(), "plot-tui-server-"));
@@ -75,22 +75,27 @@ describe("Plot TUI", () => {
 				expect.objectContaining({ id: sessionId, mode: "watch" }),
 			);
 
-			await attachment.detach();
+			await attachment.close();
 			listed = await observer.request("list_sessions", {});
-			const stillRegistered = (
+			const stopped = (
 				listed.data as {
 					sessions: readonly { id: string; state: string }[];
 				}
 			).sessions.find((session) => session.id === sessionId);
-			expect(stillRegistered).toBeDefined();
-			expect(stillRegistered?.state).not.toBe("stopped");
-
-			await observer.request("attach_session", {
-				sessionId,
-				role: "controller",
-			});
-			await observer.request("close_session", { sessionId });
+			expect(stopped).toEqual(
+				expect.objectContaining({ id: sessionId, state: "stopped" }),
+			);
 			attachment.client.close();
+
+			const reopened = await openAndAttachPlotTuiSession({
+				cwd,
+				workflowPath,
+				sessionId,
+				serverDir,
+			});
+			expect(reopened.projection.sessionId).toBe(sessionId);
+			await reopened.close();
+			reopened.client.close();
 		} finally {
 			observer.close();
 			await server.stop();

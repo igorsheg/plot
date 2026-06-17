@@ -16,21 +16,72 @@ export const dashboardStatusSchema = z.enum([
 export type DashboardStatus = z.infer<typeof dashboardStatusSchema>;
 export type TuiStatus = DashboardStatus;
 
-export const workStageSchema = z.enum([
+export const workStatusSchema = z.enum([
+	"pending",
+	"running",
+	"blocked",
+	"draining",
+	"done",
+	"failed",
+]);
+export type WorkStatus = z.infer<typeof workStatusSchema>;
+
+export const attemptStageSchema = z.enum([
 	"starting",
-	"waiting",
 	"working",
 	"verifying",
 	"finishing",
-	"blocked",
 	"failed",
 ]);
-export type WorkStage = z.infer<typeof workStageSchema>;
+export type AttemptStage = z.infer<typeof attemptStageSchema>;
+
+// The agent can only ever call pi-mono's closed builtin tool set
+// (bash, edit, find, grep, ls, read, write). Every streamed event therefore
+// classifies into one of a small, fixed taxonomy — no substring inference.
+export const activityKindSchema = z.enum([
+	"think", // turn boundaries / reasoning
+	"read", // read tool
+	"edit", // edit + write tools
+	"search", // grep + find + ls tools
+	"run", // bash (general command)
+	"test", // bash running a check/test command
+	"finish", // bash posting/publishing the result
+	"message", // assistant message streaming (volatile)
+	"wait", // queued / idle
+]);
+export type ActivityKind = z.infer<typeof activityKindSchema>;
+
+// One coalesced run of consecutive same-kind activity. The spine and the
+// kind-chips are projections of this; `count` survives even when individual
+// timeline entries fall off the bounded tail.
+export const phaseEntrySchema = z
+	.object({
+		kind: activityKindSchema,
+		count: nonNegativeIntegerSchema,
+		startedAtMs: nonNegativeIntegerSchema,
+		target: z.string().optional(),
+	})
+	.strict();
+export type PhaseEntry = z.infer<typeof phaseEntrySchema>;
+
+// The tool currently executing in a run. pi-mono runs one tool at a time per
+// agent, and `tool_execution_end` carries no args — so we remember the start's
+// target/kind/check-ness here to attribute the completion correctly.
+export const activeToolSchema = z
+	.object({
+		kind: activityKindSchema,
+		isCheck: z.boolean(),
+		target: z.string().optional(),
+		toolCallId: z.string().optional(),
+	})
+	.strict();
+export type ActiveTool = z.infer<typeof activeToolSchema>;
 
 export const timelineEntrySchema = z
 	.object({
 		atMs: nonNegativeIntegerSchema,
 		text: z.string(),
+		kind: activityKindSchema,
 	})
 	.strict();
 export type TimelineEntry = z.infer<typeof timelineEntrySchema>;
@@ -120,39 +171,60 @@ export type AgentTranscriptReference = z.infer<
 	typeof agentTranscriptReferenceSchema
 >;
 
-export const runningWorkProjectionSchema = z
+export const workItemProjectionSchema = z
 	.object({
 		workKey: z.string(),
-		runId: z.string(),
 		sourceId: z.string(),
 		subject: z.string().optional(),
 		primary: z.string().optional(),
 		title: z.string(),
 		subtitle: z.string().optional(),
 		url: z.string().optional(),
-		stage: workStageSchema,
+		version: z.string().optional(),
+		labels: z.array(z.string()).readonly(),
+		status: workStatusSchema,
+		blockedReason: z.string().optional(),
+		operatorActions: z.array(operatorActionSchema).readonly().optional(),
+		currentRunId: z.string().optional(),
+	})
+	.strict();
+export type WorkItemProjection = z.infer<typeof workItemProjectionSchema>;
+
+export const agentAttemptProjectionSchema = z
+	.object({
+		runId: z.string(),
+		workKey: z.string(),
+		sourceId: z.string(),
+		subject: z.string().optional(),
+		stage: attemptStageSchema,
 		startedAtSeq: nonNegativeIntegerSchema,
 		lastEventSeq: nonNegativeIntegerSchema,
 		startedAtMs: nonNegativeIntegerSchema.optional(),
 		lastEventAtMs: nonNegativeIntegerSchema.optional(),
 		turnCount: nonNegativeIntegerSchema,
 		eventCount: nonNegativeIntegerSchema,
+		meaningfulCount: nonNegativeIntegerSchema,
 		toolUpdateCount: nonNegativeIntegerSchema,
 		messageCount: nonNegativeIntegerSchema,
-		seenTurnIds: z.array(z.string()).readonly(),
-		lastMessage: z.string(),
+		// The single live "now" line — already churn-resolved at reduce time, so
+		// consumers render it directly (no re-derivation in the view model).
 		activity: z.string(),
+		activityKind: activityKindSchema,
+		streaming: z.boolean(),
 		lastMeaningful: z.string(),
 		check: workCheckSchema,
 		commands: z.array(z.string()).readonly(),
 		observations: z.array(z.string()).readonly(),
+		phases: z.array(phaseEntrySchema).readonly(),
 		timeline: z.array(timelineEntrySchema).readonly(),
+		activeTool: activeToolSchema.optional(),
 		tokens: tokenUsageProjectionSchema.optional(),
 		transcript: agentTranscriptReferenceSchema.optional(),
-		operatorActions: z.array(operatorActionSchema).readonly().optional(),
 	})
 	.strict();
-export type RunningWorkProjection = z.infer<typeof runningWorkProjectionSchema>;
+export type AgentAttemptProjection = z.infer<
+	typeof agentAttemptProjectionSchema
+>;
 
 export const completedWorkProjectionSchema = z
 	.object({
@@ -191,7 +263,8 @@ export const dashboardProjectionSchema = z
 		pulse: loopPulseSchema.optional(),
 		usageTotals: usageTotalsSchema,
 		tokenSamples: z.array(tokenSampleSchema).readonly(),
-		running: z.map(z.string(), runningWorkProjectionSchema).readonly(),
+		work: z.map(z.string(), workItemProjectionSchema).readonly(),
+		attempts: z.map(z.string(), agentAttemptProjectionSchema).readonly(),
 		completed: z.array(completedWorkProjectionSchema).readonly(),
 		diagnostics: z.array(z.string()).readonly(),
 		scheduledWakes: z.array(scheduledWakeProjectionSchema).readonly(),
@@ -221,7 +294,8 @@ export const emptyProjection = (
 	frontier: 0,
 	usageTotals: { tokens: 0 },
 	tokenSamples: [],
-	running: new Map(),
+	work: new Map(),
+	attempts: new Map(),
 	completed: [],
 	diagnostics: [],
 	scheduledWakes: [],
@@ -268,102 +342,181 @@ const mapValues = (value: unknown): readonly unknown[] => {
 const inlineText = (value: string, max = 140) =>
 	value.replace(/\s+/g, " ").trim().slice(0, max);
 
-type FieldPath = readonly (string | number)[];
+const baseName = (path: string) => {
+	const trimmed = path.replace(/\/+$/, "");
+	const tail = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+	return tail.length === 0 ? trimmed : tail;
+};
 
-const pathValue = (value: unknown, path: FieldPath): unknown => {
-	let current = value;
-	for (const key of path) {
-		if (typeof key === "number") {
-			if (!Array.isArray(current)) return undefined;
-			current = current[key];
-			continue;
-		}
-		if (!isRecord(current)) return undefined;
-		current = current[key];
+// ── pi-mono event classification ──────────────────────────────────────────
+// The inner `event` is a verbatim pi-mono AgentSessionEvent. Its shape is
+// typed and stable, so classification reads first-class fields (`toolName`,
+// `args`, `isError`) instead of guessing from prose.
+
+const TOOL_KIND: Record<string, ActivityKind> = {
+	read: "read",
+	edit: "edit",
+	write: "edit",
+	grep: "search",
+	find: "search",
+	ls: "search",
+	bash: "run",
+};
+
+const isCheckCommand = (command: string) =>
+	/\b(bun run (check|test)|vitest|jest|tsc|typecheck|lint|pytest|go test|cargo (test|check))\b/i.test(
+		command,
+	);
+
+const isFinishCommand = (command: string) =>
+	/\b(gh pr (review|comment|merge)|git push|publish|gh release)\b/i.test(
+		command,
+	);
+
+const argTarget = (toolName: string, args: unknown): string | undefined => {
+	if (!isRecord(args)) return undefined;
+	if (toolName === "grep" || toolName === "find") return text(args["pattern"]);
+	if (toolName === "bash") return text(args["command"]);
+	return text(args["path"]);
+};
+
+const messageContentText = (message: unknown): string | undefined => {
+	if (!isRecord(message)) return undefined;
+	const content = message["content"];
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return undefined;
+	const parts = content.flatMap((item) => {
+		if (!isRecord(item)) return [];
+		if (item["type"] === "text") return text(item["text"]) ?? [];
+		if (item["type"] === "thinking") return text(item["thinking"]) ?? [];
+		return [];
+	});
+	const combined = parts.join("");
+	return combined.trim().length === 0 ? undefined : combined;
+};
+
+const messageDelta = (event: Record<string, unknown>): string | undefined => {
+	const ame = event["assistantMessageEvent"];
+	if (isRecord(ame)) {
+		const partial = messageContentText(ame["partial"]);
+		if (partial !== undefined) return inlineText(partial, 120);
+		const delta = text(ame["delta"]);
+		if (delta !== undefined && delta.trim().length > 0) return delta;
 	}
-	return current;
+	const message = messageContentText(event["message"]);
+	return message === undefined ? undefined : inlineText(message, 120);
 };
 
-const firstPath = (value: unknown, paths: readonly FieldPath[]) => {
-	for (const path of paths) {
-		const found = pathValue(value, path);
-		if (found !== undefined) return found;
+type EventPhase = "turn" | "start" | "update" | "end" | "message" | "none";
+
+interface Classified {
+	readonly type: string;
+	readonly phase: EventPhase;
+	readonly kind: ActivityKind;
+	readonly target?: string;
+	readonly toolCallId?: string;
+	readonly isCheck: boolean;
+	readonly isError: boolean;
+	readonly delta?: string;
+}
+
+const classify = (raw: unknown): Classified => {
+	const base = {
+		type: "",
+		phase: "none" as EventPhase,
+		kind: "message" as ActivityKind,
+		isCheck: false,
+		isError: false,
+	};
+	if (!isRecord(raw)) return base;
+	const type = text(raw["type"]) ?? "";
+	if (type === "turn_start")
+		return { ...base, type, phase: "turn", kind: "think" };
+	if (
+		type === "tool_execution_start" ||
+		type === "tool_execution_update" ||
+		type === "tool_execution_end"
+	) {
+		const toolName = text(raw["toolName"]) ?? "";
+		const target = argTarget(toolName, raw["args"]);
+		const isBash = toolName === "bash";
+		const isCheck = isBash && target !== undefined && isCheckCommand(target);
+		const isFinish = isBash && target !== undefined && isFinishCommand(target);
+		const kind: ActivityKind = isCheck
+			? "test"
+			: isFinish
+				? "finish"
+				: (TOOL_KIND[toolName] ?? "run");
+		const toolCallId = text(raw["toolCallId"]);
+		const phase: EventPhase =
+			type === "tool_execution_start"
+				? "start"
+				: type === "tool_execution_update"
+					? "update"
+					: "end";
+		return {
+			type,
+			phase,
+			kind,
+			...(target === undefined ? {} : { target }),
+			...(toolCallId === undefined ? {} : { toolCallId }),
+			isCheck,
+			isError: phase === "end" && raw["isError"] === true,
+		};
 	}
-	return undefined;
-};
-
-const deltaPaths: readonly FieldPath[] = [
-	["delta"],
-	["text"],
-	["content"],
-	["summary"],
-	["message", "delta"],
-	["message", "text"],
-	["message", "content"],
-	["message", "summary"],
-	["params", "delta"],
-	["params", "text"],
-	["params", "content"],
-	["params", "textDelta"],
-	["params", "outputDelta"],
-	["params", "summaryText"],
-	["params", "msg", "delta"],
-	["params", "msg", "text"],
-	["params", "msg", "content"],
-	["params", "msg", "textDelta"],
-	["params", "msg", "outputDelta"],
-	["params", "msg", "summaryText"],
-	["params", "msg", "payload", "delta"],
-	["params", "msg", "payload", "text"],
-	["params", "msg", "payload", "content"],
-	["params", "msg", "payload", "textDelta"],
-	["params", "msg", "payload", "outputDelta"],
-	["params", "msg", "payload", "summaryText"],
-	["partialResult", "content", 0, "text"],
-	["partialResult", "details", "text"],
-	["partialResult", "details", "message"],
-	["partialResult", "details", "summary"],
-];
-
-const extractDeltaPreview = (event: unknown) => {
-	const delta = firstPath(event, deltaPaths);
-	if (typeof delta !== "string") return undefined;
-	const trimmed = inlineText(delta);
-	return trimmed.length === 0 ? undefined : trimmed;
-};
-
-const humanizeStreamingEvent = (label: string, event: unknown) => {
-	const preview = extractDeltaPreview(event);
-	return preview === undefined ? label : `${label}: ${preview}`;
-};
-
-const summarizeAgentEvent = (event: unknown): string => {
-	if (!isRecord(event)) return "agent event";
-	const type = text(event["type"]);
-	if (type === "message_update" || type === "message_delta")
-		return humanizeStreamingEvent("agent message streaming", event);
-	if (type === "reasoning_update" || type === "reasoning_delta")
-		return humanizeStreamingEvent("reasoning streaming", event);
-	if (type === "tool_execution_update")
-		return humanizeStreamingEvent("command output streaming", event);
-	const candidates = [
-		event["message"],
-		event["text"],
-		event["summary"],
-		event["command"],
-		event["name"],
-		type,
-	];
-	for (const candidate of candidates) {
-		if (typeof candidate === "string" && candidate.length > 0) {
-			return inlineText(candidate, 120);
-		}
+	if (
+		type === "message_start" ||
+		type === "message_update" ||
+		type === "message_end"
+	) {
+		const delta = messageDelta(raw);
+		return { ...base, type, phase: "message", ...(delta ? { delta } : {}) };
 	}
-	const preview = extractDeltaPreview(event);
-	if (preview !== undefined) return `agent message streaming: ${preview}`;
-	return inlineText(JSON.stringify(event), 120);
+	return { ...base, type };
 };
 
+const liveLabel = (kind: ActivityKind, target: string | undefined): string => {
+	switch (kind) {
+		case "read":
+			return `Reading ${baseName(target ?? "file")}`;
+		case "edit":
+			return `Editing ${baseName(target ?? "file")}`;
+		case "search":
+			return inlineText(`Searching ${target ?? ""}`, 56).trim();
+		case "test":
+			return inlineText(`Running ${target ?? "check"}`, 64);
+		case "finish":
+			return inlineText(`Posting ${target ?? "result"}`, 56);
+		case "think":
+			return "Thinking";
+		default:
+			return inlineText(`Running ${target ?? "command"}`, 64);
+	}
+};
+
+const doneLabel = (
+	kind: ActivityKind,
+	target: string | undefined,
+	isError: boolean,
+): string => {
+	if (isError) return inlineText(`Failed ${target ?? ""}`, 64).trim();
+	switch (kind) {
+		case "read":
+			return `Read ${baseName(target ?? "file")}`;
+		case "edit":
+			return `Edited ${baseName(target ?? "file")}`;
+		case "search":
+			return inlineText(`Searched ${target ?? ""}`, 56).trim();
+		case "test":
+			return inlineText(`Ran ${target ?? "check"}`, 64);
+		case "finish":
+			return inlineText(`Posted ${target ?? "result"}`, 56);
+		default:
+			return inlineText(`Ran ${target ?? "command"}`, 64);
+	}
+};
+
+// ── usage extraction (pi-mono attaches Usage to message_end) ───────────────
 interface UsageDelta {
 	readonly input?: number;
 	readonly output?: number;
@@ -382,8 +535,6 @@ const numberAt = (
 	return undefined;
 };
 
-// pi-mono attaches per-call Usage to the assistant message on message_end:
-// event.message.usage = { input, output, totalTokens, cost: { total } }.
 const extractUsage = (event: unknown): UsageDelta | undefined => {
 	if (!isRecord(event)) return undefined;
 	const message = isRecord(event["message"]) ? event["message"] : undefined;
@@ -413,9 +564,9 @@ const extractUsage = (event: unknown): UsageDelta | undefined => {
 };
 
 const addUsage = (
-	previous: RunningWorkProjection["tokens"],
+	previous: AgentAttemptProjection["tokens"],
 	delta: UsageDelta,
-): NonNullable<RunningWorkProjection["tokens"]> => ({
+): NonNullable<AgentAttemptProjection["tokens"]> => ({
 	input: (previous?.input ?? 0) + (delta.input ?? 0),
 	output: (previous?.output ?? 0) + (delta.output ?? 0),
 	total: (previous?.total ?? 0) + delta.total,
@@ -447,135 +598,41 @@ const prependActivity = (
 	max = 50,
 ) => [entry, ...items].slice(0, max);
 
-const rawEventType = (event: unknown, fallback: string) =>
-	isRecord(event) ? (text(event["type"]) ?? fallback) : fallback;
+const PHASE_MAX = 24;
 
-const toolCommand = (event: unknown, fallback: string) => {
-	if (!isRecord(event)) return fallback;
-	const input = isRecord(event["input"]) ? event["input"] : undefined;
-	const candidates = [
-		event["command"],
-		input?.["command"],
-		event["cmd"],
-		event["name"],
-		event["toolName"],
-		fallback,
-	];
-	for (const candidate of candidates) {
-		if (typeof candidate === "string" && candidate.length > 0) {
-			return candidate.replace(/\s+/g, " ").slice(0, 140);
-		}
-	}
-	return fallback;
+// Coalesce consecutive same-kind activity into one phase, accumulating a count
+// that survives the bounded timeline tail. Timed off the event's observedAtMs
+// (event timestamp on replay), so phases rebuild identically from history.
+const accumulatePhase = (
+	phases: readonly PhaseEntry[],
+	kind: ActivityKind,
+	atMs: number,
+	target: string | undefined,
+): readonly PhaseEntry[] => {
+	const last = phases[phases.length - 1];
+	if (last !== undefined && last.kind === kind)
+		return [
+			...phases.slice(0, -1),
+			{ ...last, count: last.count + 1, ...(target ? { target } : {}) },
+		];
+	return [
+		...phases,
+		{ kind, count: 1, startedAtMs: atMs, ...(target ? { target } : {}) },
+	].slice(-PHASE_MAX);
 };
 
-const turnId = (event: unknown, sequence: number) => {
-	if (!isRecord(event)) return `seq:${sequence}`;
-	const candidates = [event["turnId"], event["id"], event["turn_id"]];
-	for (const candidate of candidates) {
-		if (typeof candidate === "string" && candidate.length > 0) return candidate;
-	}
-	const turn = isRecord(event["turn"]) ? event["turn"] : undefined;
-	if (typeof turn?.["id"] === "string") return turn["id"];
-	return `seq:${sequence}`;
-};
-
-const isMessageDelta = (eventType: string, type: string) =>
-	/^message_(start|update|end)$/.test(eventType) ||
-	/^message_(start|update|end)$/.test(type);
-
-const isToolUpdate = (eventType: string, type: string) =>
-	eventType === "tool_execution_update" || type === "tool_execution_update";
-
-const isToolStart = (eventType: string, type: string) =>
-	eventType === "tool_execution_start" ||
-	type === "tool_execution_start" ||
-	eventType === "tool_call" ||
-	type === "tool_call";
-
-const isToolEnd = (eventType: string, type: string) =>
-	eventType === "tool_execution_end" ||
-	type === "tool_execution_end" ||
-	eventType === "tool_call_completed" ||
-	type === "tool_call_completed";
-
-const isTurnStart = (eventType: string, type: string) =>
-	eventType === "turn_start" || type === "turn_start";
-
-const isTurnEnd = (eventType: string, type: string) =>
-	eventType === "turn_end" || type === "turn_end";
-
-const isObservation = (message: string) =>
-	/\b(note|observation|finding|issue|warning|error)\b/i.test(message);
-const isCommand = (message: string) =>
-	/^(gh|git|rg|bun|npm|pnpm|yarn|node)\b|\b(gh|git|rg|bun)\s/.test(message);
-
-const inferStage = (message: string, eventType: string): WorkStage => {
-	const haystack = `${eventType} ${message}`.toLowerCase();
-	if (haystack.includes("auth")) return "blocked";
-	if (haystack.includes("error") || haystack.includes("failed"))
-		return "failed";
-	if (
-		haystack.includes("gh pr review") ||
-		haystack.includes("/reviews") ||
-		haystack.includes("post") ||
-		haystack.includes("publish")
-	)
-		return "finishing";
-	if (
-		haystack.includes("bun run check") ||
-		haystack.includes("bun run test") ||
-		haystack.includes("typecheck")
-	)
-		return "verifying";
-	if (
-		haystack.includes("read") ||
-		haystack.includes("edit") ||
-		haystack.includes("file") ||
-		haystack.includes("search") ||
-		haystack.includes("rg ") ||
-		haystack.includes("git ") ||
-		haystack.includes("diff") ||
-		haystack.includes("tool") ||
-		haystack.includes("command") ||
-		haystack.includes("turn_start") ||
-		haystack.includes("message")
-	)
-		return "working";
-	return "waiting";
-};
-
-const activityFor = (message: string, eventType: string, rawType: string) => {
-	if (isTurnStart(eventType, rawType)) return "Thinking";
-	if (isTurnEnd(eventType, rawType)) return "Turn finished";
-	if (isToolStart(eventType, rawType)) return `Running: ${message}`;
-	if (isToolEnd(eventType, rawType)) return `Ran: ${message}`;
-	if (isMessageDelta(eventType, rawType)) return message;
-	if (isToolUpdate(eventType, rawType)) return message;
-	return message;
-};
-
-const isMeaningful = (eventType: string, rawType: string) =>
-	isTurnStart(eventType, rawType) ||
-	isTurnEnd(eventType, rawType) ||
-	isToolStart(eventType, rawType) ||
-	isToolEnd(eventType, rawType) ||
-	(!isMessageDelta(eventType, rawType) && !isToolUpdate(eventType, rawType));
-
-const inferCheck = (
-	previous: RunningWorkProjection["check"],
-	message: string,
-): RunningWorkProjection["check"] => {
-	const lower = message.toLowerCase();
-	if (
-		lower.includes("bun run check") ||
-		lower.includes("bun run test") ||
-		lower.includes("typecheck")
-	)
-		return "running";
-	if (previous === "running" && lower.includes("pass")) return "passed";
-	if (previous === "running" && lower.includes("fail")) return "failed";
-	return previous;
+const deriveStage = (
+	previous: AttemptStage,
+	kind: ActivityKind,
+	phase: EventPhase,
+	isError: boolean,
+): AttemptStage => {
+	if (isError) return "failed";
+	if (kind === "finish") return "finishing";
+	if (kind === "test") return "verifying";
+	if (phase === "none" || phase === "message")
+		return previous === "starting" ? "working" : previous;
+	return "working";
 };
 
 export const workLabel = (work: {
@@ -584,6 +641,97 @@ export const workLabel = (work: {
 }) =>
 	work.primary === undefined ? work.title : `${work.primary} ${work.title}`;
 
+const workItemFromRecord = (
+	record: Record<string, unknown>,
+	previous: WorkItemProjection | undefined,
+): WorkItemProjection => {
+	const display = displayFrom(record["display"]);
+	const primary = displayString(display, "primary") ?? previous?.primary;
+	const title =
+		displayString(display, "title") ??
+		text(record["title"]) ??
+		previous?.title ??
+		text(record["subject"]) ??
+		text(record["workKey"]) ??
+		"work";
+	const subtitle = displayString(display, "subtitle") ?? previous?.subtitle;
+	const url = displayString(display, "url") ?? previous?.url;
+	const version = displayString(display, "version") ?? previous?.version;
+	const labels = displayLabels(display);
+	const hasLabels = Array.isArray(display?.["labels"]);
+	const parsedActions = z
+		.array(operatorActionSchema)
+		.safeParse(record["operatorActions"]);
+	const status = workStatusSchema.safeParse(record["status"]);
+	const currentRunId = text(record["currentRunId"]);
+	const subject = text(record["subject"]) ?? previous?.subject;
+	const blockedReason = text(record["blockedReason"]);
+	const operatorActions = parsedActions.success
+		? parsedActions.data
+		: previous?.operatorActions;
+	return {
+		workKey: text(record["workKey"]) ?? previous?.workKey ?? "work",
+		sourceId: text(record["sourceId"]) ?? previous?.sourceId ?? "source",
+		...(subject === undefined ? {} : { subject }),
+		...(primary === undefined ? {} : { primary }),
+		title,
+		...(subtitle === undefined ? {} : { subtitle }),
+		...(url === undefined ? {} : { url }),
+		...(version === undefined ? {} : { version }),
+		labels: hasLabels ? labels : (previous?.labels ?? []),
+		status: status.success ? status.data : (previous?.status ?? "pending"),
+		...(blockedReason === undefined ? {} : { blockedReason }),
+		...(operatorActions === undefined ? {} : { operatorActions }),
+		...(currentRunId === undefined ? {} : { currentRunId }),
+	};
+};
+
+const workItemFromRun = (
+	run: Record<string, unknown>,
+	previous: WorkItemProjection | undefined,
+	status: WorkStatus,
+	currentRunId?: string,
+): WorkItemProjection =>
+	workItemFromRecord(
+		{
+			...run,
+			status,
+			...(currentRunId === undefined ? {} : { currentRunId }),
+		},
+		previous,
+	);
+
+const baseAgentAttempt = (
+	workKey: string,
+	runId: string,
+	sourceId: string,
+	stage: AttemptStage,
+	seq: number,
+	atMs: number | undefined,
+): AgentAttemptProjection => ({
+	workKey,
+	runId,
+	sourceId,
+	stage,
+	startedAtSeq: seq,
+	lastEventSeq: seq,
+	...(atMs === undefined ? {} : { startedAtMs: atMs, lastEventAtMs: atMs }),
+	turnCount: 0,
+	eventCount: 0,
+	meaningfulCount: 0,
+	toolUpdateCount: 0,
+	messageCount: 0,
+	activity: "Waiting to start",
+	activityKind: "wait",
+	streaming: false,
+	lastMeaningful: "started",
+	check: "not-run",
+	commands: [],
+	observations: [],
+	phases: [],
+	timeline: [],
+});
+
 export const applySnapshot = (
 	projection: DashboardProjection,
 	data: unknown,
@@ -591,79 +739,57 @@ export const applySnapshot = (
 	const snapshot =
 		isRecord(data) && isRecord(data["snapshot"]) ? data["snapshot"] : undefined;
 	if (!snapshot) return projection;
-	// Monotonic guard: `asOfSequence` is the snapshot's frontier. A snapshot older
-	// than the events already reduced into this projection must not overwrite
-	// newer state — otherwise a periodic get_snapshot racing the event stream (or
-	// a divergent second session sharing the same id) makes the dashboard flip
-	// between states. Snapshots without an asOfSequence (e.g. the initial attach
-	// frame applied to an empty projection) always apply.
 	const asOfRaw = isRecord(data) ? data["asOfSequence"] : undefined;
 	const asOfSequence = typeof asOfRaw === "number" ? asOfRaw : undefined;
 	if (asOfSequence !== undefined && asOfSequence < projection.frontier)
 		return projection;
+	const workValues = mapValues(snapshot["work"]);
+	const work = new Map(projection.work);
+	for (const item of workValues) {
+		if (!isRecord(item)) continue;
+		const key = text(item["workKey"]);
+		if (key === undefined) continue;
+		work.set(key, workItemFromRecord(item, work.get(key)));
+	}
+	for (const key of work.keys()) {
+		if (
+			!workValues.some(
+				(item) => isRecord(item) && text(item["workKey"]) === key,
+			)
+		)
+			work.delete(key);
+	}
+
 	const runningValues = mapValues(snapshot["running"]);
-	const running = new Map(projection.running);
+	const attempts = new Map(projection.attempts);
 	for (const run of runningValues) {
 		if (!isRecord(run)) continue;
 		const workKey = text(run["workKey"]) ?? "work";
-		const subject = text(run["subject"]);
-		const previous = running.get(workKey);
-		const display = displayFrom(run["display"]);
-		const primary = previous?.primary ?? displayString(display, "primary");
-		const title = displayString(display, "title");
-		const subtitle = previous?.subtitle ?? displayString(display, "subtitle");
-		const url = previous?.url ?? displayString(display, "url");
-		const labels = displayLabels(display);
-		const parsedActions = z
-			.array(operatorActionSchema)
-			.safeParse(run["operatorActions"]);
-		const operatorActions = parsedActions.success
-			? parsedActions.data
-			: previous?.operatorActions;
-		running.set(workKey, {
-			workKey,
-			runId: text(run["runId"]) ?? previous?.runId ?? "run",
-			sourceId: text(run["sourceId"]) ?? previous?.sourceId ?? "source",
-			...(subject === undefined ? {} : { subject }),
-			...(primary === undefined ? {} : { primary }),
-			title: previous?.title ?? title ?? subtitle ?? subject ?? workKey,
-			...(subtitle === undefined ? {} : { subtitle }),
-			...(url === undefined ? {} : { url }),
-			stage:
-				operatorActions !== undefined && operatorActions.length > 0
-					? "blocked"
-					: (previous?.stage ?? "waiting"),
-			startedAtSeq: previous?.startedAtSeq ?? projection.frontier,
-			lastEventSeq: previous?.lastEventSeq ?? projection.frontier,
-			...(previous?.startedAtMs === undefined
+		const runId = text(run["runId"]) ?? "run";
+		const previous = attempts.get(runId);
+		const attempt = {
+			...baseAgentAttempt(
+				workKey,
+				runId,
+				text(run["sourceId"]) ?? previous?.sourceId ?? "source",
+				previous?.stage ?? "starting",
+				previous?.startedAtSeq ?? projection.frontier,
+				previous?.startedAtMs,
+			),
+			...previous,
+			...(text(run["subject"]) === undefined
 				? {}
-				: { startedAtMs: previous.startedAtMs }),
-			...(previous?.lastEventAtMs === undefined
-				? {}
-				: { lastEventAtMs: previous.lastEventAtMs }),
-			turnCount: previous?.turnCount ?? 0,
-			eventCount: previous?.eventCount ?? 0,
-			toolUpdateCount: previous?.toolUpdateCount ?? 0,
-			messageCount: previous?.messageCount ?? 0,
-			seenTurnIds: previous?.seenTurnIds ?? [],
-			lastMessage: previous?.lastMessage ?? (labels.join(",") || "started"),
-			activity: previous?.activity ?? "Waiting to start",
-			lastMeaningful: previous?.lastMeaningful ?? "started",
-			check: previous?.check ?? "not-run",
-			commands: previous?.commands ?? [],
-			observations: previous?.observations ?? [],
-			timeline: previous?.timeline ?? [],
-			...(previous?.tokens === undefined ? {} : { tokens: previous.tokens }),
-			...(operatorActions === undefined ? {} : { operatorActions }),
-		});
+				: { subject: text(run["subject"]) }),
+		};
+		attempts.set(runId, attempt);
+		if (!work.has(workKey))
+			work.set(workKey, workItemFromRun(run, undefined, "running", runId));
 	}
-	for (const key of running.keys()) {
+	for (const key of attempts.keys()) {
 		if (
-			!runningValues.some(
-				(run) => isRecord(run) && text(run["workKey"]) === key,
-			)
+			!runningValues.some((run) => isRecord(run) && text(run["runId"]) === key)
 		)
-			running.delete(key);
+			attempts.delete(key);
 	}
 	const scheduledWakes = Array.isArray(snapshot["scheduledWakes"])
 		? snapshot["scheduledWakes"].filter(isRecord).flatMap((wake) => {
@@ -692,7 +818,14 @@ export const applySnapshot = (
 		asOfSequence === undefined
 			? projection.frontier
 			: Math.max(projection.frontier, asOfSequence);
-	return { ...projection, frontier, running, diagnostics, scheduledWakes };
+	return {
+		...projection,
+		frontier,
+		work,
+		attempts,
+		diagnostics,
+		scheduledWakes,
+	};
 };
 
 const diagnosticText = (diagnostic: unknown) =>
@@ -723,10 +856,14 @@ const reduceTickCompleted = (
 	const tickId = typeof result["tickId"] === "number" ? result["tickId"] : 0;
 	const found = Array.isArray(result["selected"])
 		? result["selected"].length
-		: 0;
+		: typeof result["selectedCount"] === "number"
+			? result["selectedCount"]
+			: 0;
 	const started = Array.isArray(result["started"])
 		? result["started"].length
-		: 0;
+		: typeof result["startedCount"] === "number"
+			? result["startedCount"]
+			: 0;
 	const pulse: LoopPulse = { tickId, atMs: observedAtMs, found, started };
 	const activity =
 		found > 0
@@ -745,86 +882,124 @@ const reduceTickCompleted = (
 	return { ...projection, status: "idle", pulse, activity, diagnostics };
 };
 
-const reduceWorkStarted = (
+const reduceWorkObserved = (
+	projection: DashboardProjection,
+	record: Record<string, unknown>,
+): DashboardProjection => {
+	const item = workItemFromRecord(
+		record,
+		projection.work.get(text(record["workKey"]) ?? ""),
+	);
+	return {
+		...projection,
+		work: new Map(projection.work).set(item.workKey, item),
+	};
+};
+
+const reduceWorkRemoved = (
+	projection: DashboardProjection,
+	workKey: unknown,
+): DashboardProjection => {
+	const key = text(workKey);
+	if (key === undefined) return projection;
+	const work = new Map(projection.work);
+	work.delete(key);
+	return { ...projection, work };
+};
+
+const reduceAttemptStarted = (
 	projection: DashboardProjection,
 	run: Record<string, unknown>,
 	sequence: number,
 	observedAtMs: number,
 ): DashboardProjection => {
 	const workKey = text(run["workKey"]) ?? "work";
-	const subject = text(run["subject"]);
-	const running = new Map(projection.running);
-	const display = displayFrom(run["display"]);
-	const primary = displayString(display, "primary");
-	const title = displayString(display, "title");
-	const subtitle = displayString(display, "subtitle");
-	const url = displayString(display, "url");
-	const labels = displayLabels(display);
-	const parsedActions = z
-		.array(operatorActionSchema)
-		.safeParse(run["operatorActions"]);
-	const operatorActions = parsedActions.success
-		? parsedActions.data
-		: undefined;
-	const work: RunningWorkProjection = {
-		workKey,
-		runId: text(run["runId"]) ?? "run",
-		sourceId: text(run["sourceId"]) ?? "source",
-		...(subject === undefined ? {} : { subject }),
-		...(primary === undefined ? {} : { primary }),
-		title: title ?? subtitle ?? subject ?? workKey,
-		...(subtitle === undefined ? {} : { subtitle }),
-		...(url === undefined ? {} : { url }),
-		stage:
-			operatorActions !== undefined && operatorActions.length > 0
-				? "blocked"
-				: "starting",
-		startedAtSeq: sequence,
-		lastEventSeq: sequence,
-		startedAtMs: observedAtMs,
-		lastEventAtMs: observedAtMs,
-		turnCount: 0,
-		eventCount: 0,
-		toolUpdateCount: 0,
-		messageCount: 0,
-		seenTurnIds: [],
-		lastMessage: labels.join(",") || "started",
+	const runId = text(run["runId"]) ?? "run";
+	const attempts = new Map(projection.attempts);
+	const work = new Map(projection.work);
+	const previousWork = work.get(workKey);
+	const item = workItemFromRun(run, previousWork, "running", runId);
+	work.set(workKey, item);
+	const attempt: AgentAttemptProjection = {
+		...baseAgentAttempt(
+			workKey,
+			runId,
+			text(run["sourceId"]) ?? "source",
+			"starting",
+			sequence,
+			observedAtMs,
+		),
+		...(text(run["subject"]) === undefined
+			? {}
+			: { subject: text(run["subject"]) }),
 		activity: "Starting work",
-		lastMeaningful: "started",
-		check: "not-run",
-		commands: [],
-		observations: [],
-		timeline: [{ atMs: observedAtMs, text: "work started" }],
-		...(operatorActions === undefined ? {} : { operatorActions }),
+		lastMeaningful: item.labels.join(",") || "started",
+		timeline: [{ atMs: observedAtMs, text: "attempt started", kind: "wait" }],
 	};
-	running.set(workKey, work);
+	attempts.set(runId, attempt);
 	return {
 		...projection,
-		running,
+		work,
+		attempts,
 		activity: prependActivity(projection.activity, {
 			atMs: observedAtMs,
 			tone: "info",
-			text: `${workLabel(work)} started`,
+			text: `${workLabel(item)} started`,
 		}),
 	};
 };
 
-const reduceWorkCompleted = (
+const reduceAttemptCompleted = (
 	projection: DashboardProjection,
 	completion: Record<string, unknown>,
 	observedAtMs: number,
 ): DashboardProjection => {
 	const workKey = text(completion["workKey"]) ?? "work";
+	const runId = text(completion["runId"]);
 	const status = text(completion["status"]) ?? "completed";
 	const error = text(completion["error"]);
-	const running = new Map(projection.running);
-	const prior = running.get(workKey);
-	running.delete(workKey);
-	const label = prior === undefined ? workKey : workLabel(prior);
+	const attempts = new Map(projection.attempts);
+	const work = new Map(projection.work);
+	const priorAttempt =
+		runId === undefined
+			? [...attempts.values()].find((attempt) => attempt.workKey === workKey)
+			: attempts.get(runId);
+	if (priorAttempt !== undefined) attempts.delete(priorAttempt.runId);
+	const priorWork = work.get(workKey);
+	const label = priorWork === undefined ? workKey : workLabel(priorWork);
 	const ok = status === "succeeded";
+	if (ok) work.delete(workKey);
+	else if (priorWork !== undefined)
+		work.set(workKey, {
+			workKey: priorWork.workKey,
+			sourceId: priorWork.sourceId,
+			...(priorWork.subject === undefined
+				? {}
+				: { subject: priorWork.subject }),
+			...(priorWork.primary === undefined
+				? {}
+				: { primary: priorWork.primary }),
+			title: priorWork.title,
+			...(priorWork.subtitle === undefined
+				? {}
+				: { subtitle: priorWork.subtitle }),
+			...(priorWork.url === undefined ? {} : { url: priorWork.url }),
+			...(priorWork.version === undefined
+				? {}
+				: { version: priorWork.version }),
+			labels: priorWork.labels,
+			status: "failed",
+			...(priorWork.blockedReason === undefined
+				? {}
+				: { blockedReason: priorWork.blockedReason }),
+			...(priorWork.operatorActions === undefined
+				? {}
+				: { operatorActions: priorWork.operatorActions }),
+		});
 	return {
 		...projection,
-		running,
+		work,
+		attempts,
 		activity: prependActivity(projection.activity, {
 			atMs: observedAtMs,
 			tone: ok ? "ok" : "bad",
@@ -837,7 +1012,7 @@ const reduceWorkCompleted = (
 				status,
 				message: error ?? "completed",
 				atMs: observedAtMs,
-				...(prior?.url === undefined ? {} : { url: prior.url }),
+				...(priorWork?.url === undefined ? {} : { url: priorWork.url }),
 			},
 			...projection.completed,
 		].slice(0, 20),
@@ -880,21 +1055,23 @@ const reduceAgentSessionEvent = (
 	observedAtMs: number,
 ): DashboardProjection => {
 	const workKey = text(event["workKey"]);
+	const runId = text(event["runId"]);
 	if (workKey === undefined) return projection;
-	const rawEvent = event["event"];
-	const eventType = text(event["eventType"]) ?? "agent";
-	const rawType = rawEventType(rawEvent, eventType);
-	const message =
-		isToolStart(eventType, rawType) || isToolEnd(eventType, rawType)
-			? toolCommand(rawEvent, summarizeAgentEvent(rawEvent))
-			: summarizeAgentEvent(rawEvent);
-	const running = new Map(projection.running);
-	const previous = running.get(workKey);
+	const attempts = new Map(projection.attempts);
+	const previous =
+		runId === undefined
+			? [...attempts.values()].find((attempt) => attempt.workKey === workKey)
+			: attempts.get(runId);
 	if (previous === undefined) return projection;
+
+	const rawEvent = event["event"];
+	const classified = classify(rawEvent);
 	const subject = text(event["subject"]) ?? previous.subject;
+
+	// usage accrues on message_end regardless of meaningfulness
 	const usage = extractUsage(rawEvent);
 	const tokens =
-		usage === undefined ? previous?.tokens : addUsage(previous?.tokens, usage);
+		usage === undefined ? previous.tokens : addUsage(previous.tokens, usage);
 	const usageTotals =
 		usage === undefined
 			? projection.usageTotals
@@ -909,93 +1086,161 @@ const reduceAgentSessionEvent = (
 					atMs: observedAtMs,
 					tokens: usageTotals.tokens,
 				});
-	const commands = isCommand(message)
-		? appendBounded(previous?.commands ?? [], message, 8)
-		: (previous?.commands ?? []);
-	const observations = isObservation(message)
-		? appendBounded(previous?.observations ?? [], message, 8)
-		: (previous?.observations ?? []);
-	const priorTurnIds = previous?.seenTurnIds ?? [];
-	const id = isTurnStart(eventType, rawType)
-		? turnId(rawEvent, sequence)
-		: undefined;
-	const seenTurnIds =
-		id !== undefined && !priorTurnIds.includes(id)
-			? [...priorTurnIds, id]
-			: priorTurnIds;
-	const activity = activityFor(message, eventType, rawType);
-	const meaningful = isMeaningful(eventType, rawType);
-	const lastMeaningful = meaningful
-		? activity
-		: (previous?.lastMeaningful ?? "waiting");
-	const timeline = meaningful
+
+	// tool_execution_end carries no args, so resolve the completed tool's
+	// kind/target/check-ness from the start we remembered in activeTool.
+	const active = previous.activeTool;
+	const kind: ActivityKind =
+		classified.phase === "end"
+			? (active?.kind ?? classified.kind)
+			: classified.kind;
+	const target =
+		classified.phase === "end"
+			? (classified.target ?? active?.target)
+			: classified.target;
+	const isCheck =
+		classified.phase === "end"
+			? (active?.isCheck ?? classified.isCheck)
+			: classified.isCheck;
+
+	// turn_start counts a real turn; tool/message deltas never do.
+	const turnCount =
+		classified.phase === "turn" ? previous.turnCount + 1 : previous.turnCount;
+
+	// Timeline = completed meaningful actions (tool end, past tense) + turns.
+	// In-progress tools live in `activity`, not the timeline, so it stays a clean
+	// record rather than a delta firehose.
+	const timelineWorthy =
+		classified.phase === "turn" || classified.phase === "end";
+	const timelineText =
+		classified.phase === "turn"
+			? "Thinking"
+			: doneLabel(kind, target, classified.isError);
+	const timelineKind: ActivityKind =
+		classified.phase === "turn" ? "think" : kind;
+	const timeline = timelineWorthy
 		? prependTimeline(
-				previous?.timeline ?? [],
-				{ atMs: observedAtMs, text: activity },
+				previous.timeline,
+				{ atMs: observedAtMs, text: timelineText, kind: timelineKind },
 				12,
 			)
-		: (previous?.timeline ?? []);
-	running.set(workKey, {
-		workKey,
-		runId: text(event["runId"]) ?? previous?.runId ?? "run",
-		sourceId: text(event["sourceId"]) ?? previous?.sourceId ?? "source",
+		: previous.timeline;
+
+	// Phases coalesce on the start of each action (so N reads → one phase ·N).
+	const phaseWorthy =
+		classified.phase === "turn" || classified.phase === "start";
+	const phaseKind: ActivityKind = classified.phase === "turn" ? "think" : kind;
+	const phases = phaseWorthy
+		? accumulatePhase(
+				previous.phases,
+				phaseKind,
+				observedAtMs,
+				classified.phase === "turn" ? undefined : target,
+			)
+		: previous.phases;
+
+	// The live "now" line — resolved here so views render it verbatim.
+	const streaming =
+		classified.phase === "update" ||
+		(classified.phase === "message" && classified.type !== "message_end");
+	const activity =
+		classified.phase === "message"
+			? classified.delta === undefined
+				? previous.activity
+				: previous.activityKind === "message" &&
+					  previous.streaming &&
+					  !classified.delta.startsWith(previous.activity)
+					? inlineText(`${previous.activity}${classified.delta}`, 120)
+					: inlineText(classified.delta, 120)
+			: classified.phase === "turn"
+				? "Thinking"
+				: classified.phase === "start" || classified.phase === "update"
+					? liveLabel(kind, target)
+					: classified.phase === "end"
+						? doneLabel(kind, target, classified.isError)
+						: previous.activity;
+	const activityKind =
+		classified.phase === "message"
+			? "message"
+			: classified.phase === "none"
+				? previous.activityKind
+				: classified.phase === "turn"
+					? "think"
+					: kind;
+
+	const lastMeaningful = timelineWorthy
+		? timelineText
+		: classified.phase === "start"
+			? liveLabel(kind, target)
+			: previous.lastMeaningful;
+
+	const commands =
+		classified.phase === "start" &&
+		(kind === "run" || kind === "test" || kind === "finish") &&
+		target !== undefined
+			? appendBounded(previous.commands, target, 8)
+			: previous.commands;
+
+	const observations = previous.observations;
+
+	const check = isCheck
+		? classified.phase === "start" || classified.phase === "update"
+			? "running"
+			: classified.phase === "end"
+				? classified.isError
+					? "failed"
+					: "passed"
+				: previous.check
+		: previous.check;
+
+	const next: AgentAttemptProjection = {
+		...previous,
+		runId: runId ?? previous.runId,
+		sourceId: text(event["sourceId"]) ?? previous.sourceId,
 		...(subject === undefined ? {} : { subject }),
-		...(previous?.primary === undefined ? {} : { primary: previous.primary }),
-		title: previous?.title ?? subject ?? workKey,
-		...(previous?.subtitle === undefined
-			? {}
-			: { subtitle: previous.subtitle }),
-		...(previous?.url === undefined ? {} : { url: previous.url }),
-		stage: inferStage(message, `${eventType} ${rawType}`),
-		startedAtSeq: previous?.startedAtSeq ?? sequence,
+		stage: deriveStage(
+			previous.stage,
+			kind,
+			classified.phase,
+			classified.isError,
+		),
 		lastEventSeq: sequence,
-		startedAtMs: previous?.startedAtMs ?? observedAtMs,
 		lastEventAtMs: observedAtMs,
-		turnCount: seenTurnIds.length,
-		eventCount: (previous?.eventCount ?? 0) + 1,
+		turnCount,
+		eventCount: previous.eventCount + 1,
+		meaningfulCount:
+			previous.meaningfulCount + (timelineWorthy || phaseWorthy ? 1 : 0),
 		toolUpdateCount:
-			(previous?.toolUpdateCount ?? 0) +
-			(isToolUpdate(eventType, rawType) ? 1 : 0),
+			previous.toolUpdateCount + (classified.phase === "update" ? 1 : 0),
 		messageCount:
-			(previous?.messageCount ?? 0) +
-			(isMessageDelta(eventType, rawType) ? 1 : 0),
-		seenTurnIds,
-		lastMessage: message,
+			previous.messageCount + (classified.phase === "message" ? 1 : 0),
 		activity,
+		activityKind,
+		streaming,
 		lastMeaningful,
-		check: inferCheck(previous?.check ?? "not-run", message),
+		check,
 		commands,
 		observations,
+		phases,
 		timeline,
 		...(tokens === undefined ? {} : { tokens }),
-		...(previous?.operatorActions === undefined
-			? {}
-			: { operatorActions: previous.operatorActions }),
-	});
-	return { ...projection, usageTotals, tokenSamples, running };
-};
-
-const reduceOperatorActionsDeclared = (
-	projection: DashboardProjection,
-	payload: Record<string, unknown>,
-): DashboardProjection => {
-	const workKey = text(payload["workKey"]);
-	if (workKey === undefined) return projection;
-	const parsed = z.array(operatorActionSchema).safeParse(payload["actions"]);
-	if (!parsed.success) return projection;
-	const running = new Map(projection.running);
-	const previous = running.get(workKey);
-	if (previous === undefined) return projection;
-	running.set(workKey, {
-		...previous,
-		operatorActions: parsed.data,
-		stage: parsed.data.length > 0 ? "blocked" : previous.stage,
-		lastMeaningful:
-			parsed.data.length > 0
-				? "operator action declared"
-				: previous.lastMeaningful,
-	});
-	return { ...projection, running };
+	};
+	// Track / clear the in-flight tool for end-event attribution.
+	if (classified.phase === "start") {
+		next.activeTool = {
+			kind,
+			isCheck,
+			...(target === undefined ? {} : { target }),
+			...(classified.toolCallId === undefined
+				? {}
+				: { toolCallId: classified.toolCallId }),
+		};
+	} else if (classified.phase === "end") {
+		delete next.activeTool;
+	}
+	attempts.delete(previous.runId);
+	attempts.set(next.runId, next);
+	return { ...projection, usageTotals, tokenSamples, attempts };
 };
 
 const reduceEventPayload = (
@@ -1026,20 +1271,21 @@ const reduceEventPayload = (
 				: payload,
 			observedAtMs,
 		);
-	if (type === "work_started" && isRecord(payload)) {
-		const run = isRecord(payload["run"]) ? payload["run"] : payload;
-		return reduceWorkStarted(projection, run, sequence, observedAtMs);
+	if (type === "work_observed" && isRecord(payload)) {
+		const work = isRecord(payload["work"]) ? payload["work"] : payload;
+		return reduceWorkObserved(projection, work);
 	}
-	if (
-		(type === "work_completed" ||
-			type === "agent_run_completed" ||
-			type === "agent_run_interrupted") &&
-		isRecord(payload)
-	) {
+	if (type === "work_removed" && isRecord(payload))
+		return reduceWorkRemoved(projection, payload["workKey"]);
+	if (type === "attempt_started" && isRecord(payload)) {
+		const run = isRecord(payload["run"]) ? payload["run"] : payload;
+		return reduceAttemptStarted(projection, run, sequence, observedAtMs);
+	}
+	if (type === "attempt_completed" && isRecord(payload)) {
 		const completion = isRecord(payload["completion"])
 			? payload["completion"]
 			: payload;
-		return reduceWorkCompleted(projection, completion, observedAtMs);
+		return reduceAttemptCompleted(projection, completion, observedAtMs);
 	}
 	if (
 		(type === "agent_session_event" || type === "agent_run_event") &&
@@ -1059,8 +1305,6 @@ const reduceEventPayload = (
 				5,
 			),
 		};
-	if (type === "operator_actions_declared" && isRecord(payload))
-		return reduceOperatorActionsDeclared(projection, payload);
 	if (type === "operator_observation_recorded" && isRecord(payload))
 		return {
 			...projection,

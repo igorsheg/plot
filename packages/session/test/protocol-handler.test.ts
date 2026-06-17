@@ -1,6 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, test } from "bun:test";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
@@ -59,6 +60,10 @@ const makeProtocol = async (
 		readonly sources?: readonly WorkSource[];
 		readonly runner?: WorkRunner;
 	} = {},
+	protocolOptions: Omit<
+		NonNullable<Parameters<typeof makePlotProtocolLayer>[0]>,
+		"session" | "sessionHistory" | "registry"
+	> = {},
 ) => {
 	const sessionDir = await mkdtemp(join(tmpdir(), "plot-protocol-"));
 	const history = await createSessionHistoryStore({ sessionDir, sessionId });
@@ -69,10 +74,17 @@ const makeProtocol = async (
 		runner: overrides.runner ?? runner,
 		sessionHistory: history,
 	});
+	const registry = makeControlSessionRegistry();
 	return {
 		session,
 		history,
-		protocol: makePlotProtocolLayer({ session, sessionHistory: history }),
+		registry,
+		protocol: makePlotProtocolLayer({
+			...protocolOptions,
+			session,
+			sessionHistory: history,
+			registry,
+		}),
 	};
 };
 
@@ -81,27 +93,29 @@ const makeProtocol = async (
 // open for the same id reuses the live session instead of spawning a duplicate.
 const makeOpeningProtocol = async (sessionId = "session-1") => {
 	const sessionDir = await mkdtemp(join(tmpdir(), "plot-open-"));
-	const history = await createSessionHistoryStore({ sessionDir, sessionId });
-	const session = makePlotSessionLayer({
-		id: sessionId,
-		workflow,
-		sources: [],
-		runner,
-		sessionHistory: history,
-	});
-	const runtime = makeControlSessionRuntime({
-		session,
-		history,
-		cwd: sessionDir,
-		mode: "watch",
-	});
 	const registry = makeControlSessionRegistry();
 	let openCount = 0;
 	const protocol = makePlotProtocolLayer({
 		registry,
 		openSession: async () => {
 			openCount += 1;
-			return runtime;
+			const history = await createSessionHistoryStore({
+				sessionDir,
+				sessionId,
+			});
+			const session = makePlotSessionLayer({
+				id: sessionId,
+				workflow,
+				sources: [],
+				runner,
+				sessionHistory: history,
+			});
+			return makeControlSessionRuntime({
+				session,
+				history,
+				cwd: sessionDir,
+				mode: "watch",
+			});
 		},
 	});
 	return { protocol, registry, openCount: () => openCount };
@@ -137,6 +151,91 @@ describe("explicit Plot control protocol", () => {
 
 		expect(openCount()).toBe(1);
 		expect(registry.list().length).toBe(1);
+	});
+
+	test("open_session creates a fresh epoch after close_session unregisters", async () => {
+		const { protocol, registry, openCount } = await makeOpeningProtocol();
+
+		let pending = collectUntil(protocol.output(), responseFor("open-1"));
+		await protocol.submit(
+			request("open-1", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+		const firstEpoch = registry.get("session-1")?.epoch;
+
+		pending = collectUntil(protocol.output(), responseFor("close-1"));
+		await protocol.submit(
+			request("close-1", "close_session", { sessionId: "session-1" }),
+		);
+		await pending;
+		expect(registry.get("session-1")).toBeUndefined();
+
+		pending = collectUntil(protocol.output(), responseFor("open-2"));
+		await protocol.submit(
+			request("open-2", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+		const secondEpoch = registry.get("session-1")?.epoch;
+
+		expect(openCount()).toBe(2);
+		expect(firstEpoch).not.toBe(secondEpoch);
+		expect(registry.list().length).toBe(1);
+	});
+
+	test("connection-lifetime sessions close when the protocol connection closes", async () => {
+		const { protocol, registry } = await makeOpeningProtocol();
+
+		const pending = collectUntil(protocol.output(), responseFor("open"));
+		await protocol.submit(
+			request("open", "open_session", {
+				sessionId: "session-1",
+				role: "controller",
+				lifetime: "connection",
+			}),
+		);
+		await pending;
+		expect(registry.list().length).toBe(1);
+
+		await protocol.close();
+
+		expect(registry.list()).toEqual([]);
+	});
+
+	test("close_session asks the server to shut down after the last live session", async () => {
+		let shutdowns = 0;
+		const { protocol, registry } = await makeProtocol(
+			"session-1",
+			{},
+			{
+				shutdownServer: () => {
+					shutdowns++;
+				},
+			},
+		);
+
+		let pending = collectUntil(protocol.output(), responseFor("attach"));
+		await protocol.submit(
+			request("attach", "attach_session", {
+				sessionId: "session-1",
+				role: "controller",
+			}),
+		);
+		await pending;
+		pending = collectUntil(protocol.output(), responseFor("close"));
+		await protocol.submit(
+			request("close", "close_session", { sessionId: "session-1" }),
+		);
+		await pending;
+		await sleep(0);
+
+		expect(registry.list()).toEqual([]);
+		expect(shutdowns).toBe(1);
 	});
 
 	test("has no hidden current session for session-scoped commands", async () => {
@@ -588,10 +687,13 @@ describe("explicit Plot control protocol", () => {
 			id: sourceId("source-1"),
 			selectWork: () => [{ workKey: workKey("work:1") }],
 		};
-		const { protocol, session, history } = await makeProtocol("session-1", {
-			sources: [source],
-			runner: { run: () => new Promise(() => undefined) },
-		});
+		const { protocol, session, history, registry } = await makeProtocol(
+			"session-1",
+			{
+				sources: [source],
+				runner: { run: () => new Promise(() => undefined) },
+			},
+		);
 		await session.tickOnce();
 		let pending = collectUntil(protocol.output(), responseFor("attach"));
 		await protocol.submit(
@@ -609,16 +711,22 @@ describe("explicit Plot control protocol", () => {
 		const records = await pending;
 		expect(records.at(-1)).toEqual(expect.objectContaining({ ok: true }));
 		expect((await session.snapshot()).running.size).toBe(0);
+		expect(registry.get("session-1")).toBeUndefined();
 		const events = (await history.readAll()).events;
+		const eventTypes = events.map((event) => event.type);
 		expect(events.length).toBeGreaterThan(0);
-		expect(events.map((event) => event.type)).toEqual(
+		expect(eventTypes).toEqual(
 			expect.arrayContaining([
 				"session_close_requested",
-				"work_completed",
+				"attempt_completed",
 				"session_shutdown",
 				"session_close_completed",
 			]),
 		);
+		expect(eventTypes.indexOf("session_shutdown")).toBeLessThan(
+			eventTypes.indexOf("session_close_completed"),
+		);
+		expect(events.at(-1)?.type).toBe("session_close_completed");
 	});
 
 	test("perform_operator_action rejects undeclared disabled and comment-required actions", async () => {

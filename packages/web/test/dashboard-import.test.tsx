@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
+	applySnapshot,
 	emptyProjection,
 	reduceSessionHistoryEvent,
 } from "@plot/control/projection";
@@ -79,7 +80,7 @@ const workStarted = (sessionId: string): SessionHistoryEvent => ({
 	epoch: "epoch-1",
 	sequence: 1,
 	timestamp: "2026-06-15T00:00:00.000Z",
-	type: "work_started",
+	type: "attempt_started",
 	payload: {
 		run: {
 			workKey: "work:alpha",
@@ -149,7 +150,12 @@ describe("plot web dashboard", () => {
 				runId: "run-1",
 				sourceId: "source",
 				eventType: "tool_execution_start",
-				event: { type: "tool_execution_start", command: "bun run check" },
+				event: {
+					type: "tool_execution_start",
+					toolName: "bash",
+					args: { command: "bun run check" },
+					toolCallId: "tc-2",
+				},
 			},
 		};
 		const projection = [workStarted("session-1"), agentEvent].reduce(
@@ -192,9 +198,48 @@ describe("plot web dashboard", () => {
 				},
 			},
 		};
-		const projection = reduceSessionHistoryEvent(
-			emptyProjection("session-1", "review"),
-			event,
+		const projection = applySnapshot(
+			reduceSessionHistoryEvent(emptyProjection("session-1", "review"), event),
+			{
+				snapshot: {
+					work: new Map([
+						[
+							"work:alpha",
+							{
+								workKey: "work:alpha",
+								sourceId: "source",
+								status: "blocked",
+								display: { title: "Needs operator" },
+								blockedReason: "waiting for operator",
+								operatorActions: [
+									{
+										id: "ship",
+										label: "Ship",
+										tone: "danger",
+										requiresComment: true,
+										confirm: {
+											title: "Ship now?",
+											message: "This is final.",
+										},
+									},
+									{
+										id: "hold",
+										label: "Hold",
+										disabledReason: "not ready",
+									},
+								],
+								currentRunId: "run-1",
+							},
+						],
+					]),
+					running: new Map([
+						[
+							"work:alpha",
+							{ workKey: "work:alpha", runId: "run-1", sourceId: "source" },
+						],
+					]),
+				},
+			},
 		);
 		const html = renderSession(
 			state({

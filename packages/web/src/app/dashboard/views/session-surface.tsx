@@ -5,17 +5,17 @@ import {
 	formatTokens,
 } from "@plot/control/dashboard-model";
 import {
+	type AgentAttemptProjection,
 	type DashboardProjection,
-	type RunningWorkProjection,
+	type WorkItemProjection,
 	workLabel,
 } from "@plot/control/projection";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
 	Dialog,
 	DialogContent,
@@ -25,30 +25,40 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { InputCopy } from "@/components/ui/input-copy";
-import { NotAvailable } from "@/components/ui/not-available";
-import { PageHeader, SectionLabel } from "@/components/ui/page-header";
 import { Sparkline } from "@/components/ui/sparkline";
 import { Switch } from "@/components/ui/switch";
-import {
-	ThinkingStep,
-	ThinkingSteps,
-	ThinkingStepsContent,
-	ThinkingStepsHeader,
-} from "@/components/ui/thinking-steps";
-import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { throughputSeries } from "../throughput-series";
 import {
 	useDashboardActions,
 	useDashboardMeta,
 	useDashboardState,
 } from "../dashboard-context";
 import { projectionReadyDoneCounts } from "../fleet-model";
-import { OperatorActionButtons, InterruptRunButton } from "./operator-actions";
-import { toneForStage, WorkStageDot } from "./status";
+import { throughputSeries } from "../throughput-series";
+import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
-const tabular = "font-mono tabular-nums";
-const muted = "text-muted-foreground";
+const mono = "font-mono tabular-nums";
+
+// hairline divider between inline meta segments (a 4px-rhythm column rule).
+function Divided({ children }: { children: readonly ReactNode[] }) {
+	return (
+		<>
+			{children.map((child, index) => (
+				<Fragment key={index}>
+					{index > 0 ? (
+						<span className="mx-3 h-2 w-px self-center bg-border" />
+					) : null}
+					{child}
+				</Fragment>
+			))}
+		</>
+	);
+}
+
+type WorkSurface = {
+	readonly item: WorkItemProjection;
+	readonly attempt?: AgentAttemptProjection | undefined;
+};
 
 export function SessionSurface() {
 	const { roster, selectedSessionId, projection, lastError } =
@@ -60,24 +70,28 @@ export function SessionSurface() {
 		return <SnapshotUnavailable lastError={lastError} />;
 
 	return (
-		<div className="flex flex-col gap-6">
-			<Link
-				to="/"
-				search={(prev) => ({ role: prev.role ?? "controller" })}
-				className="inline-flex items-center gap-2 self-start text-xs text-muted-foreground hover:text-foreground"
-			>
-				<ArrowLeft size={14} /> all sessions
-			</Link>
+		<div className="flex flex-col">
+			<div className="px-6 pt-5">
+				<Link
+					to="/"
+					search={(prev) => ({ role: prev.role ?? "controller" })}
+					className="inline-flex items-center gap-2 text-2xs text-t3 transition-colors hover:text-foreground"
+				>
+					<ArrowLeft size={13} /> all sessions
+				</Link>
+			</div>
 			{projection === undefined ? (
-				<SnapshotUnavailable lastError={lastError} />
+				<div className="px-6">
+					<SnapshotUnavailable lastError={lastError} />
+				</div>
 			) : (
-				<ProcessTable projection={projection} session={session} />
+				<SessionDetail projection={projection} session={session} />
 			)}
 		</div>
 	);
 }
 
-function ProcessTable({
+function SessionDetail({
 	projection,
 	session,
 }: {
@@ -86,75 +100,418 @@ function ProcessTable({
 }) {
 	const model = dashboardModelFrom(projection);
 	const counts = projectionReadyDoneCounts(projection);
-	// Recompute the series only when the samples actually change, anchored to the
-	// latest sample's time rather than a sliding Date.now() — otherwise the path
-	// shifts every render and the glow's offset-path animation hitches.
 	const samples = projection.tokenSamples;
 	const tps = useMemo(() => {
 		const last = samples[samples.length - 1];
 		return last === undefined ? [] : throughputSeries(samples, last.atMs);
 	}, [samples]);
-	const work = [...projection.running.values()].toSorted(
-		(a, b) => a.startedAtSeq - b.startedAtSeq,
-	);
+	const work = [...projection.work.values()]
+		.filter((item) => item.status !== "done")
+		.map(
+			(item): WorkSurface => ({
+				item,
+				attempt:
+					item.currentRunId === undefined
+						? undefined
+						: projection.attempts.get(item.currentRunId),
+			}),
+		)
+		.toSorted(
+			(a, b) =>
+				Number(needsAttention(b)) - Number(needsAttention(a)) ||
+				(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
+		);
+	const needs = work.filter(needsAttention);
+	const agentsActive = session?.agents.active ?? model.pulse.runningCount;
+	const agentsMax = session?.agents.max ?? model.pulse.maxConcurrentRuns;
+
 	return (
-		<>
-			<PageHeader
-				title={projection.workflowName}
-				subtitle={session?.state ?? projection.status}
-			>
-				<div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-					<Tooltip content="Active / max concurrent agents">
-						<span className={tabular}>
-							agents {session?.agents.active ?? model.pulse.runningCount}/
-							{session?.agents.max ?? model.pulse.maxConcurrentRuns ?? "n/a"}
-						</span>
-					</Tooltip>
-					<Tooltip content="Token throughput · last 60s">
-						<span className="flex items-center gap-2">
-							<Sparkline data={tps} />
-							<span className={tabular}>
-								{model.pulse.throughput.replace("tps", "tok/s")}
-							</span>
-						</span>
-					</Tooltip>
-					<Tooltip content="Total tokens this session">
-						<span className={tabular}>tokens {model.pulse.totalTokens}</span>
-					</Tooltip>
-					<Tooltip content="Work items ready to run · completed">
-						<span className={tabular}>
-							ready {counts.ready} · done {counts.done}
-						</span>
-					</Tooltip>
+		<div className="mt-3 flex flex-col">
+			{/* status bar — the one always-dense strip */}
+			<div className="sticky top-0 z-20 flex h-12 items-center border-b border-border bg-background px-6">
+				<span className="mr-2 size-1.5 shrink-0 rounded-full bg-live" />
+				<h1 className="text-sm font-medium tracking-[-0.01em]">
+					{projection.workflowName}
+				</h1>
+				<span className={cn("ml-2 text-2xs text-t3", mono)}>
+					<span className="capitalize">
+						{session?.state ?? projection.status}
+					</span>
+					{projection.runtime.model ? ` · ${projection.runtime.model}` : ""}
+				</span>
+				<div className={cn("ml-auto flex items-center text-2xs text-t3", mono)}>
+					<Divided>
+						{[
+							<>
+								<b className="font-normal text-muted-foreground">
+									{agentsActive}
+								</b>
+								/{agentsMax ?? "n/a"} agents
+							</>,
+							<span className="flex items-center gap-2">
+								<Sparkline data={tps} />
+								<span className="text-muted-foreground">
+									{model.pulse.throughput.replace("tps", "tok/s")}
+								</span>
+							</span>,
+							<>
+								<b className="font-normal text-muted-foreground">
+									{model.pulse.totalTokens}
+								</b>{" "}
+								tok
+								{model.pulse.totalCost ? ` · ${model.pulse.totalCost}` : ""}
+							</>,
+							<>
+								ready {counts.ready} · done {counts.done}
+							</>,
+						]}
+					</Divided>
 				</div>
-			</PageHeader>
+			</div>
+
 			{session?.cwd ? (
-				<InputCopy value={session.cwd} variant="icon" className="max-w-xl" />
+				<div className="px-6 pt-4">
+					<InputCopy value={session.cwd} variant="icon" className="max-w-xl" />
+				</div>
 			) : null}
-			<SessionControls session={session} projection={projection} />
-			<NeedsYouZone work={work} sessionId={projection.sessionId} />
-			<Card>
-				<Card.Header>
-					<SectionLabel>work</SectionLabel>
-				</Card.Header>
-				<Card.Body className="p-0">
-					{work.length === 0 ? (
-						<p className={cn("px-4 py-3 text-sm", muted)}>No active work.</p>
-					) : (
-						<div className="flex flex-col divide-y divide-border">
-							{work.map((item) => (
-								<WorkItem
-									key={item.workKey}
-									work={item}
-									sessionId={projection.sessionId}
-								/>
-							))}
+
+			<div className="px-6 pt-3">
+				<SessionControls session={session} projection={projection} />
+			</div>
+
+			{needs.length > 0 ? (
+				<NeedsYouBand needs={needs} sessionId={projection.sessionId} />
+			) : null}
+
+			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
+				work · {work.length}
+			</div>
+			{work.length === 0 ? (
+				<p className="border-t border-border px-6 py-4 text-2xs text-t3">
+					No active work.
+				</p>
+			) : (
+				work.map((item) => (
+					<WorkLane
+						key={item.item.workKey}
+						work={item}
+						sessionId={projection.sessionId}
+					/>
+				))
+			)}
+
+			<DoneSection projection={projection} />
+			<RetrySection projection={projection} />
+		</div>
+	);
+}
+
+const needsAttention = (work: WorkSurface) =>
+	work.item.status === "blocked" || work.item.status === "failed";
+
+function statusToneText(work: WorkSurface): string {
+	if (work.item.status === "blocked") return "text-attention";
+	if (work.item.status === "failed") return "text-destructive";
+	if (work.attempt?.streaming) return "text-live";
+	return "text-t3";
+}
+
+function WorkLane({
+	work,
+	sessionId,
+}: {
+	work: WorkSurface;
+	sessionId: string;
+}) {
+	const { item, attempt } = work;
+	const [open, setOpen] = useState(
+		(attempt?.streaming ?? false) || needsAttention(work),
+	);
+	const age =
+		attempt?.startedAtMs === undefined
+			? "n/a"
+			: formatDuration(Date.now() - attempt.startedAtMs);
+	const tokens =
+		attempt?.tokens?.total === undefined
+			? undefined
+			: formatTokens(attempt.tokens.total);
+	const activity =
+		item.status === "blocked" && item.blockedReason !== undefined
+			? item.blockedReason
+			: (attempt?.activity ?? item.status);
+	const railTone =
+		item.status === "blocked"
+			? "bg-attention"
+			: item.status === "failed"
+				? "bg-destructive"
+				: attempt?.streaming
+					? "bg-live"
+					: "bg-border";
+
+	return (
+		<div
+			className={cn(
+				"group border-t border-border",
+				attempt?.streaming && "bg-live/5",
+			)}
+		>
+			<button
+				type="button"
+				onClick={() => setOpen((value) => !value)}
+				className="grid w-full grid-cols-[3px_1fr_auto_16px] items-center gap-x-4 px-6 py-4 text-left transition-colors hover:bg-hover"
+			>
+				<span className={cn("h-6 w-[3px] rounded-[3px]", railTone)} />
+				<div className="min-w-0">
+					<div className="flex items-baseline gap-2">
+						<span className="weight-hover truncate text-sm">
+							{workLabel(item)}
+						</span>
+						<span className={cn("shrink-0 text-2xs text-t3", mono)}>
+							{item.workKey}
+						</span>
+					</div>
+					<p
+						className={cn(
+							"mt-1 truncate text-2xs",
+							mono,
+							attempt?.streaming ? "shimmer-text" : "text-t3",
+						)}
+					>
+						{activity}
+					</p>
+				</div>
+				<div className="flex items-baseline gap-4 justify-self-end whitespace-nowrap">
+					<span
+						className={cn(
+							"flex items-baseline text-2xs text-t3 opacity-0 transition-opacity group-hover:opacity-100",
+							open && "opacity-100",
+							mono,
+						)}
+					>
+						<Divided>
+							{[
+								<>
+									t
+									<b className="font-normal text-muted-foreground">
+										{attempt?.turnCount ?? 0}
+									</b>
+								</>,
+								<b className="font-normal text-muted-foreground">
+									{tokens ?? "—"}
+								</b>,
+								<CheckBadge attempt={attempt} />,
+								<>{age}</>,
+								<span>{attempt?.runId ?? "—"}</span>,
+							]}
+						</Divided>
+					</span>
+					<span className={cn("text-2xs", statusToneText(work))}>
+						{item.status}
+					</span>
+				</div>
+				<ChevronRight
+					size={14}
+					className={cn(
+						"text-t3 opacity-0 transition group-hover:opacity-100",
+						open && "rotate-90 opacity-100",
+					)}
+				/>
+			</button>
+
+			{open ? (
+				<div className="px-6 pb-6 pl-10 text-2xs">
+					{attempt !== undefined && attempt.phases.length > 0 ? (
+						<Spine attempt={attempt} />
+					) : null}
+					{attempt === undefined ? null : (
+						<div className="grid md:grid-cols-[1.5fr_1fr_1fr]">
+							<Timeline attempt={attempt} />
+							<Commands attempt={attempt} />
+							<Observations attempt={attempt} />
 						</div>
 					)}
-				</Card.Body>
-			</Card>
-			<RetrySection projection={projection} />
-		</>
+					<div className="mt-4 flex flex-wrap items-center gap-2">
+						<OperatorActionButtons item={item} sessionId={sessionId} />
+						{attempt === undefined ? null : (
+							<InterruptRunButton
+								item={item}
+								attempt={attempt}
+								sessionId={sessionId}
+							/>
+						)}
+					</div>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function CheckBadge({ attempt }: { attempt?: AgentAttemptProjection }) {
+	if (attempt === undefined || attempt.check === "not-run") return null;
+	if (attempt.check === "failed")
+		return <span className="text-destructive">check failed</span>;
+	if (attempt.check === "running")
+		return <span className="text-live">check running</span>;
+	return <span>passed</span>;
+}
+
+function Spine({ attempt }: { attempt: AgentAttemptProjection }) {
+	const total =
+		attempt.phases.reduce((sum, phase) => sum + phase.count, 0) || 1;
+	return (
+		<div className="mb-5">
+			<div className="mb-2 flex h-1 gap-0.5">
+				{attempt.phases.map((phase, index) => (
+					<span
+						key={`${phase.kind}-${phase.startedAtMs}`}
+						className={cn(
+							"rounded-full",
+							index === attempt.phases.length - 1 && attempt.streaming
+								? "bg-live"
+								: "bg-border",
+						)}
+						style={{ flexGrow: Math.max(1, (phase.count / total) * 100) }}
+					/>
+				))}
+			</div>
+			<div
+				className={cn("flex flex-wrap gap-x-3 gap-y-1 text-2xs text-t3", mono)}
+			>
+				{attempt.phases.map((phase) => (
+					<span key={`label-${phase.kind}-${phase.startedAtMs}`}>
+						{phase.kind} ·{phase.count}
+					</span>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function Col({ title, children }: { title: string; children: ReactNode }) {
+	return (
+		<div className="border-l border-border px-6 first:border-l-0 first:pl-0">
+			<div className={cn("mb-3 text-2xs text-t3", mono)}>{title}</div>
+			{children}
+		</div>
+	);
+}
+
+function Timeline({ attempt }: { attempt: AgentAttemptProjection }) {
+	const ordered = [...attempt.timeline].toSorted((a, b) => b.atMs - a.atMs);
+	return (
+		<Col
+			title={`timeline · ${attempt.meaningfulCount} of ${attempt.eventCount} events`}
+		>
+			{ordered.length === 0 ? (
+				<p className="text-2xs text-t3">No activity yet.</p>
+			) : (
+				<div className={mono}>
+					{ordered.map((entry, index) => (
+						<div
+							key={`${entry.atMs}-${entry.text}`}
+							className="grid grid-cols-[12px_1fr_auto] items-baseline gap-2 py-1"
+						>
+							<span
+								className={cn(
+									"size-1.5 justify-self-center self-center rounded-full",
+									index === 0 && attempt.streaming
+										? "bg-live ring-[3px] ring-live/20"
+										: "bg-border",
+								)}
+							/>
+							<span
+								className={cn(
+									"text-2xs",
+									index === 0 && attempt.streaming
+										? "text-foreground"
+										: "text-muted-foreground",
+								)}
+							>
+								{entry.text}
+							</span>
+							<span className="text-2xs text-t3">
+								{formatAgo(Date.now() - entry.atMs)}
+							</span>
+						</div>
+					))}
+				</div>
+			)}
+		</Col>
+	);
+}
+
+function Commands({ attempt }: { attempt: AgentAttemptProjection }) {
+	if (attempt.commands.length === 0) return null;
+	return (
+		<Col title="commands">
+			<div className={mono}>
+				{attempt.commands.map((command, index) => (
+					<div
+						key={`${index}-${command}`}
+						className="truncate py-1 text-2xs text-muted-foreground"
+					>
+						<span className={index === 0 ? "text-live" : "text-t3"}>$</span>{" "}
+						{command}
+					</div>
+				))}
+			</div>
+		</Col>
+	);
+}
+
+function Observations({ attempt }: { attempt: AgentAttemptProjection }) {
+	if (attempt.observations.length === 0) return null;
+	return (
+		<Col title="observations">
+			{attempt.observations.map((observation, index) => (
+				<div
+					key={`${index}-${observation}`}
+					className="grid grid-cols-[12px_1fr] gap-2 py-1"
+				>
+					<span className="size-1.5 justify-self-center self-center rounded-full bg-t3" />
+					<span className="text-2xs text-muted-foreground">{observation}</span>
+				</div>
+			))}
+		</Col>
+	);
+}
+
+function NeedsYouBand({
+	needs,
+	sessionId,
+}: {
+	needs: readonly WorkSurface[];
+	sessionId: string;
+}) {
+	return (
+		<div className="relative mt-6 border-y border-border bg-attention/5 px-6 py-4">
+			<span className="absolute inset-y-0 left-0 w-0.5 bg-attention" />
+			<div className="flex flex-col gap-3">
+				{needs.map(({ item }) => (
+					<div
+						key={item.workKey}
+						className="flex flex-wrap items-center justify-between gap-3"
+					>
+						<div className="min-w-0">
+							<p className="text-sm font-medium">
+								{workLabel(item)}
+								<span className={cn("ml-2 text-2xs text-t3", mono)}>
+									{item.workKey}
+								</span>
+							</p>
+							<p className="text-2xs text-muted-foreground">
+								{item.blockedReason ?? item.status}
+							</p>
+						</div>
+						<OperatorActionButtons
+							item={item}
+							sessionId={sessionId}
+							prominent
+						/>
+					</div>
+				))}
+			</div>
+		</div>
 	);
 }
 
@@ -176,242 +533,129 @@ function SessionControls({
 		session?.state === "stopped" || projection.status === "stopped";
 
 	return (
-		<Card>
-			<Card.Body className="flex flex-wrap items-center justify-between gap-3 text-xs">
-				<div className="flex flex-wrap items-center gap-4">
-					<Switch
-						label={paused ? "Paused" : "Running"}
-						checked={!paused}
-						disabled={!isController || stopped}
-						onToggle={() =>
-							mutateSession(
-								sessionId,
-								paused ? "resume_session" : "pause_session",
-							)
-						}
-					/>
-					<Button
-						size="sm"
-						variant="tertiary"
-						disabled={!isController || paused || stopped}
-						onClick={() => mutateSession(sessionId, "request_tick")}
-					>
-						Reconcile now
-					</Button>
-					<Button
-						size="sm"
-						variant="tertiary"
-						className="border-destructive/40 text-destructive"
-						disabled={!isController || stopped}
-						onClick={() => setCloseOpen(true)}
-					>
-						Close session
-					</Button>
-					<Dialog open={closeOpen} onOpenChange={setCloseOpen}>
-						<DialogContent>
-							<DialogHeader>
-								<DialogTitle>Close this Plot Session?</DialogTitle>
-								<DialogDescription>
-									Active Agent Runs will be interrupted; Session History is
-									kept.
-								</DialogDescription>
-							</DialogHeader>
-							<DialogFooter>
-								<Button
-									size="sm"
-									variant="tertiary"
-									onClick={() => setCloseOpen(false)}
-								>
-									Cancel
-								</Button>
-								<Button
-									size="sm"
-									variant="primary"
-									className="bg-destructive text-white"
-									onClick={() => {
-										mutateSession(sessionId, "close_session");
-										setCloseOpen(false);
-									}}
-								>
-									Close session
-								</Button>
-							</DialogFooter>
-						</DialogContent>
-					</Dialog>
-				</div>
-				{controllerBlockReason ? (
-					<span className={muted}>{controllerBlockReason}</span>
-				) : null}
-				{mutationError ? (
-					<span className="text-destructive">{mutationError}</span>
-				) : null}
-			</Card.Body>
-		</Card>
-	);
-}
-
-function NeedsYouZone({
-	work,
-	sessionId,
-}: {
-	work: readonly RunningWorkProjection[];
-	sessionId: string;
-}) {
-	const needs = work.filter(
-		(item) =>
-			item.stage === "blocked" || (item.operatorActions?.length ?? 0) > 0,
-	);
-	if (needs.length === 0) return null;
-	// Lift the attention zone a couple steps up the surface ladder so it reads as
-	// more prominent than the surrounding panels (elevation, not just a border).
-	return (
-		<Card offset={4} className="border border-attention/20">
-			<Card.Header>
-				<SectionLabel className="text-attention">needs you</SectionLabel>
-			</Card.Header>
-			<Card.Body className="flex flex-col gap-3">
-				{needs.map((item) => (
-					<div
-						key={item.workKey}
-						className="flex flex-wrap items-center justify-between gap-3"
-					>
-						<div>
-							<p className="text-sm font-medium">{workLabel(item)}</p>
-							<p className="text-xs text-muted-foreground">
-								{item.lastMeaningful}
-							</p>
-						</div>
-						<OperatorActionButtons
-							item={item}
-							sessionId={sessionId}
-							prominent
-						/>
-					</div>
-				))}
-			</Card.Body>
-		</Card>
-	);
-}
-
-// A work item as a stable process row. The volatile stream is isolated to one
-// line that uses FF's `shimmer-text` while the agent is live (motion, not
-// reflow, signals "working"); the event history is an opt-in FF ThinkingSteps
-// timeline — each entry a step on a connecting line, the current one `active`.
-function WorkItem({
-	work,
-	sessionId,
-}: {
-	work: RunningWorkProjection;
-	sessionId: string;
-}) {
-	const isLive = toneForStage(work.stage) === "active";
-	const age =
-		work.startedAtMs === undefined
-			? "n/a"
-			: formatDuration(Date.now() - work.startedAtMs);
-	const tokens =
-		work.tokens?.total === undefined
-			? undefined
-			: formatTokens(work.tokens.total);
-	return (
-		<div className="group flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-hover">
-			<div className="flex items-start justify-between gap-3">
-				<div className="flex min-w-0 items-center gap-2">
-					<WorkStageDot stage={work.stage} />
-					<span className="weight-hover truncate text-sm">
-						{workLabel(work)}
-					</span>
-					<span className="truncate font-mono text-xs text-muted-foreground">
-						{work.workKey}
-					</span>
-				</div>
-				<div className={cn("flex shrink-0 items-center gap-3", tabular, muted)}>
-					<span>{work.stage}</span>
-					<span>
-						{age} · #{Math.max(1, work.turnCount || 1)}
-					</span>
-					<span>{tokens ?? <NotAvailable />}</span>
-					<span>{work.runId || <NotAvailable />}</span>
-				</div>
+		<div className="flex flex-wrap items-center justify-between gap-3 text-2xs">
+			<div className="flex flex-wrap items-center gap-4">
+				<Switch
+					label={paused ? "Paused" : "Running"}
+					checked={!paused}
+					disabled={!isController || stopped}
+					onToggle={() =>
+						mutateSession(
+							sessionId,
+							paused ? "resume_session" : "pause_session",
+						)
+					}
+				/>
+				<Button
+					size="sm"
+					variant="tertiary"
+					disabled={!isController || paused || stopped}
+					onClick={() => mutateSession(sessionId, "request_tick")}
+				>
+					Reconcile now
+				</Button>
+				<Button
+					size="sm"
+					variant="ghost"
+					className="text-destructive"
+					disabled={!isController || stopped}
+					onClick={() => setCloseOpen(true)}
+				>
+					Close session
+				</Button>
+				<Dialog open={closeOpen} onOpenChange={setCloseOpen}>
+					<DialogContent>
+						<DialogHeader>
+							<DialogTitle>Close this Plot Session?</DialogTitle>
+							<DialogDescription>
+								Active Agent Runs will be interrupted; Session History is kept.
+							</DialogDescription>
+						</DialogHeader>
+						<DialogFooter>
+							<Button
+								size="sm"
+								variant="tertiary"
+								onClick={() => setCloseOpen(false)}
+							>
+								Cancel
+							</Button>
+							<Button
+								size="sm"
+								variant="primary"
+								className="bg-destructive text-white"
+								onClick={() => {
+									mutateSession(sessionId, "close_session");
+									setCloseOpen(false);
+								}}
+							>
+								Close session
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
 			</div>
-			{/* Live line: FF shimmer-text while working, static muted otherwise. */}
-			<p
-				className={cn(
-					"truncate text-sm",
-					isLive ? "shimmer-text" : "text-muted-foreground",
-				)}
-			>
-				{work.activity || "idle"}
-			</p>
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<div className="flex flex-wrap items-center gap-2">
-					<OperatorActionButtons item={work} sessionId={sessionId} />
-					<InterruptRunButton item={work} sessionId={sessionId} />
-				</div>
-				<WorkFeed entries={work.timeline} isLive={isLive} />
-			</div>
+			{controllerBlockReason ? (
+				<span className="text-t3">{controllerBlockReason}</span>
+			) : null}
+			{mutationError ? (
+				<span className="text-destructive">{mutationError}</span>
+			) : null}
 		</div>
 	);
 }
 
-function WorkFeed({
-	entries,
-	isLive,
-}: {
-	entries: RunningWorkProjection["timeline"];
-	isLive: boolean;
-}) {
-	const ordered = [...entries].toSorted((a, b) => a.atMs - b.atMs);
-	if (ordered.length === 0) return null;
-	const lastIndex = ordered.length - 1;
+function DoneSection({ projection }: { projection: DashboardProjection }) {
+	if (projection.completed.length === 0) return null;
 	return (
-		<ThinkingSteps defaultOpen={false} className="w-full">
-			<ThinkingStepsHeader className="text-xs">
-				feed ({ordered.length})
-			</ThinkingStepsHeader>
-			<ThinkingStepsContent>
-				{ordered.map((entry, index) => (
-					<ThinkingStep
-						key={`${entry.atMs}-${entry.text}`}
-						index={index}
-						icon="dot"
-						label={entry.text}
-						description={formatAgo(Date.now() - entry.atMs)}
-						status={index === lastIndex && isLive ? "active" : "complete"}
-						isLast={index === lastIndex}
-					/>
-				))}
-			</ThinkingStepsContent>
-		</ThinkingSteps>
+		<>
+			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
+				done · {projection.completed.length}
+			</div>
+			{projection.completed.slice(0, 8).map((entry) => (
+				<div
+					key={`${entry.workKey}-${entry.atMs}`}
+					className="grid grid-cols-[3px_1fr_auto] items-center gap-x-4 border-t border-border px-6 py-3"
+				>
+					<span className="h-5 w-[3px] rounded-[3px] bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]" />
+					<span className="truncate text-sm text-muted-foreground">
+						{entry.label}
+					</span>
+					<span className={cn("shrink-0 text-2xs text-t3", mono)}>
+						<span
+							className={
+								entry.status === "succeeded" ? "text-t3" : "text-destructive"
+							}
+						>
+							{entry.status === "succeeded" ? entry.status : entry.message}
+						</span>{" "}
+						· {formatAgo(Date.now() - entry.atMs)}
+					</span>
+				</div>
+			))}
+		</>
 	);
 }
 
 function RetrySection({ projection }: { projection: DashboardProjection }) {
+	if (projection.scheduledWakes.length === 0) return null;
 	return (
-		<Card>
-			<Card.Header>
-				<SectionLabel>retry</SectionLabel>
-			</Card.Header>
-			<Card.Body className="flex flex-col gap-2 text-xs">
-				{projection.scheduledWakes.length === 0 ? (
-					<p className={muted}>No queued retries.</p>
-				) : (
-					projection.scheduledWakes.map((wake) => (
-						<div
-							key={`${wake.dueAtMs}-${wake.workKey ?? "session"}`}
-							className="flex justify-between gap-3"
-						>
-							<span className="font-mono">↻ {wake.workKey ?? "session"}</span>
-							<span className={cn(tabular, muted)}>
-								attempt {wake.attempt ?? "n/a"} · in{" "}
-								{formatDuration(wake.dueAtMs - Date.now())} ·{" "}
-								{wake.reason ?? "n/a"}
-							</span>
-						</div>
-					))
-				)}
-			</Card.Body>
-		</Card>
+		<>
+			<div className="px-6 pt-6 pb-2 text-2xs text-t3">retry</div>
+			{projection.scheduledWakes.map((wake) => (
+				<div
+					key={`${wake.dueAtMs}-${wake.workKey ?? "session"}`}
+					className="flex items-baseline justify-between gap-3 border-t border-border px-6 py-3"
+				>
+					<span className={cn("text-2xs text-muted-foreground", mono)}>
+						↻ {wake.workKey ?? "session"}
+					</span>
+					<span className={cn("shrink-0 text-2xs text-t3", mono)}>
+						attempt {wake.attempt ?? "n/a"} · in{" "}
+						{formatDuration(wake.dueAtMs - Date.now())} · {wake.reason ?? "n/a"}
+					</span>
+				</div>
+			))}
+		</>
 	);
 }
 
@@ -421,11 +665,9 @@ function SnapshotUnavailable({
 	lastError?: string | undefined;
 }) {
 	return (
-		<Card>
-			<Card.Body className="space-y-2 text-sm text-muted-foreground">
-				<p>Snapshot unavailable for this Plot Session.</p>
-				{lastError ? <p>{lastError}</p> : null}
-			</Card.Body>
-		</Card>
+		<div className="space-y-2 py-4 text-2xs text-t3">
+			<p>Snapshot unavailable for this Plot Session.</p>
+			{lastError ? <p>{lastError}</p> : null}
+		</div>
 	);
 }

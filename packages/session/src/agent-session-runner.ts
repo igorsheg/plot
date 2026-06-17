@@ -55,6 +55,7 @@ export const makeAgentSessionWorkRunner = async (
 					prompt,
 					...(create === undefined ? {} : { create }),
 					...(promptOptions === undefined ? {} : { promptOptions }),
+					signal: context.signal,
 					log: {
 						source_id: context.sourceId,
 						run_id: context.run.runId,

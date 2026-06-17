@@ -116,9 +116,9 @@ export const renderRunEvent = (event: PlotSessionEvent): string | undefined => {
 		}
 	}
 	if (event.type === "plot_agent_event") {
-		if (event.event.type === "work_started")
+		if (event.event.type === "attempt_started")
 			return `Started work ${event.event.run.workKey}.\n`;
-		if (event.event.type === "work_completed")
+		if (event.event.type === "attempt_completed")
 			return `Completed work ${event.event.completion.workKey}: ${event.event.completion.status}.\n`;
 	}
 	return undefined;
@@ -142,9 +142,12 @@ export const renderRunHistoryEvent = (
 				: `\nFinal assistant message:\n${text}\n\nInner agent finished.\n`;
 		}
 	}
-	if (event.type === "work_started" && isRecord(event.payload["run"]))
+	if (event.type === "attempt_started" && isRecord(event.payload["run"]))
 		return `Started work ${String(event.payload["run"]["workKey"] ?? "work")}.\n`;
-	if (event.type === "work_completed" && isRecord(event.payload["completion"]))
+	if (
+		event.type === "attempt_completed" &&
+		isRecord(event.payload["completion"])
+	)
 		return `Completed work ${String(
 			event.payload["completion"]["workKey"] ?? "work",
 		)}: ${String(event.payload["completion"]["status"] ?? "unknown")}.\n`;

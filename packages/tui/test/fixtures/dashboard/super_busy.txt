@@ -4,12 +4,12 @@
 │  2/4 agents active      12.0k tokens      $0.0345      275 tok/s ▁▁▅█▁▇▅▁                                             
 │  tick #43 · 1s ago · found 5                                                                                          
 │                                                                                                                       
-├─ Agents · 2 running                                                                                                   
+├─ Work · 2 visible                                                                                                     
 │ › ● #42 Item 42                                                                                                       
-│     verifying · 5s active · t3                                                                                        
+│     running · 5s active · t3                                                                                          
 │     Running: bun run check                                                                                            
 │   ● #43 Item 43                                                                                                       
-│     finishing · 5s active · t3                                                                                        
+│     running · 5s active · t3                                                                                          
 │     Posting review                                                                                                    
 │                                                                                                                       
 ├─ Activity                                                                                                             

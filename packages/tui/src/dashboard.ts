@@ -134,7 +134,7 @@ export class PlotDashboard implements Component {
 			Math.max(0, model.work.length - 1),
 		);
 		const header = this.header(model);
-		const selected = model.work[this.selectedIndex]?.work;
+		const selected = model.work[this.selectedIndex];
 		const viewportRows = this.viewportRows();
 		const lines =
 			this.mode === "config"
@@ -199,7 +199,7 @@ export class PlotDashboard implements Component {
 	}
 
 	private desiredLiveRenderInterval(): number | undefined {
-		if (this.projection.running.size > 0) return 125;
+		if (this.projection.attempts.size > 0) return 125;
 		if (
 			this.projection.scheduledWakes.length > 0 ||
 			this.projection.pulse !== undefined
@@ -312,9 +312,7 @@ export class PlotDashboard implements Component {
 	}
 
 	private clampedDetailScroll(
-		selected:
-			| ReturnType<typeof dashboardModelFrom>["work"][number]["work"]
-			| undefined,
+		selected: ReturnType<typeof dashboardModelFrom>["work"][number] | undefined,
 		viewportRows: number,
 	): number {
 		const body = selected === undefined ? [] : detailBodyLines(selected);

@@ -56,7 +56,7 @@ extension:
 Then run:
 
 ```bash
-plot --workflow WORKFLOW.md
+plot tui --workflow WORKFLOW.md
 ```
 
 ## Mental model
@@ -166,7 +166,8 @@ Source-declared choices a human controller may perform on the Work Item. They ar
 work({
 	id: "release:v1",
 	title: "Release v1",
-	blocked: "waiting for operator approval",
+	status: "blocked",
+	blockedReason: "waiting for operator approval",
 	operatorActions: [
 		{
 			id: "approve",

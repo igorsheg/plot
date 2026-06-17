@@ -48,6 +48,7 @@ export const plotCommandSchema = z.enum([
 	"interrupt_agent_run",
 	"perform_operator_action",
 	"get_snapshot",
+	"shutdown_server",
 	"ping",
 	"auth_providers",
 	"auth_status",
@@ -101,6 +102,8 @@ export type ListSessionsParams = z.infer<typeof listSessionsParamsSchema>;
 
 export const openSessionModeSchema = z.enum(["watch", "oneshot"]);
 export type OpenSessionMode = z.infer<typeof openSessionModeSchema>;
+export const openSessionLifetimeSchema = z.enum(["server", "connection"]);
+export type OpenSessionLifetime = z.infer<typeof openSessionLifetimeSchema>;
 
 export const openSessionParamsSchema = z
 	.object({
@@ -108,6 +111,7 @@ export const openSessionParamsSchema = z
 		workflowPath: nonEmptyStringSchema.optional(),
 		cwd: nonEmptyStringSchema.optional(),
 		mode: openSessionModeSchema.default("watch").optional(),
+		lifetime: openSessionLifetimeSchema.default("server").optional(),
 		role: controlConnectionRoleSchema.default("controller").optional(),
 		plotDir: nonEmptyStringSchema.optional(),
 		agentDir: nonEmptyStringSchema.optional(),

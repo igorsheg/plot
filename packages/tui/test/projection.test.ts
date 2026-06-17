@@ -32,9 +32,22 @@ const eventRecord = (
 const plotAgentEvent = (sequence: number, event: Record<string, unknown>) =>
 	eventRecord(sequence, String(event["type"]), event);
 
+const workObserved = (sequence: number, status = "pending") =>
+	eventRecord(sequence, "work_observed", {
+		work: {
+			workKey: "source:item:42",
+			sourceId: "extension:worker",
+			status,
+			display: { primary: "#42", title: "Fix checkout totals" },
+		},
+	});
+
+const workRemoved = (sequence: number) =>
+	eventRecord(sequence, "work_removed", { workKey: "source:item:42" });
+
 const workStarted = (sequence: number, workKey = "source:item:42") =>
 	plotAgentEvent(sequence, {
-		type: "work_started",
+		type: "attempt_started",
 		run: {
 			runId: "run-1",
 			sourceId: "extension:worker",
@@ -48,38 +61,194 @@ const workStarted = (sequence: number, workKey = "source:item:42") =>
 		},
 	});
 
-const agentEvent = (
+// Wrap a verbatim pi-mono AgentSessionEvent the way plot-session.ts does.
+const agentRunEvent = (
 	sequence: number,
-	message: string,
+	event: Record<string, unknown>,
 	workKey = "source:item:42",
-	eventType = "tool_call",
-	event: Record<string, unknown> = { type: eventType, command: message },
 ) =>
 	eventRecord(sequence, "agent_run_event", {
 		sourceId: "extension:worker",
 		runId: "run-1",
 		workKey,
 		subject: "source:item:42",
-		eventType,
+		eventType: String(event["type"]),
 		event,
 	});
 
+// Real builtin-tool events: start carries toolName + args; end carries
+// toolName + result + isError (no args).
+const toolStart = (
+	sequence: number,
+	toolName: string,
+	args: Record<string, unknown>,
+	workKey = "source:item:42",
+) =>
+	agentRunEvent(
+		sequence,
+		{
+			type: "tool_execution_start",
+			toolName,
+			args,
+			toolCallId: `tc-${sequence}`,
+		},
+		workKey,
+	);
+
+const toolUpdate = (
+	sequence: number,
+	toolName: string,
+	args: Record<string, unknown>,
+	partialResult: unknown = {},
+	workKey = "source:item:42",
+) =>
+	agentRunEvent(
+		sequence,
+		{ type: "tool_execution_update", toolName, args, partialResult },
+		workKey,
+	);
+
+const toolEnd = (
+	sequence: number,
+	toolName: string,
+	isError = false,
+	workKey = "source:item:42",
+) =>
+	agentRunEvent(
+		sequence,
+		{ type: "tool_execution_end", toolName, result: {}, isError },
+		workKey,
+	);
+
+const bashStart = (
+	sequence: number,
+	command: string,
+	workKey = "source:item:42",
+) => toolStart(sequence, "bash", { command }, workKey);
+
+const turnStart = (sequence: number, workKey = "source:item:42") =>
+	agentRunEvent(sequence, { type: "turn_start" }, workKey);
+
+const messageDelta = (
+	sequence: number,
+	delta: string,
+	workKey = "source:item:42",
+) =>
+	agentRunEvent(
+		sequence,
+		{
+			type: "message_update",
+			message: { role: "assistant", content: [] },
+			assistantMessageEvent: { type: "text_delta", delta },
+		},
+		workKey,
+	);
+
+const messagePartial = (sequence: number, delta: string, partial: string) =>
+	agentRunEvent(sequence, {
+		type: "message_update",
+		message: { role: "assistant", content: [] },
+		assistantMessageEvent: {
+			type: "text_delta",
+			delta,
+			partial: {
+				role: "assistant",
+				content: [{ type: "text", text: partial }],
+			},
+		},
+	});
+
 describe("Plot TUI projection", () => {
-	test("maps agent activity to collapsed operator stages", () => {
+	test("canonical work events own visible work", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workObserved(1, "blocked"));
+		expect(projection.work.get("source:item:42")?.status).toBe("blocked");
+		projection = reduceRecord(projection, workRemoved(2));
+		expect(projection.work.has("source:item:42")).toBe(false);
+	});
+
+	test("classifies operator stage from the tool kind, not prose", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
-		projection = reduceRecord(projection, agentEvent(2, "git diff --stat"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("working");
+		projection = reduceRecord(projection, bashStart(2, "git diff --stat"));
+		expect(projection.attempts.get("run-1")?.stage).toBe("working");
+		expect(projection.attempts.get("run-1")?.activityKind).toBe("run");
 
-		projection = reduceRecord(projection, agentEvent(3, "bun run check"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("verifying");
-		expect(projection.running.get("source:item:42")?.check).toBe("running");
+		projection = reduceRecord(projection, bashStart(3, "bun run check"));
+		expect(projection.attempts.get("run-1")?.stage).toBe("verifying");
+		expect(projection.attempts.get("run-1")?.check).toBe("running");
 
-		projection = reduceRecord(projection, agentEvent(4, "publish result"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("finishing");
+		projection = reduceRecord(projection, bashStart(4, "gh pr review 42"));
+		expect(projection.attempts.get("run-1")?.stage).toBe("finishing");
 
-		projection = reduceRecord(projection, agentEvent(5, "auth required"));
-		expect(projection.running.get("source:item:42")?.stage).toBe("blocked");
+		// Blocked is source work state; attempt stage stays about agent activity.
+		projection = applySnapshot(projection, {
+			snapshot: {
+				work: new Map([
+					[
+						"source:item:42",
+						{
+							workKey: "source:item:42",
+							sourceId: "extension:worker",
+							status: "blocked",
+							display: { primary: "#42", title: "Fix checkout totals" },
+							blockedReason: "waiting for approval",
+							operatorActions: [{ id: "approve", label: "Approve" }],
+							currentRunId: "run-1",
+						},
+					],
+				]),
+				running: new Map([
+					[
+						"source:item:42",
+						{
+							runId: "run-1",
+							sourceId: "extension:worker",
+							workKey: "source:item:42",
+						},
+					],
+				]),
+			},
+		});
+		expect(projection.work.get("source:item:42")?.status).toBe("blocked");
+		expect(projection.attempts.get("run-1")?.stage).toBe("finishing");
+	});
+
+	test("derives check pass/fail from tool_execution_end isError", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(projection, bashStart(2, "bun run check"));
+		expect(projection.attempts.get("run-1")?.check).toBe("running");
+		projection = reduceRecord(projection, toolEnd(3, "bash", true));
+		expect(projection.attempts.get("run-1")?.check).toBe("failed");
+		expect(projection.attempts.get("run-1")?.stage).toBe("failed");
+	});
+
+	test("coalesces consecutive same-kind tools into one phase with a count", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			toolStart(2, "read", { path: "a.ts" }),
+		);
+		projection = reduceRecord(
+			projection,
+			toolStart(3, "read", { path: "b.ts" }),
+		);
+		projection = reduceRecord(
+			projection,
+			toolStart(4, "read", { path: "c.ts" }),
+		);
+		projection = reduceRecord(
+			projection,
+			toolStart(5, "edit", { path: "a.ts" }),
+		);
+
+		const phases = projection.attempts.get("run-1")?.phases ?? [];
+		expect(phases.map((p) => `${p.kind}:${p.count}`)).toEqual([
+			"read:3",
+			"edit:1",
+		]);
 	});
 
 	test("captures the loop pulse from tick_completed", () => {
@@ -102,11 +271,11 @@ describe("Plot TUI projection", () => {
 	test("feeds fleet activity from work lifecycle, not raw event spam", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
-		projection = reduceRecord(projection, agentEvent(2, "bun run check"));
+		projection = reduceRecord(projection, bashStart(2, "bun run check"));
 		projection = reduceRecord(
 			projection,
 			plotAgentEvent(3, {
-				type: "work_completed",
+				type: "attempt_completed",
 				completion: {
 					workKey: "source:item:42",
 					status: "succeeded",
@@ -132,71 +301,63 @@ describe("Plot TUI projection", () => {
 	test("counts real turns instead of streamed deltas", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(projection, turnStart(2));
+		projection = reduceRecord(projection, messageDelta(3, "partial"));
 		projection = reduceRecord(
 			projection,
-			agentEvent(2, "turn", "source:item:42", "turn_start", {
-				type: "turn_start",
-				turnId: "turn-1",
-			}),
+			toolUpdate(4, "bash", { command: "gh pr diff 1532" }),
 		);
-		projection = reduceRecord(
-			projection,
-			agentEvent(3, "delta", "source:item:42", "message_update", {
-				type: "message_update",
-				text: "partial",
-			}),
-		);
-		projection = reduceRecord(
-			projection,
-			agentEvent(4, "delta", "source:item:42", "tool_execution_update", {
-				type: "tool_execution_update",
-				command: "gh pr diff 1532",
-			}),
-		);
-		projection = reduceRecord(
-			projection,
-			agentEvent(5, "turn", "source:item:42", "turn_start", {
-				type: "turn_start",
-				turnId: "turn-1",
-			}),
-		);
+		projection = reduceRecord(projection, turnStart(5));
 
-		const work = projection.running.get("source:item:42");
-		expect(work?.turnCount).toBe(1);
+		const work = projection.attempts.get("run-1");
+		expect(work?.turnCount).toBe(2);
 		expect(work?.eventCount).toBe(4);
 		expect(work?.messageCount).toBe(1);
 		expect(work?.toolUpdateCount).toBe(1);
 	});
 
-	test("previews pi-mono streaming deltas as current activity", () => {
+	test("accumulates assistant partial text instead of replacing with each delta", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(projection, messagePartial(2, "hello", "hello"));
+		projection = reduceRecord(
+			projection,
+			messagePartial(3, " world", "hello world"),
+		);
+		projection = reduceRecord(
+			projection,
+			messagePartial(4, "!", "hello world!"),
+		);
+
+		const work = projection.attempts.get("run-1");
+		expect(work?.activity).toBe("hello world!");
+		expect(work?.streaming).toBe(true);
+		expect(work?.messageCount).toBe(3);
+	});
+
+	test("surfaces streaming deltas as the live activity line", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(
 			projection,
-			agentEvent(2, "delta", "source:item:42", "message_update", {
-				type: "message_update",
-				message: { content: "I am checking the failing p3-serve build now." },
-			}),
-		);
-		projection = reduceRecord(
-			projection,
-			agentEvent(3, "delta", "source:item:42", "tool_execution_update", {
-				type: "tool_execution_update",
-				params: {
-					msg: { payload: { outputDelta: "yarn install is missing state" } },
-				},
-			}),
+			messageDelta(2, "I am checking the failing p3-serve build now."),
 		);
 
-		const work = projection.running.get("source:item:42");
-		expect(work?.lastMessage).toBe(
-			"command output streaming: yarn install is missing state",
-		);
+		let work = projection.attempts.get("run-1");
 		expect(work?.activity).toBe(
-			"command output streaming: yarn install is missing state",
+			"I am checking the failing p3-serve build now.",
 		);
+		expect(work?.streaming).toBe(true);
 		expect(work?.lastMeaningful).toBe("started");
 		expect(work?.messageCount).toBe(1);
+
+		projection = reduceRecord(
+			projection,
+			toolUpdate(3, "bash", { command: "yarn install" }),
+		);
+		work = projection.attempts.get("run-1");
+		expect(work?.activity).toBe("Running yarn install");
+		expect(work?.streaming).toBe(true);
 		expect(work?.toolUpdateCount).toBe(1);
 	});
 
@@ -205,10 +366,11 @@ describe("Plot TUI projection", () => {
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(
 			projection,
-			agentEvent(2, "tool", "source:item:42", "tool_execution_update", {
-				type: "tool_execution_update",
-				toolName: "load_review_context",
-				partialResult: {
+			toolUpdate(
+				2,
+				"grep",
+				{ pattern: "todo" },
+				{
 					content: [{ type: "text", text: "loaded context" }],
 					details: {
 						usage: {
@@ -219,51 +381,33 @@ describe("Plot TUI projection", () => {
 						},
 					},
 				},
-			}),
+			),
 		);
 
-		const work = projection.running.get("source:item:42");
+		const work = projection.attempts.get("run-1");
 		expect(work?.tokens).toBeUndefined();
 		expect(projection.usageTotals.tokens).toBe(0);
 		expect(projection.usageTotals.cost).toBeUndefined();
 	});
 
-	test("compacts tool updates out of the per-work timeline", () => {
+	test("records one past-tense timeline entry per completed tool", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
-		projection = reduceRecord(
-			projection,
-			agentEvent(
-				2,
-				"gh pr diff 1532",
-				"source:item:42",
-				"tool_execution_start",
-				{
-					type: "tool_execution_start",
-					command: "gh pr diff 1532",
-				},
-			),
+		projection = reduceRecord(projection, bashStart(2, "gh pr diff 1532"));
+		// in-progress shows in the live line, not the timeline
+		expect(projection.attempts.get("run-1")?.activity).toBe(
+			"Running gh pr diff 1532",
 		);
 		projection = reduceRecord(
 			projection,
-			agentEvent(3, "chunk", "source:item:42", "tool_execution_update", {
-				type: "tool_execution_update",
-				command: "gh pr diff 1532",
-			}),
+			toolUpdate(3, "bash", { command: "gh pr diff 1532" }),
 		);
-		projection = reduceRecord(
-			projection,
-			agentEvent(4, "gh pr diff 1532", "source:item:42", "tool_execution_end", {
-				type: "tool_execution_end",
-				command: "gh pr diff 1532",
-			}),
-		);
+		projection = reduceRecord(projection, toolEnd(4, "bash"));
 
-		const work = projection.running.get("source:item:42");
+		const work = projection.attempts.get("run-1");
 		expect(work?.timeline.map((entry) => entry.text)).toEqual([
-			"Ran: gh pr diff 1532",
-			"Running: gh pr diff 1532",
-			"work started",
+			"Ran gh pr diff 1532",
+			"attempt started",
 		]);
 		expect(work?.timeline.every((entry) => entry.atMs > 0)).toBe(true);
 		expect(projection.debugEvents[0]).toContain("tool_execution_end");
@@ -275,7 +419,7 @@ describe("Plot TUI projection", () => {
 		projection = reduceRecord(
 			projection,
 			plotAgentEvent(2, {
-				type: "work_completed",
+				type: "attempt_completed",
 				completion: {
 					workKey: "source:item:42",
 					status: "succeeded",
@@ -284,30 +428,43 @@ describe("Plot TUI projection", () => {
 		);
 		projection = reduceRecord(
 			projection,
-			agentEvent(3, "late message after completion"),
+			messageDelta(3, "late message after completion"),
 		);
 
-		expect(projection.running.has("source:item:42")).toBe(false);
+		expect(projection.attempts.has("run-1")).toBe(false);
 		expect(projection.completed[0]?.workKey).toBe("source:item:42");
 	});
 
-	test("agent events cannot create running rows without work_started", () => {
+	test("agent events cannot create running rows without attempt_started", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(
 			projection,
-			agentEvent(1, "message before lifecycle"),
+			messageDelta(1, "message before lifecycle"),
 		);
 
-		expect(projection.running.size).toBe(0);
+		expect(projection.attempts.size).toBe(0);
 	});
 
-	test("snapshot repairs running rows by work key", () => {
+	test("snapshot repairs visible work and attempts by key", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1, "source:item:1"));
-		expect(projection.running.has("source:item:1")).toBe(true);
+		expect(projection.work.has("source:item:1")).toBe(true);
+		expect(projection.attempts.has("run-1")).toBe(true);
 
 		projection = applySnapshot(projection, {
 			snapshot: {
+				work: new Map([
+					[
+						"source:item:2",
+						{
+							workKey: "source:item:2",
+							sourceId: "extension:worker",
+							status: "running",
+							display: { title: "source:item:2" },
+							currentRunId: "run-2",
+						},
+					],
+				]),
 				running: new Map([
 					[
 						"source:item:2",
@@ -323,7 +480,9 @@ describe("Plot TUI projection", () => {
 			},
 		});
 
-		expect(projection.running.has("source:item:1")).toBe(false);
-		expect(projection.running.has("source:item:2")).toBe(true);
+		expect(projection.work.has("source:item:1")).toBe(false);
+		expect(projection.work.has("source:item:2")).toBe(true);
+		expect(projection.attempts.has("run-1")).toBe(false);
+		expect(projection.attempts.has("run-2")).toBe(true);
 	});
 });

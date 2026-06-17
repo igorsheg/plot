@@ -242,6 +242,7 @@ export const createPlotSessionHost = async (
 		agentRunner: {
 			prompt: workflow.prompt,
 			create: agentRunnerCreate,
+			maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
 			...(workspaceTemplateData === undefined
 				? {}
 				: { templateData: workspaceTemplateData }),
@@ -262,7 +263,7 @@ export const createPlotSessionHost = async (
 	};
 };
 const completionFromEvent = (event: PlotSessionEvent): Completion | undefined =>
-	event.type === "plot_agent_event" && event.event.type === "work_completed"
+	event.type === "plot_agent_event" && event.event.type === "attempt_completed"
 		? event.event.completion
 		: undefined;
 const quiescentTickFromEvent = (

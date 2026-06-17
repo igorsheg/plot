@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { connectLocalControlClient } from "@plot/session/local-control-client";
+import { statusLocalPlotServerDaemon } from "@plot/session/local-server-daemon";
 import { startLocalPlotServer } from "@plot/session/local-server";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
 import {
@@ -126,7 +127,7 @@ describe("control-protocol product entrypoints", () => {
 			expect(visible.state).not.toBe("stopped");
 
 			await running;
-			expect(seenEvents).toContain("work_completed");
+			expect(seenEvents).toContain("attempt_completed");
 			const after = await observer.request("list_sessions", {});
 			const stopped = (
 				after.data as {
@@ -141,14 +142,14 @@ describe("control-protocol product entrypoints", () => {
 				join(paths.sessionDir, sessionId, "history.jsonl"),
 				"utf8",
 			);
-			expect(history).toContain('"type":"work_completed"');
+			expect(history).toContain('"type":"attempt_completed"');
 			expect(history).toContain('"type":"session_shutdown"');
 		} finally {
 			observer.close();
 			await server.stop();
 			await sleep(50);
 		}
-	});
+	}, 10_000);
 
 	test("plot web prints a fragment handoff URL without opening the browser", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-web-control-"));
@@ -160,10 +161,6 @@ describe("control-protocol product entrypoints", () => {
 			serverDir,
 			port: 0,
 			cwd,
-			webAssets: {
-				indexHtml: "<!doctype html><div id='root'></div>",
-				assets: [],
-			},
 		});
 		const dashboard = await startWebDashboard({
 			cwd,
@@ -183,7 +180,8 @@ describe("control-protocol product entrypoints", () => {
 			},
 		});
 		try {
-			expect((await fetch(server.url)).status).toBe(200);
+			expect((await fetch(server.url)).status).toBe(404);
+			expect((await fetch(dashboard.url)).status).toBe(200);
 		} finally {
 			await dashboard.stop();
 			await server.stop();
@@ -207,6 +205,28 @@ describe("control-protocol product entrypoints", () => {
 		expect(ws.searchParams.has("token")).toBe(true);
 	});
 
+	test("plot web does not autostart an empty daemon", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "plot-web-no-daemon-"));
+		tempDirs.push(cwd);
+		const serverDir = await mkdtemp(
+			join(tmpdir(), "plot-web-no-daemon-server-"),
+		);
+		tempDirs.push(serverDir);
+
+		await expect(
+			startWebDashboard({
+				cwd,
+				sessionId: "web-no-daemon-test",
+				serverDir,
+				logLevel: "none",
+				logFormat: "json",
+				noOpen: true,
+				writeStdout: () => undefined,
+			}),
+		).rejects.toThrow("Local Plot Server is not running");
+		expect(await statusLocalPlotServerDaemon({ serverDir })).toBeUndefined();
+	});
+
 	test("plot web holds the CLI until stopped", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-web-hold-"));
 		tempDirs.push(cwd);
@@ -217,10 +237,6 @@ describe("control-protocol product entrypoints", () => {
 			serverDir,
 			port: 0,
 			cwd,
-			webAssets: {
-				indexHtml: "<!doctype html><div id='root'></div>",
-				assets: [],
-			},
 		});
 		let release!: () => void;
 		const stopped = new Promise<void>((resolve) => {

@@ -6,7 +6,7 @@ The web dashboard is the localhost control plane for the Local Plot Server roste
 plot web
 ```
 
-`plot web` uses or autostarts the shared machine-local Plot Server daemon, opens the browser to the bundled web app, prints the URL, and holds the terminal until Ctrl-C. The browser receives the local control token through a URL fragment, stores the WebSocket handoff in session storage, and scrubs the visible URL. Binding to localhost is still only an exposure limit; token auth remains required.
+`plot web` uses the shared machine-local Plot Server daemon when live sessions exist, starts a foreground localhost web gateway for the bundled web app, opens the browser, prints the URL, and holds the terminal until Ctrl-C. The browser receives the gateway WebSocket handoff through a URL fragment, stores it in session storage, and scrubs the visible URL. The gateway proxies to the daemon; the daemon does not serve web assets.
 
 ## What it shows
 
@@ -30,7 +30,7 @@ plot web --no-open        # print URL, do not open browser; still hold until Ctr
 The web does not create workflows in this slice. Start sessions with:
 
 ```bash
-plot --workflow WORKFLOW.md
+plot tui --workflow WORKFLOW.md
 plot run --workflow WORKFLOW.md
 ```
 
@@ -39,8 +39,8 @@ Those sessions appear in the web roster.
 ## Lifecycle semantics
 
 - Closing the browser tab detaches the browser; it does not close the Plot Session.
-- Pressing Ctrl-C in `plot web` stops the web command. If no live sessions remain, the idle daemon may stop too.
-- Use `plot stop` to close the current project/workflow session, or `plot stop --all` to stop all sessions and the daemon.
+- Pressing Ctrl-C in `plot web` stops only the web gateway.
+- `plot tui` owns its session: quitting or Ctrl-C closes that session, and the daemon exits if no live sessions remain.
 - Controller actions such as pause, resume, Reconcile now, interrupt Agent Run, close session, and Source-declared Operator Actions go through the explicit control protocol.
 - Operator Actions record Operator Observations in Session History. The web never calls Source code directly.
 - Session History is project-local and authoritative for control-plane state, not extension domain state. Extensions decide what work exists from their own durable source of truth.

@@ -23,7 +23,7 @@ describe("Session History", () => {
 
 		const first = await store.append({ type: "session_started" });
 		const second = await store.append({
-			type: "work_started",
+			type: "attempt_started",
 			payload: { run },
 		});
 		const third = await store.append({
@@ -56,7 +56,7 @@ describe("Session History", () => {
 			sessionId: "session-1",
 			epoch: "epoch-1",
 		});
-		await writer.append({ type: "work_started", payload: { run } });
+		await writer.append({ type: "attempt_started", payload: { run } });
 		await writer.append({
 			type: "agent_run_event",
 			payload: {
@@ -66,7 +66,7 @@ describe("Session History", () => {
 			},
 		});
 		await writer.append({
-			type: "work_completed",
+			type: "attempt_completed",
 			payload: {
 				completion: {
 					...run,
@@ -90,6 +90,7 @@ describe("Session History", () => {
 			label: "#1 Check history",
 			status: "succeeded",
 		});
-		expect(rebuilt.projection.running.size).toBe(0);
+		expect(rebuilt.projection.attempts.size).toBe(0);
+		expect(rebuilt.projection.work.size).toBe(0);
 	});
 });

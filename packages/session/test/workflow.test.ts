@@ -15,6 +15,7 @@ plot:
 agent:
   provider: plot-faux
   model: faux-1
+  maxTurns: 3
 extension:
   source: npm:@acme/plot-github-pr-reviewer
   config:
@@ -37,7 +38,7 @@ Use the current task context.
 		expect(workflow.path).toBe("WORKFLOW.md");
 		expect(workflow.config).toEqual({
 			plot: { maxRunDurationMs: 1000 },
-			agent: { provider: "plot-faux", model: "faux-1" },
+			agent: { provider: "plot-faux", model: "faux-1", maxTurns: 3 },
 			extension: {
 				source: "npm:@acme/plot-github-pr-reviewer",
 				config: { repo: "web" },
@@ -47,7 +48,7 @@ Use the current task context.
 		});
 		expect(workflow.runtime).toEqual({
 			plot: { maxRunDurationMs: 1000 },
-			agent: { provider: "plot-faux", model: "faux-1" },
+			agent: { provider: "plot-faux", model: "faux-1", maxTurns: 3 },
 			extension: {
 				source: "npm:@acme/plot-github-pr-reviewer",
 				config: { repo: "web" },
