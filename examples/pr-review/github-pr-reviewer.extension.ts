@@ -6,11 +6,11 @@ import type { PlotExtensionWork } from "plot-ai/sdk";
 const execFileAsync = promisify(execFile);
 
 /**
- * Pure reader. This extension owns exactly one deterministic job: tell Plot
- * whether PR-review work exists and at which version, by reading the anchor
- * comment's marker. The agent session owns everything else — reading the PR,
- * judging the code, editing the anchor, and posting the review — with bash
- * and `gh`, guided by WORKFLOW.md.
+ * Trusted reader. This extension owns cheap GitHub observation only: open PRs,
+ * head SHA, changed-file facts, and the anchor marker. It does not choose the
+ * review plan, run specialist reviewers, post findings, or encode GitHub
+ * review judgment. The agent session owns that work with bash and `gh`, guided
+ * by WORKFLOW.md.
  *
  * Marker contract (written by the agent, parsed here):
  *   <!-- plot-review:v1 status=<phase> head=<sha> tier=<tier> -->
@@ -38,6 +38,15 @@ interface GitHubPrReviewerConfig {
 	readonly repo?: string;
 	/** Maximum open PRs discovered per tick. */
 	readonly maxOpenPrs: number;
+	/** Maximum changed-file rows included in the prompt context. */
+	readonly maxContextFiles: number;
+}
+
+interface PullRequestFileInfo {
+	readonly path: string;
+	readonly additions: number;
+	readonly deletions: number;
+	readonly changeType?: string;
 }
 
 interface PullRequestInfo {
@@ -47,6 +56,10 @@ interface PullRequestInfo {
 	readonly baseRefName: string;
 	readonly headRefName: string;
 	readonly url: string;
+	readonly additions: number;
+	readonly deletions: number;
+	readonly changedFiles: number;
+	readonly files: readonly PullRequestFileInfo[];
 	readonly headRefOid?: string;
 	readonly authorLogin?: string;
 }
@@ -106,13 +119,39 @@ const parseJson = (text: string | undefined): unknown | undefined => {
 	}
 };
 
+const positiveInteger = (value: number | undefined, fallback: number) =>
+	value === undefined || !Number.isInteger(value) || value <= 0
+		? fallback
+		: value;
+
 const parseConfig = (input: unknown): GitHubPrReviewerConfig => {
-	if (!isRecord(input)) return { includeDrafts: true, maxOpenPrs: 10 };
+	if (!isRecord(input))
+		return { includeDrafts: true, maxOpenPrs: 10, maxContextFiles: 200 };
 	const repo = stringField(input, "repo");
 	return {
 		includeDrafts: booleanField(input, "includeDrafts") ?? true,
 		...(repo === undefined ? {} : { repo }),
-		maxOpenPrs: numberField(input, "maxOpenPrs") ?? 10,
+		maxOpenPrs: positiveInteger(numberField(input, "maxOpenPrs"), 10),
+		maxContextFiles: positiveInteger(
+			numberField(input, "maxContextFiles"),
+			200,
+		),
+	};
+};
+
+const parsePullRequestFile = (
+	value: unknown,
+): PullRequestFileInfo | undefined => {
+	if (!isRecord(value)) return undefined;
+	const path = stringField(value, "path") ?? stringField(value, "filename");
+	if (path === undefined) return undefined;
+	const changeType =
+		stringField(value, "changeType") ?? stringField(value, "status");
+	return {
+		path,
+		additions: numberField(value, "additions") ?? 0,
+		deletions: numberField(value, "deletions") ?? 0,
+		...(changeType === undefined ? {} : { changeType }),
 	};
 };
 
@@ -133,6 +172,12 @@ const parsePullRequest = (value: unknown): PullRequestInfo | undefined => {
 		url === undefined
 	)
 		return undefined;
+	const files = Array.isArray(value["files"])
+		? value["files"].flatMap((item) => {
+				const file = parsePullRequestFile(item);
+				return file === undefined ? [] : [file];
+			})
+		: [];
 	const author = value["author"];
 	const authorLogin = isRecord(author)
 		? stringField(author, "login")
@@ -145,6 +190,10 @@ const parsePullRequest = (value: unknown): PullRequestInfo | undefined => {
 		baseRefName,
 		headRefName,
 		url,
+		additions: numberField(value, "additions") ?? 0,
+		deletions: numberField(value, "deletions") ?? 0,
+		changedFiles: numberField(value, "changedFiles") ?? files.length,
+		files,
 		...(headRefOid === undefined ? {} : { headRefOid }),
 		...(authorLogin === undefined ? {} : { authorLogin }),
 	};
@@ -160,7 +209,7 @@ const loadOpenPullRequests = async (
 	limit: number,
 ): Promise<PullRequestInfo[]> => {
 	const fields =
-		"number,title,isDraft,baseRefName,headRefName,url,author,headRefOid";
+		"number,title,isDraft,baseRefName,headRefName,url,author,headRefOid,additions,deletions,changedFiles,files";
 	const listed = parseJson(
 		await command(cwd, "gh", [
 			"pr",
@@ -246,12 +295,59 @@ const findAnchorMarker = async (
 	return { ...marker, ...(url === undefined ? {} : { url }) };
 };
 
+const FILE_NOISE_PATTERNS = [
+	/(^|\/)(bun\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/,
+	/(^|\/)(Cargo\.lock|go\.sum|poetry\.lock|Pipfile\.lock|flake\.lock)$/,
+	/\.min\.(js|css)$/,
+	/\.map$/,
+];
+
+const isNoiseFile = (path: string) =>
+	FILE_NOISE_PATTERNS.some((pattern) => pattern.test(path));
+
+const domainHint = (path: string): string | undefined => {
+	if (path.startsWith("packages/agent/")) return "agent runtime";
+	if (path.startsWith("packages/session/src/protocol")) return "protocol";
+	if (path.startsWith("packages/session/src/pi-") || path.includes("auth"))
+		return "provider/auth boundary";
+	if (
+		path.startsWith("packages/session/src/extension") ||
+		path.startsWith("packages/sdk/")
+	)
+		return "extension/sdk boundary";
+	if (path.startsWith("packages/cli/")) return "cli process boundary";
+	if (path.startsWith("packages/tui/")) return "terminal lifecycle";
+	if (path.startsWith("packages/common/")) return "shared async primitive";
+	if (path === "AGENTS.md" || path.endsWith("/AGENTS.md"))
+		return "agent instructions";
+	if (path.endsWith("WORKFLOW.md") || path.startsWith("docs/"))
+		return "docs/workflow";
+	return undefined;
+};
+
+const formatFile = (file: PullRequestFileInfo) =>
+	`${file.path} (+${file.additions}/-${file.deletions}${file.changeType === undefined ? "" : ` ${file.changeType}`})`;
+
 const contextBlock = (values: {
 	readonly repo: string;
 	readonly pr: PullRequestInfo;
 	readonly anchor?: AnchorMarker;
 	readonly phase: ReviewPhase;
+	readonly maxContextFiles: number;
 }) => {
+	const changedFiles = values.pr.files.slice(0, values.maxContextFiles);
+	const omittedFiles = Math.max(
+		values.pr.files.length - changedFiles.length,
+		0,
+	);
+	const noiseFiles = values.pr.files.filter((file) => isNoiseFile(file.path));
+	const domainHints = [
+		...new Set(
+			values.pr.files
+				.map((file) => domainHint(file.path))
+				.filter((hint): hint is string => hint !== undefined),
+		),
+	];
 	const lines = [
 		"## Extension-discovered target",
 		`- Repository: ${values.repo}`,
@@ -264,9 +360,14 @@ const contextBlock = (values: {
 		lines.push(`- Author: ${values.pr.authorLogin}`);
 	if (values.pr.headRefOid !== undefined)
 		lines.push(`- Head SHA: ${values.pr.headRefOid}`);
-	lines.push(`- Current review phase for this tick: ${values.phase}`);
+	lines.push(
+		`- Current anchor phase: ${values.phase}`,
+		`- Diff stats: ${values.pr.changedFiles} files, +${values.pr.additions}/-${values.pr.deletions}`,
+		`- Domain hints from paths: ${domainHints.length === 0 ? "none" : domainHints.join(", ")}`,
+		`- Noise-file candidates: ${noiseFiles.length === 0 ? "none" : noiseFiles.map((file) => file.path).join(", ")}`,
+	);
 	if (values.anchor === undefined) {
-		lines.push("- Anchor comment: none yet; this tick creates it");
+		lines.push("- Anchor comment: none yet; this run creates it");
 	} else {
 		lines.push(
 			`- Anchor marker: status=${values.anchor.status} head=${values.anchor.head}${values.anchor.tier === undefined ? "" : ` tier=${values.anchor.tier}`}`,
@@ -278,6 +379,15 @@ const contextBlock = (values: {
 				"- Head moved since the anchor was written: restart at prepare and carry the anchor's previous findings.",
 			);
 	}
+	lines.push(
+		"",
+		"## Changed files from GitHub",
+		...changedFiles.map((file) => `- ${formatFile(file)}`),
+	);
+	if (omittedFiles > 0)
+		lines.push(
+			`- ... ${omittedFiles} more file(s) omitted from prompt context`,
+		);
 	return lines.join("\n");
 };
 
@@ -355,6 +465,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 									pr,
 									...(anchor === undefined ? {} : { anchor }),
 									phase,
+									maxContextFiles: config.maxContextFiles,
 								}),
 							},
 						}),
