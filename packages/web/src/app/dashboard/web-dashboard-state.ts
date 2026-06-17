@@ -297,7 +297,13 @@ export const usePlotWebDashboardState = ({
 					});
 					setRoster(await client.listSessions());
 					if (sessionId !== undefined) {
-						const attached = await client.attachSession({ sessionId, role });
+						const attached = await client.attachSession({
+							sessionId,
+							role,
+							// Rebuild derived rows (tokens, recent runs) from the same
+							// Session History stream the TUI uses.
+							afterSequence: 0,
+						});
 						const snapshotProjection = projectionFromSnapshot({
 							sessionId,
 							roster,
