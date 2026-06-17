@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
 	interruptWork,
+	removeWork,
 	scheduleWake,
 	sourceId,
 	PlotAgentError,
+	upsertWork,
 	setFact,
 	subjectKey,
 	workKey,
@@ -375,12 +377,12 @@ describe("task-agnostic Plot agent", () => {
 			selectWork: () => [{ workKey: key }],
 		};
 		const agent = makeAgent([source], succeedRunner(), {
-			continuationDelayMs: 1,
+			continuationDelayMs: 20,
 		});
 		await agent.tickOnce();
 		await yieldNow();
 		const second = await agent.tickOnce();
-		await new Promise((resolve) => setTimeout(resolve, 5));
+		await new Promise((resolve) => setTimeout(resolve, 25));
 		const third = await agent.tickOnce();
 		expect(second.completions).toHaveLength(1);
 		expect(third.started).toHaveLength(1);
@@ -416,6 +418,115 @@ describe("task-agnostic Plot agent", () => {
 			expect.objectContaining({ status: "interrupted", workKey: key }),
 		);
 		expect(after.running.has(key)).toBe(false);
+	});
+
+	test("reconciliation cannot erase active running claims", async () => {
+		const subject = subjectKey("claim:1");
+		const key = workKey("claim:1");
+		let discovered = true;
+		const source: WorkSource = {
+			id: sourceId("claim-source"),
+			reconcile: () =>
+				discovered
+					? [
+							upsertWork({
+								workKey: key,
+								sourceId: sourceId("claim-source"),
+								status: "pending",
+								subject,
+							}),
+						]
+					: [removeWork(key)],
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) ? [] : [{ workKey: key, subject }],
+		};
+		const agent = makeAgent([source], { run: () => never() });
+		const first = await agent.tickOnce();
+		const run = first.started[0]!;
+		const observedRunning = waitForEvent(
+			agent.events(),
+			(event) =>
+				event.type === "work_observed" &&
+				event.work.workKey === key &&
+				event.work.status === "running" &&
+				event.work.currentRunId === run.runId,
+		);
+
+		const second = await agent.tickOnce();
+		await observedRunning;
+		discovered = false;
+		const third = await agent.tickOnce();
+
+		expect(second.snapshot.work.get(key)).toEqual(
+			expect.objectContaining({
+				status: "running",
+				currentRunId: run.runId,
+			}),
+		);
+		expect(third.snapshot.work.get(key)).toEqual(
+			expect.objectContaining({
+				status: "running",
+				currentRunId: run.runId,
+			}),
+		);
+		expect(third.snapshot.running.has(key)).toBe(true);
+		await agent.shutdown();
+	});
+
+	test("reconciliation can release active work when interrupting it", async () => {
+		const key = workKey("release:1");
+		let release = false;
+		const source: WorkSource = {
+			id: sourceId("release-source"),
+			reconcile: () =>
+				release ? [interruptWork(key, "gone"), removeWork(key)] : [],
+			selectWork: ({ snapshot }) =>
+				release || snapshot.running.has(key) ? [] : [{ workKey: key }],
+		};
+		const agent = makeAgent([source], { run: () => never() });
+		await agent.tickOnce();
+		release = true;
+
+		const second = await agent.tickOnce();
+
+		expect(second.completions).toContainEqual(
+			expect.objectContaining({ status: "interrupted", workKey: key }),
+		);
+		expect(second.snapshot.work.has(key)).toBe(false);
+		expect(second.snapshot.running.has(key)).toBe(false);
+		await agent.shutdown();
+	});
+
+	test("reconciliation can mark active superseded work as draining", async () => {
+		const key = workKey("drain:1");
+		let draining = false;
+		const source: WorkSource = {
+			id: sourceId("drain-source"),
+			reconcile: () => [
+				upsertWork({
+					workKey: key,
+					sourceId: sourceId("drain-source"),
+					status: draining ? "draining" : "pending",
+				}),
+			],
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) ? [] : [{ workKey: key }],
+		};
+		const agent = makeAgent([source], { run: () => never() });
+		const first = await agent.tickOnce();
+		const run = first.started[0]!;
+		draining = true;
+
+		const second = await agent.tickOnce();
+
+		expect(second.snapshot.work.get(key)).toEqual(
+			expect.objectContaining({
+				status: "draining",
+				currentRunId: run.runId,
+			}),
+		);
+		expect(second.snapshot.running.has(key)).toBe(true);
+		await agent.shutdown();
 	});
 
 	test("runtime snapshot keeps bounded diagnostics history", async () => {
@@ -677,13 +788,13 @@ describe("task-agnostic Plot agent", () => {
 			},
 		};
 		const agent = makeAgent([source], runner, {
-			retryInitialDelayMs: 1,
-			continuationDelayMs: 1,
+			retryInitialDelayMs: 20,
+			continuationDelayMs: 20,
 		});
 		await agent.tickOnce();
 		await yieldNow();
-		await agent.tickOnce(); // records the failure; retry due in 1ms
-		await new Promise((resolve) => setTimeout(resolve, 5));
+		await agent.tickOnce(); // records the failure and backs off
+		await new Promise((resolve) => setTimeout(resolve, 25));
 		const third = await agent.tickOnce();
 		expect(third.started).toHaveLength(1);
 		await yieldNow();

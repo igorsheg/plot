@@ -163,6 +163,27 @@ const messagePartial = (sequence: number, delta: string, partial: string) =>
 		},
 	});
 
+const mixedMessagePartial = (
+	sequence: number,
+	thinking: string,
+	message: string,
+) =>
+	agentRunEvent(sequence, {
+		type: "message_update",
+		message: { role: "assistant", content: [] },
+		assistantMessageEvent: {
+			type: "text_delta",
+			delta: message,
+			partial: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking },
+					{ type: "text", text: message },
+				],
+			},
+		},
+	});
+
 const messageEndWithUsage = (sequence: number) =>
 	agentRunEvent(sequence, {
 		type: "message_end",
@@ -285,6 +306,7 @@ describe("Plot TUI projection", () => {
 			}),
 		);
 		expect(projection.pulse).toMatchObject({ tickId: 7, found: 1, started: 1 });
+		expect(projection.status).toBe("running");
 		expect(projection.activity[0]?.text).toContain("tick #7 found 1");
 	});
 
@@ -359,8 +381,32 @@ describe("Plot TUI projection", () => {
 
 		const work = projection.attempts.get("run-1");
 		expect(work?.activity).toBe("hello world!");
+		expect(work?.streams.message).toBe("hello world!");
 		expect(work?.streaming).toBe(true);
 		expect(work?.messageCount).toBe(3);
+	});
+
+	test("keeps thinking and prose lanes separate and replaces partials", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			mixedMessagePartial(2, "**Inspecting clone progress**", "I need"),
+		);
+		projection = reduceRecord(
+			projection,
+			mixedMessagePartial(
+				3,
+				"**Inspecting clone progress**",
+				"I need the clone to finish",
+			),
+		);
+
+		const work = projection.attempts.get("run-1");
+		expect(work?.activity).toBe("I need the clone to finish");
+		expect(work?.streams.thinking).toBe("Inspecting clone progress");
+		expect(work?.streams.message).toBe("I need the clone to finish");
+		expect(work?.activity).not.toContain("Inspecting clone progressI need");
 	});
 
 	test("surfaces streaming deltas as the live activity line", () => {
@@ -510,6 +556,7 @@ describe("Plot TUI projection", () => {
 
 		expect(projection.work.has("source:item:1")).toBe(false);
 		expect(projection.work.has("source:item:2")).toBe(true);
+		expect(projection.status).toBe("running");
 		expect(projection.attempts.has("run-1")).toBe(false);
 		expect(projection.attempts.has("run-2")).toBe(true);
 	});

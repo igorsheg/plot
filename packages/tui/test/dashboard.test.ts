@@ -61,6 +61,7 @@ const runningWork = (
 	check: "not-run",
 	commands: [],
 	observations: [],
+	streams: {},
 	phases: [],
 	timeline: [],
 	...overrides,

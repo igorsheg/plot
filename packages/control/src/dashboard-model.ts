@@ -166,7 +166,14 @@ const displayActivity = (
 	if (work.status === "blocked" && work.blockedReason !== undefined)
 		return work.blockedReason;
 	if (attempt === undefined) return work.status;
-	const activity = attempt.activity.trim();
+	const stream = attempt.streaming
+		? (attempt.streams.tool ??
+			attempt.streams.message ??
+			(attempt.streams.thinking === undefined
+				? undefined
+				: `Thinking · ${attempt.streams.thinking}`))
+		: undefined;
+	const activity = (stream ?? attempt.activity).trim();
 	return activity.length === 0 ? attempt.lastMeaningful : activity;
 };
 
