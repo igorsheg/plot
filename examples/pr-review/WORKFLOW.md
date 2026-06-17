@@ -26,6 +26,7 @@ extension:
     includeDrafts: false
     maxOpenPrs: 10
     maxContextFiles: 200
+    doneGraceMs: 60000
     # repo: owner/name   # optional; inferred once from the launch dir
 resources:
   contextFiles: true
@@ -129,7 +130,7 @@ Wear only the current hat. The "Do NOT flag" lines are part of the contract.
 - `tests` — whether meaningful success/failure/cancellation/boundary paths are proven. Do NOT ask for tests that add no confidence. Missing tests matter most for new public API, protocol boundaries, lifecycle changes, and bug fixes without regression tests.
 - `docs_agents` — instruction freshness: README/docs/AGENTS.md/WORKFLOW.md/commands need updating because this PR changed architecture, package manager, test framework, CI, CLI, or workflows. Also flag instruction-file rot: stale commands, generic filler, oversized context.
 - `synthesize` — judge pass. Read every finding record in the anchor. Deduplicate, re-verify surprising or high-severity records, drop weak/speculative records, demote out-of-diff discoveries to body notes, and write final compact records.
-- `post` — publish exactly one GitHub review for this head, then set marker `status=done`.
+- `post` — publish exactly one GitHub review for this head, set marker `status=done`, verify it, then immediately end the run.
 
 ## Judgment rules
 
@@ -194,6 +195,7 @@ Before setting `status=done`:
 - One anchor per PR. Never create a second one; always edit the existing comment.
 - Advance the marker only after the phase is genuinely complete.
 - You may run multiple phases in one Agent Run only by checkpointing between them.
+- After writing and verifying `status=done`, do no more investigation or cleanup; return the final status line.
 - GitHub writes are limited to this PR's anchor comment and this PR's reviews.
 - Never block on findings in unchanged code.
 - Never `cd` outside your workspace or touch other workspaces.

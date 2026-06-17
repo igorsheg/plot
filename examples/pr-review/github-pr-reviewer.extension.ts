@@ -40,6 +40,8 @@ interface GitHubPrReviewerConfig {
 	readonly maxOpenPrs: number;
 	/** Maximum changed-file rows included in the prompt context. */
 	readonly maxContextFiles: number;
+	/** Keep done work visible briefly so a posting run can exit cleanly. */
+	readonly doneGraceMs: number;
 }
 
 interface PullRequestFileInfo {
@@ -69,6 +71,7 @@ interface AnchorMarker {
 	readonly head: string;
 	readonly tier?: string;
 	readonly url?: string;
+	readonly updatedAtMs?: number;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -126,7 +129,12 @@ const positiveInteger = (value: number | undefined, fallback: number) =>
 
 const parseConfig = (input: unknown): GitHubPrReviewerConfig => {
 	if (!isRecord(input))
-		return { includeDrafts: true, maxOpenPrs: 10, maxContextFiles: 200 };
+		return {
+			includeDrafts: true,
+			maxOpenPrs: 10,
+			maxContextFiles: 200,
+			doneGraceMs: 60_000,
+		};
 	const repo = stringField(input, "repo");
 	return {
 		includeDrafts: booleanField(input, "includeDrafts") ?? true,
@@ -136,6 +144,7 @@ const parseConfig = (input: unknown): GitHubPrReviewerConfig => {
 			numberField(input, "maxContextFiles"),
 			200,
 		),
+		doneGraceMs: positiveInteger(numberField(input, "doneGraceMs"), 60_000),
 	};
 };
 
@@ -272,7 +281,7 @@ const findAnchorMarker = async (
 	prNumber: number,
 ): Promise<AnchorMarker | undefined> => {
 	const currentUser = await currentLogin(cwd);
-	const jq = `[ .[] | select(.user.login == ${JSON.stringify(currentUser)} and ((.body // "") | contains("<!-- plot-review:v1 "))) | {body, html_url, created_at} ] | sort_by(.created_at) | tostring`;
+	const jq = `[ .[] | select(.user.login == ${JSON.stringify(currentUser)} and ((.body // "") | contains("<!-- plot-review:v1 "))) | {body, html_url, created_at, updated_at} ] | sort_by(.created_at) | tostring`;
 	const output = await command(cwd, "gh", [
 		"api",
 		`repos/${repo}/issues/${prNumber}/comments`,
@@ -292,7 +301,13 @@ const findAnchorMarker = async (
 	const marker = parseMarker(body);
 	if (marker === undefined) return undefined;
 	const url = stringField(latest, "html_url");
-	return { ...marker, ...(url === undefined ? {} : { url }) };
+	const updatedAt = stringField(latest, "updated_at");
+	const updatedAtMs = updatedAt === undefined ? NaN : Date.parse(updatedAt);
+	return {
+		...marker,
+		...(url === undefined ? {} : { url }),
+		...(Number.isNaN(updatedAtMs) ? {} : { updatedAtMs }),
+	};
 };
 
 const FILE_NOISE_PATTERNS = [
@@ -426,19 +441,27 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					const anchor = await findAnchorMarker(cwd, repo, pr.number);
 					const headMatches =
 						anchor !== undefined && anchor.head === pr.headRefOid;
-					// A done anchor for the current head means nothing to do for
-					// this PR. A missing/unparseable marker or a moved head
-					// restarts at prepare.
-					if (headMatches && anchor.status === "done") continue;
+					const doneGraceActive =
+						headMatches &&
+						anchor.status === "done" &&
+						anchor.updatedAtMs !== undefined &&
+						Date.now() - anchor.updatedAtMs <= config.doneGraceMs;
+					// A done anchor for the current head means nothing to do, except
+					// for a short grace window so the posting run can exit cleanly.
+					// A missing/unparseable marker or moved head restarts at prepare.
+					if (headMatches && anchor.status === "done" && !doneGraceActive)
+						continue;
 					const phase: ReviewPhase = headMatches ? anchor.status : "prepare";
 					works.push(
 						work({
 							id: `github:${repo}:pr:${pr.number}`,
-							version: `${pr.headRefOid ?? pr.headRefName}:${phase}`,
-							...(draftBlocked
+							version: pr.headRefOid ?? pr.headRefName,
+							...(draftBlocked || doneGraceActive
 								? {
 										status: "blocked" as const,
-										blockedReason: "draft pull request",
+										blockedReason: draftBlocked
+											? "draft pull request"
+											: "review complete; releasing soon",
 									}
 								: {}),
 							title: `Review ${repo} PR #${pr.number}: ${pr.title} (${phase})`,
@@ -455,6 +478,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 									: { version: pr.headRefOid.slice(0, 7) }),
 								labels: [
 									...(draftBlocked ? ["blocked:draft"] : []),
+									...(doneGraceActive ? ["done"] : []),
 									anchor === undefined ? "fresh" : "incremental",
 									`phase:${phase}`,
 								],
