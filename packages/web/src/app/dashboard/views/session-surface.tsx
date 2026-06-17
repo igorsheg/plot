@@ -238,7 +238,15 @@ function WorkLane({
 	const activity =
 		item.status === "blocked" && item.blockedReason !== undefined
 			? item.blockedReason
-			: (attempt?.activity ?? item.status);
+			: attempt === undefined
+				? item.status
+				: attempt.streaming
+					? (attempt.streams.tool ??
+						attempt.streams.message ??
+						(attempt.streams.thinking === undefined
+							? attempt.activity
+							: `Thinking · ${attempt.streams.thinking}`))
+					: attempt.activity;
 	const railTone =
 		item.status === "blocked"
 			? "bg-attention"
@@ -320,6 +328,7 @@ function WorkLane({
 
 			{open ? (
 				<div className="px-6 pb-6 pl-10 text-2xs">
+					{attempt === undefined ? null : <LiveStreams attempt={attempt} />}
 					{attempt !== undefined && attempt.phases.length > 0 ? (
 						<Spine attempt={attempt} />
 					) : null}
@@ -353,6 +362,31 @@ function CheckBadge({ attempt }: { attempt?: AgentAttemptProjection }) {
 	if (attempt.check === "running")
 		return <span className="text-live">check running</span>;
 	return <span>passed</span>;
+}
+
+function LiveStreams({ attempt }: { attempt: AgentAttemptProjection }) {
+	const rows = [
+		...(attempt.streams.tool === undefined
+			? []
+			: [{ label: "tool", value: attempt.streams.tool }]),
+		...(attempt.streams.message === undefined
+			? []
+			: [{ label: "message", value: attempt.streams.message }]),
+		...(attempt.streams.thinking === undefined
+			? []
+			: [{ label: "thinking", value: attempt.streams.thinking }]),
+	];
+	if (rows.length === 0) return null;
+	return (
+		<div className={cn("mb-5 grid gap-1", mono)}>
+			{rows.map((row) => (
+				<div key={row.label} className="grid grid-cols-[72px_1fr] gap-3">
+					<span className="text-t3">{row.label}</span>
+					<span className="truncate text-muted-foreground">{row.value}</span>
+				</div>
+			))}
+		</div>
+	);
 }
 
 function Spine({ attempt }: { attempt: AgentAttemptProjection }) {

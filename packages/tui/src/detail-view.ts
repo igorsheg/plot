@@ -34,6 +34,21 @@ const tokenLine = (selected: WorkRowModel): string => {
 	return parts.join(" · ");
 };
 
+const streamLines = (selected: WorkRowModel): readonly DashboardLine[] => {
+	const streams = selected.attempt?.streams;
+	if (streams === undefined) return [];
+	const lines = [
+		...(streams.tool === undefined ? [] : [`tool      ${streams.tool}`]),
+		...(streams.message === undefined ? [] : [`message   ${streams.message}`]),
+		...(streams.thinking === undefined
+			? []
+			: [`thinking  ${streams.thinking}`]),
+	];
+	return lines.length === 0
+		? []
+		: [blankDetail(), section("Streams"), ...lines.map((line) => item(line))];
+};
+
 export const detailBodyLines = (
 	selected: WorkRowModel,
 	nowMs = Date.now(),
@@ -71,6 +86,7 @@ export const detailBodyLines = (
 					: style.muted(` · ${formatAgo(nowMs - attempt.lastEventAtMs)}`)
 			}`,
 		),
+		...streamLines(selected),
 		...(attempt === undefined
 			? []
 			: [

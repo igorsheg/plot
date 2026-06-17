@@ -77,6 +77,15 @@ export const activeToolSchema = z
 	.strict();
 export type ActiveTool = z.infer<typeof activeToolSchema>;
 
+export const attemptStreamsSchema = z
+	.object({
+		tool: z.string().optional(),
+		thinking: z.string().optional(),
+		message: z.string().optional(),
+	})
+	.strict();
+export type AttemptStreams = z.infer<typeof attemptStreamsSchema>;
+
 export const timelineEntrySchema = z
 	.object({
 		atMs: nonNegativeIntegerSchema,
@@ -215,6 +224,7 @@ export const agentAttemptProjectionSchema = z
 		check: workCheckSchema,
 		commands: z.array(z.string()).readonly(),
 		observations: z.array(z.string()).readonly(),
+		streams: attemptStreamsSchema,
 		phases: z.array(phaseEntrySchema).readonly(),
 		timeline: z.array(timelineEntrySchema).readonly(),
 		activeTool: activeToolSchema.optional(),
@@ -345,6 +355,8 @@ const mapValues = (value: unknown): readonly unknown[] => {
 
 const inlineText = (value: string, max = 140) =>
 	value.replace(/\s+/g, " ").trim().slice(0, max);
+const inlineMessageText = (value: string, max = 120) =>
+	inlineText(value.replace(/\*\*([^*]+)\*\*/g, "$1"), max);
 
 const baseName = (path: string) => {
 	const trimmed = path.replace(/\/+$/, "");
@@ -384,31 +396,62 @@ const argTarget = (toolName: string, args: unknown): string | undefined => {
 	return text(args["path"]);
 };
 
-const messageContentText = (message: unknown): string | undefined => {
-	if (!isRecord(message)) return undefined;
-	const content = message["content"];
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return undefined;
-	const parts = content.flatMap((item) => {
-		if (!isRecord(item)) return [];
-		if (item["type"] === "text") return text(item["text"]) ?? [];
-		if (item["type"] === "thinking") return text(item["thinking"]) ?? [];
-		return [];
-	});
+interface MessageParts {
+	readonly mode: "delta" | "partial";
+	readonly thinking?: string;
+	readonly message?: string;
+}
+
+const joined = (parts: readonly string[]) => {
 	const combined = parts.join("");
-	return combined.trim().length === 0 ? undefined : combined;
+	return combined.trim().length === 0 ? undefined : inlineMessageText(combined);
 };
 
-const messageDelta = (event: Record<string, unknown>): string | undefined => {
+const messageContentParts = (
+	message: unknown,
+): Omit<MessageParts, "mode"> | undefined => {
+	if (!isRecord(message)) return undefined;
+	const content = message["content"];
+	if (typeof content === "string") {
+		const messageText = inlineMessageText(content);
+		return messageText.length === 0 ? undefined : { message: messageText };
+	}
+	if (!Array.isArray(content)) return undefined;
+	const thinking = joined(
+		content.flatMap((item) => {
+			if (!isRecord(item)) return [];
+			if (item["type"] === "thinking" || item["type"] === "reasoning")
+				return text(item["thinking"]) ?? text(item["reasoning"]) ?? [];
+			return [];
+		}),
+	);
+	const messageText = joined(
+		content.flatMap((item) => {
+			if (!isRecord(item)) return [];
+			if (item["type"] === "text") return text(item["text"]) ?? [];
+			return [];
+		}),
+	);
+	if (thinking === undefined && messageText === undefined) return undefined;
+	return {
+		...(thinking === undefined ? {} : { thinking }),
+		...(messageText === undefined ? {} : { message: messageText }),
+	};
+};
+
+const messageParts = (
+	event: Record<string, unknown>,
+): MessageParts | undefined => {
 	const ame = event["assistantMessageEvent"];
 	if (isRecord(ame)) {
-		const partial = messageContentText(ame["partial"]);
-		if (partial !== undefined) return inlineText(partial, 120);
+		const partial = messageContentParts(ame["partial"]);
+		if (partial !== undefined) return { mode: "partial", ...partial };
 		const delta = text(ame["delta"]);
-		if (delta !== undefined && delta.trim().length > 0) return delta;
+		if (delta !== undefined && delta.trim().length > 0)
+			return { mode: "delta", message: inlineMessageText(delta) };
 	}
-	const message = messageContentText(event["message"]);
-	return message === undefined ? undefined : inlineText(message, 120);
+	const message = messageContentParts(event["message"]);
+	return message === undefined ? undefined : { mode: "partial", ...message };
 };
 
 type EventPhase = "turn" | "start" | "update" | "end" | "message" | "none";
@@ -421,7 +464,7 @@ interface Classified {
 	readonly toolCallId?: string;
 	readonly isCheck: boolean;
 	readonly isError: boolean;
-	readonly delta?: string;
+	readonly message?: MessageParts;
 }
 
 const classify = (raw: unknown): Classified => {
@@ -473,8 +516,8 @@ const classify = (raw: unknown): Classified => {
 		type === "message_update" ||
 		type === "message_end"
 	) {
-		const delta = messageDelta(raw);
-		return { ...base, type, phase: "message", ...(delta ? { delta } : {}) };
+		const message = messageParts(raw);
+		return { ...base, type, phase: "message", ...(message ? { message } : {}) };
 	}
 	return { ...base, type };
 };
@@ -601,6 +644,28 @@ const prependActivity = (
 	entry: ActivityEntry,
 	max = 50,
 ) => [entry, ...items].slice(0, max);
+
+const streamText = (
+	previous: string | undefined,
+	value: string | undefined,
+	mode: MessageParts["mode"],
+) => {
+	if (value === undefined) return previous;
+	return mode === "partial"
+		? inlineMessageText(value)
+		: inlineMessageText(`${previous ?? ""}${value}`);
+};
+
+const withoutToolStream = (streams: AttemptStreams): AttemptStreams => {
+	const { tool: _tool, ...rest } = streams;
+	return rest;
+};
+
+const thinkingLine = (thinking: string | undefined) =>
+	thinking === undefined ? undefined : `Thinking · ${thinking}`;
+
+const activityFromStreams = (streams: AttemptStreams) =>
+	streams.tool ?? streams.message ?? thinkingLine(streams.thinking);
 
 const PHASE_MAX = 24;
 
@@ -732,6 +797,7 @@ const baseAgentAttempt = (
 	check: "not-run",
 	commands: [],
 	observations: [],
+	streams: {},
 	phases: [],
 	timeline: [],
 });
@@ -822,8 +888,16 @@ export const applySnapshot = (
 		asOfSequence === undefined
 			? projection.frontier
 			: Math.max(projection.frontier, asOfSequence);
+	const status =
+		projection.status === "paused" ||
+		projection.status === "shutting_down" ||
+		projection.status === "stopped" ||
+		runningValues.length === 0
+			? projection.status
+			: "running";
 	return {
 		...projection,
+		status,
 		frontier,
 		work,
 		attempts,
@@ -883,7 +957,15 @@ const reduceTickCompleted = (
 				...projection.diagnostics,
 			].slice(0, 5)
 		: projection.diagnostics;
-	return { ...projection, status: "idle", pulse, activity, diagnostics };
+	const status =
+		projection.status === "paused" ||
+		projection.status === "shutting_down" ||
+		projection.status === "stopped"
+			? projection.status
+			: projection.attempts.size > 0 || started > 0
+				? "running"
+				: "idle";
+	return { ...projection, status, pulse, activity, diagnostics };
 };
 
 const reduceWorkObserved = (
@@ -1156,34 +1238,54 @@ const reduceAgentSessionEvent = (
 			)
 		: previous.phases;
 
-	// The live "now" line — resolved here so views render it verbatim.
+	let streams = previous.streams;
+	if (classified.message !== undefined) {
+		const thinking = streamText(
+			streams.thinking,
+			classified.message.thinking,
+			classified.message.mode,
+		);
+		const message = streamText(
+			streams.message,
+			classified.message.message,
+			classified.message.mode,
+		);
+		streams = {
+			...streams,
+			...(thinking === undefined ? {} : { thinking }),
+			...(message === undefined ? {} : { message }),
+		};
+	}
+	if (classified.phase === "start" || classified.phase === "update")
+		streams = { ...streams, tool: liveLabel(kind, target) };
+	else if (classified.phase === "end") streams = withoutToolStream(streams);
+
+	// The live "now" line — resolved here so views render it verbatim while
+	// exposing split streams for richer callsites.
 	const streaming =
+		classified.phase === "turn" ||
+		classified.phase === "start" ||
 		classified.phase === "update" ||
 		(classified.phase === "message" && classified.type !== "message_end");
+	const streamActivity = activityFromStreams(streams);
 	const activity =
-		classified.phase === "message"
-			? classified.delta === undefined
-				? previous.activity
-				: previous.activityKind === "message" &&
-					  previous.streaming &&
-					  !classified.delta.startsWith(previous.activity)
-					? inlineText(`${previous.activity}${classified.delta}`, 120)
-					: inlineText(classified.delta, 120)
+		classified.phase === "end"
+			? doneLabel(kind, target, classified.isError)
 			: classified.phase === "turn"
 				? "Thinking"
-				: classified.phase === "start" || classified.phase === "update"
-					? liveLabel(kind, target)
-					: classified.phase === "end"
-						? doneLabel(kind, target, classified.isError)
-						: previous.activity;
+				: (streamActivity ?? previous.activity);
 	const activityKind =
-		classified.phase === "message"
-			? "message"
-			: classified.phase === "none"
-				? previous.activityKind
-				: classified.phase === "turn"
-					? "think"
-					: kind;
+		classified.phase === "end"
+			? kind
+			: streams.tool !== undefined
+				? kind
+				: streams.message !== undefined
+					? "message"
+					: streams.thinking !== undefined || classified.phase === "turn"
+						? "think"
+						: classified.phase === "none"
+							? previous.activityKind
+							: kind;
 
 	const lastMeaningful = timelineWorthy
 		? timelineText
@@ -1238,6 +1340,7 @@ const reduceAgentSessionEvent = (
 		check,
 		commands,
 		observations,
+		streams,
 		phases,
 		timeline,
 		...(tokens === undefined ? {} : { tokens }),
