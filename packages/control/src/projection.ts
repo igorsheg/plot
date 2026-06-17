@@ -64,9 +64,9 @@ export const phaseEntrySchema = z
 	.strict();
 export type PhaseEntry = z.infer<typeof phaseEntrySchema>;
 
-// The tool currently executing in a run. pi-mono runs one tool at a time per
-// agent, and `tool_execution_end` carries no args — so we remember the start's
-// target/kind/check-ness here to attribute the completion correctly.
+// Tools currently executing in a run. pi-mono events carry a stable
+// `toolCallId`, but updates/ends may omit args, so remember start metadata by id
+// and keep `activeTool` as the last-active fallback for old/partial events.
 export const activeToolSchema = z
 	.object({
 		kind: activityKindSchema,
@@ -228,6 +228,7 @@ export const agentAttemptProjectionSchema = z
 		phases: z.array(phaseEntrySchema).readonly(),
 		timeline: z.array(timelineEntrySchema).readonly(),
 		activeTool: activeToolSchema.optional(),
+		activeTools: z.map(z.string(), activeToolSchema).readonly().optional(),
 		tokens: tokenUsageProjectionSchema.optional(),
 		transcript: agentTranscriptReferenceSchema.optional(),
 	})
@@ -357,6 +358,9 @@ const inlineText = (value: string, max = 140) =>
 	value.replace(/\s+/g, " ").trim().slice(0, max);
 const inlineMessageText = (value: string, max = 120) =>
 	inlineText(value.replace(/\*\*([^*]+)\*\*/g, "$1"), max);
+const ansiEscape = String.fromCharCode(27);
+const stripAnsiCodes = (value: string) =>
+	value.replace(new RegExp(`${ansiEscape}\\[[0-9;]*m`, "g"), "");
 
 const baseName = (path: string) => {
 	const trimmed = path.replace(/\/+$/, "");
@@ -396,10 +400,45 @@ const argTarget = (toolName: string, args: unknown): string | undefined => {
 	return text(args["path"]);
 };
 
+const kindForTool = (
+	toolName: string,
+	target: string | undefined,
+): ActivityKind => {
+	const isBash = toolName === "bash";
+	if (isBash && target !== undefined && isCheckCommand(target)) return "test";
+	if (isBash && target !== undefined && isFinishCommand(target))
+		return "finish";
+	return TOOL_KIND[toolName] ?? "run";
+};
+
+const pendingToolLabel = (
+	toolName: string,
+	target: string | undefined,
+	kind: ActivityKind,
+) => {
+	switch (kind) {
+		case "read":
+			return `Preparing read ${baseName(target ?? "file")}`;
+		case "edit":
+			return `Preparing edit ${baseName(target ?? "file")}`;
+		case "search":
+			return inlineText(`Preparing search ${target ?? ""}`, 56).trim();
+		case "test":
+		case "finish":
+		case "run":
+			return inlineText(`Preparing ${target ?? toolName}`, 72);
+		default:
+			return inlineText(`Preparing ${toolName}`, 56);
+	}
+};
+
 interface MessageParts {
 	readonly mode: "delta" | "partial";
 	readonly thinking?: string;
 	readonly message?: string;
+	readonly tool?: string;
+	readonly toolKind?: ActivityKind;
+	readonly toolCallId?: string;
 }
 
 const joined = (parts: readonly string[]) => {
@@ -432,10 +471,32 @@ const messageContentParts = (
 			return [];
 		}),
 	);
-	if (thinking === undefined && messageText === undefined) return undefined;
+	const toolCalls = content.flatMap((item) => {
+		if (!isRecord(item) || item["type"] !== "toolCall") return [];
+		const toolName = text(item["name"]);
+		if (toolName === undefined) return [];
+		const target = argTarget(toolName, item["arguments"]);
+		const toolKind = kindForTool(toolName, target);
+		const toolCallId = text(item["id"]);
+		return [
+			{
+				tool: pendingToolLabel(toolName, target, toolKind),
+				toolKind,
+				...(toolCallId === undefined ? {} : { toolCallId }),
+			},
+		];
+	});
+	const toolCall = toolCalls[toolCalls.length - 1];
+	if (
+		thinking === undefined &&
+		messageText === undefined &&
+		toolCall === undefined
+	)
+		return undefined;
 	return {
 		...(thinking === undefined ? {} : { thinking }),
 		...(messageText === undefined ? {} : { message: messageText }),
+		...(toolCall === undefined ? {} : toolCall),
 	};
 };
 
@@ -447,11 +508,34 @@ const messageParts = (
 		const partial = messageContentParts(ame["partial"]);
 		if (partial !== undefined) return { mode: "partial", ...partial };
 		const delta = text(ame["delta"]);
-		if (delta !== undefined && delta.trim().length > 0)
-			return { mode: "delta", message: inlineMessageText(delta) };
+		const eventType = text(ame["type"]);
+		if (delta !== undefined && delta.trim().length > 0) {
+			if (eventType === "thinking_delta")
+				return { mode: "delta", thinking: inlineMessageText(delta) };
+			if (eventType === "text_delta")
+				return { mode: "delta", message: inlineMessageText(delta) };
+		}
 	}
 	const message = messageContentParts(event["message"]);
 	return message === undefined ? undefined : { mode: "partial", ...message };
+};
+
+const toolResultLine = (value: unknown): string | undefined => {
+	if (!isRecord(value)) return undefined;
+	const content = value["content"];
+	if (!Array.isArray(content)) return undefined;
+	const lines = content
+		.flatMap((item) => {
+			if (!isRecord(item) || item["type"] !== "text") return [];
+			return text(item["text"]) ?? [];
+		})
+		.join("\n")
+		.replace(/\r/g, "\n")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
+	const line = lines[lines.length - 1];
+	return line === undefined ? undefined : inlineText(stripAnsiCodes(line), 90);
 };
 
 type EventPhase = "turn" | "start" | "update" | "end" | "message" | "none";
@@ -486,14 +570,9 @@ const classify = (raw: unknown): Classified => {
 	) {
 		const toolName = text(raw["toolName"]) ?? "";
 		const target = argTarget(toolName, raw["args"]);
-		const isBash = toolName === "bash";
-		const isCheck = isBash && target !== undefined && isCheckCommand(target);
-		const isFinish = isBash && target !== undefined && isFinishCommand(target);
-		const kind: ActivityKind = isCheck
-			? "test"
-			: isFinish
-				? "finish"
-				: (TOOL_KIND[toolName] ?? "run");
+		const isCheck =
+			toolName === "bash" && target !== undefined && isCheckCommand(target);
+		const kind = kindForTool(toolName, target);
 		const toolCallId = text(raw["toolCallId"]);
 		const phase: EventPhase =
 			type === "tool_execution_start"
@@ -517,7 +596,13 @@ const classify = (raw: unknown): Classified => {
 		type === "message_end"
 	) {
 		const message = messageParts(raw);
-		return { ...base, type, phase: "message", ...(message ? { message } : {}) };
+		return {
+			...base,
+			type,
+			phase: "message",
+			kind: message?.toolKind ?? base.kind,
+			...(message ? { message } : {}),
+		};
 	}
 	return { ...base, type };
 };
@@ -1186,21 +1271,29 @@ const reduceAgentSessionEvent = (
 					tokens: usageTotals.tokens,
 				});
 
-	// tool_execution_end carries no args, so resolve the completed tool's
-	// kind/target/check-ness from the start we remembered in activeTool.
-	const active = previous.activeTool;
-	const kind: ActivityKind =
-		classified.phase === "end"
-			? (active?.kind ?? classified.kind)
-			: classified.kind;
-	const target =
-		classified.phase === "end"
-			? (classified.target ?? active?.target)
-			: classified.target;
-	const isCheck =
-		classified.phase === "end"
-			? (active?.isCheck ?? classified.isCheck)
-			: classified.isCheck;
+	// Tool updates/ends may omit args, so resolve their kind/target/check-ness
+	// from the start event remembered by toolCallId.
+	const activeTools = new Map(previous.activeTools ?? []);
+	if (
+		previous.activeTool?.toolCallId !== undefined &&
+		!activeTools.has(previous.activeTool.toolCallId)
+	)
+		activeTools.set(previous.activeTool.toolCallId, previous.activeTool);
+	const active =
+		classified.toolCallId === undefined
+			? previous.activeTool
+			: (activeTools.get(classified.toolCallId) ?? previous.activeTool);
+	const needsActiveAttribution =
+		classified.phase === "update" || classified.phase === "end";
+	const kind: ActivityKind = needsActiveAttribution
+		? (active?.kind ?? classified.kind)
+		: classified.kind;
+	const target = needsActiveAttribution
+		? (classified.target ?? active?.target)
+		: classified.target;
+	const isCheck = needsActiveAttribution
+		? (active?.isCheck ?? classified.isCheck)
+		: classified.isCheck;
 
 	// turn_start counts a real turn; tool/message deltas never do.
 	const turnCount =
@@ -1250,15 +1343,29 @@ const reduceAgentSessionEvent = (
 			classified.message.message,
 			classified.message.mode,
 		);
+		const tool = streamText(
+			streams.tool,
+			classified.message.tool,
+			classified.message.mode,
+		);
 		streams = {
 			...streams,
 			...(thinking === undefined ? {} : { thinking }),
 			...(message === undefined ? {} : { message }),
+			...(tool === undefined ? {} : { tool }),
 		};
 	}
-	if (classified.phase === "start" || classified.phase === "update")
-		streams = { ...streams, tool: liveLabel(kind, target) };
-	else if (classified.phase === "end") streams = withoutToolStream(streams);
+	if (classified.phase === "start" || classified.phase === "update") {
+		const output =
+			classified.phase === "update" && isRecord(rawEvent)
+				? toolResultLine(rawEvent["partialResult"])
+				: undefined;
+		const label = liveLabel(kind, target);
+		streams = {
+			...streams,
+			tool: output === undefined ? label : `${label} · ${output}`,
+		};
+	} else if (classified.phase === "end") streams = withoutToolStream(streams);
 
 	// The live "now" line — resolved here so views render it verbatim while
 	// exposing split streams for richer callsites.
@@ -1345,9 +1452,9 @@ const reduceAgentSessionEvent = (
 		timeline,
 		...(tokens === undefined ? {} : { tokens }),
 	};
-	// Track / clear the in-flight tool for end-event attribution.
+	// Track / clear in-flight tools by id for update/end attribution.
 	if (classified.phase === "start") {
-		next.activeTool = {
+		const nextActiveTool = {
 			kind,
 			isCheck,
 			...(target === undefined ? {} : { target }),
@@ -1355,8 +1462,25 @@ const reduceAgentSessionEvent = (
 				? {}
 				: { toolCallId: classified.toolCallId }),
 		};
+		next.activeTool = nextActiveTool;
+		if (classified.toolCallId !== undefined) {
+			const nextActiveTools = new Map(activeTools);
+			nextActiveTools.set(classified.toolCallId, nextActiveTool);
+			next.activeTools = nextActiveTools;
+		}
 	} else if (classified.phase === "end") {
-		delete next.activeTool;
+		const nextActiveTools = new Map(activeTools);
+		if (classified.toolCallId !== undefined)
+			nextActiveTools.delete(classified.toolCallId);
+		else if (active?.toolCallId !== undefined)
+			nextActiveTools.delete(active.toolCallId);
+		if (nextActiveTools.size === 0) {
+			delete next.activeTool;
+			delete next.activeTools;
+		} else {
+			next.activeTools = nextActiveTools;
+			next.activeTool = [...nextActiveTools.values()][nextActiveTools.size - 1];
+		}
 	}
 	attempts.delete(previous.runId);
 	attempts.set(next.runId, next);
