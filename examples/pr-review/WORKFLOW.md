@@ -81,7 +81,8 @@ The anchor marker records the next phase to perform. Decide this run from GitHub
 2. Reconcile the anchor before new work: dedupe partial records, fix an invalid phase rail, carry prior-head findings, and make the marker match reality.
 3. Run exactly one phase hat. Do not mix hats inside a phase.
 4. Write the checkpoint: update findings/phase notes, advance `status` to the next chosen phase only when the current phase is complete, and re-read the comment to verify the edit landed.
-5. Continue with the next chosen phase only if it is still useful and bounded. Hard cap: after two review hats (`code_quality`, `security`, `runtime_lifecycle`, `protocol`, `tests`, `docs_agents`) in this Agent Run, checkpoint and stop unless the next phase is `post`.
+5. Before `synthesize` or `post`, run the PR feedback sweep below.
+6. Continue with the next chosen phase only if it is still useful and bounded. Hard cap: after two review hats (`code_quality`, `security`, `runtime_lifecycle`, `protocol`, `tests`, `docs_agents`) in this Agent Run, checkpoint and stop unless the next phase is `post`.
 
 Checkpointing is the commit point. Everything before the marker edit is disposable; everything after it may be skipped by the next run.
 
@@ -130,8 +131,26 @@ Wear only the current hat. The "Do NOT flag" lines are part of the contract.
 - `protocol` — machine-protocol compatibility: JSONL framing, stdout/stderr split, schema changes, replay/order semantics, malformed-input behavior. Verify producer and consumer sides.
 - `tests` — whether meaningful success/failure/cancellation/boundary paths are proven. Do NOT ask for tests that add no confidence. Missing tests matter most for new public API, protocol boundaries, lifecycle changes, and bug fixes without regression tests.
 - `docs_agents` — instruction freshness: README/docs/AGENTS.md/WORKFLOW.md/commands need updating because this PR changed architecture, package manager, test framework, CI, CLI, or workflows. Also flag instruction-file rot: stale commands, generic filler, oversized context.
-- `synthesize` — judge pass. Read every finding record in the anchor. Deduplicate, re-verify surprising or high-severity records, drop weak/speculative records, demote out-of-diff discoveries to body notes, and write final compact records.
-- `post` — publish exactly one GitHub review for this head, set marker `status=done`, verify it, then immediately end the run.
+- `synthesize` — judge pass. Run the PR feedback sweep. Read every finding record in the anchor. Deduplicate, re-verify surprising or high-severity records, drop weak/speculative records, demote out-of-diff discoveries to body notes, and write final compact records.
+- `post` — run the PR feedback sweep again if this run has not already done it, publish exactly one GitHub review for this head, set marker `status=done`, verify it, then immediately end the run.
+
+## PR feedback sweep
+
+Before `synthesize` and before any no-finding `post`, gather existing feedback:
+
+- top-level PR comments: `gh pr view <n> --json comments`
+- inline review comments: `gh api repos/<owner>/<repo>/pulls/<n>/comments --paginate`
+- review summaries/states: `gh pr view <n> --json reviews`
+- previous Plot anchor `Finding records` and `Carried from previous head`
+
+Treat every actionable prior finding or reviewer comment as unresolved until one of these is true:
+
+- it is fixed in the current head;
+- it is still valid and appears in current `Finding records`;
+- it is obsolete because the touched code/command no longer exists;
+- it is explicitly pushed back with one-line evidence.
+
+A `No findings` review is allowed only after the sweep records: `prior feedback: none actionable` or one compact bullet per actionable item with `resolved | still valid | obsolete | pushed back`.
 
 ## Judgment rules
 
@@ -179,6 +198,8 @@ Build one review API call (`gh api repos/<owner>/<repo>/pulls/<n>/reviews --meth
 Before setting `status=done`:
 
 - every synthesized finding was re-verified or dropped;
+- the PR feedback sweep is recorded and every actionable prior item is resolved, still valid, obsolete, or pushed back with evidence;
+- no-finding reviews are posted only when the sweep found no unresolved actionable feedback;
 - every in-diff finding has an inline comment entry, unless GitHub rejects coordinates and the retry fails;
 - the GitHub review event matches the rubric;
 - the anchor links to the posted review;
@@ -230,6 +251,7 @@ Before setting `status=done`:
 
 - prepare — <one-line tier/phase rationale>
 - tests — <one-line verification/coverage note>
+- feedback_sweep — <prior feedback: none actionable, or compact resolution bullets>
 
 ### Finding records
 
