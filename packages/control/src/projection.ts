@@ -1075,7 +1075,13 @@ const reduceWorkRemoved = (
 	if (key === undefined) return projection;
 	const work = new Map(projection.work);
 	work.delete(key);
-	return { ...projection, work };
+	return {
+		...projection,
+		work,
+		scheduledWakes: projection.scheduledWakes.filter(
+			(wake) => wake.workKey !== key,
+		),
+	};
 };
 
 const reduceAttemptStarted = (
@@ -1176,6 +1182,9 @@ const reduceAttemptCompleted = (
 		...projection,
 		work,
 		attempts,
+		scheduledWakes: projection.scheduledWakes.filter(
+			(wake) => wake.workKey !== workKey,
+		),
 		activity: prependActivity(projection.activity, {
 			atMs: observedAtMs,
 			tone: ok ? "ok" : "bad",
@@ -1487,6 +1496,18 @@ const reduceAgentSessionEvent = (
 	return { ...projection, usageTotals, tokenSamples, attempts };
 };
 
+const pruneScheduledWakes = (
+	projection: DashboardProjection,
+	observedAtMs: number,
+): DashboardProjection => {
+	const scheduledWakes = projection.scheduledWakes.filter(
+		(wake) => wake.dueAtMs > observedAtMs,
+	);
+	return scheduledWakes.length === projection.scheduledWakes.length
+		? projection
+		: { ...projection, scheduledWakes };
+};
+
 const reduceEventPayload = (
 	projection: DashboardProjection,
 	type: string,
@@ -1494,22 +1515,23 @@ const reduceEventPayload = (
 	sequence: number,
 	observedAtMs: number,
 ): DashboardProjection => {
-	if (type === "session_started") return { ...projection, status: "running" };
-	if (type === "session_paused") return { ...projection, status: "paused" };
-	if (type === "session_resumed") return { ...projection, status: "idle" };
+	const current = pruneScheduledWakes(projection, observedAtMs);
+	if (type === "session_started") return { ...current, status: "running" };
+	if (type === "session_paused") return { ...current, status: "paused" };
+	if (type === "session_resumed") return { ...current, status: "idle" };
 	if (type === "session_close_requested")
-		return { ...projection, status: "shutting_down" };
+		return { ...current, status: "shutting_down" };
 	if (type === "session_shutdown" || type === "session_close_completed")
-		return { ...projection, status: "stopped" };
+		return { ...current, status: "stopped", scheduledWakes: [] };
 	if (type === "tick_started")
 		return reduceTickStarted(
-			projection,
+			current,
 			isRecord(payload) ? payload["tickId"] : undefined,
 			observedAtMs,
 		);
 	if (type === "tick_completed")
 		return reduceTickCompleted(
-			projection,
+			current,
 			isRecord(payload) && payload["result"] !== undefined
 				? payload["result"]
 				: payload,
@@ -1517,48 +1539,48 @@ const reduceEventPayload = (
 		);
 	if (type === "work_observed" && isRecord(payload)) {
 		const work = isRecord(payload["work"]) ? payload["work"] : payload;
-		return reduceWorkObserved(projection, work);
+		return reduceWorkObserved(current, work);
 	}
 	if (type === "work_removed" && isRecord(payload))
-		return reduceWorkRemoved(projection, payload["workKey"]);
+		return reduceWorkRemoved(current, payload["workKey"]);
 	if (type === "attempt_started" && isRecord(payload)) {
 		const run = isRecord(payload["run"]) ? payload["run"] : payload;
-		return reduceAttemptStarted(projection, run, sequence, observedAtMs);
+		return reduceAttemptStarted(current, run, sequence, observedAtMs);
 	}
 	if (type === "attempt_completed" && isRecord(payload)) {
 		const completion = isRecord(payload["completion"])
 			? payload["completion"]
 			: payload;
-		return reduceAttemptCompleted(projection, completion, observedAtMs);
+		return reduceAttemptCompleted(current, completion, observedAtMs);
 	}
 	if (
 		(type === "agent_session_event" || type === "agent_run_event") &&
 		isRecord(payload)
 	)
-		return reduceAgentSessionEvent(projection, payload, sequence, observedAtMs);
+		return reduceAgentSessionEvent(current, payload, sequence, observedAtMs);
 	if (type === "wake_scheduled" && isRecord(payload))
-		return reduceWakeScheduled(projection, payload, observedAtMs);
+		return reduceWakeScheduled(current, payload, observedAtMs);
 	if (
 		(type === "diagnostic_recorded" || type === "diagnostic") &&
 		isRecord(payload)
 	)
 		return {
-			...projection,
-			diagnostics: [diagnosticText(payload), ...projection.diagnostics].slice(
+			...current,
+			diagnostics: [diagnosticText(payload), ...current.diagnostics].slice(
 				0,
 				5,
 			),
 		};
 	if (type === "operator_observation_recorded" && isRecord(payload))
 		return {
-			...projection,
-			activity: prependActivity(projection.activity, {
+			...current,
+			activity: prependActivity(current.activity, {
 				atMs: observedAtMs,
 				tone: "info",
 				text: `operator action ${text(payload["actionLabel"]) ?? text(payload["actionId"]) ?? "recorded"}`,
 			}),
 		};
-	return projection;
+	return current;
 };
 
 export const reduceRecord = (
@@ -1567,7 +1589,7 @@ export const reduceRecord = (
 ): DashboardProjection => {
 	if (record.kind !== "session_event") return projection;
 	const sequence = Number(record.sequence);
-	const observedAtMs = Date.now();
+	const observedAtMs = timestampMs(record.event.timestamp);
 	const summary = eventSummary(record);
 	const next: DashboardProjection = {
 		...projection,
