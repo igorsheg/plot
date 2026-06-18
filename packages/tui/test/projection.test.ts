@@ -125,6 +125,52 @@ const toolEnd = (
 		workKey,
 	);
 
+const toolEndWithId = (
+	sequence: number,
+	toolName: string,
+	toolCallId: string,
+	isError = false,
+	workKey = "source:item:42",
+) =>
+	agentRunEvent(
+		sequence,
+		{ type: "tool_execution_end", toolName, toolCallId, result: {}, isError },
+		workKey,
+	);
+
+const toolUpdateWithId = (
+	sequence: number,
+	toolName: string,
+	toolCallId: string,
+	args: Record<string, unknown>,
+	partialResult: unknown,
+	workKey = "source:item:42",
+) =>
+	agentRunEvent(
+		sequence,
+		{
+			type: "tool_execution_update",
+			toolName,
+			toolCallId,
+			args,
+			partialResult,
+		},
+		workKey,
+	);
+
+const toolStartWithId = (
+	sequence: number,
+	toolName: string,
+	toolCallId: string,
+	args: Record<string, unknown>,
+	workKey = "source:item:42",
+) =>
+	agentRunEvent(
+		sequence,
+		{ type: "tool_execution_start", toolName, args, toolCallId },
+		workKey,
+	);
+
 const bashStart = (
 	sequence: number,
 	command: string,
@@ -148,6 +194,34 @@ const messageDelta = (
 		},
 		workKey,
 	);
+
+const thinkingDelta = (sequence: number, delta: string) =>
+	agentRunEvent(sequence, {
+		type: "message_update",
+		message: { role: "assistant", content: [] },
+		assistantMessageEvent: { type: "thinking_delta", delta },
+	});
+
+const toolCallPartial = (
+	sequence: number,
+	toolName: string,
+	toolCallId: string,
+	args: Record<string, unknown>,
+) =>
+	agentRunEvent(sequence, {
+		type: "message_update",
+		message: { role: "assistant", content: [] },
+		assistantMessageEvent: {
+			type: "toolcall_delta",
+			delta: JSON.stringify(args),
+			partial: {
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: toolCallId, name: toolName, arguments: args },
+				],
+			},
+		},
+	});
 
 const messagePartial = (sequence: number, delta: string, partial: string) =>
 	agentRunEvent(sequence, {
@@ -407,6 +481,76 @@ describe("Plot TUI projection", () => {
 		expect(work?.streams.thinking).toBe("Inspecting clone progress");
 		expect(work?.streams.message).toBe("I need the clone to finish");
 		expect(work?.activity).not.toContain("Inspecting clone progressI need");
+	});
+
+	test("routes thinking deltas without partials to the thinking lane", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(projection, thinkingDelta(2, "checking context"));
+
+		const work = projection.attempts.get("run-1");
+		expect(work?.streams.thinking).toBe("checking context");
+		expect(work?.streams.message).toBeUndefined();
+		expect(work?.activityKind).toBe("think");
+	});
+
+	test("surfaces tool calls and partial tool output in the tool lane", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			toolCallPartial(2, "bash", "tc-check", { command: "bun run check" }),
+		);
+
+		let work = projection.attempts.get("run-1");
+		expect(work?.streams.tool).toBe("Preparing bun run check");
+		expect(work?.activityKind).toBe("test");
+
+		projection = reduceRecord(
+			projection,
+			toolStartWithId(3, "bash", "tc-check", { command: "bun run check" }),
+		);
+		projection = reduceRecord(
+			projection,
+			toolUpdateWithId(
+				4,
+				"bash",
+				"tc-check",
+				{ command: "bun run check" },
+				{ content: [{ type: "text", text: "one\ntwo" }] },
+			),
+		);
+
+		work = projection.attempts.get("run-1");
+		expect(work?.streams.tool).toBe("Running bun run check · two");
+		expect(work?.activity).toBe("Running bun run check · two");
+	});
+
+	test("attributes parallel tool completions by toolCallId", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(projection, workStarted(1));
+		projection = reduceRecord(
+			projection,
+			toolStartWithId(2, "read", "tc-a", { path: "a.ts" }),
+		);
+		projection = reduceRecord(
+			projection,
+			toolStartWithId(3, "read", "tc-b", { path: "b.ts" }),
+		);
+		projection = reduceRecord(projection, toolEndWithId(4, "read", "tc-a"));
+
+		let work = projection.attempts.get("run-1");
+		expect(work?.timeline[0]?.text).toBe("Read a.ts");
+		expect(work?.activeTools?.has("tc-b")).toBe(true);
+
+		projection = reduceRecord(projection, toolEndWithId(5, "read", "tc-b"));
+		work = projection.attempts.get("run-1");
+		expect(work?.timeline.map((entry) => entry.text)).toEqual([
+			"Read b.ts",
+			"Read a.ts",
+			"attempt started",
+		]);
+		expect(work?.activeTools).toBeUndefined();
 	});
 
 	test("surfaces streaming deltas as the live activity line", () => {

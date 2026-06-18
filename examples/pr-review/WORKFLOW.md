@@ -17,7 +17,7 @@ plot:
 agent:
   provider: openai-codex
   model: gpt-5.5
-  thinking: low
+  thinking: high
   maxTurns: 1
   allowProjectConfig: true
 extension:

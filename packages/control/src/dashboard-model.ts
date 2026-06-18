@@ -60,9 +60,6 @@ export const workRowModelSchema = z
 		attempt: agentAttemptProjectionSchema.optional(),
 		label: z.string(),
 		status: workStatusSchema,
-		age: z.string(),
-		turns: z.string(),
-		tokens: z.string(),
 		meta: z.string(),
 		activity: z.string(),
 		lastEventAgo: z.string(),
@@ -96,15 +93,6 @@ export const completedRowModelSchema = z
 	.strict();
 export type CompletedRowModel = z.infer<typeof completedRowModelSchema>;
 
-export const activityRowModelSchema = z
-	.object({
-		ago: z.string(),
-		tone: activityToneSchema,
-		text: z.string(),
-	})
-	.strict();
-export type ActivityRowModel = z.infer<typeof activityRowModelSchema>;
-
 export const dashboardModelSchema = z
 	.object({
 		pulse: pulseModelSchema,
@@ -112,16 +100,12 @@ export const dashboardModelSchema = z
 		work: z.array(workRowModelSchema).readonly(),
 		scheduled: z.array(scheduledRowModelSchema).readonly(),
 		completed: z.array(completedRowModelSchema).readonly(),
-		activity: z.array(activityRowModelSchema).readonly(),
 	})
 	.strict();
 export type DashboardModel = z.infer<typeof dashboardModelSchema>;
 
 export const safeParseDashboardModel = (value: unknown) =>
 	dashboardModelSchema.safeParse(value);
-
-const countFormatter = new Intl.NumberFormat("en-US");
-export const formatCount = (value: number) => countFormatter.format(value);
 
 export const formatTokens = (value: number) => {
 	if (value < 1000) return String(value);
@@ -152,9 +136,6 @@ const needsAttention = (status: WorkStatus) =>
 const isStale = (attempt: AgentAttemptProjection | undefined, nowMs: number) =>
 	attempt?.lastEventAtMs !== undefined &&
 	nowMs - attempt.lastEventAtMs > staleThresholdMs;
-
-const tokenTotal = (attempt: AgentAttemptProjection | undefined) =>
-	attempt?.tokens?.total ?? 0;
 
 // `activity` is already churn-resolved at reduce time (projection.ts), so the
 // view model renders it verbatim — falling back to the last meaningful action
@@ -213,9 +194,6 @@ const tokenThroughput = (
 	return { rate, graph };
 };
 
-const compactLabels = (labels: readonly string[] | undefined) =>
-	(labels ?? []).slice(0, 4).join(" · ");
-
 const shortRunId = (runId: string | undefined) => {
 	if (runId === undefined) return undefined;
 	if (runId.length <= 12) return runId;
@@ -237,22 +215,24 @@ const workRow = (
 		attempt?.startedAtMs === undefined
 			? "n/a"
 			: formatDuration(nowMs - attempt.startedAtMs);
-	const turns = attempt === undefined ? "t0" : `t${attempt.turnCount}`;
-	const tokens = formatTokens(tokenTotal(attempt));
-	const labels = compactLabels(work.labels);
+	const token = tokenMeta(attempt?.tokens);
+	const check =
+		attempt?.check === "running"
+			? "checking"
+			: attempt?.check === "failed"
+				? "check failed"
+				: attempt?.check === "passed"
+					? "check passed"
+					: undefined;
 	return {
 		work,
 		...(attempt === undefined ? {} : { attempt }),
 		label: workLabel(work),
 		status: work.status,
-		age,
-		turns,
-		tokens,
 		meta: [
-			age === "n/a" ? age : `${age} active`,
-			turns,
-			...(tokens === "0" ? [] : [tokens]),
-			...(labels === "" ? [] : [labels]),
+			attempt === undefined ? work.status : age,
+			...(token === undefined ? [] : [token]),
+			...(check === undefined ? [] : [check]),
 		].join(" · "),
 		activity: displayActivity(work, attempt),
 		lastEventAgo:
@@ -384,13 +364,11 @@ export const dashboardModelFrom = (
 			};
 		}),
 		completed: recentRuns.map((entry) => {
-			const labels = compactLabels(entry.labels);
 			const run = duplicateLabels.has(entry.label)
 				? shortRunId(entry.runId)
 				: undefined;
 			const tokens = tokenMeta(entry.tokens);
 			const meta = [
-				...(labels === "" ? [] : [labels]),
 				...(entry.durationMs === undefined
 					? []
 					: [formatDuration(entry.durationMs)]),
@@ -407,10 +385,5 @@ export const dashboardModelFrom = (
 				...(entry.url === undefined ? {} : { url: entry.url }),
 			};
 		}),
-		activity: projection.activity.slice(0, 20).map((entry) => ({
-			ago: formatAgo(nowMs - entry.atMs),
-			tone: entry.tone,
-			text: entry.text,
-		})),
 	};
 };

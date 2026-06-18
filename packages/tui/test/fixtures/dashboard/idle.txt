@@ -1,13 +1,12 @@
 
 ╭─ PLOT  workflow  ◉ running                                                                                            
 │                                                                                                                       
-│  0/4 agents active      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁                                                                
+│  0/4 agents      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁                                                                       
 │  tick #42 · 3s ago      next wake in 26s                                                                              
 │                                                                                                                       
-├─ Work · 1 scheduled                                                                                                   
-│   no active work — watching · next wake in 26s                                                                        
-│     ↻ wake in 26s · poll                                                                                              
+├─ Watching                                                                                                             
 │                                                                                                                       
-├─ Activity                                                                                                             
-│   nothing yet                                                                                                         
-╰─ ↑↓ select   enter details   o open   t tick   c config   d debug   q quit                                            
+│   no active work                                                                                                      
+│   ↻ wake in 26s · poll                                                                                                
+│                                                                                                                       
+╰─ ? help · q quit                                                                                                      

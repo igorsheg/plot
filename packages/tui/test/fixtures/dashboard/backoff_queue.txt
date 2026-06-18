@@ -1,17 +1,17 @@
 
 ╭─ PLOT  workflow  ◉ idle                                                                                               
 │                                                                                                                       
-│  0/4 agents active      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁                                                                
-│  tick #44 · 5s ago · found 1      retry in 2s                                                                         
+│  0/4 agents      0 tokens      0 tok/s ▁▁▁▁▁▁▁▁                                                                       
+│  tick #44 · 5s ago      retry in 2s                                                                                   
 │                                                                                                                       
+├─ Attention                                                                                                            
 │                                                                                                                       
-│ ▲ ATTENTION (1)                                                                                                       
 │   ● runner failed: rate limit exhausted                                                                               
-├─ Work · 2 scheduled                                                                                                   
-│   no active work — watching · next wake in 2s                                                                         
-│     ↻ retry in 2s · attempt 4 · rate limit exhausted                                                                  
-│     ↻ wake in 10s · poll                                                                                              
 │                                                                                                                       
-├─ Activity                                                                                                             
-│   nothing yet                                                                                                         
-╰─ ↑↓ select   enter details   o open   t tick   c config   d debug   q quit                                            
+├─ Watching                                                                                                             
+│                                                                                                                       
+│   no active work                                                                                                      
+│   ↻ retry in 2s · attempt 4                                                                                           
+│   ↻ wake in 10s · poll                                                                                                
+│                                                                                                                       
+╰─ ? help · q quit                                                                                                      

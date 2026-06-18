@@ -1,14 +1,11 @@
-import { workLabel } from "@plot/control/projection";
 import {
-	formatAgo,
-	formatCost,
 	formatDuration,
-	formatTokens,
 	type WorkRowModel,
 } from "@plot/control/dashboard-model";
 import {
 	asLine,
 	blank,
+	cell,
 	emptyItem,
 	footer,
 	item,
@@ -18,102 +15,71 @@ import {
 import { quoteActivity } from "./shimmer.js";
 import { style } from "./style.js";
 
-const blankDetail = () => blank();
+const trailWindowRows = 9;
 
-const tokenLine = (selected: WorkRowModel): string => {
-	const tokens = selected.attempt?.tokens;
-	if (tokens === undefined) return "tokens none yet";
-	const parts = [
-		`${formatTokens(tokens.total ?? 0)} tokens`,
-		...(tokens.input === undefined ? [] : [`${formatTokens(tokens.input)} in`]),
-		...(tokens.output === undefined
-			? []
-			: [`${formatTokens(tokens.output)} out`]),
-		...(tokens.cost === undefined ? [] : [formatCost(tokens.cost)]),
-	];
-	return parts.join(" · ");
+const summaryLine = (selected: WorkRowModel): DashboardLine =>
+	item(
+		`  ${style.stage[selected.status](selected.status)}${
+			selected.attempt === undefined
+				? ""
+				: style.muted(`      ${selected.meta}`)
+		}`,
+	);
+
+const trailAge = (atMs: number, nowMs: number) =>
+	formatDuration(Math.max(0, nowMs - atMs));
+
+const workTrailLines = (
+	selected: WorkRowModel,
+	nowMs: number,
+): readonly DashboardLine[] => {
+	const attempt = selected.attempt;
+	if (attempt === undefined) return [item("  no activity yet", style.muted)];
+
+	const live =
+		attempt.streaming || attempt.timeline.length === 0
+			? [{ age: "now", text: quoteActivity(selected.activity) }]
+			: [];
+	const history = attempt.timeline
+		.toReversed()
+		.map((entry) => ({ age: trailAge(entry.atMs, nowMs), text: entry.text }))
+		.slice(-(trailWindowRows - live.length));
+	return [...history, ...live].map((entry) =>
+		item(`  ${cell(entry.age, 8, style.dim)} ${entry.text}`),
+	);
 };
 
-const streamLines = (selected: WorkRowModel): readonly DashboardLine[] => {
-	const streams = selected.attempt?.streams;
-	if (streams === undefined) return [];
+const attentionLines = (selected: WorkRowModel): readonly DashboardLine[] => {
 	const lines = [
-		...(streams.tool === undefined ? [] : [`tool      ${streams.tool}`]),
-		...(streams.message === undefined ? [] : [`message   ${streams.message}`]),
-		...(streams.thinking === undefined
+		...(selected.work.blockedReason === undefined
 			? []
-			: [`thinking  ${streams.thinking}`]),
+			: [selected.work.blockedReason]),
+		...(selected.status === "failed" ? [quoteActivity(selected.activity)] : []),
+		...(selected.stale ? [`stale · last event ${selected.lastEventAgo}`] : []),
 	];
 	return lines.length === 0
 		? []
-		: [blankDetail(), section("Streams"), ...lines.map((line) => item(line))];
+		: [
+				section("Attention", style.warn),
+				blank(),
+				...lines.map((line) => item(`  ${line}`, style.warn)),
+				blank(),
+			];
 };
 
 export const detailBodyLines = (
 	selected: WorkRowModel,
 	nowMs = Date.now(),
-): readonly DashboardLine[] => {
-	const { work, attempt } = selected;
-	const age =
-		attempt?.startedAtMs === undefined
-			? "n/a"
-			: formatDuration(nowMs - attempt.startedAtMs);
-	return [
-		...(work.subtitle === undefined ? [] : [item(work.subtitle, style.muted)]),
-		...(work.url === undefined ? [] : [item(work.url, style.accent)]),
-		blankDetail(),
-		section("Status"),
-		item(`${style.stage[work.status](`${work.status} for ${age}`)}`),
-		...(work.blockedReason === undefined
-			? []
-			: [item(work.blockedReason, style.warn)]),
-		...(attempt === undefined
-			? []
-			: [
-					item(
-						style.muted(
-							`turn ${attempt.turnCount} · ${attempt.eventCount} events · verification ${attempt.check} · attempt ${attempt.stage}`,
-						),
-					),
-				]),
-		item(tokenLine(selected), style.muted),
-		blankDetail(),
-		section("Now"),
-		item(
-			`${quoteActivity(selected.activity)}${
-				attempt?.lastEventAtMs === undefined
-					? ""
-					: style.muted(` · ${formatAgo(nowMs - attempt.lastEventAtMs)}`)
-			}`,
-		),
-		...streamLines(selected),
-		...(attempt === undefined
-			? []
-			: [
-					blankDetail(),
-					section("Recent"),
-					...(attempt.timeline.length === 0
-						? [emptyItem(style.muted)]
-						: attempt.timeline.map((entry) =>
-								item(
-									`${style.dim(formatAgo(nowMs - entry.atMs).padEnd(12))} ${entry.text}`,
-								),
-							)),
-					blankDetail(),
-					section("Commands"),
-					...(attempt.commands.length === 0
-						? [emptyItem(style.muted)]
-						: attempt.commands.map((command) => item(command, style.muted))),
-					...(attempt.observations.length === 0
-						? []
-						: [
-								blankDetail(),
-								section("Notes"),
-								...attempt.observations.map((observation) => item(observation)),
-							]),
-				]),
-	];
-};
+): readonly DashboardLine[] => [
+	blank(),
+	summaryLine(selected),
+	blank(),
+	section("Work trail"),
+	blank(),
+	...workTrailLines(selected, nowMs),
+	blank(),
+	...attentionLines(selected),
+];
 
 export const detailViewLines = (input: {
 	readonly header: readonly DashboardLine[];
@@ -131,12 +97,10 @@ export const detailViewLines = (input: {
 	}
 	const body = detailBodyLines(input.selected);
 	return [
-		asLine(
-			`${style.border("╭─ ")}${style.brand(workLabel(input.selected.work))}`,
-		),
+		asLine(`${style.border("╭─ ")}${style.brand(input.selected.label)}`),
 		...body.slice(input.scrollOffset, input.scrollOffset + input.viewportRows),
 		footer(
-			`j/k scroll   ${input.selected.work.url === undefined ? "" : "o open   "}esc back   q quit`,
+			`j/k scroll · ${input.selected.work.url === undefined ? "" : "o open · "}esc back · q quit`,
 			style.muted,
 		),
 	];

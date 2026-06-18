@@ -104,7 +104,7 @@ describe("PlotDashboard", () => {
 		tick: () => {},
 		refresh: () => {},
 		toggleDebug: () => {},
-		shutdown: () => {},
+		quit: () => {},
 	};
 
 	const withFixedNow = <T>(run: () => T): T => {
@@ -280,7 +280,7 @@ describe("PlotDashboard", () => {
 		expect(rendered).not.toContain("│     started");
 	});
 
-	test("renders a two-line board row per visible work item", () => {
+	test("renders live work rows without activity-feed noise", () => {
 		const running = new Map([
 			[
 				"source:item:42",
@@ -324,6 +324,48 @@ describe("PlotDashboard", () => {
 		expect(rendered).toContain("Posting review");
 		expect(rendered).not.toContain("ATTENTION");
 		expect(rendered).not.toContain("DEBUG EVENTS");
+	});
+
+	test("detail view renders a sliding work trail", () => {
+		const timeline = Array.from({ length: 12 }, (_, index) => ({
+			atMs: Date.now() - (index + 1) * 1_000,
+			text: `step ${index + 1}`,
+			kind: "run" as const,
+		}));
+		const dashboard = new PlotDashboard(
+			{
+				...emptyProjection("default", "workflow"),
+				status: "running",
+				...surfaces(
+					new Map([
+						[
+							"source:item:42",
+							runningWork({
+								workKey: "source:item:42",
+								primary: "#42",
+								title: "Item 42",
+								activity: "Running bun run check · dashboard.test.ts passed",
+								streaming: true,
+								timeline,
+							}),
+						],
+					]),
+				),
+			},
+			actions,
+		);
+
+		dashboard.handleInput("\r");
+		const rendered = stripAnsi(dashboard.render(140).join("\n"));
+
+		expect(rendered).toContain("Work trail");
+		expect(rendered).toContain("now");
+		expect(rendered).toContain("Running bun run check");
+		expect(rendered).toContain("step 1");
+		expect(rendered).not.toContain("step 12");
+		expect(rendered).not.toContain("Commands");
+		expect(rendered).not.toContain("Streams");
+		expect(rendered).not.toContain("turn 3");
 	});
 
 	test("keeps selected fleet work visible in small terminals", () => {
@@ -396,7 +438,7 @@ describe("PlotDashboard", () => {
 
 		const rendered = dashboard.render(120).join("\n");
 
-		expect(rendered).toContain("ATTENTION");
+		expect(rendered).toContain("Attention");
 		expect(rendered).toContain("#41 Fix auth blocked");
 	});
 
@@ -414,7 +456,7 @@ describe("PlotDashboard", () => {
 		const rendered = dashboard.render(120).join("\n");
 
 		expect(rendered).toContain("tick #42");
-		expect(rendered).toContain("no active work — watching");
+		expect(rendered).toContain("no active work");
 		expect(rendered).toContain("next wake in");
 		expect(rendered).not.toContain("none\nnone");
 	});
@@ -454,28 +496,41 @@ describe("PlotDashboard", () => {
 			expect(rendered).toContain("retry in 26s");
 		}));
 
-	test("requires a second q to shut down and esc cancels", () => {
-		let shutdowns = 0;
+	test("toggles compact fleet help", () => {
+		const dashboard = new PlotDashboard(
+			emptyProjection("default", "workflow"),
+			actions,
+		);
+
+		expect(stripAnsi(dashboard.render(120).join("\n"))).toContain(
+			"? help · q quit",
+		);
+		dashboard.handleInput("?");
+		expect(stripAnsi(dashboard.render(120).join("\n"))).toContain(
+			"enter details",
+		);
+		dashboard.handleInput("?");
+		expect(stripAnsi(dashboard.render(120).join("\n"))).not.toContain(
+			"enter details",
+		);
+	});
+
+	test("q exits like ctrl-c", () => {
+		let quits = 0;
 		const dashboard = new PlotDashboard(
 			emptyProjection("default", "workflow"),
 			{
 				...actions,
-				shutdown: () => {
-					shutdowns++;
+				quit: () => {
+					quits++;
 				},
 			},
 		);
 
 		dashboard.handleInput("q");
-		expect(shutdowns).toBe(0);
-		expect(dashboard.render(120).join("\n")).toContain("detach this UI?");
-
-		dashboard.handleInput("\x1b");
-		dashboard.handleInput("q");
-		expect(shutdowns).toBe(0);
-
-		dashboard.handleInput("q");
-		expect(shutdowns).toBe(1);
+		expect(quits).toBe(1);
+		dashboard.handleInput("\x03");
+		expect(quits).toBe(2);
 	});
 
 	test("opens the selected work url", () => {
@@ -505,7 +560,7 @@ describe("PlotDashboard", () => {
 		expect(opened).toEqual(["https://example.com/pr/42"]);
 	});
 
-	test("shows recent completions and opens the latest completed url", () =>
+	test("shows the latest completion and opens its url", () =>
 		withFixedNow(() => {
 			const opened: string[] = [];
 			const dashboard = new PlotDashboard(
@@ -531,9 +586,9 @@ describe("PlotDashboard", () => {
 			);
 
 			const rendered = stripAnsi(dashboard.render(120).join("\n"));
-			expect(rendered).toContain("Recent runs");
+			expect(rendered).toContain("Last run");
 			expect(rendered).toContain("3s ago");
-			expect(rendered).toContain("#42 Item 42 succeeded · review posted");
+			expect(rendered).toContain("✓ #42 Item 42");
 
 			dashboard.handleInput("o");
 			expect(opened).toEqual(["https://example.com/pr/42"]);
@@ -677,7 +732,7 @@ describe("PlotDashboard", () => {
 			dashboard.startLiveUpdates();
 			await waitFor(() => renders > 0);
 			dashboard.stopLiveUpdates();
-			// A late async projection update arriving mid-shutdown.
+			// A late async projection update arriving after TUI stop.
 			dashboard.setProjection(runningProjection());
 			const after = renders;
 			await new Promise((resolve) => setTimeout(resolve, 300));

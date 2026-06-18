@@ -6,10 +6,10 @@ import type {
 } from "@plot/control/dashboard-model";
 import {
 	blank,
-	cell,
 	footer,
 	item,
 	section,
+	spread,
 	type DashboardLine,
 } from "./dashboard-render.js";
 import { shimmerText, quoteActivity } from "./shimmer.js";
@@ -27,54 +27,64 @@ const workRowLines = (
 	row: WorkRowModel,
 	selected: boolean,
 	nowMs: number,
+	width: number,
 ): readonly DashboardLine[] => {
 	const marker = selected ? style.label("›") : " ";
 	const label = row.stale ? style.row.stale(row.label) : style.text(row.label);
-	const first = item(`${marker} ${rowGlyph(row)} ${label}`);
-	const second = item(
-		`    ${style.stage[row.status](row.status)}${style.muted(` · ${row.meta}`)}`,
-	);
+	const meta = row.meta.length === 0 ? "" : style.dim(row.meta);
 	const activity = quoteActivity(row.activity);
-	const third = item(
-		`    ${row.attempt?.stage === "working" && !row.stale && !row.attention ? shimmerText(activity, nowMs) : style.muted(activity)}`,
-	);
-	return [first, second, third];
+	const live =
+		row.attempt?.stage === "working" && !row.stale && !row.attention
+			? shimmerText(activity, nowMs)
+			: style.muted(activity);
+	return [
+		spread(`${marker} ${rowGlyph(row)} ${label}`, meta, width),
+		item(`    ${live}`),
+		blank(),
+	];
 };
 
-const scheduledRowLine = (wake: ScheduledRowModel): DashboardLine => {
+const scheduledRowLine = (
+	wake: ScheduledRowModel,
+	showReason: boolean,
+): DashboardLine => {
 	const retry =
 		wake.workKey === undefined && wake.label === undefined ? "wake" : "retry";
 	const attempt =
 		wake.attempt === undefined ? "" : ` · attempt ${wake.attempt}`;
+	const reason =
+		showReason && wake.reason !== undefined ? ` · ${wake.reason}` : "";
 	return item(
-		`    ${style.warn("↻")} ${style.muted(`${retry} in ${wake.inSeconds}s${attempt}${wake.reason === undefined ? "" : ` · ${wake.reason}`}`)}`,
+		`  ${style.warn("↻")} ${style.muted(`${retry} in ${wake.inSeconds}s${attempt}${reason}`)}`,
 	);
 };
 
-const completionRowLine = (row: CompletedRowModel): DashboardLine => {
+const completionRowLine = (
+	row: CompletedRowModel,
+	width: number,
+): DashboardLine => {
 	const glyph = row.tone === "ok" ? style.ok("✓") : style.bad("✗");
 	const message =
 		row.message === "completed" || row.message === row.status
-			? ""
-			: ` · ${row.message}`;
-	const meta = row.meta === undefined ? "" : ` · ${row.meta}`;
-	return item(
-		`  ${cell(row.ago, 12, style.dim)} ${glyph} ${style.text(row.label)} ${style.muted(`${row.status}${message}${meta}`)}`,
+			? undefined
+			: row.message;
+	const right =
+		row.tone === "ok"
+			? (row.meta ?? row.ago)
+			: [
+					row.status,
+					...(message === undefined ? [] : [message]),
+					row.meta ?? row.ago,
+				].join(" · ");
+	return spread(
+		`  ${glyph} ${style.text(row.label)}`,
+		style.muted(right),
+		width,
 	);
 };
 
-const emptyWorkLine = (model: DashboardModel): DashboardLine => {
-	const wake = model.pulse.nextWake;
-	const suffix = wake === undefined ? "" : ` · next wake in ${wake.inSeconds}s`;
-	return item(`  no active work — watching${suffix}`, style.muted);
-};
-
-const activityGlyph = (tone: "ok" | "bad" | "info") =>
-	tone === "ok"
-		? style.ok("✓")
-		: tone === "bad"
-			? style.bad("✗")
-			: style.muted("·");
+const emptyWorkLine = (): DashboardLine =>
+	item("  no active work", style.muted);
 
 const clampWorkViewport = (
 	workLines: readonly DashboardLine[],
@@ -115,57 +125,55 @@ export const fleetViewLines = (input: {
 }): readonly DashboardLine[] => {
 	const { model } = input;
 	const nowMs = input.nowMs ?? Date.now();
-	const attention =
+	const attentionBlock =
 		model.attention.length === 0
 			? []
 			: [
+					section("Attention", style.warn),
 					blank(),
-					item(style.warn(`▲ ATTENTION (${model.attention.length})`)),
 					...model.attention.map((entry) =>
 						item(`  ${style.bad("●")} ${entry.text}`),
 					),
+					blank(),
 				];
 	const scheduled =
 		model.work.length === 0
 			? model.scheduled.filter((wake) => wake.reason !== undefined)
-			: model.scheduled;
-	const workTitle =
-		`Work${model.work.length === 0 ? "" : ` · ${model.work.length} visible`}` +
-		(scheduled.length > 0 ? ` · ${scheduled.length} scheduled` : "");
+			: [];
 	const workLines =
 		model.work.length === 0
-			? [emptyWorkLine(model), ...scheduled.map(scheduledRowLine)]
-			: [
-					...model.work.flatMap((row, index) =>
-						workRowLines(row, index === input.selectedIndex, nowMs),
-					),
-					...scheduled.map(scheduledRowLine),
-				];
-	const completionLines = model.completed.map(completionRowLine);
-	const completionBlock =
-		completionLines.length === 0
-			? []
-			: [blank(), section("Recent runs"), ...completionLines];
-	const maxActivityRows =
-		model.work.length === 0 && completionLines.length === 0 ? 8 : 4;
-	const activityLines =
-		model.activity.length === 0
-			? [item("  nothing yet", style.muted)]
-			: model.activity
-					.slice(0, maxActivityRows)
-					.map((entry) =>
-						item(
-							`  ${cell(entry.ago, 12, style.dim)} ${activityGlyph(entry.tone)} ${entry.text}`,
+			? [
+					emptyWorkLine(),
+					...scheduled.map((wake) =>
+						scheduledRowLine(
+							wake,
+							wake.reason === undefined ||
+								!model.attention.some((entry) =>
+									entry.text.includes(wake.reason ?? ""),
+								),
 						),
-					);
+					),
+					blank(),
+				]
+			: model.work.flatMap((row, index) =>
+					workRowLines(row, index === input.selectedIndex, nowMs, input.width),
+				);
+	const lastRun = model.completed[0];
+	const completionBlock =
+		model.work.length === 0 && lastRun !== undefined
+			? [
+					section("Last run"),
+					blank(),
+					completionRowLine(lastRun, input.width),
+					blank(),
+				]
+			: [];
+	const workChromeRows = 2; // section + breathing row
 	const chromeRows =
 		input.header.length +
-		attention.length +
-		1 +
-		1 +
+		attentionBlock.length +
+		workChromeRows +
 		completionBlock.length +
-		1 +
-		activityLines.length +
 		1;
 	const availableWorkRows =
 		input.maxRows === undefined
@@ -178,13 +186,11 @@ export const fleetViewLines = (input: {
 	);
 	return [
 		...input.header,
-		...attention,
-		section(workTitle),
+		...attentionBlock,
+		section(model.work.length === 0 ? "Watching" : "Work"),
+		blank(),
 		...visibleWorkLines,
 		...completionBlock,
-		blank(),
-		section("Activity"),
-		...activityLines,
 		footer(input.footerText, input.footerStyle ?? style.muted),
 	];
 };
