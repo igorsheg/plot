@@ -1,36 +1,29 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
-import { definePlotExtension } from "plot-ai/sdk";
+import { definePlotExtension, defineTool } from "plot-ai/sdk";
 import type { PlotExtensionWork } from "plot-ai/sdk";
 
 const execFileAsync = promisify(execFile);
 
 /**
- * Trusted reader. This extension owns cheap GitHub observation only: open PRs,
- * head SHA, changed-file facts, and the anchor marker. It does not choose the
- * review plan, run specialist reviewers, post findings, or encode GitHub
- * review judgment. The agent session owns that work with bash and `gh`, guided
- * by WORKFLOW.md.
+ * Generic trusted GitHub reader/writer for PR reviews.
  *
- * Marker contract (written by the agent, parsed here):
- *   <!-- plot-review:v1 status=<phase> head=<sha> tier=<tier> -->
- * One anchor comment per PR. An unparseable or missing marker means the
- * review starts (or restarts) at `prepare`.
+ * The Source observes cheap PR facts and the durable Plot anchor. The Agent Run
+ * owns review judgment. TypeScript only owns GitHub API-shaped mutations whose
+ * idempotency and head checks should not live in prompt prose.
+ *
+ * Marker contract (the upsert_review_anchor tool writes it):
+ *   <!-- plot-review:v1 status=<reviewing|done> head=<sha> tier=<tier> -->
  */
 
-const REVIEW_PHASES = [
-	"prepare",
-	"code_quality",
-	"security",
-	"runtime_lifecycle",
-	"protocol",
-	"tests",
-	"docs_agents",
-	"synthesize",
-	"post",
-	"done",
-] as const;
-type ReviewPhase = (typeof REVIEW_PHASES)[number];
+const REVIEW_STATUSES = ["reviewing", "done"] as const;
+type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
+const REVIEW_TIERS = ["trivial", "lite", "full"] as const;
+type ReviewTier = (typeof REVIEW_TIERS)[number];
 
 interface GitHubPrReviewerConfig {
 	readonly includeDrafts: boolean;
@@ -67,11 +60,26 @@ interface PullRequestInfo {
 }
 
 interface AnchorMarker {
-	readonly status: ReviewPhase;
+	readonly status: ReviewStatus;
 	readonly head: string;
-	readonly tier?: string;
+	readonly tier?: ReviewTier;
 	readonly url?: string;
 	readonly updatedAtMs?: number;
+}
+
+interface RawAnchorComment {
+	readonly id: number;
+	readonly body: string;
+	readonly url?: string;
+	readonly updatedAtMs?: number;
+}
+
+interface AnchorComment extends AnchorMarker, RawAnchorComment {}
+
+interface GitHubTarget {
+	readonly repo: string;
+	readonly prNumber: number;
+	readonly head: string;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -110,6 +118,21 @@ const command = async (
 			`${file} ${args.slice(0, 3).join(" ")} failed${stderr === "" ? "" : `: ${stderr}`}`,
 			{ cause: error },
 		);
+	}
+};
+
+const ghJson = async (
+	cwd: string,
+	args: readonly string[],
+	payload: unknown,
+): Promise<string> => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-gh-"));
+	try {
+		const input = join(dir, "payload.json");
+		await writeFile(input, JSON.stringify(payload), "utf8");
+		return await command(cwd, "gh", [...args, "--input", input]);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
 	}
 };
 
@@ -208,10 +231,7 @@ const parsePullRequest = (value: unknown): PullRequestInfo | undefined => {
 	};
 };
 
-/**
- * Discover open PRs by repository API only. The daemon's filesystem and git
- * state are never consulted: this extension can run from any directory.
- */
+/** Discover open PRs by repository API only. */
 const loadOpenPullRequests = async (
 	cwd: string,
 	repo: string,
@@ -241,7 +261,13 @@ const loadOpenPullRequests = async (
 	});
 };
 
-const MARKER_PATTERN = /<!-- plot-review:v1 ([^>]*?) -->/;
+const MARKER_PATTERN = /<!--\s*plot-review:v1\s+([^>]*?)\s*-->/i;
+const MARKER_PATTERN_GLOBAL = /<!--\s*plot-review:v1\s+[^>]*?\s*-->\s*/gi;
+
+const parseTier = (tier: string | undefined): ReviewTier | undefined =>
+	tier !== undefined && (REVIEW_TIERS as readonly string[]).includes(tier)
+		? (tier as ReviewTier)
+		: undefined;
 
 const parseMarker = (body: string): Omit<AnchorMarker, "url"> | undefined => {
 	const match = body.match(MARKER_PATTERN);
@@ -256,13 +282,13 @@ const parseMarker = (body: string): Omit<AnchorMarker, "url"> | undefined => {
 	if (
 		status === undefined ||
 		head === undefined ||
-		!(REVIEW_PHASES as readonly string[]).includes(status) ||
+		!(REVIEW_STATUSES as readonly string[]).includes(status) ||
 		!/^[0-9a-f]{7,40}$/.test(head)
 	)
 		return undefined;
-	const tier = fields.get("tier");
+	const tier = parseTier(fields.get("tier"));
 	return {
-		status: status as ReviewPhase,
+		status: status as ReviewStatus,
 		head,
 		...(tier === undefined ? {} : { tier }),
 	};
@@ -275,13 +301,27 @@ const currentLogin = async (cwd: string): Promise<string> => {
 	return cachedLogin;
 };
 
-const findAnchorMarker = async (
+const parseCommentPages = (output: string) =>
+	output
+		.split("\n")
+		.map((line) => parseJson(line.trim()))
+		.flatMap((page) => {
+			if (Array.isArray(page)) return page;
+			if (typeof page === "string") {
+				const nested = parseJson(page);
+				return Array.isArray(nested) ? nested : [];
+			}
+			return isRecord(page) ? [page] : [];
+		})
+		.filter(isRecord);
+
+const loadAnchorComments = async (
 	cwd: string,
 	repo: string,
 	prNumber: number,
-): Promise<AnchorMarker | undefined> => {
+): Promise<RawAnchorComment[]> => {
 	const currentUser = await currentLogin(cwd);
-	const jq = `[ .[] | select(.user.login == ${JSON.stringify(currentUser)} and ((.body // "") | contains("<!-- plot-review:v1 "))) | {body, html_url, created_at, updated_at} ] | sort_by(.created_at) | tostring`;
+	const jq = `[ .[] | select(.user.login == ${JSON.stringify(currentUser)} and ((.body // "") | contains("<!-- plot-review:v1 "))) | {id, body, html_url, created_at, updated_at} ] | sort_by(.created_at)`;
 	const output = await command(cwd, "gh", [
 		"api",
 		`repos/${repo}/issues/${prNumber}/comments`,
@@ -289,26 +329,73 @@ const findAnchorMarker = async (
 		"--jq",
 		jq,
 	]);
-	const comments = output
-		.split("\n")
-		.map((line) => parseJson(line.trim()))
-		.flatMap((page) => (Array.isArray(page) ? page : []))
-		.filter(isRecord);
-	const latest = comments[comments.length - 1];
-	if (latest === undefined) return undefined;
-	const body = stringField(latest, "body");
-	if (body === undefined) return undefined;
-	const marker = parseMarker(body);
-	if (marker === undefined) return undefined;
-	const url = stringField(latest, "html_url");
-	const updatedAt = stringField(latest, "updated_at");
-	const updatedAtMs = updatedAt === undefined ? NaN : Date.parse(updatedAt);
-	return {
-		...marker,
-		...(url === undefined ? {} : { url }),
-		...(Number.isNaN(updatedAtMs) ? {} : { updatedAtMs }),
-	};
+	return parseCommentPages(output)
+		.toSorted((a, b) => {
+			const aCreated = stringField(a, "created_at") ?? "";
+			const bCreated = stringField(b, "created_at") ?? "";
+			return aCreated.localeCompare(bCreated);
+		})
+		.flatMap((comment) => {
+			const id = numberField(comment, "id");
+			const body = stringField(comment, "body");
+			if (id === undefined || body === undefined) return [];
+			const url = stringField(comment, "html_url");
+			const updatedAt = stringField(comment, "updated_at");
+			const updatedAtMs = updatedAt === undefined ? NaN : Date.parse(updatedAt);
+			return [
+				{
+					id,
+					body,
+					...(url === undefined ? {} : { url }),
+					...(Number.isNaN(updatedAtMs) ? {} : { updatedAtMs }),
+				},
+			];
+		});
 };
+
+const latest = <A>(values: readonly A[]): A | undefined =>
+	values[values.length - 1];
+
+const findAnchorComment = async (
+	cwd: string,
+	repo: string,
+	prNumber: number,
+): Promise<AnchorComment | undefined> => {
+	const raw = latest(await loadAnchorComments(cwd, repo, prNumber));
+	if (raw === undefined) return undefined;
+	const marker = parseMarker(raw.body);
+	if (marker === undefined) return undefined;
+	return { ...raw, ...marker };
+};
+
+const findAnchorCommentForWrite = async (
+	cwd: string,
+	repo: string,
+	prNumber: number,
+): Promise<RawAnchorComment | undefined> =>
+	latest(await loadAnchorComments(cwd, repo, prNumber));
+
+const markerLine = (values: {
+	readonly status: ReviewStatus;
+	readonly head: string;
+	readonly tier?: ReviewTier;
+}) =>
+	`<!-- plot-review:v1 status=${values.status} head=${values.head}${values.tier === undefined ? "" : ` tier=${values.tier}`} -->`;
+
+const anchorBody = (values: {
+	readonly status: ReviewStatus;
+	readonly head: string;
+	readonly tier?: ReviewTier;
+	readonly body: string;
+}) =>
+	[
+		markerLine(values),
+		"",
+		values.body.replace(MARKER_PATTERN_GLOBAL, "").trim(),
+		"",
+	]
+		.filter((part) => part.length > 0)
+		.join("\n");
 
 const FILE_NOISE_PATTERNS = [
 	/(^|\/)(bun\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/,
@@ -320,34 +407,22 @@ const FILE_NOISE_PATTERNS = [
 const isNoiseFile = (path: string) =>
 	FILE_NOISE_PATTERNS.some((pattern) => pattern.test(path));
 
-const domainHint = (path: string): string | undefined => {
-	if (path.startsWith("packages/agent/")) return "agent runtime";
-	if (path.startsWith("packages/session/src/protocol")) return "protocol";
-	if (path.startsWith("packages/session/src/pi-") || path.includes("auth"))
-		return "provider/auth boundary";
-	if (
-		path.startsWith("packages/session/src/extension") ||
-		path.startsWith("packages/sdk/")
-	)
-		return "extension/sdk boundary";
-	if (path.startsWith("packages/cli/")) return "cli process boundary";
-	if (path.startsWith("packages/tui/")) return "terminal lifecycle";
-	if (path.startsWith("packages/common/")) return "shared async primitive";
-	if (path === "AGENTS.md" || path.endsWith("/AGENTS.md"))
-		return "agent instructions";
-	if (path.endsWith("WORKFLOW.md") || path.startsWith("docs/"))
-		return "docs/workflow";
-	return undefined;
-};
-
 const formatFile = (file: PullRequestFileInfo) =>
 	`${file.path} (+${file.additions}/-${file.deletions}${file.changeType === undefined ? "" : ` ${file.changeType}`})`;
+
+const reviewStateLabel = (values: {
+	readonly anchor?: AnchorMarker;
+	readonly head?: string;
+}) => {
+	if (values.anchor === undefined) return "fresh";
+	if (values.anchor.head !== values.head) return "new head";
+	return values.anchor.status === "reviewing" ? "resume" : "done grace";
+};
 
 const contextBlock = (values: {
 	readonly repo: string;
 	readonly pr: PullRequestInfo;
 	readonly anchor?: AnchorMarker;
-	readonly phase: ReviewPhase;
 	readonly maxContextFiles: number;
 }) => {
 	const changedFiles = values.pr.files.slice(0, values.maxContextFiles);
@@ -356,13 +431,7 @@ const contextBlock = (values: {
 		0,
 	);
 	const noiseFiles = values.pr.files.filter((file) => isNoiseFile(file.path));
-	const domainHints = [
-		...new Set(
-			values.pr.files
-				.map((file) => domainHint(file.path))
-				.filter((hint): hint is string => hint !== undefined),
-		),
-	];
+	const head = values.pr.headRefOid;
 	const lines = [
 		"## Extension-discovered target",
 		`- Repository: ${values.repo}`,
@@ -370,15 +439,13 @@ const contextBlock = (values: {
 		`- URL: ${values.pr.url}`,
 		`- Draft: ${String(values.pr.isDraft)}`,
 		`- Base/head: ${values.pr.baseRefName}...${values.pr.headRefName}`,
+		`- Review state: ${reviewStateLabel({ anchor: values.anchor, head })}`,
 	];
 	if (values.pr.authorLogin !== undefined)
 		lines.push(`- Author: ${values.pr.authorLogin}`);
-	if (values.pr.headRefOid !== undefined)
-		lines.push(`- Head SHA: ${values.pr.headRefOid}`);
+	if (head !== undefined) lines.push(`- Head SHA: ${head}`);
 	lines.push(
-		`- Current anchor phase: ${values.phase}`,
 		`- Diff stats: ${values.pr.changedFiles} files, +${values.pr.additions}/-${values.pr.deletions}`,
-		`- Domain hints from paths: ${domainHints.length === 0 ? "none" : domainHints.join(", ")}`,
 		`- Noise-file candidates: ${noiseFiles.length === 0 ? "none" : noiseFiles.map((file) => file.path).join(", ")}`,
 	);
 	if (values.anchor === undefined) {
@@ -389,9 +456,9 @@ const contextBlock = (values: {
 		);
 		if (values.anchor.url !== undefined)
 			lines.push(`- Anchor URL: ${values.anchor.url}`);
-		if (values.anchor.head !== values.pr.headRefOid)
+		if (values.anchor.head !== head)
 			lines.push(
-				"- Head moved since the anchor was written: restart at prepare and carry the anchor's previous findings.",
+				"- Head moved since the anchor was written: treat this as an incremental re-review.",
 			);
 	}
 	lines.push(
@@ -406,14 +473,74 @@ const contextBlock = (values: {
 	return lines.join("\n");
 };
 
+const targetFromWork = (work: PlotExtensionWork): GitHubTarget => {
+	if (!isRecord(work.context))
+		throw new Error("work is missing GitHub context");
+	const github = work.context["github"];
+	if (!isRecord(github)) throw new Error("work is missing GitHub context");
+	const repo = stringField(github, "repo");
+	const prNumber = numberField(github, "prNumber");
+	const head = stringField(github, "head");
+	if (repo === undefined || prNumber === undefined || head === undefined)
+		throw new Error("work has incomplete GitHub context");
+	return { repo, prNumber, head };
+};
+
+const assertCurrentHead = async (cwd: string, target: GitHubTarget) => {
+	const current = await command(cwd, "gh", [
+		"pr",
+		"view",
+		String(target.prNumber),
+		"--repo",
+		target.repo,
+		"--json",
+		"headRefOid",
+		"-q",
+		".headRefOid",
+	]);
+	if (current !== target.head)
+		throw new Error(
+			`PR head moved before write: expected ${target.head}, got ${current}`,
+		);
+};
+
+const toolText = (text: string, details: Record<string, unknown> = {}) => ({
+	content: [{ type: "text" as const, text }],
+	details,
+});
+
+const parseToolTier = (params: Record<string, unknown>) => {
+	const tier = stringField(params, "tier");
+	if (tier === undefined) return undefined;
+	const parsed = parseTier(tier);
+	if (parsed === undefined)
+		throw new Error("tier must be trivial, lite, or full");
+	return parsed;
+};
+
+const parseReviewComments = (value: unknown) => {
+	if (value === undefined) return [];
+	if (!Array.isArray(value)) throw new Error("comments must be an array");
+	return value.map((item) => {
+		if (!isRecord(item)) throw new Error("comment must be an object");
+		const path = stringField(item, "path");
+		const line = numberField(item, "line");
+		const body = stringField(item, "body");
+		const side = stringField(item, "side") ?? "RIGHT";
+		if (path === undefined || line === undefined || body === undefined)
+			throw new Error("comment requires path, line, and body");
+		if (!Number.isInteger(line) || line <= 0)
+			throw new Error("comment line must be a positive integer");
+		if (side !== "LEFT" && side !== "RIGHT")
+			throw new Error("comment side must be LEFT or RIGHT");
+		return { path, line, side, body };
+	});
+};
+
 export default definePlotExtension<GitHubPrReviewerConfig>({
-	id: "plot-alpha-github-pr-reviewer",
+	id: "github-pr-reviewer",
 	parseConfig,
-	create: ({ config, paths, work }) => {
-		// The target repository comes from config, or is inferred exactly once
-		// from the launch directory as a convenience. Discovery never reads
-		// the daemon's git state again: the loop can run from anywhere, and
-		// nothing the dispatched agents do to any checkout can retarget it.
+	create: ({ config, paths, work, registerTool }) => {
 		let pinnedRepo: string | undefined = config.repo;
 		const resolveRepo = async (cwd: string) => {
 			if (pinnedRepo === undefined)
@@ -427,18 +554,158 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 				]);
 			return pinnedRepo;
 		};
+
+		registerTool(({ paths: toolPaths, work: toolWork }) => {
+			const target = targetFromWork(toolWork);
+			return defineTool({
+				name: "upsert_review_anchor",
+				label: "Upsert Review Anchor",
+				description:
+					"Create or update the PR's single Plot review anchor comment after checking the head SHA.",
+				parameters: {
+					type: "object",
+					properties: {
+						status: { type: "string", enum: REVIEW_STATUSES },
+						tier: { type: "string", enum: REVIEW_TIERS },
+						body: { type: "string" },
+					},
+					required: ["status", "body"],
+				},
+				execute: async (_id, params) => {
+					if (!isRecord(params)) throw new Error("params must be an object");
+					const status = stringField(params, "status");
+					const body = stringField(params, "body");
+					if (
+						status === undefined ||
+						!(REVIEW_STATUSES as readonly string[]).includes(status)
+					)
+						throw new Error("status must be reviewing or done");
+					if (body === undefined) throw new Error("body is required");
+					await assertCurrentHead(toolPaths.cwd, target);
+					const anchor = await findAnchorCommentForWrite(
+						toolPaths.cwd,
+						target.repo,
+						target.prNumber,
+					);
+					const payload = {
+						body: anchorBody({
+							status: status as ReviewStatus,
+							head: target.head,
+							tier: parseToolTier(params),
+							body,
+						}),
+					};
+					const output = await ghJson(
+						toolPaths.cwd,
+						anchor === undefined
+							? [
+									"api",
+									`repos/${target.repo}/issues/${target.prNumber}/comments`,
+									"--method",
+									"POST",
+								]
+							: [
+									"api",
+									`repos/${target.repo}/issues/comments/${anchor.id}`,
+									"--method",
+									"PATCH",
+								],
+						payload,
+					);
+					const response = parseJson(output);
+					const url = isRecord(response)
+						? stringField(response, "html_url")
+						: undefined;
+					return toolText(
+						url === undefined ? "anchor updated" : `anchor updated: ${url}`,
+						{ url },
+					);
+				},
+			});
+		});
+
+		registerTool(({ paths: toolPaths, work: toolWork }) => {
+			const target = targetFromWork(toolWork);
+			return defineTool({
+				name: "post_pr_review",
+				label: "Post PR Review",
+				description:
+					"Post exactly one GitHub pull request review for the current head SHA.",
+				parameters: {
+					type: "object",
+					properties: {
+						event: {
+							type: "string",
+							enum: ["COMMENT", "REQUEST_CHANGES"],
+						},
+						body: { type: "string" },
+						comments: {
+							type: "array",
+							items: {
+								type: "object",
+								properties: {
+									path: { type: "string" },
+									line: { type: "number" },
+									side: { type: "string", enum: ["LEFT", "RIGHT"] },
+									body: { type: "string" },
+								},
+								required: ["path", "line", "body"],
+							},
+						},
+					},
+					required: ["event", "body"],
+				},
+				execute: async (_id, params) => {
+					if (!isRecord(params)) throw new Error("params must be an object");
+					const event = stringField(params, "event");
+					const body = stringField(params, "body");
+					if (event !== "COMMENT" && event !== "REQUEST_CHANGES")
+						throw new Error("event must be COMMENT or REQUEST_CHANGES");
+					if (body === undefined) throw new Error("body is required");
+					await assertCurrentHead(toolPaths.cwd, target);
+					const comments = parseReviewComments(params["comments"]);
+					const output = await ghJson(
+						toolPaths.cwd,
+						[
+							"api",
+							`repos/${target.repo}/pulls/${target.prNumber}/reviews`,
+							"--method",
+							"POST",
+						],
+						{
+							commit_id: target.head,
+							event,
+							body,
+							comments,
+						},
+					);
+					const response = parseJson(output);
+					const url = isRecord(response)
+						? stringField(response, "html_url")
+						: undefined;
+					return toolText(
+						url === undefined ? "review posted" : `review posted: ${url}`,
+						{ url, inlineComments: comments.length },
+					);
+				},
+			});
+		});
+
 		return {
 			discover: async (): Promise<readonly PlotExtensionWork[]> => {
 				const cwd = paths.cwd;
 				const repo = await resolveRepo(cwd);
 				const prs = await loadOpenPullRequests(cwd, repo, config.maxOpenPrs);
+				const prsWithAnchors = await Promise.all(
+					prs.map(async (pr) => ({
+						pr,
+						anchor: await findAnchorComment(cwd, repo, pr.number),
+					})),
+				);
 				const works: PlotExtensionWork[] = [];
-				for (const pr of prs) {
-					// Draft PRs hold their claim without dispatching: the work
-					// stays visible as blocked and the review starts when the
-					// draft is marked ready, instead of silently vanishing.
+				for (const { pr, anchor } of prsWithAnchors) {
 					const draftBlocked = pr.isDraft && !config.includeDrafts;
-					const anchor = await findAnchorMarker(cwd, repo, pr.number);
+					const head = pr.headRefOid ?? pr.headRefName;
 					const headMatches =
 						anchor !== undefined && anchor.head === pr.headRefOid;
 					const doneGraceActive =
@@ -446,16 +713,17 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 						anchor.status === "done" &&
 						anchor.updatedAtMs !== undefined &&
 						Date.now() - anchor.updatedAtMs <= config.doneGraceMs;
-					// A done anchor for the current head means nothing to do, except
-					// for a short grace window so the posting run can exit cleanly.
-					// A missing/unparseable marker or moved head restarts at prepare.
 					if (headMatches && anchor.status === "done" && !doneGraceActive)
 						continue;
-					const phase: ReviewPhase = headMatches ? anchor.status : "prepare";
+					const labels = [
+						...(draftBlocked ? ["blocked:draft"] : []),
+						...(doneGraceActive ? ["done"] : []),
+						reviewStateLabel({ anchor, head: pr.headRefOid }),
+					];
 					works.push(
 						work({
 							id: `github:${repo}:pr:${pr.number}`,
-							version: pr.headRefOid ?? pr.headRefName,
+							version: head,
 							...(draftBlocked || doneGraceActive
 								? {
 										status: "blocked" as const,
@@ -464,7 +732,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 											: "review complete; releasing soon",
 									}
 								: {}),
-							title: `Review ${repo} PR #${pr.number}: ${pr.title} (${phase})`,
+							title: `Review ${repo} PR #${pr.number}: ${pr.title}`,
 							url: pr.url,
 							subject: `github:${repo}:pr:${pr.number}`,
 							display: {
@@ -476,19 +744,36 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 								...(pr.headRefOid === undefined
 									? {}
 									: { version: pr.headRefOid.slice(0, 7) }),
-								labels: [
-									...(draftBlocked ? ["blocked:draft"] : []),
-									...(doneGraceActive ? ["done"] : []),
-									anchor === undefined ? "fresh" : "incremental",
-									`phase:${phase}`,
-								],
+								labels,
 							},
 							context: {
+								github: {
+									repo,
+									prNumber: pr.number,
+									head,
+									url: pr.url,
+									title: pr.title,
+									baseRefName: pr.baseRefName,
+									headRefName: pr.headRefName,
+									...(anchor === undefined
+										? {}
+										: {
+												anchor: {
+													status: anchor.status,
+													head: anchor.head,
+													...(anchor.tier === undefined
+														? {}
+														: { tier: anchor.tier }),
+													...(anchor.url === undefined
+														? {}
+														: { url: anchor.url }),
+												},
+											}),
+								},
 								githubContext: contextBlock({
 									repo,
 									pr,
 									...(anchor === undefined ? {} : { anchor }),
-									phase,
 									maxContextFiles: config.maxContextFiles,
 								}),
 							},

@@ -2,15 +2,13 @@
 
 A standalone GitHub PR review workflow for Plot.
 
-This example intentionally keeps orchestration to a bare minimum — the LLM is the capable part:
+This example keeps Cloudflare-style review discipline but removes Cloudflare-style nested orchestration:
 
-- `github-pr-reviewer.extension.ts` is a pure reader. It discovers the current PR, parses the anchor comment's marker (`<!-- plot-review:v1 status=... head=... tier=... -->`), and tells Plot whether work exists and at which phase. It registers no tools and performs no writes.
-- All durable review state lives on the PR itself, in one anchor comment the agent maintains. There is no local state; a crashed tick loses nothing.
-- Each Plot tick runs one bounded review phase. The agent reads the anchor with `gh`, wears the phase's hat, appends findings to the anchor, and advances the marker status. The `post` phase publishes one GitHub review with inline threads and flips the marker to `done`.
-- `WORKFLOW.md` is the product: risk tiering, phase hats with what-NOT-to-flag boundaries, the synthesize/judge pass, the GitHub review event rubric, re-review semantics, and prompt-injection rules all live in its body as prompt engineering.
-- `skills/pr-review` provides reusable review know-how: architecture exploration, behavioral path review, test analysis, GitHub review API recipes, stacked PRs, and multi-PR review.
-
-The review agent uses normal tools (`bash`, `git`, `gh`, `rg`, tests) for everything, including all GitHub mutation. Its writes are constrained by prompt contract to the current PR's anchor comment and reviews.
+- `github-pr-reviewer.extension.ts` is a generic GitHub Source. It discovers open PRs, parses the one Plot anchor comment, and returns one Work Item per PR head that still needs review.
+- The extension exposes only two write tools: `upsert_review_anchor` and `post_pr_review`. They check the head SHA and perform idempotent GitHub mutations.
+- The Agent Run owns the review: clone/fetch, read code, run searches/tests, apply review lenses, synthesize findings, and post one review.
+- Durable state lives on the PR in one anchor comment. A crashed run leaves `status=reviewing`; the next Plot tick reconciles GitHub truth and retries.
+- There are no source-launched subagents and no prompt-owned phase machine.
 
 ## Use
 
@@ -28,11 +26,9 @@ For the dashboard/control plane:
 plot tui --workflow examples/pr-review/WORKFLOW.md
 ```
 
-The workflow expects GitHub CLI authentication and a current branch with an associated pull request. Review progress is durable in the PR anchor comment, so the outer Plot loop can retry or continue phases without nested agent orchestration.
+The workflow expects GitHub CLI authentication and a repository with open pull requests. Review progress is durable in the PR anchor comment, so the outer Plot loop can retry without local state.
 
 ## Project shape
-
-This example is intentionally self-contained:
 
 ```txt
 examples/pr-review/
