@@ -23,7 +23,7 @@ export interface DashboardActions {
 	readonly tick: () => void;
 	readonly refresh: () => void;
 	readonly toggleDebug: () => void;
-	readonly shutdown: () => void;
+	readonly quit: () => void;
 	readonly openUrl?: (url: string) => void;
 	readonly height?: () => number;
 	readonly requestRender?: () => void;
@@ -68,7 +68,6 @@ export class PlotDashboard implements Component {
 	private mode: ViewMode = "fleet";
 	private selectedIndex = 0;
 	private scrollOffset = 0;
-	private confirmQuit = false;
 	private showHelp = false;
 	private liveRenderTimer: ReturnType<typeof setInterval> | undefined;
 	private liveRenderIntervalMs: number | undefined;
@@ -102,22 +101,14 @@ export class PlotDashboard implements Component {
 	handleInput(data: string): void {
 		const key = parseKey(data);
 		if (matchesKey(data, "ctrl+c")) {
-			this.actions.shutdown();
+			this.actions.quit();
 			return;
-		}
-		if (this.confirmQuit) {
-			if (key === "q") {
-				this.actions.shutdown();
-				return;
-			}
-			this.confirmQuit = false;
-			if (key === "escape" || key === "esc") return;
 		}
 		if ((key === "escape" || key === "esc") && this.showHelp) {
 			this.showHelp = false;
 			return;
 		}
-		if (key === "q") this.confirmQuit = true;
+		if (key === "q") this.actions.quit();
 		else if (key === "?") this.showHelp = !this.showHelp;
 		else if (key === "t") this.actions.tick();
 		else if (key === "g") this.actions.refresh();
@@ -181,11 +172,6 @@ export class PlotDashboard implements Component {
 		readonly footerText: string;
 		readonly footerStyle?: (value: string) => string;
 	} {
-		if (this.confirmQuit)
-			return {
-				footerText: "detach this UI? q confirm · esc cancel",
-				footerStyle: style.warn,
-			};
 		if (this.showHelp)
 			return {
 				footerText:

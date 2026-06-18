@@ -59,7 +59,7 @@ const summaryRuntime = (
 const openSessionParamsFrom = (options: PlotTuiOptions) => ({
 	sessionId: options.sessionId,
 	mode: "watch" as const,
-	lifetime: "connection" as const,
+	lifetime: "server" as const,
 	role: "controller" as const,
 	cwd: options.cwd,
 	...(options.workflowPath === undefined
@@ -243,7 +243,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 		},
 		refresh,
 		toggleDebug: render,
-		shutdown: () => {
+		quit: () => {
 			resolveStopped();
 			setStatus("shutting_down");
 			void request("detach_session", { sessionId: options.sessionId }).finally(
@@ -311,9 +311,9 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 };
 
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	// Use the shared Local Plot Server for roster/web visibility, but keep this
-	// TUI as the session lifetime owner: Ctrl-C closes the session. `--no-server`
-	// is the explicit in-process escape hatch.
+	// Use the shared Local Plot Server for roster/web visibility. TUI exit only
+	// detaches the controller; the Plot session keeps running on the server.
+	// `--no-server` is the explicit in-process escape hatch.
 	if (options.noServer) return runPlotTuiInProcess(options);
 	const attachment = await openAndAttachPlotTuiSession(options);
 	let projection = attachment.projection;
@@ -383,11 +383,22 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			fail(error);
 		}
 	};
-	let shutdownStarted = false;
+	let exitStarted = false;
 	const forceStop = () => {
 		attachment.client.close();
 		resolveStopped();
 		tui.stop();
+	};
+	const detachAndStop = () => {
+		if (exitStarted) {
+			forceStop();
+			return;
+		}
+		exitStarted = true;
+		void attachment.client
+			.detachSession({ sessionId: options.sessionId })
+			.catch(fail)
+			.finally(forceStop);
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
@@ -398,21 +409,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		},
 		refresh,
 		toggleDebug: render,
-		shutdown: () => {
-			if (shutdownStarted) {
-				forceStop();
-				return;
-			}
-			shutdownStarted = true;
-			setStatus("shutting_down");
-			void attachment
-				.close()
-				.catch((error) => {
-					fail(error);
-					attachment.client.close();
-				})
-				.finally(forceStop);
-		},
+		quit: detachAndStop,
 		openUrl,
 		height: () => terminal.rows,
 		requestRender: () => tui.requestRender(),
@@ -447,7 +444,9 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	} finally {
 		dashboard.stopLiveUpdates();
 		tui.stop();
-		await attachment.close().catch(() => undefined);
+		await attachment.client
+			.detachSession({ sessionId: options.sessionId })
+			.catch(() => undefined);
 		attachment.client.close();
 	}
 };

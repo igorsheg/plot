@@ -60,9 +60,6 @@ export const workRowModelSchema = z
 		attempt: agentAttemptProjectionSchema.optional(),
 		label: z.string(),
 		status: workStatusSchema,
-		age: z.string(),
-		turns: z.string(),
-		tokens: z.string(),
 		meta: z.string(),
 		activity: z.string(),
 		lastEventAgo: z.string(),
@@ -96,15 +93,6 @@ export const completedRowModelSchema = z
 	.strict();
 export type CompletedRowModel = z.infer<typeof completedRowModelSchema>;
 
-export const activityRowModelSchema = z
-	.object({
-		ago: z.string(),
-		tone: activityToneSchema,
-		text: z.string(),
-	})
-	.strict();
-export type ActivityRowModel = z.infer<typeof activityRowModelSchema>;
-
 export const dashboardModelSchema = z
 	.object({
 		pulse: pulseModelSchema,
@@ -112,16 +100,12 @@ export const dashboardModelSchema = z
 		work: z.array(workRowModelSchema).readonly(),
 		scheduled: z.array(scheduledRowModelSchema).readonly(),
 		completed: z.array(completedRowModelSchema).readonly(),
-		activity: z.array(activityRowModelSchema).readonly(),
 	})
 	.strict();
 export type DashboardModel = z.infer<typeof dashboardModelSchema>;
 
 export const safeParseDashboardModel = (value: unknown) =>
 	dashboardModelSchema.safeParse(value);
-
-const countFormatter = new Intl.NumberFormat("en-US");
-export const formatCount = (value: number) => countFormatter.format(value);
 
 export const formatTokens = (value: number) => {
 	if (value < 1000) return String(value);
@@ -152,9 +136,6 @@ const needsAttention = (status: WorkStatus) =>
 const isStale = (attempt: AgentAttemptProjection | undefined, nowMs: number) =>
 	attempt?.lastEventAtMs !== undefined &&
 	nowMs - attempt.lastEventAtMs > staleThresholdMs;
-
-const tokenTotal = (attempt: AgentAttemptProjection | undefined) =>
-	attempt?.tokens?.total ?? 0;
 
 // `activity` is already churn-resolved at reduce time (projection.ts), so the
 // view model renders it verbatim — falling back to the last meaningful action
@@ -234,8 +215,6 @@ const workRow = (
 		attempt?.startedAtMs === undefined
 			? "n/a"
 			: formatDuration(nowMs - attempt.startedAtMs);
-	const turns = attempt === undefined ? "t0" : `t${attempt.turnCount}`;
-	const tokens = formatTokens(tokenTotal(attempt));
 	const token = tokenMeta(attempt?.tokens);
 	const check =
 		attempt?.check === "running"
@@ -250,9 +229,6 @@ const workRow = (
 		...(attempt === undefined ? {} : { attempt }),
 		label: workLabel(work),
 		status: work.status,
-		age,
-		turns,
-		tokens,
 		meta: [
 			attempt === undefined ? work.status : age,
 			...(token === undefined ? [] : [token]),
@@ -409,10 +385,5 @@ export const dashboardModelFrom = (
 				...(entry.url === undefined ? {} : { url: entry.url }),
 			};
 		}),
-		activity: projection.activity.slice(0, 20).map((entry) => ({
-			ago: formatAgo(nowMs - entry.atMs),
-			tone: entry.tone,
-			text: entry.text,
-		})),
 	};
 };

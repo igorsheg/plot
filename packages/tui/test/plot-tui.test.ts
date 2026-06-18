@@ -44,6 +44,61 @@ describe("Plot TUI", () => {
 		expect(typeof runPlotTui).toBe("function");
 	});
 
+	test("detaching the TUI keeps the server session running", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "plot-tui-detach-"));
+		tempDirs.push(cwd);
+		const serverDir = await mkdtemp(join(tmpdir(), "plot-tui-server-"));
+		tempDirs.push(serverDir);
+		const workflowPath = await makeWorkflow(cwd);
+		const server = await startLocalPlotServer({ serverDir, port: 0, cwd });
+		const observer = await connectLocalControlClient({
+			serverDir,
+			autostart: false,
+		});
+		try {
+			const sessionId = "tui-detach-test";
+			const attachment = await openAndAttachPlotTuiSession({
+				cwd,
+				workflowPath,
+				sessionId,
+				serverDir,
+			});
+			await attachment.client.detachSession({ sessionId });
+			attachment.client.close();
+			await sleep(50);
+
+			let listed = await observer.request("list_sessions", {});
+			const live = (
+				listed.data as {
+					sessions: readonly { id: string; state: string }[];
+				}
+			).sessions.find((session) => session.id === sessionId);
+			expect(live).toBeDefined();
+			expect(live?.state).not.toBe("stopped");
+
+			const cleanup = await openAndAttachPlotTuiSession({
+				cwd,
+				workflowPath,
+				sessionId,
+				serverDir,
+			});
+			await cleanup.close();
+			cleanup.client.close();
+			listed = await observer.request("list_sessions", {});
+			expect(
+				(
+					listed.data as {
+						sessions: readonly { id: string; state: string }[];
+					}
+				).sessions.find((session) => session.id === sessionId),
+			).toEqual(expect.objectContaining({ state: "stopped" }));
+		} finally {
+			observer.close();
+			await server.stop();
+			await sleep(50);
+		}
+	});
+
 	test("opens through the Local Plot Server and close stops the owned session", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-tui-control-"));
 		tempDirs.push(cwd);
