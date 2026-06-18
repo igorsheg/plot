@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { isAbsolute } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ensureLocalControlToken } from "./local-server-auth.js";
 import {
@@ -45,15 +46,33 @@ const signalProcess = (pid: number, signal: NodeJS.Signals): void => {
 	}
 };
 
-const currentPlotServeCommand = (): { command: string; args: string[] } => {
-	const override = process.env["PLOT_LOCAL_SERVER_COMMAND"];
+const looksLikeScriptPath = (value: string) =>
+	isAbsolute(value) ||
+	value.startsWith("./") ||
+	value.startsWith("../") ||
+	value.includes("/") ||
+	value.includes("\\");
+
+export const currentPlotServeCommand = (
+	input: {
+		readonly argv?: readonly string[];
+		readonly execPath?: string;
+		readonly override?: string;
+	} = {},
+): { command: string; args: string[] } => {
+	const override = input.override ?? process.env["PLOT_LOCAL_SERVER_COMMAND"];
 	if (override !== undefined && override.trim() !== "") {
 		const [command, ...args] = override.trim().split(/\s+/);
 		if (command !== undefined) return { command, args };
 	}
-	const entrypoint = process.argv[1];
-	const exec = process.execPath;
-	if (entrypoint !== undefined && entrypoint !== exec)
+	const argv = input.argv ?? process.argv;
+	const exec = input.execPath ?? process.execPath;
+	const entrypoint = argv[1];
+	if (
+		entrypoint !== undefined &&
+		entrypoint !== exec &&
+		looksLikeScriptPath(entrypoint)
+	)
 		return { command: exec, args: [entrypoint, "_serve"] };
 	return { command: exec, args: ["_serve"] };
 };
