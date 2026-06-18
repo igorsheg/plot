@@ -213,9 +213,6 @@ const tokenThroughput = (
 	return { rate, graph };
 };
 
-const compactLabels = (labels: readonly string[] | undefined) =>
-	(labels ?? []).slice(0, 4).join(" · ");
-
 const shortRunId = (runId: string | undefined) => {
 	if (runId === undefined) return undefined;
 	if (runId.length <= 12) return runId;
@@ -239,7 +236,15 @@ const workRow = (
 			: formatDuration(nowMs - attempt.startedAtMs);
 	const turns = attempt === undefined ? "t0" : `t${attempt.turnCount}`;
 	const tokens = formatTokens(tokenTotal(attempt));
-	const labels = compactLabels(work.labels);
+	const token = tokenMeta(attempt?.tokens);
+	const check =
+		attempt?.check === "running"
+			? "checking"
+			: attempt?.check === "failed"
+				? "check failed"
+				: attempt?.check === "passed"
+					? "check passed"
+					: undefined;
 	return {
 		work,
 		...(attempt === undefined ? {} : { attempt }),
@@ -249,10 +254,9 @@ const workRow = (
 		turns,
 		tokens,
 		meta: [
-			age === "n/a" ? age : `${age} active`,
-			turns,
-			...(tokens === "0" ? [] : [tokens]),
-			...(labels === "" ? [] : [labels]),
+			attempt === undefined ? work.status : age,
+			...(token === undefined ? [] : [token]),
+			...(check === undefined ? [] : [check]),
 		].join(" · "),
 		activity: displayActivity(work, attempt),
 		lastEventAgo:
@@ -384,13 +388,11 @@ export const dashboardModelFrom = (
 			};
 		}),
 		completed: recentRuns.map((entry) => {
-			const labels = compactLabels(entry.labels);
 			const run = duplicateLabels.has(entry.label)
 				? shortRunId(entry.runId)
 				: undefined;
 			const tokens = tokenMeta(entry.tokens);
 			const meta = [
-				...(labels === "" ? [] : [labels]),
 				...(entry.durationMs === undefined
 					? []
 					: [formatDuration(entry.durationMs)]),

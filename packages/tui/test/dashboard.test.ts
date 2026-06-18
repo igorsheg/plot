@@ -280,7 +280,7 @@ describe("PlotDashboard", () => {
 		expect(rendered).not.toContain("│     started");
 	});
 
-	test("renders a two-line board row per visible work item", () => {
+	test("renders live work rows without activity-feed noise", () => {
 		const running = new Map([
 			[
 				"source:item:42",
@@ -396,7 +396,7 @@ describe("PlotDashboard", () => {
 
 		const rendered = dashboard.render(120).join("\n");
 
-		expect(rendered).toContain("ATTENTION");
+		expect(rendered).toContain("Attention");
 		expect(rendered).toContain("#41 Fix auth blocked");
 	});
 
@@ -414,7 +414,7 @@ describe("PlotDashboard", () => {
 		const rendered = dashboard.render(120).join("\n");
 
 		expect(rendered).toContain("tick #42");
-		expect(rendered).toContain("no active work — watching");
+		expect(rendered).toContain("no active work");
 		expect(rendered).toContain("next wake in");
 		expect(rendered).not.toContain("none\nnone");
 	});
@@ -453,6 +453,25 @@ describe("PlotDashboard", () => {
 			expect(rendered).toContain("next tick in 7s");
 			expect(rendered).toContain("retry in 26s");
 		}));
+
+	test("toggles compact fleet help", () => {
+		const dashboard = new PlotDashboard(
+			emptyProjection("default", "workflow"),
+			actions,
+		);
+
+		expect(stripAnsi(dashboard.render(120).join("\n"))).toContain(
+			"? help · q quit",
+		);
+		dashboard.handleInput("?");
+		expect(stripAnsi(dashboard.render(120).join("\n"))).toContain(
+			"enter details",
+		);
+		dashboard.handleInput("?");
+		expect(stripAnsi(dashboard.render(120).join("\n"))).not.toContain(
+			"enter details",
+		);
+	});
 
 	test("requires a second q to shut down and esc cancels", () => {
 		let shutdowns = 0;
@@ -505,7 +524,7 @@ describe("PlotDashboard", () => {
 		expect(opened).toEqual(["https://example.com/pr/42"]);
 	});
 
-	test("shows recent completions and opens the latest completed url", () =>
+	test("shows the latest completion and opens its url", () =>
 		withFixedNow(() => {
 			const opened: string[] = [];
 			const dashboard = new PlotDashboard(
@@ -531,9 +550,9 @@ describe("PlotDashboard", () => {
 			);
 
 			const rendered = stripAnsi(dashboard.render(120).join("\n"));
-			expect(rendered).toContain("Recent runs");
+			expect(rendered).toContain("Last run");
 			expect(rendered).toContain("3s ago");
-			expect(rendered).toContain("#42 Item 42 succeeded · review posted");
+			expect(rendered).toContain("✓ #42 Item 42");
 
 			dashboard.handleInput("o");
 			expect(opened).toEqual(["https://example.com/pr/42"]);

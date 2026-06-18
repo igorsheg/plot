@@ -1,17 +1,14 @@
 
 ╭─ PLOT  workflow  ◉ running                                                                                            
 │                                                                                                                       
-│  2/4 agents active      12.0k tokens      $0.0345      275 tok/s ▁▁▅█▁▇▅▁                                             
-│  tick #43 · 1s ago · found 5                                                                                          
+│  2/4 agents      12.0k tokens      $0.0345      275 tok/s ▁▁▅█▁▇▅▁                                                    
 │                                                                                                                       
-├─ Work · 2 visible                                                                                                     
-│ › ● #42 Item 42                                                                                                       
-│     running · 5s active · t3 · 8.0k                                                                                   
+├─ Work                                                                                                                 
+│                                                                                                                       
+│ › ● #42 Item 42                                                                               5s · 8.0k tok · checking
 │     Running: bun run check                                                                                            
-│   ● #43 Item 43                                                                                                       
-│     running · 5s active · t3 · 4.0k                                                                                   
+│                                                                                                                       
+│   ● #43 Item 43                                                                                          5s · 4.0k tok
 │     Posting review                                                                                                    
 │                                                                                                                       
-├─ Activity                                                                                                             
-│   nothing yet                                                                                                         
-╰─ ↑↓ select   enter details   o open   t tick   c config   d debug   q quit                                            
+╰─ ? help · q quit                                                                                                      

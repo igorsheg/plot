@@ -69,6 +69,7 @@ export class PlotDashboard implements Component {
 	private selectedIndex = 0;
 	private scrollOffset = 0;
 	private confirmQuit = false;
+	private showHelp = false;
 	private liveRenderTimer: ReturnType<typeof setInterval> | undefined;
 	private liveRenderIntervalMs: number | undefined;
 	private liveUpdatesActive = false;
@@ -112,7 +113,12 @@ export class PlotDashboard implements Component {
 			this.confirmQuit = false;
 			if (key === "escape" || key === "esc") return;
 		}
+		if ((key === "escape" || key === "esc") && this.showHelp) {
+			this.showHelp = false;
+			return;
+		}
 		if (key === "q") this.confirmQuit = true;
+		else if (key === "?") this.showHelp = !this.showHelp;
 		else if (key === "t") this.actions.tick();
 		else if (key === "g") this.actions.refresh();
 		else if (key === "o") this.openSelectedUrl();
@@ -180,10 +186,12 @@ export class PlotDashboard implements Component {
 				footerText: "detach this UI? q confirm · esc cancel",
 				footerStyle: style.warn,
 			};
-		return {
-			footerText:
-				"↑↓ select   enter details   o open   t tick   c config   d debug   q quit",
-		};
+		if (this.showHelp)
+			return {
+				footerText:
+					"↑↓ select · enter details · o open · t tick · c config · d debug · ? hide · q quit",
+			};
+		return { footerText: "? help · q quit" };
 	}
 
 	private openSelectedUrl(): void {
@@ -250,55 +258,50 @@ export class PlotDashboard implements Component {
 
 	private header(model: DashboardModel): readonly DashboardLine[] {
 		const p = this.projection;
-		const identity = p.workflowName;
 		const pulse = model.pulse;
-		const tickText =
-			pulse.tick === undefined
-				? style.muted("no ticks yet")
-				: `${style.text(`tick #${pulse.tick.id}`)}${style.muted(
-						` · ${pulse.tick.ago}`,
-					)}${pulse.tick.found > 0 ? style.muted(` · found ${pulse.tick.found}`) : ""}`;
-		const scheduleText = [
-			...(pulse.nextTick === undefined
-				? []
-				: [
-						`${style.muted("next tick in ")}${style.text(`${pulse.nextTick.inSeconds}s`)}`,
-					]),
-			...(pulse.nextWake === undefined
-				? []
-				: [
-						`${style.muted(`${pulse.nextWake.kind === "retry" ? "retry" : "next wake"} in `)}${style.text(`${pulse.nextWake.inSeconds}s`)}`,
-					]),
-		].join(style.dim("      "));
-		const wakeText =
-			scheduleText.length > 0
-				? scheduleText
-				: pulse.runningCount > 0
-					? undefined
-					: style.muted("no wake scheduled");
 		const runningValue =
 			pulse.maxConcurrentRuns === undefined
 				? String(pulse.runningCount)
 				: `${pulse.runningCount}/${pulse.maxConcurrentRuns}`;
-		const runningText =
-			pulse.runningCount > 0
-				? style.ok(`${runningValue} agents active`)
-				: style.muted(`${runningValue} agents active`);
 		const metrics = [
-			runningText,
+			pulse.runningCount > 0
+				? style.ok(`${runningValue} agents`)
+				: style.muted(`${runningValue} agents`),
 			style.muted(`${pulse.totalTokens} tokens`),
 			...(pulse.totalCost === undefined ? [] : [style.muted(pulse.totalCost)]),
 			style.muted(`${pulse.throughput} ${pulse.throughputGraph}`),
 		];
+		const watching =
+			pulse.runningCount > 0
+				? []
+				: [
+						...(pulse.tick === undefined
+							? []
+							: [style.muted(`tick #${pulse.tick.id} · ${pulse.tick.ago}`)]),
+						...(pulse.nextTick === undefined
+							? []
+							: [
+									`${style.muted("next tick in ")}${style.text(`${pulse.nextTick.inSeconds}s`)}`,
+								]),
+						...(pulse.nextWake === undefined
+							? []
+							: [
+									`${style.muted(`${pulse.nextWake.kind === "retry" ? "retry" : "next wake"} in `)}${style.text(`${pulse.nextWake.inSeconds}s`)}`,
+								]),
+					];
 		return [
 			asLine(
-				`${style.border("╭─ ")}${style.brand("PLOT")}  ${style.muted(identity)}${style.muted("  ")}${statusGlyph(p.status)} ${statusStyle(p.status)(p.status)}`,
+				`${style.border("╭─ ")}${style.brand("PLOT")}  ${style.muted(p.workflowName)}${style.muted("  ")}${statusGlyph(p.status)} ${statusStyle(p.status)(p.status)}`,
 			),
 			asLine(style.border("│")),
 			asLine(`${style.border("│  ")}${metrics.join(style.dim("      "))}`),
-			asLine(
-				`${style.border("│  ")}${[tickText, ...(wakeText === undefined ? [] : [wakeText])].join(style.dim("      "))}`,
-			),
+			...(watching.length === 0
+				? []
+				: [
+						asLine(
+							`${style.border("│  ")}${watching.join(style.dim("      "))}`,
+						),
+					]),
 			asLine(style.border("│")),
 		];
 	}
