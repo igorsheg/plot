@@ -13,6 +13,7 @@ const eventRecord = (
 	sequence: number,
 	type: string,
 	payload: unknown,
+	timestamp = "2026-06-15T00:00:00.000Z",
 ): PlotServerRecord => ({
 	protocol: plotProtocolVersion,
 	kind: "session_event",
@@ -23,7 +24,7 @@ const eventRecord = (
 		sessionId: "default",
 		epoch: "epoch-1",
 		sequence,
-		timestamp: "2026-06-15T00:00:00.000Z",
+		timestamp,
 		type,
 		payload,
 	},
@@ -382,6 +383,60 @@ describe("Plot TUI projection", () => {
 		expect(projection.pulse).toMatchObject({ tickId: 7, found: 1, started: 1 });
 		expect(projection.status).toBe("running");
 		expect(projection.activity[0]?.text).toContain("tick #7 found 1");
+	});
+
+	test("replays scheduled wakes from Session History time", () => {
+		const timestamp = "2026-06-15T00:00:00.000Z";
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(
+			projection,
+			eventRecord(
+				1,
+				"wake_scheduled",
+				{ delayMs: 5_000, reason: "retry", workKey: "source:item:42" },
+				timestamp,
+			),
+		);
+
+		expect(projection.scheduledWakes).toEqual([
+			{
+				dueAtMs: Date.parse(timestamp) + 5_000,
+				delayMs: 5_000,
+				reason: "retry",
+				workKey: "source:item:42",
+			},
+		]);
+	});
+
+	test("drops scheduled wakes when later history makes them stale", () => {
+		let projection = emptyProjection("default", "workflow");
+		projection = reduceRecord(
+			projection,
+			eventRecord(1, "wake_scheduled", {
+				delayMs: 1_000,
+				workKey: "source:item:42",
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			eventRecord(2, "tick_started", { tickId: 2 }, "2026-06-15T00:00:02.000Z"),
+		);
+		expect(projection.scheduledWakes).toEqual([]);
+
+		projection = reduceRecord(
+			projection,
+			eventRecord(3, "wake_scheduled", {
+				delayMs: 60_000,
+				workKey: "source:item:42",
+			}),
+		);
+		projection = reduceRecord(
+			projection,
+			eventRecord(4, "attempt_completed", {
+				completion: { workKey: "source:item:42", status: "succeeded" },
+			}),
+		);
+		expect(projection.scheduledWakes).toEqual([]);
 	});
 
 	test("feeds fleet activity from work lifecycle, not raw event spam", () => {

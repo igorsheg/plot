@@ -10,6 +10,7 @@ import {
 	writeLocalPlotServerMetadata,
 } from "../src/local-server-metadata.js";
 import { resolveLocalPlotServerPaths } from "../src/local-server-paths.js";
+import { currentPlotServeCommand } from "../src/local-server-daemon.js";
 import { startLocalPlotServer } from "../src/local-server.js";
 import {
 	applyStoppedOneshotRetention,
@@ -72,6 +73,33 @@ const waitForMessage = (ws: WebSocket): Promise<unknown> =>
 	});
 
 describe("Local Plot Server", () => {
+	test("daemon command keeps source entrypoints but not compiled CLI args", () => {
+		expect(
+			currentPlotServeCommand({
+				execPath: "/usr/local/bin/bun",
+				argv: ["bun", "./packages/cli/src/main.ts", "tui"],
+			}),
+		).toEqual({
+			command: "/usr/local/bin/bun",
+			args: ["./packages/cli/src/main.ts", "_serve"],
+		});
+		expect(
+			currentPlotServeCommand({
+				execPath: "/usr/local/bin/bun",
+				argv: ["bun", "packages/cli/src/main.ts", "tui"],
+			}),
+		).toEqual({
+			command: "/usr/local/bin/bun",
+			args: ["packages/cli/src/main.ts", "_serve"],
+		});
+		expect(
+			currentPlotServeCommand({
+				execPath: "/tmp/npm/plot",
+				argv: ["/tmp/npm/plot", "tui", "--workflow", "WORKFLOW.md"],
+			}),
+		).toEqual({ command: "/tmp/npm/plot", args: ["_serve"] });
+	});
+
 	test("generates a persistent local token and rejects missing or wrong tokens", async () => {
 		const paths = await tmpPaths();
 		const token = await ensureLocalControlToken(paths);
