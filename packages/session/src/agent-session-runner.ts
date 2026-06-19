@@ -24,6 +24,22 @@ const resolve = async <A>(
 		: value;
 const errorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const terminalAgentError = (event: AgentSessionEvent): string | undefined => {
+	if (event.type !== "agent_end" || event.willRetry) return undefined;
+	const message = event.messages.at(-1);
+	if (!isRecord(message)) return undefined;
+	if (message["role"] !== "assistant" || message["stopReason"] !== "error")
+		return undefined;
+	const messageText = message["errorMessage"];
+	return typeof messageText === "string" && messageText.length > 0
+		? messageText
+		: "agent session failed";
+};
+
 export const makeAgentSessionWorkRunner = async (
 	options: AgentSessionWorkRunnerOptions,
 	client: AgentSessionClientShape,
@@ -81,6 +97,8 @@ export const makeAgentSessionWorkRunner = async (
 							);
 						}
 					}
+					const agentError = terminalAgentError(event);
+					if (agentError !== undefined) throw new Error(agentError);
 				}
 				return {};
 			},

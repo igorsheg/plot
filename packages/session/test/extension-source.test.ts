@@ -467,7 +467,7 @@ describe("Plot extension source adapter", () => {
 		expect(interrupted).toEqual(["github:acme/web:pr:42:sha-1"]);
 	});
 
-	test("binds registered pi tools to the current Plot work", async () => {
+	test("binds registered tools to the current Plot work", async () => {
 		const bundle = makePlotExtensionSourceBundle({
 			workflow,
 			paths,
@@ -586,7 +586,7 @@ export default definePlotExtension({
 		expect(await loaded.runtime.discover()).toEqual([{ id: "ok" }]);
 	});
 
-	test("loads extension-registered pi tool definitions from the public SDK", async () => {
+	test("loads extension-registered tool definitions from the public SDK", async () => {
 		const dir = await makeTempDir();
 		const extensionPath = join(dir, "extension.ts");
 		await writeFile(

@@ -42,7 +42,42 @@ describe("faux agent-session harness", () => {
 		);
 	});
 
-	test("runs Plot's pi factory with CLI-style overrides", async () => {
+	test("uses Plot settings defaults when WORKFLOW.md omits a model", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-session-faux-defaults-"));
+		tempDirs.push(dir);
+		const workflowPath = await makeWorkflowFile(dir);
+		const faux = registerPlotFauxProvider({
+			responses: [() => fauxAssistantMessage("used plot settings")],
+		});
+		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
+		try {
+			const paths = await writePlotFauxAgentFiles({
+				cwd: dir,
+				api: faux.api,
+				provider: faux.provider,
+				modelId: faux.modelId,
+				modelName: faux.modelName,
+			});
+			const workflow = await loadWorkflowFromNode(workflowPath);
+			const client = makeAgentSessionClientLayer({
+				createAgentSession: makePlotCreateAgentSession({ workflow, paths }),
+			});
+			const events: unknown[] = [];
+			for await (const event of client.prompt({
+				prompt: workflow.prompt,
+				create: { cwd: paths.cwd },
+			})) {
+				events.push(event);
+			}
+
+			expect(JSON.stringify(events)).toContain("used plot settings");
+			expect(faux.getPendingResponseCount()).toBe(0);
+		} finally {
+			faux.cleanup();
+		}
+	});
+
+	test("runs Plot's agent-session factory with CLI-style overrides", async () => {
 		delete process.env["PLOT_FAUX_API_KEY"];
 		const dir = await mkdtemp(join(tmpdir(), "plot-session-faux-"));
 		tempDirs.push(dir);

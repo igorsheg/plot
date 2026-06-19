@@ -9,6 +9,7 @@ import { sessionCommandArgs } from "./args.js";
 import { getCliIo, setCliIo } from "./cli-context.js";
 import { authCommand } from "./commands/auth.js";
 import { docsCommand } from "./commands/docs.js";
+import { dynamicCommand } from "./commands/dynamic.js";
 import { listModelsCommand } from "./commands/list-models.js";
 import { runCommand } from "./commands/run.js";
 import { serveCommand } from "./commands/serve.js";
@@ -62,6 +63,7 @@ const subCommands = {
 	"list-models": listModelsCommand,
 	auth: authCommand,
 	docs: docsCommand,
+	dynamic: dynamicCommand,
 	run: runCommand,
 	tui: tuiCommand,
 	web: webCommand,
@@ -112,6 +114,7 @@ const stringOptions = new Set([
 	"--session-dir",
 	"--workflow",
 	"--session-id",
+	"--out",
 ]);
 
 const subCommandInvocation = (args: readonly string[]) => {

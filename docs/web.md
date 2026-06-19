@@ -44,6 +44,6 @@ Those sessions appear in the web roster.
 - Controller actions such as pause, resume, Reconcile now, interrupt Agent Run, close session, and Source-declared Operator Actions go through the explicit control protocol.
 - Operator Actions record Operator Observations in Session History. The web never calls Source code directly.
 - Session History is project-local and authoritative for control-plane state, not extension domain state. Extensions decide what work exists from their own durable source of truth.
-- pi-mono Agent Transcripts remain separate from Plot Session History.
+- Agent Transcripts remain separate from Plot Session History.
 
 Remote exposure, TLS, and non-local authentication are out of scope for the local web control plane.

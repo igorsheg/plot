@@ -43,7 +43,7 @@ The example uses:
 
 - `gh` for GitHub
 - `plot-ai/sdk` for extension authoring
-- registered pi tools for GitHub/API side effects
+- registered tools for GitHub/API side effects
 - a workflow prompt to teach review behavior
 - the TUI or web dashboard to show running review work, usage, and cost
 
@@ -55,3 +55,11 @@ A workflow has two pieces:
 2. A prompt that tells the agent how to handle that work.
 
 The extension does not review code, triage issues, or debug CI by itself. It identifies the target, passes context, and may expose tools for safe external actions. The Agent Run does the investigation inside the workflow prompt and may call extension tools when useful.
+
+## Generate a workflow
+
+```bash
+plot dynamic "Audit each packages/* package and write a report" --out workflows/package-audit
+```
+
+`plot dynamic` generates a normal Workflow Bundle, validates it, and repairs it if validation fails. It shapes context and ownership; it does not turn the agent into a scripted pipeline.

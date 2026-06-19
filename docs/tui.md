@@ -21,7 +21,7 @@ You should be able to answer:
 
 ## Display hints
 
-Extensions influence the dashboard through `display` hints on work items and through generic pi agent events. The TUI stays source-agnostic.
+Extensions influence the dashboard through `display` hints on work items and generic Agent Run events. The TUI stays source-agnostic.
 
 ```ts
 display: {
@@ -51,7 +51,7 @@ Extensions can provide:
 - `labels` — generic labels
 - `kind` — source kind for debugging and grouping
 
-Extension-registered tools can also emit pi tool updates. Token usage and cost totals come from the Agent Runs Plot schedules, keeping the dashboard centered on one execution unit.
+Extension-registered tools can also emit tool updates. Token usage and cost totals come from the Agent Runs Plot schedules, keeping the dashboard centered on one execution unit.
 
 ## What extensions cannot do
 
