@@ -115,7 +115,7 @@ function SessionDetail({
 	return (
 		<Stack gap={3} className="pt-4">
 			<PulseHeader
-				workflowName={projection.workflowName}
+				workflowName={session?.workflowName ?? projection.workflowName}
 				state={session?.state ?? projection.status}
 				model={projection.runtime.model}
 				cwdName={session?.cwdName}
@@ -787,7 +787,7 @@ function SessionControls({
 		<>
 			<Row gap={4} className="flex-wrap">
 				<Switch
-					label={paused ? "Paused" : "Running"}
+					label={paused ? "Paused" : "Live"}
 					checked={!paused}
 					disabled={!isController || stopped}
 					onToggle={() =>
