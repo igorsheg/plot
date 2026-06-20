@@ -141,7 +141,7 @@ function OperatorActionButton({
 			) : null}
 
 			{disabledReason ? (
-				<span className="text-xs text-muted-foreground">{disabledReason}</span>
+				<span className="font-mono text-2xs text-t3">{disabledReason}</span>
 			) : null}
 		</>
 	);
@@ -195,7 +195,7 @@ export function InterruptRunButton({
 		>
 			Interrupt Agent Run
 			{controllerBlockReason ? (
-				<span className="ml-2 text-muted-foreground">
+				<span className="ml-2 font-mono text-2xs text-t3">
 					{controllerBlockReason}
 				</span>
 			) : null}

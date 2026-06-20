@@ -6,7 +6,6 @@ import {
 import type { DashboardProjection } from "@plot/control/projection";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ChevronRight } from "lucide-react";
 import { Fragment, type ReactNode, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { Sparkline } from "@/components/ui/sparkline";
 import { Switch } from "@/components/ui/switch";
+import { useIcon } from "@/lib/icon-context";
+import { useShape } from "@/lib/shape-context";
 import { cn } from "@/lib/utils";
 import {
 	useDashboardActions,
@@ -27,11 +28,11 @@ import {
 	useDashboardState,
 } from "../dashboard-context";
 import { throughputSeries } from "../throughput-series";
+import { Row, SectionLabel, Stack } from "./layout";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
-const mono = "font-mono tabular-nums";
-
-// hairline divider between inline meta segments (a 4px-rhythm column rule).
+// Inline hairline between meta segments — a 12px (3-step) column rule, the only
+// divider the surface uses.
 function Divided({ children }: { children: readonly ReactNode[] }) {
 	return (
 		<>
@@ -56,25 +57,26 @@ export function SessionSurface() {
 	if (session === undefined && projection === undefined)
 		return <SnapshotUnavailable lastError={lastError} />;
 
+	const ArrowLeft = useIcon("arrow-left");
 	return (
-		<div className="flex flex-col">
-			<div className="px-6 pt-5">
+		<Stack className="px-6">
+			<div className="pt-4">
 				<Link
 					to="/"
 					search={(prev) => ({ role: prev.role ?? "controller" })}
-					className="inline-flex items-center gap-2 text-2xs text-t3 transition-colors hover:text-foreground"
+					className={cn(
+						"inline-flex items-center gap-1 font-mono text-2xs text-t3 transition-colors hover:text-foreground",
+					)}
 				>
 					<ArrowLeft size={13} /> all sessions
 				</Link>
 			</div>
 			{projection === undefined ? (
-				<div className="px-6">
-					<SnapshotUnavailable lastError={lastError} />
-				</div>
+				<SnapshotUnavailable lastError={lastError} />
 			) : (
 				<SessionDetail projection={projection} session={session} />
 			)}
-		</div>
+		</Stack>
 	);
 }
 
@@ -93,8 +95,8 @@ function SessionDetail({
 	}, [samples]);
 	const idle = model.work.length === 0;
 	// Stable insertion order, not the model's attention-first sort: the
-	// AttentionBand already surfaces what needs you, and reordering blocked
-	// rows to the top is what makes the list jump as agents stream.
+	// AttentionBand already surfaces what needs you, and reordering blocked rows
+	// to the top is what makes the list jump as agents stream.
 	const work = useMemo(
 		() =>
 			model.work.toSorted(
@@ -110,81 +112,119 @@ function SessionDetail({
 		session?.state === "stopped" || projection.status === "stopped";
 
 	return (
-		<div className="mt-3 flex flex-col">
-			{/* status bar — the one always-dense strip */}
-			<div className="sticky top-0 z-20 flex h-12 items-center gap-3 border-b border-border bg-background px-6">
-				<span className="size-1.5 shrink-0 rounded-full bg-live" />
-				<h1 className="text-sm font-medium tracking-[-0.01em]">
-					{projection.workflowName}
-				</h1>
-				<span className={cn("text-2xs text-t3", mono)}>
-					<span className="capitalize">
-						{session?.state ?? projection.status}
-					</span>
-					{projection.runtime.model ? ` · ${projection.runtime.model}` : ""}
-				</span>
-				{session?.cwdName ? (
-					<span
-						className={cn("hidden truncate text-2xs text-t3 sm:inline", mono)}
-					>
-						{session.cwdName}
-					</span>
-				) : null}
+		<Stack gap={3} className="pt-3">
+			<StatusBar
+				workflowName={projection.workflowName}
+				state={session?.state ?? projection.status}
+				model={projection.runtime.model}
+				cwdName={session?.cwdName}
+				agentsActive={agentsActive}
+				agentsMax={agentsMax}
+				throughput={model.pulse.throughput.replace("tps", "tok/s")}
+				tps={tps}
+				totalTokens={model.pulse.totalTokens}
+				totalCost={model.pulse.totalCost}
+			/>
 
-				<div className={cn("ml-auto flex items-center text-2xs text-t3", mono)}>
-					<Divided>
-						{[
-							<>
-								<b className="font-normal text-muted-foreground">
-									{agentsActive}
-								</b>
-								/{agentsMax ?? "n/a"} agents
-							</>,
-							<span className="flex items-center gap-2">
-								<Sparkline data={tps} />
-								<span className="text-muted-foreground">
-									{model.pulse.throughput.replace("tps", "tok/s")}
-								</span>
-							</span>,
-							<>
-								<b className="font-normal text-muted-foreground">
-									{model.pulse.totalTokens}
-								</b>{" "}
-								tok
-								{model.pulse.totalCost ? ` · ${model.pulse.totalCost}` : ""}
-							</>,
-						]}
-					</Divided>
-				</div>
-			</div>
-
-			<div className="flex items-center justify-between gap-3 px-6 pt-3 text-2xs">
+			<Row gap={4} className="justify-between pt-3">
 				<SessionControls
 					projection={projection}
 					paused={paused}
 					stopped={stopped}
 				/>
 				{idle ? <WatchingMeta model={model} /> : null}
-			</div>
+			</Row>
 
 			{model.attention.length > 0 ? (
 				<AttentionBand model={model} sessionId={projection.sessionId} />
 			) : null}
 
-			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
-				{idle ? "watching" : `work · ${model.work.length}`}
+			<div className="pt-4">
+				<SectionLabel count={idle ? undefined : model.work.length}>
+					{idle ? "watching" : "work"}
+				</SectionLabel>
 			</div>
-			{idle ? (
-				<IdleList model={model} />
-			) : (
-				work.map((row) => (
-					<WorkLane
-						key={row.work.workKey}
-						row={row}
-						sessionId={projection.sessionId}
-					/>
-				))
-			)}
+			<Stack>
+				{idle ? (
+					<IdleList model={model} />
+				) : (
+					work.map((row) => (
+						<WorkLane
+							key={row.work.workKey}
+							row={row}
+							sessionId={projection.sessionId}
+						/>
+					))
+				)}
+			</Stack>
+		</Stack>
+	);
+}
+
+function StatusBar({
+	workflowName,
+	state,
+	model,
+	cwdName,
+	agentsActive,
+	agentsMax,
+	throughput,
+	tps,
+	totalTokens,
+	totalCost,
+}: {
+	workflowName: string;
+	state: string;
+	model?: string;
+	cwdName?: string;
+	agentsActive: number;
+	agentsMax: number | undefined;
+	throughput: string;
+	tps: readonly number[];
+	totalTokens: string;
+	totalCost?: string;
+}) {
+	return (
+		<div className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border bg-background px-6">
+			<span className="size-1.5 shrink-0 rounded-full bg-live" />
+			<h1 className="text-base font-medium tracking-[-0.01em]">
+				{workflowName}
+			</h1>
+			<span className={cn("font-mono text-2xs tabular-nums text-t3")}>
+				<span className="capitalize">{state}</span>
+				{model ? ` · ${model}` : ""}
+			</span>
+			{cwdName ? (
+				<span
+					className={cn("hidden truncate font-mono text-2xs text-t3 sm:inline")}
+				>
+					{cwdName}
+				</span>
+			) : null}
+			<div
+				className={cn(
+					"ml-auto flex items-center font-mono text-2xs tabular-nums text-t3",
+				)}
+			>
+				<Divided>
+					{[
+						<>
+							<b className="font-normal text-muted-foreground">
+								{agentsActive}
+							</b>
+							/{agentsMax ?? "n/a"} agents
+						</>,
+						<span className="flex items-center gap-2">
+							<Sparkline data={tps} />
+							<span className="text-muted-foreground">{throughput}</span>
+						</span>,
+						<>
+							<b className="font-normal text-muted-foreground">{totalTokens}</b>{" "}
+							tok{totalCost ? ` · ${totalCost}` : ""}
+						</>,
+					]}
+				</Divided>
+			</div>
 		</div>
 	);
 }
@@ -216,7 +256,7 @@ function WatchingMeta({
 	}
 	if (parts.length === 0) return null;
 	return (
-		<span className={cn("text-t3", mono)}>
+		<span className={cn("font-mono text-2xs tabular-nums text-t3")}>
 			<Divided>{parts}</Divided>
 		</span>
 	);
@@ -231,18 +271,21 @@ function AttentionBand({
 }) {
 	const actionable = model.work.filter((row) => row.attention);
 	return (
-		<div className="relative mt-6 border-y border-border bg-attention/5 px-6 py-4">
+		<div className="relative mt-2 border-y border-border bg-attention/5 px-6 py-4">
 			<span className="absolute inset-y-0 left-0 w-0.5 bg-attention" />
-			<div className={cn("mb-2 text-2xs text-attention", mono)}>attention</div>
-			<div className="flex flex-col gap-3">
+			<div className={cn("mb-2 font-mono text-2xs text-attention")}>
+				attention
+			</div>
+			<Stack gap={3}>
 				{model.attention.map((entry, index) => {
 					const row = actionable.find((r) => r.work.workKey === entry.workKey);
 					return (
-						<div
+						<Row
 							key={`${entry.workKey ?? "diag"}-${index}`}
-							className="flex flex-wrap items-center justify-between gap-3"
+							gap={3}
+							className="flex-wrap justify-between"
 						>
-							<p className="min-w-0 text-2xs text-muted-foreground">
+							<p className="min-w-0 font-mono text-2xs text-muted-foreground">
 								{entry.text}
 							</p>
 							{row ? (
@@ -252,10 +295,10 @@ function AttentionBand({
 									prominent
 								/>
 							) : null}
-						</div>
+						</Row>
 					);
 				})}
-			</div>
+			</Stack>
 		</div>
 	);
 }
@@ -276,6 +319,8 @@ function WorkLane({
 	row: WorkRowModel;
 	sessionId: string;
 }) {
+	const ChevronRight = useIcon("chevron-right");
+	const shape = useShape();
 	const attempt = row.attempt;
 	const live = attempt?.streaming ?? false;
 	const [open, setOpen] = useState(live || row.attention);
@@ -286,20 +331,20 @@ function WorkLane({
 				onClick={() => setOpen((value) => !value)}
 				className="grid w-full grid-cols-[3px_1fr_auto_16px] items-center gap-x-4 px-6 py-4 text-left transition-colors hover:bg-hover"
 			>
-				<span className={cn("h-6 w-[3px] rounded-[3px]", railTone(row))} />
+				<span className={cn("h-6 w-[3px]", shape.item, railTone(row))} />
 				<div className="min-w-0">
 					<span
 						className={cn(
-							"weight-hover truncate text-sm",
+							"block truncate text-sm",
 							row.stale && "text-muted-foreground",
+							"group-hover:font-medium",
 						)}
 					>
 						{row.label}
 					</span>
 					<p
 						className={cn(
-							"mt-1 truncate text-2xs",
-							mono,
+							"mt-1 truncate font-mono text-2xs",
 							live ? "shimmer-text" : "text-t3",
 						)}
 					>
@@ -308,9 +353,8 @@ function WorkLane({
 				</div>
 				<div
 					className={cn(
-						"flex items-baseline justify-self-end whitespace-nowrap text-2xs text-t3 opacity-0 transition-opacity group-hover:opacity-100",
+						"justify-self-end whitespace-nowrap font-mono text-2xs text-t3 opacity-0 transition-opacity group-hover:opacity-100",
 						open && "opacity-100",
-						mono,
 					)}
 				>
 					{row.meta.length > 0 ? row.meta : null}
@@ -325,9 +369,9 @@ function WorkLane({
 			</button>
 
 			{open ? (
-				<div className="px-6 pb-6 pl-10 text-2xs">
+				<div className="px-6 pb-6 pl-10">
 					<Trail row={row} />
-					<div className="mt-4 flex flex-wrap items-center gap-2">
+					<Row gap={2} className="mt-4 flex-wrap">
 						<OperatorActionButtons item={row.work} sessionId={sessionId} />
 						{attempt === undefined ? null : (
 							<InterruptRunButton
@@ -336,7 +380,7 @@ function WorkLane({
 								sessionId={sessionId}
 							/>
 						)}
-					</div>
+					</Row>
 				</div>
 			) : null}
 		</div>
@@ -355,40 +399,38 @@ const trailWindow = 9;
 function Trail({ row }: { row: WorkRowModel }) {
 	const attempt = row.attempt;
 	if (attempt === undefined)
-		return <p className="text-2xs text-t3">No activity yet.</p>;
+		return <p className="font-mono text-2xs text-t3">No activity yet.</p>;
 
 	const history = [...attempt.timeline]
 		.toSorted((a, b) => a.atMs - b.atMs)
 		.slice(-trailWindow);
 	if (history.length === 0 && !attempt.streaming)
-		return <p className="text-2xs text-t3">No activity yet.</p>;
+		return <p className="font-mono text-2xs text-t3">No activity yet.</p>;
 
 	return (
-		<div className={cn("mb-5", mono)}>
-			<div className={cn("mb-3 text-t3", mono)}>
+		<Stack gap={3} className="mb-4">
+			<div className={cn("font-mono text-2xs tabular-nums text-t3")}>
 				timeline · {attempt.meaningfulCount} of {attempt.eventCount} events
 			</div>
-			<div className="grid grid-cols-[7ch_1fr] gap-x-3">
+			<div className="grid grid-cols-[7ch_1fr] gap-x-3 font-mono text-2xs">
 				{history.map((entry) => (
 					<Fragment key={`${entry.atMs}-${entry.kind}`}>
-						<span className="text-2xs text-t3">
+						<span className="text-t3">
 							{formatDuration(Date.now() - entry.atMs)}
 						</span>
-						<span className="truncate text-2xs text-muted-foreground">
-							{entry.text}
-						</span>
+						<span className="truncate text-muted-foreground">{entry.text}</span>
 					</Fragment>
 				))}
 				{attempt.streaming ? (
 					<Fragment key="live">
-						<span className="text-2xs text-foreground">now</span>
-						<span className="truncate text-2xs text-foreground shimmer-text">
+						<span className="text-foreground">now</span>
+						<span className="truncate text-foreground shimmer-text">
 							{row.activity}
 						</span>
 					</Fragment>
 				) : null}
 			</div>
-		</div>
+		</Stack>
 	);
 }
 
@@ -409,7 +451,7 @@ function SessionControls({
 
 	return (
 		<>
-			<div className="flex flex-wrap items-center gap-4">
+			<Row gap={4} className="flex-wrap">
 				<Switch
 					label={paused ? "Paused" : "Running"}
 					checked={!paused}
@@ -438,15 +480,19 @@ function SessionControls({
 				>
 					Close session
 				</Button>
-			</div>
-			<div className="flex items-center gap-3">
+			</Row>
+			<Row gap={3} className="flex-wrap">
 				{controllerBlockReason ? (
-					<span className="text-t3">{controllerBlockReason}</span>
+					<span className="font-mono text-2xs text-t3">
+						{controllerBlockReason}
+					</span>
 				) : null}
 				{mutationError ? (
-					<span className="text-destructive">{mutationError}</span>
+					<span className="font-mono text-2xs text-destructive">
+						{mutationError}
+					</span>
 				) : null}
-			</div>
+			</Row>
 
 			<Dialog open={closeOpen} onOpenChange={setCloseOpen}>
 				<DialogContent>
@@ -489,9 +535,9 @@ function IdleList({ model }: { model: ReturnType<typeof dashboardModelFrom> }) {
 	const last = model.completed[0];
 	const scheduled = model.scheduled;
 	return (
-		<>
+		<Stack>
 			{last === undefined ? (
-				<p className="border-t border-border px-6 py-4 text-2xs text-t3">
+				<p className="border-t border-border px-6 py-4 font-mono text-2xs text-t3">
 					No active work.
 				</p>
 			) : (
@@ -499,16 +545,18 @@ function IdleList({ model }: { model: ReturnType<typeof dashboardModelFrom> }) {
 			)}
 			{scheduled.length > 0 ? (
 				<>
-					<div className="px-6 pt-6 pb-2 text-2xs text-t3">retry</div>
+					<div className="px-6 pt-4">
+						<SectionLabel>retry</SectionLabel>
+					</div>
 					{scheduled.map((wake) => (
 						<div
 							key={`${wake.workKey ?? "session"}-${wake.inSeconds}`}
 							className="flex items-baseline justify-between gap-3 border-t border-border px-6 py-3"
 						>
-							<span className={cn("text-2xs text-muted-foreground", mono)}>
+							<span className="font-mono text-2xs text-muted-foreground">
 								↻ {wake.label ?? wake.workKey ?? "session"}
 							</span>
-							<span className={cn("shrink-0 text-2xs text-t3", mono)}>
+							<span className="shrink-0 whitespace-nowrap font-mono text-2xs tabular-nums text-t3">
 								attempt {wake.attempt ?? "n/a"} · in {wake.inSeconds}s
 								{wake.reason ? ` · ${wake.reason}` : ""}
 							</span>
@@ -516,7 +564,7 @@ function IdleList({ model }: { model: ReturnType<typeof dashboardModelFrom> }) {
 					))}
 				</>
 			) : null}
-		</>
+		</Stack>
 	);
 }
 
@@ -539,11 +587,11 @@ function LastRun({
 			].join(" · ");
 	return (
 		<div className="grid grid-cols-[3px_1fr_auto] items-center gap-x-4 border-t border-border px-6 py-3">
-			<span className="h-5 w-[3px] rounded-[3px] bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]" />
+			<span className="h-5 w-[3px] rounded-full bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]" />
 			<span className="truncate text-sm text-muted-foreground">
 				{row.label}
 			</span>
-			<span className={cn("shrink-0 text-2xs text-t3", mono)}>
+			<span className="shrink-0 whitespace-nowrap font-mono text-2xs tabular-nums text-t3">
 				<span className={ok ? "text-t3" : "text-destructive"}>
 					{ok ? row.status : (message ?? row.status)}
 				</span>{" "}
@@ -559,9 +607,13 @@ function SnapshotUnavailable({
 	lastError?: string | undefined;
 }) {
 	return (
-		<div className="space-y-2 py-4 text-2xs text-t3">
-			<p>Snapshot unavailable for this Plot Session.</p>
-			{lastError ? <p>{lastError}</p> : null}
-		</div>
+		<Stack gap={2} className="py-4">
+			<p className="font-mono text-2xs text-t3">
+				Snapshot unavailable for this Plot Session.
+			</p>
+			{lastError ? (
+				<p className="font-mono text-2xs text-t3">{lastError}</p>
+			) : null}
+		</Stack>
 	);
 }

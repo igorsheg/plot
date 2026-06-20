@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { useDashboardState } from "../dashboard-context";
+import { Row } from "./layout";
 
 function ConnectionBadge() {
 	const { connection } = useDashboardState();
@@ -27,22 +28,22 @@ function ConnectionBadge() {
 export function TopBar() {
 	const { roster } = useDashboardState();
 	return (
-		<header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-4 py-3 text-xs text-muted-foreground">
+		<header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-4 py-3">
 			<Link
 				to="/"
 				search={(prev) => ({ role: prev.role ?? "controller" })}
-				className="font-medium text-foreground"
+				className="text-sm font-medium text-foreground"
 			>
 				plot
 			</Link>
-			<div className="flex items-center gap-3">
+			<Row gap={3}>
 				<ConnectionBadge />
-				<span className="hidden md:inline">
+				<span className="hidden font-mono text-2xs tabular-nums text-t3 md:inline">
 					{roster.length === 1
 						? "1 Plot Session"
 						: `${roster.length} Plot Sessions`}
 				</span>
-			</div>
+			</Row>
 		</header>
 	);
 }
