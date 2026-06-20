@@ -229,6 +229,11 @@
 			background-position: -200% 0;
 		}
 	}
+
+	/* Strong custom easing — the built-in CSS easings are too weak for crisp UI.
+	   Override ease-in-out (used across coss transitions) with a punchy curve.
+	   ease-out/ease-drawer omitted until a callsite needs them. */
+	--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 html,

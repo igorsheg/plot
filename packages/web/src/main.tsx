@@ -1,4 +1,5 @@
 import { RouterProvider } from "@tanstack/react-router";
+import { MotionConfig } from "motion/react";
 import { createRoot } from "react-dom/client";
 // oxlint-disable-next-line import/no-unassigned-import -- Vite CSS entry import (also loads self-hosted @font-face for Inter + Berkeley Mono).
 import "./globals.css";
@@ -12,7 +13,11 @@ const router = createDashboardRouter();
 // router only ever sees clean session/role state.
 readBrowserControlHandoff(window.location);
 
-const App = () => <RouterProvider router={router} />;
+const App = () => (
+	<MotionConfig reducedMotion="user">
+		<RouterProvider router={router} />
+	</MotionConfig>
+);
 
 const root = document.getElementById("root");
 if (!root) throw new Error("missing root element");

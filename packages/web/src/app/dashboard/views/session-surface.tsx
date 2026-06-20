@@ -37,11 +37,12 @@ import { throughputSeries } from "../throughput-series";
 import { Meta, Rail, type RailTone, Row, SectionLabel, Stack } from "./layout";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
-// ponytail: local spring tiers replace the old FF springs module. Two tiers
-// cover everything the views used (fast for rows/enter, moderate for focus).
+// Spring tiers (Apple-style: duration + bounce, easier to reason about than
+// stiffness/damping/mass). bounce 0 — a crisp professional control surface,
+// not a playful one. fast for rows, moderate for room-level swaps.
 const spring = {
-	fast: { type: "spring" as const, stiffness: 500, damping: 40, mass: 0.8 },
-	moderate: { type: "spring" as const, stiffness: 320, damping: 32 },
+	fast: { type: "spring" as const, duration: 0.3, bounce: 0 },
+	moderate: { type: "spring" as const, duration: 0.4, bounce: 0 },
 };
 
 // The activity line is always one line: the agent stream can carry newlines in a
@@ -219,11 +220,11 @@ function PulseHeader({
 					{showStats ? (
 						<motion.span
 							key="stats"
-							initial={{ opacity: 0, width: 0 }}
-							animate={{ opacity: 1, width: "auto" }}
-							exit={{ opacity: 0, width: 0 }}
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							exit={{ opacity: 0 }}
 							transition={spring.fast}
-							className="overflow-hidden whitespace-nowrap"
+							className="whitespace-nowrap"
 						>
 							<span className="mx-3 h-2 w-px self-center bg-border" />
 							<b className="font-normal text-muted-foreground">
@@ -371,10 +372,9 @@ function ThreadRow({
 
 	return (
 		<motion.div
-			layout
-			initial={{ opacity: 0, y: -4 }}
-			animate={{ opacity: 1, y: 0 }}
-			exit={{ opacity: 0, y: -4 }}
+			initial={{ opacity: 0 }}
+			animate={{ opacity: 1 }}
+			exit={{ opacity: 0 }}
 			transition={spring.fast}
 			className={cn(
 				"group relative",
@@ -430,16 +430,15 @@ function ThreadRow({
 					)}
 				/>
 			</button>
-			{/* a thread that needs you: the action surfaces inline, springing in */}
+			{/* a thread that needs you: the action surfaces inline */}
 			<AnimatePresence>
 				{elevated ? (
 					<motion.div
 						key="act"
-						initial={{ opacity: 0, height: 0 }}
-						animate={{ opacity: 1, height: "auto" }}
-						exit={{ opacity: 0, height: 0 }}
-						transition={spring.moderate}
-						className="overflow-hidden"
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						exit={{ opacity: 0 }}
+						transition={spring.fast}
 					>
 						<Row gap={2} className="flex-wrap px-gutter pb-4 pl-10">
 							<OperatorActionButtons
@@ -505,14 +504,11 @@ function FocusView({
 }) {
 	const attempt = row.attempt;
 	useEsc(onBack);
+	// Keyboard-initiated (Enter) or click swap: no enter animation. This path is
+	// used repeatedly; animating it makes navigation feel delayed (Emil: never
+	// animate keyboard-initiated actions).
 	return (
-		<motion.div
-			initial={{ opacity: 0, y: 8 }}
-			animate={{ opacity: 1, y: 0 }}
-			exit={{ opacity: 0, y: 8 }}
-			transition={spring.moderate}
-			className="pt-4"
-		>
+		<div className="pt-4">
 			<div className="px-gutter">
 				<SectionLabel>{row.work.workKey}</SectionLabel>
 			</div>
@@ -566,7 +562,7 @@ function FocusView({
 					<ArrowLeft size={13} /> all work
 				</button>
 			</div>
-		</motion.div>
+		</div>
 	);
 }
 
