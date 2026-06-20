@@ -549,7 +549,7 @@ describe("Plot TUI projection", () => {
 		expect(work?.activityKind).toBe("think");
 	});
 
-	test("surfaces tool calls and partial tool output in the tool lane", () => {
+	test("surfaces tool calls as a clean label in the tool lane", () => {
 		let projection = emptyProjection("default", "workflow");
 		projection = reduceRecord(projection, workStarted(1));
 		projection = reduceRecord(
@@ -576,9 +576,12 @@ describe("Plot TUI projection", () => {
 			),
 		);
 
+		// The live one-liner is the clean action label only — the raw partial tool
+		// output ("two") is intentionally not folded into the status line; it is
+		// noise on a one-liner and belongs in the trail depth, not streams.tool.
 		work = projection.attempts.get("run-1");
-		expect(work?.streams.tool).toBe("Running bun run check · two");
-		expect(work?.activity).toBe("Running bun run check · two");
+		expect(work?.streams.tool).toBe("Running bun run check");
+		expect(work?.activity).toBe("Running bun run check");
 	});
 
 	test("attributes parallel tool completions by toolCallId", () => {

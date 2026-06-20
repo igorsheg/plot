@@ -1,15 +1,18 @@
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 
-import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
 
-// Motion-as-information status dot. The tone maps to a semantic colour token —
-// never a raw palette literal — and the dot springs (a single scale beat) when
-// the tone changes, so a transition like working → blocked is *felt*, not just
-// silently re-coloured. Ported in spirit from fluid-functionalism's motion
-// philosophy.
-export type StatusTone = "active" | "attention" | "danger" | "muted" | "online";
+// Motion-as-information status dot. The tone maps to a semantic colour token
+// and the dot springs (a single scale beat) when the tone changes, so a
+// transition like working → blocked is *felt*, not just silently re-coloured.
+export type StatusTone =
+	| "active"
+	| "attention"
+	| "danger"
+	| "muted"
+	| "online"
+	| "live";
 
 const toneClass: Record<StatusTone, string> = {
 	active: "bg-foreground",
@@ -17,6 +20,7 @@ const toneClass: Record<StatusTone, string> = {
 	danger: "bg-destructive",
 	muted: "bg-muted-foreground",
 	online: "bg-green-500",
+	live: "bg-live",
 };
 
 export function StatusDot({
@@ -33,7 +37,7 @@ export function StatusDot({
 			aria-hidden
 			initial={{ scale: 0.6, opacity: 0.5 }}
 			animate={{ scale: 1, opacity: 1 }}
-			transition={spring.moderate}
+			transition={{ type: "spring", stiffness: 400, damping: 30 }}
 			className={cn(
 				"inline-block size-2 rounded-full",
 				toneClass[tone],

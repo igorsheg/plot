@@ -358,10 +358,6 @@ const inlineText = (value: string, max = 140) =>
 	value.replace(/\s+/g, " ").trim().slice(0, max);
 const inlineMessageText = (value: string, max = 120) =>
 	inlineText(value.replace(/\*\*([^*]+)\*\*/g, "$1"), max);
-const ansiEscape = String.fromCharCode(27);
-const stripAnsiCodes = (value: string) =>
-	value.replace(new RegExp(`${ansiEscape}\\[[0-9;]*m`, "g"), "");
-
 const baseName = (path: string) => {
 	const trimmed = path.replace(/\/+$/, "");
 	const tail = trimmed.slice(trimmed.lastIndexOf("/") + 1);
@@ -518,24 +514,6 @@ const messageParts = (
 	}
 	const message = messageContentParts(event["message"]);
 	return message === undefined ? undefined : { mode: "partial", ...message };
-};
-
-const toolResultLine = (value: unknown): string | undefined => {
-	if (!isRecord(value)) return undefined;
-	const content = value["content"];
-	if (!Array.isArray(content)) return undefined;
-	const lines = content
-		.flatMap((item) => {
-			if (!isRecord(item) || item["type"] !== "text") return [];
-			return text(item["text"]) ?? [];
-		})
-		.join("\n")
-		.replace(/\r/g, "\n")
-		.split("\n")
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0);
-	const line = lines[lines.length - 1];
-	return line === undefined ? undefined : inlineText(stripAnsiCodes(line), 90);
 };
 
 type EventPhase = "turn" | "start" | "update" | "end" | "message" | "none";
@@ -1365,14 +1343,14 @@ const reduceAgentSessionEvent = (
 		};
 	}
 	if (classified.phase === "start" || classified.phase === "update") {
-		const output =
-			classified.phase === "update" && isRecord(rawEvent)
-				? toolResultLine(rawEvent["partialResult"])
-				: undefined;
+		// The live one-liner is the clean action label ("Reading dynamic.ts",
+		// "Searching …", "Running check"), never the raw partial tool output —
+		// that firehose belongs in the trail depth (timeline entries), not the
+		// status line. The raw partialResult is intentionally dropped here.
 		const label = liveLabel(kind, target);
 		streams = {
 			...streams,
-			tool: output === undefined ? label : `${label} · ${output}`,
+			tool: label,
 		};
 	} else if (classified.phase === "end") streams = withoutToolStream(streams);
 

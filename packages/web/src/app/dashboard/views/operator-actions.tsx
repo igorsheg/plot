@@ -14,13 +14,14 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { InputField, InputGroup } from "@/components/ui/input-group";
+import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import {
 	operatorActionTone,
 	useDashboardActions,
 	useDashboardMeta,
 } from "../dashboard-context";
+import { Meta } from "./layout";
 
 function dangerClass(action: OperatorAction) {
 	return action.tone === "danger"
@@ -29,9 +30,9 @@ function dangerClass(action: OperatorAction) {
 }
 
 // A single operator action. A plain action fires immediately; one that carries
-// a `confirm` or `requiresComment` opens a Dialog (FF overlay) instead of the
-// old native window.confirm / window.prompt — the comment is captured with an
-// InputGroup field, danger actions read in the destructive tone.
+// a `confirm` or `requiresComment` opens a Dialog instead of the old native
+// window.confirm / window.prompt — the comment is captured with an input group,
+// danger actions read in the destructive tone.
 function OperatorActionButton({
 	action,
 	item,
@@ -103,30 +104,38 @@ function OperatorActionButton({
 							) : null}
 						</DialogHeader>
 						{action.requiresComment ? (
-							<InputGroup>
-								<InputField
-									index={0}
-									label="Comment"
-									value={comment}
-									onChange={(next) => {
-										setComment(next);
-										if (commentError) setCommentError(undefined);
-									}}
-									error={commentError}
-								/>
-							</InputGroup>
+							<div className="px-6">
+								<label className="mb-1 block text-sm text-muted-foreground">
+									Comment
+								</label>
+								<InputGroup>
+									<InputGroupInput
+										value={comment}
+										aria-invalid={commentError !== undefined}
+										onChange={(e) => {
+											setComment(e.target.value);
+											if (commentError) setCommentError(undefined);
+										}}
+									/>
+								</InputGroup>
+								{commentError ? (
+									<p className="mt-1 text-sm text-destructive">
+										{commentError}
+									</p>
+								) : null}
+							</div>
 						) : null}
 						<DialogFooter>
 							<Button
 								size="sm"
-								variant="tertiary"
+								variant="outline"
 								onClick={() => setOpen(false)}
 							>
 								Cancel
 							</Button>
 							<Button
 								size="sm"
-								variant="primary"
+								variant="default"
 								className={
 									action.tone === "danger" ? "bg-destructive text-white" : ""
 								}
@@ -140,9 +149,7 @@ function OperatorActionButton({
 				</Dialog>
 			) : null}
 
-			{disabledReason ? (
-				<span className="text-xs text-muted-foreground">{disabledReason}</span>
-			) : null}
+			{disabledReason ? <Meta>{disabledReason}</Meta> : null}
 		</>
 	);
 }
@@ -195,9 +202,7 @@ export function InterruptRunButton({
 		>
 			Interrupt Agent Run
 			{controllerBlockReason ? (
-				<span className="ml-2 text-muted-foreground">
-					{controllerBlockReason}
-				</span>
+				<Meta className="ml-2">{controllerBlockReason}</Meta>
 			) : null}
 		</Button>
 	);

@@ -7,6 +7,7 @@ import {
 import type { SessionHistoryEvent } from "@plot/control/session-history";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { renderToStaticMarkup } from "react-dom/server";
+import { SidebarProvider } from "../src/components/ui/sidebar";
 
 import {
 	chooseInitialSession,
@@ -34,15 +35,17 @@ const { DashboardProvider } =
 	await import("../src/app/dashboard/dashboard-context");
 const { SessionSurface } =
 	await import("../src/app/dashboard/views/session-surface");
-const { TopBar } = await import("../src/app/dashboard/views/top-bar");
+const { AppSidebar } = await import("../src/app/dashboard/views/app-sidebar");
 
-// Render the dashboard chrome (TopBar) + session surface for a fixed frame,
+// Render the sidebar (the left chrome) + session surface for a fixed frame,
 // mirroring what the router's RootLayout composes around the session route.
 function renderSession(override: PlotWebDashboardState): string {
 	return renderToStaticMarkup(
 		<DashboardProvider state={override}>
-			<TopBar />
-			<SessionSurface />
+			<SidebarProvider>
+				<AppSidebar />
+				<SessionSurface />
+			</SidebarProvider>
 		</DashboardProvider>,
 	);
 }
@@ -133,7 +136,9 @@ describe("plot web dashboard", () => {
 				projection,
 			}),
 		);
-		expect(html).toContain("all sessions");
+		// the redundant "← all sessions" back link is gone — the fleet rail is the
+		// switcher — so assert the rail + the rendered work instead.
+		expect(html).toContain("plot");
 		expect(html).toContain("Prepare package");
 	});
 
@@ -170,8 +175,7 @@ describe("plot web dashboard", () => {
 			}),
 		);
 
-		expect(html).toContain("work:alpha");
-		expect(html).toContain("run-1");
+		expect(html).toContain("Prepare package");
 		expect(html).toContain("bun run check");
 	});
 
