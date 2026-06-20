@@ -43,7 +43,7 @@ import { definePlotExtension, defineTool } from "plot-ai/sdk";
 Ask Plot to forge a normal Workflow Bundle from a goal:
 
 ```bash
-plot dynamic "Audit each packages/* package and write a report" --out workflows/package-audit
+plot dynamic "Audit each packages/* package and write a report" --out workflows/package-audit --tui
 ```
 
-`plot dynamic` is itself a Plot workflow: it runs a forge Source, the Agent Run designs `WORKFLOW.md` + `workflow.extension.ts`, a trusted tool writes the bundle, and Plot validates/repairs it before reporting success.
+`plot dynamic` is itself a Plot workflow: it runs a forge Source, the Agent Run designs `WORKFLOW.md` + `workflow.extension.ts`, a trusted tool writes the bundle, and Plot validates/repairs it before reporting success. Use `--tui` to watch the forge session.

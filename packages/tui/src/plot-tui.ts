@@ -29,6 +29,8 @@ import { runtimeIdentityFrom } from "./runtime-identity.js";
 
 export interface PlotTuiOptions extends PlotSessionHostOptions {
 	readonly noServer?: boolean;
+	readonly mode?: "watch" | "oneshot";
+	readonly lifetime?: "server" | "connection";
 	readonly homeDir?: string;
 	readonly serverDir?: string;
 }
@@ -58,8 +60,8 @@ const summaryRuntime = (
 
 const openSessionParamsFrom = (options: PlotTuiOptions) => ({
 	sessionId: options.sessionId,
-	mode: "watch" as const,
-	lifetime: "server" as const,
+	mode: options.mode ?? "watch",
+	lifetime: options.lifetime ?? "server",
 	role: "controller" as const,
 	cwd: options.cwd,
 	...(options.workflowPath === undefined
@@ -335,15 +337,24 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		setProjection({ ...projection, status });
 	};
 	const fail = (error: unknown) => {
+		const message = errorMessage(error);
+		if (
+			options.mode === "oneshot" &&
+			message.startsWith("session_not_found:")
+		) {
+			setProjection({ ...projection, status: "stopped", scheduledWakes: [] });
+			return;
+		}
 		setProjection({
 			...projection,
 			status: "error",
-			diagnostics: [errorMessage(error), ...projection.diagnostics].slice(0, 5),
+			diagnostics: [message, ...projection.diagnostics].slice(0, 5),
 		});
 	};
 	let refreshInFlight = false;
 	let refreshQueued = false;
 	const refresh = () => {
+		if (projection.status === "stopped") return;
 		if (refreshInFlight) {
 			refreshQueued = true;
 			return;

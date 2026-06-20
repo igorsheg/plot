@@ -19,7 +19,7 @@ import {
 	runtimeArgs,
 } from "../args.js";
 import { getCliIo } from "../cli-context.js";
-import { errorMessage, writeCliStderr } from "../io.js";
+import { errorMessage, type PlotCliIo, writeCliStderr } from "../io.js";
 import { baseOptions, bool, str } from "../options.js";
 import { runControlOneshot, runInProcessOnce } from "../runtime.js";
 
@@ -53,6 +53,10 @@ const ensureWritableOutDir = async (outDir: string, force: boolean) => {
 	await mkdir(outDir, { recursive: true });
 };
 
+type ForgeRunOptions = ReturnType<typeof baseOptions> & {
+	readonly workflowPath: string;
+};
+
 const startGeneratedWorkflow = async (input: {
 	readonly cwd: string;
 	readonly workflowPath: string;
@@ -81,6 +85,24 @@ const startGeneratedWorkflow = async (input: {
 	}
 };
 
+const runForgeTui = async (input: {
+	readonly io: PlotCliIo;
+	readonly forgeRun: ForgeRunOptions;
+	readonly noServer: boolean;
+}) => {
+	const runTui =
+		input.io.runTui ?? (await import("@plot/tui/plot-tui")).runPlotTui;
+	await runTui({
+		...input.forgeRun,
+		mode: "oneshot",
+		lifetime: "server",
+		...(input.noServer ? { noServer: true } : {}),
+		...(input.io.createAgentSession === undefined
+			? {}
+			: { createAgentSession: input.io.createAgentSession }),
+	});
+};
+
 export const dynamicCommand = defineCommand({
 	meta: {
 		name: "dynamic",
@@ -107,6 +129,10 @@ export const dynamicCommand = defineCommand({
 			type: "boolean",
 			description:
 				"Start the generated workflow as a watch Plot Session after validation.",
+		},
+		tui: {
+			type: "boolean",
+			description: "Open the TUI while the forge workflow runs.",
 		},
 		"no-server": {
 			type: "boolean",
@@ -145,6 +171,8 @@ export const dynamicCommand = defineCommand({
 		const forgeSessionId =
 			str(args, "session-id") ??
 			`dynamic-forge-${slug}-${randomUUID().slice(0, 8)}`;
+		const noServer = bool(args, "no-server") ?? false;
+		const useTui = bool(args, "tui") ?? false;
 		try {
 			await ensureWritableOutDir(outDir, bool(args, "force") ?? false);
 			const forge = await writeDynamicForgeWorkflow({
@@ -166,7 +194,10 @@ export const dynamicCommand = defineCommand({
 				sessionId: forgeSessionId,
 				workflowPath: forge.workflowPath,
 			};
-			if (bool(args, "no-server") || io.createAgentSession !== undefined) {
+			if (useTui) {
+				await io.writeStdout(`opening TUI for ${forgeSessionId}\n`);
+				await runForgeTui({ io, forgeRun, noServer });
+			} else if (noServer || io.createAgentSession !== undefined) {
 				await runInProcessOnce({
 					...forgeRun,
 					...(io.createAgentSession === undefined
@@ -174,11 +205,20 @@ export const dynamicCommand = defineCommand({
 						: { createAgentSession: io.createAgentSession }),
 				});
 			} else {
+				await io.writeStdout(
+					`watch: plot tui --session-id ${forgeSessionId}\n`,
+				);
 				await runControlOneshot(forgeRun);
 			}
 			const metadata = await readDynamicWorkflowMetadata(outDir);
-			if (metadata === undefined)
+			if (metadata === undefined) {
+				if (useTui)
+					await writeCliStderr(
+						io,
+						`Dynamic forge has not finished; reopen with: plot tui --session-id ${forgeSessionId}\n`,
+					);
 				throw new Error("dynamic forge did not write validation metadata");
+			}
 			const { validation } = metadata;
 			await Promise.all(
 				validation.warnings.map((warning) =>

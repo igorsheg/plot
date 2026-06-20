@@ -7,6 +7,10 @@ import type {
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	validateDynamicWorkflowBundle,
+	writeDynamicWorkflowMetadata,
+} from "@plot/session/dynamic-workflow";
 import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
 import { runPlotCli } from "../src/cli.js";
 
@@ -176,6 +180,55 @@ describe("plot dynamic", () => {
 			await readFile(join(outDir, "plot.dynamic.json"), "utf8"),
 		) as { validation: { ok: boolean } };
 		expect(metadata.validation.ok).toBe(true);
+	});
+
+	test("opens the forge workflow in the TUI", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "plot-dynamic-tui-"));
+		tempDirs.push(cwd);
+		const outDir = join(cwd, "workflows", "red-ci");
+		const stdout: string[] = [];
+		let tuiOptions: Record<string, unknown> | undefined;
+
+		await runPlotCli(
+			[
+				"dynamic",
+				"scan red CI builds",
+				"--cwd",
+				cwd,
+				"--out",
+				"workflows/red-ci",
+				"--tui",
+				"--log-level",
+				"none",
+			],
+			{
+				stdin: chunks([]),
+				writeStdout: (line) => {
+					stdout.push(line);
+				},
+				runTui: async (options) => {
+					tuiOptions = options as Record<string, unknown>;
+					await writeValidBundle(outDir);
+					const validation = await validateDynamicWorkflowBundle({
+						cwd,
+						outDir,
+					});
+					await writeDynamicWorkflowMetadata({
+						goal: "scan red CI builds",
+						outDir,
+						forgeSessionId: String(tuiOptions["sessionId"]),
+						validation,
+					});
+				},
+			},
+		);
+
+		expect(tuiOptions).toEqual(
+			expect.objectContaining({ mode: "oneshot", lifetime: "server" }),
+		);
+		expect(String(tuiOptions?.["workflowPath"])).toContain("WORKFLOW.md");
+		expect(stdout.join("")).toContain("opening TUI for dynamic-forge-");
+		expect(stdout.join("")).toContain("wrote workflows/red-ci/WORKFLOW.md");
 	});
 
 	test("forges a workflow bundle and records validation metadata", async () => {

@@ -59,7 +59,7 @@ The extension does not review code, triage issues, or debug CI by itself. It ide
 ## Generate a workflow
 
 ```bash
-plot dynamic "Audit each packages/* package and write a report" --out workflows/package-audit
+plot dynamic "Audit each packages/* package and write a report" --out workflows/package-audit --tui
 ```
 
-`plot dynamic` generates a normal Workflow Bundle, validates it, and repairs it if validation fails. It shapes context and ownership; it does not turn the agent into a scripted pipeline.
+`plot dynamic` generates a normal Workflow Bundle, validates it, and repairs it if validation fails. `--tui` opens the forge session while it works.

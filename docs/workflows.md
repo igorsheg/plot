@@ -165,10 +165,10 @@ Keep this split clear: TypeScript owns integration correctness and idempotent mu
 `plot dynamic` asks Plot to forge a normal Workflow Bundle from a goal:
 
 ```bash
-plot dynamic "Audit each packages/* package and write .plot/dynamic/package-audit/report.md" --out workflows/package-audit
+plot dynamic "Audit each packages/* package and write .plot/dynamic/package-audit/report.md" --out workflows/package-audit --tui
 ```
 
-This is dogfooding, not a second runtime. Plot writes an internal forge Workflow, runs it as a normal Plot Session, gives the Agent Run a trusted `write_dynamic_workflow_bundle` tool, passes the current Plot auth/model catalog as context, validates the generated `WORKFLOW.md` + `workflow.extension.ts`, and feeds validation errors back as repair Work Items up to a small bound.
+This is dogfooding, not a second runtime. Plot writes an internal forge Workflow, runs it as a normal Plot Session, gives the Agent Run a trusted `write_dynamic_workflow_bundle` tool, passes the current Plot auth/model catalog as context, validates the generated `WORKFLOW.md` + `workflow.extension.ts`, and feeds validation errors back as repair Work Items up to a small bound. `--tui` opens that forge session so it is not a silent wait.
 
 The deterministic parts are the seam: artifact writes, configured-model context, validation, retry bounds, and Session History. The agent still owns the workflow design and the generated workflow's later investigation strategy.
 
