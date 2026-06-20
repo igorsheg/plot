@@ -3,14 +3,13 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { Card, CardHeader, CardPanel } from "@/components/ui/card";
 import { InputCopy } from "@/components/ui/input-copy";
 import { StatusDot } from "@/components/ui/status-indicator";
-import { useShape } from "@/lib/shape-context";
 import { cn } from "@/lib/utils";
 import { useDashboardState } from "../dashboard-context";
 import { stoppedSessionCount, visibleFleetSessions } from "../fleet-model";
-import { Row, SectionLabel, Stack } from "./layout";
+import { Meta, Row, SectionLabel, Stack } from "./layout";
 import { sessionIsRunning, toneForSession } from "./status";
 
 // The left chrome — the single navigation column. It owns the brand, the
@@ -18,24 +17,26 @@ import { sessionIsRunning, toneForSession } from "./status";
 // There is no top bar and no per-session back link: switching sessions happens
 // here, so the room never repeats this affordance.
 
+// ponytail: connection states map to a dot tone + label. The two attention
+// states (offline, handoff-missing) share the amber tone.
+const connectionDot: Record<
+	"online" | "connecting" | "offline" | "handoff-missing",
+	{ tone: "online" | "muted" | "attention"; label: string }
+> = {
+	online: { tone: "online", label: "online" },
+	connecting: { tone: "muted", label: "connecting" },
+	offline: { tone: "attention", label: "offline · last frame" },
+	"handoff-missing": { tone: "attention", label: "handoff needed" },
+};
+
 function ConnectionBadge() {
 	const { connection } = useDashboardState();
-	if (connection === "online")
-		return (
-			<Badge variant="dot" color="green" size="sm">
-				online
-			</Badge>
-		);
-	if (connection === "connecting")
-		return (
-			<Badge variant="dot" color="gray" size="sm">
-				connecting
-			</Badge>
-		);
+	const dot = connectionDot[connection] ?? connectionDot.offline;
 	return (
-		<Badge variant="dot" color="amber" size="sm">
-			{connection === "offline" ? "offline · last frame" : "handoff needed"}
-		</Badge>
+		<span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+			<StatusDot tone={dot.tone} />
+			{dot.label}
+		</span>
 	);
 }
 
@@ -59,13 +60,11 @@ export function FleetRail() {
 			</div>
 			<div className="flex items-center justify-between border-t border-border px-3 pt-3 pb-2">
 				<SectionLabel>fleet</SectionLabel>
-				<span className="font-mono text-2xs tabular-nums text-t3">
-					{roster.length}
-				</span>
+				<Meta>{roster.length}</Meta>
 			</div>
 			<Stack gap={1} className="px-2 pb-3">
 				{roster.length === 0 ? (
-					<p className="px-2 py-1 font-mono text-2xs text-t3">No sessions.</p>
+					<Meta className="block px-2 py-1">No sessions.</Meta>
 				) : (
 					sessions.map((session) => (
 						<FleetRailItem
@@ -96,7 +95,6 @@ function FleetRailItem({
 	session: PlotSessionSummary;
 	active: boolean;
 }) {
-	const shape = useShape();
 	const running = sessionIsRunning(session);
 	const needsYou = session.needsYouCount > 0;
 	return (
@@ -105,8 +103,7 @@ function FleetRailItem({
 			params={{ sessionId: session.id }}
 			search={(prev) => ({ role: prev.role ?? "controller" })}
 			className={cn(
-				"group flex flex-col gap-1 px-2 py-2 transition-colors",
-				shape.item,
+				"group flex flex-col gap-1 rounded-md px-2 py-2 transition-colors",
 				active ? "bg-selected" : "hover:bg-hover",
 			)}
 		>
@@ -114,7 +111,7 @@ function FleetRailItem({
 				<StatusDot tone={toneForSession(session)} />
 				<span
 					className={cn(
-						"min-w-0 flex-1 truncate text-sm transition-[font-variation-settings]",
+						"min-w-0 flex-1 truncate text-sm transition-colors",
 						active && "font-medium",
 						!running && !needsYou && "text-muted-foreground",
 					)}
@@ -122,7 +119,7 @@ function FleetRailItem({
 					{session.workflowName}
 				</span>
 				{needsYou ? (
-					<Badge variant="solid" color="amber" size="sm">
+					<Badge variant="warning" size="sm">
 						{session.needsYouCount}
 					</Badge>
 				) : running ? (
@@ -157,12 +154,12 @@ function EmptyOrOffline() {
 	return (
 		<div className="flex flex-1 items-center justify-center py-20">
 			<Card className="max-w-lg">
-				<Card.Header>
+				<CardHeader>
 					<SectionLabel>
 						{connection === "offline" ? "Offline" : "No Plot Sessions"}
 					</SectionLabel>
-				</Card.Header>
-				<Card.Body>
+				</CardHeader>
+				<CardPanel>
 					<Stack gap={3} className="text-sm text-t3">
 						<p>
 							{lastError ?? "Start a Plot Session, then refresh this page."}
@@ -170,7 +167,7 @@ function EmptyOrOffline() {
 						<InputCopy value="plot --workflow WORKFLOW.md" />
 						<InputCopy value="plot run --workflow WORKFLOW.md" />
 					</Stack>
-				</Card.Body>
+				</CardPanel>
 			</Card>
 		</div>
 	);

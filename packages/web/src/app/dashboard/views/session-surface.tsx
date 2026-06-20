@@ -11,10 +11,10 @@ import {
 	useCallback,
 	useEffect,
 	useMemo,
-	useRef,
 	useState,
 	type ReactNode,
 } from "react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -27,27 +27,22 @@ import {
 } from "@/components/ui/dialog";
 import { Sparkline } from "@/components/ui/sparkline";
 import { Switch } from "@/components/ui/switch";
-import { fontWeights } from "@/lib/font-weight";
-import { useIcon } from "@/lib/icon-context";
-import { useShape } from "@/lib/shape-context";
-import { spring } from "@/lib/springs";
-import { useSurface } from "@/lib/surface-context";
-import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
-import {
-	useProximityHover,
-	useRegisterProximityItem,
-} from "@/hooks/use-proximity-hover";
 import {
 	useDashboardActions,
 	useDashboardMeta,
 	useDashboardState,
 } from "../dashboard-context";
 import { throughputSeries } from "../throughput-series";
-import { Row, SectionLabel, Stack } from "./layout";
+import { Meta, Rail, type RailTone, Row, SectionLabel, Stack } from "./layout";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
-const data = "font-mono tabular-nums";
+// ponytail: local spring tiers replace the old FF springs module. Two tiers
+// cover everything the views used (fast for rows/enter, moderate for focus).
+const spring = {
+	fast: { type: "spring" as const, stiffness: 500, damping: 40, mass: 0.8 },
+	moderate: { type: "spring" as const, stiffness: 320, damping: 32 },
+};
 
 // The activity line is always one line: the agent stream can carry newlines in a
 // message/tool delta, so collapse them to spaces before render — truncate clips.
@@ -63,17 +58,15 @@ const rowAge = (row: WorkRowModel): string => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────
-// Plot web session surface — re-imagined as a control surface, not a dashboard.
+// Plot web session surface — a control surface, not a dashboard.
 //
 // The room has two modes over the same column of work threads:
-//   • fleet  — a column of live one-liners (one per work item). Proximity hover
-//              previews where focus will land; weight-on-hover animates the
-//              label; a thread that needs you elevates in-place with the action
-//              right there. j/k moves selection, enter focuses.
+//   • fleet  — a column of live one-liners (one per work item). A thread that
+//              needs you elevates in-place with the action right there.
+//              j/k moves selection, enter focuses.
 //   • focus  — one thread's rolling-window trail owns the page (the depth),
 //              spring-swapped in. esc returns to the fleet.
 // Idle (no active work) is a different, sparser room: schedule + last run.
-// Motion is information: every transition is a spring tier, never a duration.
 // ─────────────────────────────────────────────────────────────────────────
 
 export function SessionSurface() {
@@ -98,8 +91,7 @@ function SessionDetail({
 }) {
 	// Live render clock: ages and the watching schedule are time-derived, so
 	// they must recompute on a clock even when the projection is idle (the
-	// coalescer stops publishing). 125ms while work runs, 1s when idle — the
-	// TUI's cadence.
+	// coalescer stops publishing). 125ms while work runs, 1s when idle.
 	const running = projection.attempts.size > 0;
 	const now = useNow(running ? 125 : 1000);
 	const model = useMemo(
@@ -142,7 +134,7 @@ function SessionDetail({
 				totalTokens={model.pulse.totalTokens}
 				totalCost={model.pulse.totalCost}
 			/>
-			<Row gap={4} className="justify-between px-6 pt-3">
+			<Row gap={4} className="justify-between px-gutter pt-3">
 				<SessionControls
 					projection={projection}
 					paused={paused}
@@ -202,7 +194,7 @@ function PulseHeader({
 	const [showStats, setShowStats] = useState(false);
 	return (
 		<div
-			className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border bg-background px-6"
+			className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border bg-background px-gutter"
 			onMouseEnter={() => setShowStats(true)}
 			onMouseLeave={() => setShowStats(false)}
 		>
@@ -210,19 +202,15 @@ function PulseHeader({
 				<span className="pulse-beat absolute inline-flex size-2 rounded-full bg-live" />
 				<span className="relative inline-flex size-2 rounded-full bg-live" />
 			</span>
-			<h1 className="text-base font-medium tracking-[-0.01em]">
-				{workflowName}
-			</h1>
-			<span className={cn("font-mono text-2xs text-t3", data)}>
+			<h1 className="text-base font-medium">{workflowName}</h1>
+			<Meta>
 				<span className="capitalize">{state}</span>
 				{showStats && model ? ` · ${model}` : ""}
-			</span>
+			</Meta>
 			{showStats && cwdName ? (
-				<span className="hidden truncate font-mono text-2xs text-t3 sm:inline">
-					{cwdName}
-				</span>
+				<Meta className="hidden truncate sm:inline">{cwdName}</Meta>
 			) : null}
-			<div className={cn("ml-auto flex items-center text-2xs text-t3", data)}>
+			<div className="ml-auto flex items-center gap-2">
 				<span className="flex items-center gap-2">
 					<Sparkline data={tps} />
 					<span className="text-muted-foreground">{throughput}</span>
@@ -277,17 +265,15 @@ function WatchingMeta({
 	}
 	if (parts.length === 0) return null;
 	return (
-		<span className={cn("font-mono text-2xs text-t3", data)}>
+		<Meta>
 			<Divided>{parts}</Divided>
-		</span>
+		</Meta>
 	);
 }
 
 // ─── fleet column ────────────────────────────────────────────────────────
-// A column of live one-liners. Proximity hover previews focus (the FF signature
-// hover-as-preview, a spring-tracked background). Weight-on-hover animates the
-// label via Inter's variable axis. A thread that needs you elevates in-place
-// with the action inline. j/k selects, enter focuses.
+// A column of live one-liners. A thread that needs you elevates in-place with
+// the action inline. j/k selects, enter focuses.
 
 function FleetColumn({
 	work,
@@ -300,12 +286,6 @@ function FleetColumn({
 	model: ReturnType<typeof dashboardModelFrom>;
 	onFocus: (key: string) => void;
 }) {
-	const containerRef = useRef<HTMLDivElement>(null);
-	const shape = useShape();
-	const substrate = useSurface();
-	const indicatorLevel = Math.min(substrate + 2, 8);
-	const { activeIndex, itemRects, handlers, registerItem } =
-		useProximityHover(containerRef);
 	const [selected, setSelected] = useState(0);
 	const clamp = useCallback(
 		(next: number) => Math.max(0, Math.min(work.length - 1, next)),
@@ -331,59 +311,16 @@ function FleetColumn({
 		}
 	};
 
-	const hoverRect = activeIndex !== null ? itemRects[activeIndex] : null;
-	const selRect = itemRects[selected] ?? null;
-
 	return (
 		<Stack gap={3} className="pt-4">
-			<div className="px-6">
+			<div className="px-gutter">
 				<SectionLabel count={work.length}>work</SectionLabel>
 			</div>
 			<div
-				ref={containerRef}
 				tabIndex={0}
 				onKeyDown={onKeyDown}
-				onMouseMove={handlers.onMouseMove}
-				onMouseEnter={handlers.onMouseEnter}
-				onMouseLeave={handlers.onMouseLeave}
 				className="relative flex flex-col outline-none"
 			>
-				{/* hover-as-preview background, spring-tracked to the hovered row */}
-				{hoverRect ? (
-					<motion.div
-						aria-hidden
-						className={cn("pointer-events-none absolute bg-hover", shape.bg)}
-						initial={false}
-						animate={{
-							top: hoverRect.top,
-							height: hoverRect.height,
-							left: 0,
-							right: 0,
-							opacity: 1,
-						}}
-						transition={spring.moderate}
-					/>
-				) : null}
-				{/* keyboard-selection rail */}
-				{selRect ? (
-					<motion.div
-						aria-hidden
-						className={cn(
-							"pointer-events-none absolute",
-							surfaceClasses(indicatorLevel),
-							shape.bg,
-						)}
-						initial={false}
-						animate={{
-							top: selRect.top,
-							height: selRect.height,
-							left: 0,
-							right: 0,
-							opacity: activeIndex === null ? 1 : 0,
-						}}
-						transition={spring.moderate}
-					/>
-				) : null}
 				<AnimatePresence initial={false}>
 					{work.map((row, index) => (
 						<ThreadRow
@@ -391,8 +328,6 @@ function FleetColumn({
 							row={row}
 							index={index}
 							sessionId={sessionId}
-							registerItem={registerItem}
-							hovered={activeIndex === index}
 							selected={selected === index}
 							onFocus={() => {
 								setSelected(index);
@@ -412,8 +347,6 @@ function ThreadRow({
 	row,
 	index,
 	sessionId,
-	registerItem,
-	hovered,
 	selected,
 	onFocus,
 	onSelect,
@@ -421,31 +354,20 @@ function ThreadRow({
 	row: WorkRowModel;
 	index: number;
 	sessionId: string;
-	registerItem: (index: number, el: HTMLElement | null) => void;
-	hovered: boolean;
 	selected: boolean;
 	onFocus: () => void;
 	onSelect: () => void;
 }) {
-	const ref = useRef<HTMLButtonElement>(null);
-	useRegisterProximityItem(registerItem, index, ref);
-	const shape = useShape();
-	const ChevronRight = useIcon("chevron-right");
 	const attempt = row.attempt;
 	const live = attempt?.streaming ?? false;
 	const elevated = row.attention;
-	const rail = elevated
-		? "bg-attention"
+	const railTone: RailTone = elevated
+		? "attention"
 		: row.stale
-			? "bg-border"
+			? "border"
 			: live
-				? "bg-live"
-				: "bg-border";
-	// weight-on-hover: the label thickens as the proximity hover approaches — the
-	// FF ghost-span pattern, animating font-variation-settings (wght+opsz) so the
-	// advance width barely moves.
-	const weight =
-		hovered || selected ? fontWeights.semibold : fontWeights.medium;
+				? "live"
+				: "border";
 
 	return (
 		<motion.div
@@ -454,53 +376,57 @@ function ThreadRow({
 			animate={{ opacity: 1, y: 0 }}
 			exit={{ opacity: 0, y: -4 }}
 			transition={spring.fast}
-			className={cn("group relative", live && "bg-live/5")}
+			className={cn(
+				"group relative",
+				live && "bg-live/5",
+				selected && "bg-selected",
+				!selected && "hover:bg-hover",
+			)}
 		>
 			<button
-				ref={ref}
 				type="button"
 				data-proximity-index={index}
 				onClick={() => {
 					onSelect();
 					onFocus();
 				}}
-				className="grid w-full grid-cols-[3px_minmax(0,1fr)_auto_16px] items-center gap-x-4 px-6 py-4 text-left"
+				className="grid w-full grid-cols-[3px_minmax(0,1fr)_auto_16px] items-center gap-x-4 px-gutter py-4 text-left"
 			>
-				<span className={cn("h-6 w-[3px]", shape.item, rail)} />
+				<Rail tone={railTone} className="h-6" />
 				<div className="min-w-0">
 					<span
 						className={cn(
-							"block truncate text-sm",
+							"block truncate text-sm transition-[font-weight]",
+							selected ? "font-semibold" : "font-medium",
+							"group-hover:font-semibold",
 							!live && !elevated && "text-muted-foreground",
 						)}
-						style={{ fontVariationSettings: weight }}
 					>
 						{row.label}
 					</span>
-					<p
+					<Meta
+						tone={elevated && !live ? "attention" : "default"}
 						className={cn(
-							"mt-1 truncate font-mono text-2xs whitespace-nowrap",
-							live ? "shimmer-text" : "text-t3",
-							elevated && !live && "text-attention",
+							"mt-1 truncate whitespace-nowrap",
+							live && "shimmer-text",
 						)}
 					>
 						{oneLine(row.activity)}
-					</p>
+					</Meta>
 				</div>
-				<div
+				<Meta
 					className={cn(
-						"justify-self-end whitespace-nowrap font-mono text-2xs text-t3",
-						(hovered || selected) && "opacity-100",
-						!(hovered || selected) && "opacity-0",
+						"justify-self-end whitespace-nowrap transition-opacity",
+						selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
 					)}
 				>
 					{rowAge(row)}
-				</div>
+				</Meta>
 				<ChevronRight
 					size={14}
 					className={cn(
 						"text-t3 transition-opacity",
-						hovered || selected ? "opacity-100" : "opacity-0",
+						selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
 					)}
 				/>
 			</button>
@@ -515,7 +441,7 @@ function ThreadRow({
 						transition={spring.moderate}
 						className="overflow-hidden"
 					>
-						<Row gap={2} className="flex-wrap px-6 pb-4 pl-10">
+						<Row gap={2} className="flex-wrap px-gutter pb-4 pl-10">
 							<OperatorActionButtons
 								item={row.work}
 								sessionId={sessionId}
@@ -542,11 +468,11 @@ function AttentionList({
 	);
 	if (diagnostics.length === 0) return null;
 	return (
-		<div className="relative mt-2 border-y border-border bg-attention/5 px-6 py-4">
-			<span className="absolute inset-y-0 left-0 w-0.5 bg-attention" />
-			<div className={cn("mb-2 font-mono text-2xs text-attention", data)}>
+		<div className="relative mt-2 border-y border-border bg-attention/5 px-gutter py-4">
+			<Rail tone="attention" className="absolute inset-y-0 left-0" />
+			<Meta tone="attention" className="mb-2">
 				attention
-			</div>
+			</Meta>
 			<Stack gap={3}>
 				{diagnostics.map((entry, index) => (
 					<Row
@@ -554,9 +480,9 @@ function AttentionList({
 						gap={3}
 						className="flex-wrap justify-between"
 					>
-						<p className="min-w-0 font-mono text-2xs text-muted-foreground">
+						<Meta tone="muted" className="min-w-0">
 							{entry.text}
-						</p>
+						</Meta>
 					</Row>
 				))}
 			</Stack>
@@ -565,8 +491,8 @@ function AttentionList({
 }
 
 // ─── focus view ──────────────────────────────────────────────────────────
-// One thread owns the page: its rolling-window trail on an elevated surface,
-// the operator action as a single contextual gesture. esc / ← all work returns.
+// One thread owns the page: its rolling-window trail, the operator action as a
+// single contextual gesture. esc / ← all work returns.
 
 function FocusView({
 	row,
@@ -578,8 +504,6 @@ function FocusView({
 	onBack: () => void;
 }) {
 	const attempt = row.attempt;
-	const ChevronRight = useIcon("chevron-right");
-	const ChevronLeft = useIcon("arrow-left");
 	useEsc(onBack);
 	return (
 		<motion.div
@@ -589,37 +513,34 @@ function FocusView({
 			transition={spring.moderate}
 			className="pt-4"
 		>
-			<div className="px-6">
+			<div className="px-gutter">
 				<SectionLabel>{row.work.workKey}</SectionLabel>
 			</div>
-			<div className="mt-3 grid grid-cols-[3px_1fr] gap-x-4 border-b border-border px-6 pb-4">
-				<span
-					className={cn(
-						"h-8 w-[3px] rounded-full",
-						row.attention
-							? "bg-attention"
-							: attempt?.streaming
-								? "bg-live"
-								: "bg-border",
-					)}
+			<div className="mt-3 grid grid-cols-[3px_1fr] gap-x-4 border-b border-border px-gutter pb-4">
+				<Rail
+					tone={
+						row.attention ? "attention" : attempt?.streaming ? "live" : "border"
+					}
+					className="h-8"
 				/>
 				<div className="min-w-0">
 					<div className="flex items-center gap-2">
 						<span className="truncate text-sm font-medium">{row.label}</span>
 						<ChevronRight size={13} className="text-t3" />
 					</div>
-					<p
+					<Meta
+						tone={attempt?.streaming ? "foreground" : "default"}
 						className={cn(
-							"mt-1 truncate font-mono text-2xs",
-							attempt?.streaming ? "shimmer-text" : "text-t3",
+							"mt-1 truncate",
+							attempt?.streaming && "shimmer-text",
 						)}
 					>
 						{row.activity}
-					</p>
+					</Meta>
 				</div>
 			</div>
 
-			<div className="px-6 pt-4">
+			<div className="px-gutter pt-4">
 				<Trail row={row} />
 				<Row gap={2} className="mt-4 flex-wrap">
 					<OperatorActionButtons
@@ -636,13 +557,13 @@ function FocusView({
 					)}
 				</Row>
 			</div>
-			<div className="px-6 pt-4">
+			<div className="px-gutter pt-4">
 				<button
 					type="button"
 					onClick={onBack}
 					className="inline-flex items-center gap-1 font-mono text-2xs text-t3 transition-colors hover:text-foreground"
 				>
-					<ChevronLeft size={13} /> all work
+					<ArrowLeft size={13} /> all work
 				</button>
 			</div>
 		</motion.div>
@@ -657,18 +578,17 @@ const trailWindow = 9;
 
 function Trail({ row }: { row: WorkRowModel }) {
 	const attempt = row.attempt;
-	if (attempt === undefined)
-		return <div className="font-mono text-2xs text-t3">No activity yet.</div>;
+	if (attempt === undefined) return <Meta>No activity yet.</Meta>;
 	const history = [...attempt.timeline]
 		.toSorted((a, b) => a.atMs - b.atMs)
 		.slice(-trailWindow);
 	if (history.length === 0 && !attempt.streaming)
-		return <div className="font-mono text-2xs text-t3">No activity yet.</div>;
+		return <Meta>No activity yet.</Meta>;
 	return (
 		<Stack gap={3} className="mb-4">
-			<div className={cn("font-mono text-2xs text-t3", data)}>
+			<Meta>
 				timeline · {attempt.meaningfulCount} of {attempt.eventCount} events
-			</div>
+			</Meta>
 			<div className="grid grid-cols-[7ch_minmax(0,1fr)] gap-x-3 font-mono text-2xs">
 				{history.map((entry) => (
 					<Fragment key={`${entry.atMs}-${entry.kind}`}>
@@ -708,39 +628,34 @@ function IdleRoom({ model }: { model: ReturnType<typeof dashboardModelFrom> }) {
 			transition={spring.moderate}
 			className="pt-4"
 		>
-			<div className="px-6">
+			<div className="px-gutter">
 				<SectionLabel>watching</SectionLabel>
 			</div>
 			<Stack className="pt-3">
 				{last === undefined ? (
-					<p className="border-t border-border px-6 py-4 font-mono text-2xs text-t3">
+					<Meta className="block border-t border-border px-gutter py-4">
 						Nothing running. Waiting for the next tick.
-					</p>
+					</Meta>
 				) : (
 					<LastRun row={last} />
 				)}
 				{scheduled.length > 0 ? (
 					<>
-						<div className="px-6 pt-4">
+						<div className="px-gutter pt-4">
 							<SectionLabel>retry</SectionLabel>
 						</div>
 						{scheduled.map((wake) => (
 							<div
 								key={`${wake.workKey ?? "session"}-${wake.inSeconds}`}
-								className="flex items-baseline justify-between gap-3 border-t border-border px-6 py-3"
+								className="flex items-baseline justify-between gap-3 border-t border-border px-gutter py-3"
 							>
-								<span className="font-mono text-2xs text-muted-foreground">
+								<Meta tone="muted">
 									↻ {wake.label ?? wake.workKey ?? "session"}
-								</span>
-								<span
-									className={cn(
-										"shrink-0 whitespace-nowrap font-mono text-2xs text-t3",
-										data,
-									)}
-								>
+								</Meta>
+								<Meta className="shrink-0 whitespace-nowrap">
 									attempt {wake.attempt ?? "n/a"} · in {wake.inSeconds}s
 									{wake.reason ? ` · ${wake.reason}` : ""}
-								</span>
+								</Meta>
 							</div>
 						))}
 					</>
@@ -768,22 +683,17 @@ function LastRun({
 				row.meta ?? row.ago,
 			].join(" · ");
 	return (
-		<div className="grid grid-cols-[3px_1fr_auto] items-center gap-x-4 border-t border-border px-6 py-3">
-			<span className="h-5 w-[3px] rounded-full bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]" />
+		<div className="grid grid-cols-[3px_1fr_auto] items-center gap-x-4 border-t border-border px-gutter py-3">
+			<Rail tone="outline" className="h-5" />
 			<span className="truncate text-sm text-muted-foreground">
 				{row.label}
 			</span>
-			<span
-				className={cn(
-					"shrink-0 whitespace-nowrap font-mono text-2xs text-t3",
-					data,
-				)}
-			>
+			<Meta className="shrink-0 whitespace-nowrap">
 				<span className={ok ? "text-t3" : "text-destructive"}>
 					{ok ? row.status : (message ?? row.status)}
 				</span>{" "}
 				· {right}
-			</span>
+			</Meta>
 		</div>
 	);
 }
@@ -807,20 +717,22 @@ function SessionControls({
 	return (
 		<>
 			<Row gap={4} className="flex-wrap">
-				<Switch
-					label={paused ? "Paused" : "Live"}
-					checked={!paused}
-					disabled={!isController || stopped}
-					onToggle={() =>
-						mutateSession(
-							sessionId,
-							paused ? "resume_session" : "pause_session",
-						)
-					}
-				/>
+				<label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+					<Switch
+						checked={!paused}
+						disabled={!isController || stopped}
+						onCheckedChange={() =>
+							mutateSession(
+								sessionId,
+								paused ? "resume_session" : "pause_session",
+							)
+						}
+					/>
+					{paused ? "Paused" : "Live"}
+				</label>
 				<Button
 					size="sm"
-					variant="tertiary"
+					variant="outline"
 					disabled={!isController || paused || stopped}
 					onClick={() => mutateSession(sessionId, "request_tick")}
 				>
@@ -837,16 +749,8 @@ function SessionControls({
 				</Button>
 			</Row>
 			<Row gap={3} className="flex-wrap">
-				{controllerBlockReason ? (
-					<span className="font-mono text-2xs text-t3">
-						{controllerBlockReason}
-					</span>
-				) : null}
-				{mutationError ? (
-					<span className="font-mono text-2xs text-destructive">
-						{mutationError}
-					</span>
-				) : null}
+				{controllerBlockReason ? <Meta>{controllerBlockReason}</Meta> : null}
+				{mutationError ? <Meta tone="destructive">{mutationError}</Meta> : null}
 			</Row>
 			<Dialog open={closeOpen} onOpenChange={setCloseOpen}>
 				<DialogContent>
@@ -859,14 +763,14 @@ function SessionControls({
 					<DialogFooter>
 						<Button
 							size="sm"
-							variant="tertiary"
+							variant="outline"
 							onClick={() => setCloseOpen(false)}
 						>
 							Cancel
 						</Button>
 						<Button
 							size="sm"
-							variant="primary"
+							variant="default"
 							className="bg-destructive text-white"
 							onClick={() => {
 								mutateSession(sessionId, "close_session");
@@ -930,13 +834,9 @@ function SnapshotUnavailable({
 	lastError?: string | undefined;
 }) {
 	return (
-		<Stack gap={2} className="px-6 py-4">
-			<p className="font-mono text-2xs text-t3">
-				Snapshot unavailable for this Plot Session.
-			</p>
-			{lastError ? (
-				<p className="font-mono text-2xs text-t3">{lastError}</p>
-			) : null}
+		<Stack gap={2} className="px-gutter py-4">
+			<Meta>Snapshot unavailable for this Plot Session.</Meta>
+			{lastError ? <Meta>{lastError}</Meta> : null}
 		</Stack>
 	);
 }

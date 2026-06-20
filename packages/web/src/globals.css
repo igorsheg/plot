@@ -1,15 +1,14 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *, .dark));
 
-/* Self-hosted variable fonts. Plain @font-face rules (not @theme entries); the
-   relative url() lets Vite hash + bundle each file. Families are registered as
-   --font-sans / --font-mono tokens in @theme below.
-   - Inter is the UI sans; the opsz build carries both wght + opsz axes, which
-     the FF font-weight tokens drive for the weight-on-hover animation.
-   - Berkeley Mono is the "machine data" face: numerics, identifiers, paths,
-     and command snippets. */
+/* Self-hosted variable fonts. Inter is the UI sans; Berkeley Mono is the
+   "machine data" face (numerics, identifiers, paths, command snippets). Both
+   are bundled by Vite via the relative url() below.
+
+   coss's @coss/style wires fonts through next/font + @coss/fonts, which sets
+   --font-sans / --font-heading / --font-mono. This is a Vite app, so we
+   self-host and register the families directly in @theme inline below. */
 @font-face {
 	font-family: "Inter";
 	src: url("./fonts/InterVariable.woff2") format("woff2");
@@ -27,378 +26,209 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Fluid Functionalism theme (ported from mickadesign/fluid-functionalism).
-   Elevation is an 8-level surface ladder, each level paired 1:1 with a shadow
-   recipe. Interactive overlays (--hover/--active) are surface-relative so they
-   work on any elevation. Inter (sans) and Berkeley Mono are self-hosted via the
-   @font-face rules above.
+   Theme — the canonical coss ui neutral theme (@coss/style), adopted verbatim
+   so coss components render against the exact tokens they're designed for
+   (translucent overlays via --alpha, color-mix neutrals, the --color-* palette
+   refs). Plot layers its product semantics on top; it does not bend the base.
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
-	--surface-1: #fafafa;
-	--surface-2: #fcfcfc;
-	--surface-3: #ffffff;
-	--surface-4: #ffffff;
-	--surface-5: #ffffff;
-	--surface-6: #ffffff;
-	--surface-7: #ffffff;
-	--surface-8: #ffffff;
+	--radius: 0.625rem;
+	--background: var(--color-white);
+	--foreground: var(--color-neutral-800);
+	--card: var(--color-white);
+	--card-foreground: var(--color-neutral-800);
+	--popover: var(--color-white);
+	--popover-foreground: var(--color-neutral-800);
+	--primary: var(--color-neutral-800);
+	--primary-foreground: var(--color-neutral-50);
+	--secondary: --alpha(var(--color-black) / 4%);
+	--secondary-foreground: var(--color-neutral-800);
+	--muted: --alpha(var(--color-black) / 4%);
+	--muted-foreground: color-mix(
+		in srgb,
+		var(--color-neutral-500) 90%,
+		var(--color-black)
+	);
+	--accent: --alpha(var(--color-black) / 4%);
+	--accent-foreground: var(--color-neutral-800);
+	--destructive: var(--color-red-500);
+	--destructive-foreground: var(--color-red-700);
+	--info: var(--color-blue-500);
+	--info-foreground: var(--color-blue-700);
+	--success: var(--color-emerald-500);
+	--success-foreground: var(--color-emerald-700);
+	--warning: var(--color-amber-500);
+	--warning-foreground: var(--color-amber-700);
+	--border: --alpha(var(--color-black) / 8%);
+	--input: --alpha(var(--color-black) / 10%);
+	--ring: var(--color-neutral-400);
+	--sidebar: var(--color-neutral-50);
+	--sidebar-foreground: color-mix(
+		in srgb,
+		var(--color-neutral-800) 64%,
+		var(--sidebar)
+	);
+	--sidebar-primary: var(--color-neutral-800);
+	--sidebar-primary-foreground: var(--color-neutral-50);
+	--sidebar-accent: --alpha(var(--color-black) / 4%);
+	--sidebar-accent-foreground: var(--color-neutral-800);
+	--sidebar-border: --alpha(var(--color-black) / 6%);
+	--sidebar-ring: var(--color-neutral-400);
 
-	--shadow-color: rgb(0 0 0 / 0.06);
-	--shadow-1: 0 0 0 1px var(--shadow-color);
-	--shadow-2:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color);
-	--shadow-3:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color);
-	--shadow-4:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color);
-	--shadow-5:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color);
-	--shadow-6:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color);
-	--shadow-7:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
-		0 48px 48px -24px var(--shadow-color);
-	--shadow-8:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
-		0 48px 48px -24px var(--shadow-color), 0 96px 96px -48px var(--shadow-color);
-
-	--background: var(--surface-1);
-	--foreground: #171717;
-	--card: var(--surface-3);
-	--card-foreground: #171717;
-	--muted: #f4f4f5;
-	--muted-foreground: #737373;
-
-	--accent: #e5e5e5;
-	--accent-foreground: #171717;
-	--selected: #d4d4d4;
-
-	--border: color-mix(in oklab, var(--foreground) 12%, transparent);
-	--ring: #e5e5e5;
-	--input: #e5e5e5;
-
-	--destructive: #ef4444;
-	--destructive-light: #fef2f2;
-	--attention: #d97706;
-	/* third text ink (fainter than muted-foreground) + the single "live" accent */
-	--t3: #9aa0ad;
-	--live: #2f6df6;
-
-	--overlay: 0 0 0;
-	--hover: rgb(var(--overlay) / 0.04);
-	--active: rgb(var(--overlay) / 0.07);
-}
-
-@media (prefers-color-scheme: dark) {
-	:root:not(.light) {
-		--surface-1: #171717;
-		--surface-2: #1e1e1e;
-		--surface-3: #252525;
-		--surface-4: #2c2c2c;
-		--surface-5: #333333;
-		--surface-6: #3a3a3a;
-		--surface-7: #414141;
-		--surface-8: #484848;
-
-		--dm-hi-base: rgba(255, 255, 255, 0.01);
-		--dm-hi-mid: rgba(255, 255, 255, 0.02);
-		--dm-hi-high: rgba(255, 255, 255, 0.04);
-		--dm-hi-peak: rgba(255, 255, 255, 0.06);
-		--dm-ring-base: rgba(255, 255, 255, 0.02);
-		--dm-ring-mid: rgba(255, 255, 255, 0.04);
-		--dm-ring-high: rgba(255, 255, 255, 0.06);
-		--dm-drop: rgba(0, 0, 0, 0.18);
-
-		--shadow-1: inset 0 0 0 1px var(--dm-ring-base);
-		--shadow-2:
-			inset 0 1px 0 0 var(--dm-hi-base), inset 0 0 0 1px var(--dm-ring-base),
-			0 1px 1px -0.5px var(--dm-drop);
-		--shadow-3:
-			inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-base),
-			0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 1px -0.5px var(--dm-drop),
-			0 3px 3px -1.5px var(--dm-drop);
-		--shadow-4:
-			inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-mid),
-			0 0 0 1px rgba(0, 0, 0, 0.14), 0 1px 1px -0.5px var(--dm-drop),
-			0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop);
-		--shadow-5:
-			inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-mid),
-			0 0 0 1px rgba(0, 0, 0, 0.16), 0 1px 1px -0.5px var(--dm-drop),
-			0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-			0 12px 12px -6px var(--dm-drop);
-		--shadow-6:
-			inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-high),
-			0 0 0 1px rgba(0, 0, 0, 0.18), 0 1px 1px -0.5px var(--dm-drop),
-			0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-			0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop);
-		--shadow-7:
-			inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
-			0 0 0 1px rgba(0, 0, 0, 0.2), 0 1px 1px -0.5px var(--dm-drop),
-			0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-			0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop),
-			0 48px 48px -24px var(--dm-drop);
-		--shadow-8:
-			inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
-			0 0 0 1px rgba(0, 0, 0, 0.22), 0 1px 1px -0.5px var(--dm-drop),
-			0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-			0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop),
-			0 48px 48px -24px var(--dm-drop), 0 96px 96px -48px var(--dm-drop);
-
-		--background: var(--surface-1);
-		--foreground: #f5f5f5;
-		--card: var(--surface-3);
-		--card-foreground: #f5f5f5;
-		--muted: var(--surface-2);
-		--muted-foreground: #a3a3a3;
-
-		--accent: #525252;
-		--accent-foreground: #f5f5f5;
-		--selected: #525252;
-
-		--ring: #404040;
-		--input: #404040;
-
-		--destructive: #f87171;
-		--destructive-light: #450a0a;
-		--attention: #f59e0b;
-
-		--overlay: 255 255 255;
-		--hover: rgb(var(--overlay) / 0.06);
-		--active: rgb(var(--overlay) / 0.1);
-	}
-}
-
-.light {
-	--surface-1: #fafafa;
-	--surface-2: #fcfcfc;
-	--surface-3: #ffffff;
-	--surface-4: #ffffff;
-	--surface-5: #ffffff;
-	--surface-6: #ffffff;
-	--surface-7: #ffffff;
-	--surface-8: #ffffff;
-
-	--shadow-color: rgb(0 0 0 / 0.06);
-	--shadow-1: 0 0 0 1px var(--shadow-color);
-	--shadow-2:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color);
-	--shadow-3:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color);
-	--shadow-4:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color);
-	--shadow-5:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color);
-	--shadow-6:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color);
-	--shadow-7:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
-		0 48px 48px -24px var(--shadow-color);
-	--shadow-8:
-		0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
-		0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
-		0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
-		0 48px 48px -24px var(--shadow-color), 0 96px 96px -48px var(--shadow-color);
-
-	--background: var(--surface-1);
-	--foreground: #171717;
-	--card: var(--surface-3);
-	--card-foreground: #171717;
-	--muted: #f4f4f5;
-	--muted-foreground: #737373;
-
-	--accent: #e5e5e5;
-	--accent-foreground: #171717;
-	--selected: #d4d4d4;
-
-	--ring: #e5e5e5;
-	--input: #e5e5e5;
-
-	--destructive: #ef4444;
-	--destructive-light: #fef2f2;
-	--attention: #d97706;
-	/* third text ink (fainter than muted-foreground) + the single "live" accent */
-	--t3: #9aa0ad;
-	--live: #2f6df6;
-
-	--overlay: 0 0 0;
-	--hover: rgb(var(--overlay) / 0.04);
-	--active: rgb(var(--overlay) / 0.07);
+	/* Plot product tokens — the only semantic colours the dashboard adds. */
+	--selected: --alpha(var(--color-black) / 6%);
+	--hover: --alpha(var(--color-black) / 4%);
+	--active: --alpha(var(--color-black) / 8%);
+	--attention: var(--color-amber-600);
+	--t3: var(--color-neutral-400);
+	--live: var(--color-blue-600);
 }
 
 .dark {
-	--surface-1: #171717;
-	--surface-2: #1e1e1e;
-	--surface-3: #252525;
-	--surface-4: #2c2c2c;
-	--surface-5: #333333;
-	--surface-6: #3a3a3a;
-	--surface-7: #414141;
-	--surface-8: #484848;
+	--background: color-mix(
+		in srgb,
+		var(--color-neutral-950) 95%,
+		var(--color-white)
+	);
+	--foreground: var(--color-neutral-100);
+	--card: color-mix(in srgb, var(--background) 98%, var(--color-white));
+	--card-foreground: var(--color-neutral-100);
+	--popover: color-mix(in srgb, var(--background) 98%, var(--color-white));
+	--popover-foreground: var(--color-neutral-100);
+	--primary: var(--color-neutral-100);
+	--primary-foreground: var(--color-neutral-800);
+	--secondary: --alpha(var(--color-white) / 4%);
+	--secondary-foreground: var(--color-neutral-100);
+	--muted: --alpha(var(--color-white) / 4%);
+	--muted-foreground: color-mix(
+		in srgb,
+		var(--color-neutral-500) 90%,
+		var(--color-white)
+	);
+	--accent: --alpha(var(--color-white) / 4%);
+	--accent-foreground: var(--color-neutral-100);
+	--destructive: color-mix(
+		in srgb,
+		var(--color-red-500) 90%,
+		var(--color-white)
+	);
+	--destructive-foreground: var(--color-red-400);
+	--info: var(--color-blue-500);
+	--info-foreground: var(--color-blue-400);
+	--success: var(--color-emerald-500);
+	--success-foreground: var(--color-emerald-400);
+	--warning: var(--color-amber-500);
+	--warning-foreground: var(--color-amber-400);
+	--border: --alpha(var(--color-white) / 6%);
+	--input: --alpha(var(--color-white) / 8%);
+	--ring: var(--color-neutral-500);
+	--sidebar: color-mix(
+		in srgb,
+		var(--color-neutral-950) 97%,
+		var(--color-white)
+	);
+	--sidebar-foreground: color-mix(
+		in srgb,
+		var(--color-neutral-100) 64%,
+		var(--sidebar)
+	);
+	--sidebar-primary: var(--color-neutral-100);
+	--sidebar-primary-foreground: var(--color-neutral-800);
+	--sidebar-accent: --alpha(var(--color-white) / 4%);
+	--sidebar-accent-foreground: var(--color-neutral-100);
+	--sidebar-border: --alpha(var(--color-white) / 5%);
+	--sidebar-ring: var(--color-neutral-400);
 
-	--dm-hi-base: rgba(255, 255, 255, 0.01);
-	--dm-hi-mid: rgba(255, 255, 255, 0.02);
-	--dm-hi-high: rgba(255, 255, 255, 0.04);
-	--dm-hi-peak: rgba(255, 255, 255, 0.06);
-	--dm-ring-base: rgba(255, 255, 255, 0.02);
-	--dm-ring-mid: rgba(255, 255, 255, 0.04);
-	--dm-ring-high: rgba(255, 255, 255, 0.06);
-	--dm-drop: rgba(0, 0, 0, 0.18);
-
-	--shadow-1: inset 0 0 0 1px var(--dm-ring-base);
-	--shadow-2:
-		inset 0 1px 0 0 var(--dm-hi-base), inset 0 0 0 1px var(--dm-ring-base),
-		0 1px 1px -0.5px var(--dm-drop);
-	--shadow-3:
-		inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-base),
-		0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 1px -0.5px var(--dm-drop),
-		0 3px 3px -1.5px var(--dm-drop);
-	--shadow-4:
-		inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-mid),
-		0 0 0 1px rgba(0, 0, 0, 0.14), 0 1px 1px -0.5px var(--dm-drop),
-		0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop);
-	--shadow-5:
-		inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-mid),
-		0 0 0 1px rgba(0, 0, 0, 0.16), 0 1px 1px -0.5px var(--dm-drop),
-		0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-		0 12px 12px -6px var(--dm-drop);
-	--shadow-6:
-		inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-high),
-		0 0 0 1px rgba(0, 0, 0, 0.18), 0 1px 1px -0.5px var(--dm-drop),
-		0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-		0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop);
-	--shadow-7:
-		inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
-		0 0 0 1px rgba(0, 0, 0, 0.2), 0 1px 1px -0.5px var(--dm-drop),
-		0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-		0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop),
-		0 48px 48px -24px var(--dm-drop);
-	--shadow-8:
-		inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
-		0 0 0 1px rgba(0, 0, 0, 0.22), 0 1px 1px -0.5px var(--dm-drop),
-		0 3px 3px -1.5px var(--dm-drop), 0 6px 6px -3px var(--dm-drop),
-		0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop),
-		0 48px 48px -24px var(--dm-drop), 0 96px 96px -48px var(--dm-drop);
-
-	--background: var(--surface-1);
-	--foreground: #f5f5f5;
-	--card: var(--surface-3);
-	--card-foreground: #f5f5f5;
-	--muted: var(--surface-2);
-	--muted-foreground: #a3a3a3;
-
-	--accent: #525252;
-	--accent-foreground: #f5f5f5;
-	--selected: #525252;
-
-	--ring: #404040;
-	--input: #404040;
-
-	--destructive: #f87171;
-	--destructive-light: #450a0a;
-	--t3: #6b7078;
-	--live: #6699ff;
-
-	--overlay: 255 255 255;
-	--hover: rgb(var(--overlay) / 0.06);
-	--active: rgb(var(--overlay) / 0.1);
+	/* Plot product tokens (dark). */
+	--selected: --alpha(var(--color-white) / 6%);
+	--hover: --alpha(var(--color-white) / 4%);
+	--active: --alpha(var(--color-white) / 8%);
+	--attention: var(--color-amber-400);
+	--t3: var(--color-neutral-500);
+	--live: var(--color-blue-400);
 }
 
 @theme inline {
 	--font-sans:
-		"Inter", "Geist", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+		"Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 	--font-mono:
 		"Berkeley Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
 		"Liberation Mono", monospace;
-
-	/* Dashboard type scale. The standard Tailwind ramp is retuned to the tighter
-	   sizes this UI actually uses, so components reach for `text-2xs|xs|sm|base`
-	   instead of arbitrary `text-[12px]`. Headings keep the default ramp. */
-	--text-2xs: 0.6875rem; /* 11px — micro labels, dense table meta */
-	--text-2xs--line-height: 1rem;
-	--text-xs: 0.75rem; /* 12px — captions, secondary rows */
-	--text-xs--line-height: 1rem;
-	--text-sm: 0.8125rem; /* 13px — primary body / row text */
-	--text-sm--line-height: 1.125rem;
-	--text-base: 0.875rem; /* 14px — emphasized body */
-	--text-base--line-height: 1.25rem;
-	--text-lg: 1rem; /* 16px — section titles, large values */
-	--text-lg--line-height: 1.5rem;
+	--font-heading: "Inter", system-ui, sans-serif;
 
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
-	--color-card: var(--card);
-	--color-card-foreground: var(--card-foreground);
-	--color-muted: var(--muted);
-	--color-muted-foreground: var(--muted-foreground);
-	--color-accent: var(--accent);
-	--color-accent-foreground: var(--accent-foreground);
-	--color-selected: var(--selected);
-	--color-border: var(--border);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar: var(--sidebar);
 	--color-ring: var(--ring);
 	--color-input: var(--input);
+	--color-border: var(--border);
 	--color-destructive: var(--destructive);
-	--color-destructive-light: var(--destructive-light);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-info: var(--info);
+	--color-info-foreground: var(--info-foreground);
+	--color-success: var(--success);
+	--color-success-foreground: var(--success-foreground);
+	--color-warning: var(--warning);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-accent: var(--accent);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-muted: var(--muted);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary: var(--secondary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary: var(--primary);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-popover: var(--popover);
+	--color-card-foreground: var(--card-foreground);
+	--color-card: var(--card);
+
+	/* Plot product colours. */
+	--color-selected: var(--selected);
+	--color-hover: var(--hover);
+	--color-active: var(--active);
 	--color-attention: var(--attention);
 	--color-t3: var(--t3);
 	--color-live: var(--live);
-	--color-hover: var(--hover);
-	--color-active: var(--active);
 
-	/* Surface ladder — bg-surface-1..8 */
-	--color-surface-1: var(--surface-1);
-	--color-surface-2: var(--surface-2);
-	--color-surface-3: var(--surface-3);
-	--color-surface-4: var(--surface-4);
-	--color-surface-5: var(--surface-5);
-	--color-surface-6: var(--surface-6);
-	--color-surface-7: var(--surface-7);
-	--color-surface-8: var(--surface-8);
+	/* Page gutter — the single horizontal inset for page-content columns.
+	   24px (on the 4px grid). Views reach for `px-gutter`, never ad-hoc `px-6`. */
+	--spacing-gutter: 24px;
 
-	/* Shadow ladder — shadow-surface-1..8 */
-	--shadow-surface-1: var(--shadow-1);
-	--shadow-surface-2: var(--shadow-2);
-	--shadow-surface-3: var(--shadow-3);
-	--shadow-surface-4: var(--shadow-4);
-	--shadow-surface-5: var(--shadow-5);
-	--shadow-surface-6: var(--shadow-6);
-	--shadow-surface-7: var(--shadow-7);
-	--shadow-surface-8: var(--shadow-8);
-}
+	/* Dashboard type scale — a coherent 5-role scale layered on top of
+	   Tailwind's default ramp. Line-heights land on the 4px grid so text blocks
+	   snap to the vertical rhythm; per-role letter-spacing is baked in (tighter
+	   as size grows) so views never reach for ad-hoc tracking utilities. */
+	--text-2xs: 0.6875rem; /* 11px — micro labels, mono data */
+	--text-2xs--line-height: 1rem; /* 16 */
+	--text-2xs--letter-spacing: 0;
+	--text-xs: 0.75rem; /* 12px — captions, secondary rows */
+	--text-xs--line-height: 1rem; /* 16 */
+	--text-xs--letter-spacing: 0;
+	--text-sm: 0.8125rem; /* 13px — primary body / row text */
+	--text-sm--line-height: 1rem; /* 16 — on the 4px grid */
+	--text-sm--letter-spacing: -0.01em;
+	--text-base: 0.875rem; /* 14px — emphasized body / titles */
+	--text-base--line-height: 1.25rem; /* 20 */
+	--text-base--letter-spacing: -0.01em;
+	--text-lg: 1rem; /* 16px — section titles, large values */
+	--text-lg--line-height: 1.5rem; /* 24 */
+	--text-lg--letter-spacing: -0.02em;
 
-/* Smooth theme/shape transitions (driven by the providers adding .transitioning) */
-html.transitioning *,
-html.transitioning *::before,
-html.transitioning *::after {
-	transition:
-		border-radius 180ms ease-in-out,
-		background-color 180ms ease-in-out,
-		color 180ms ease-in-out,
-		border-color 180ms ease-in-out,
-		box-shadow 180ms ease-in-out !important;
-}
-
-html {
-	overflow-y: auto;
-	scrollbar-gutter: stable;
+	--animate-skeleton: skeleton 2s -1s infinite linear;
+	@keyframes skeleton {
+		to {
+			background-position: -200% 0;
+		}
+	}
 }
 
 html,
@@ -421,7 +251,7 @@ body {
 	}
 }
 
-/* Slim, low-contrast native scrollbar matching the fluid language. */
+/* Slim, low-contrast native scrollbar. */
 @media (pointer: fine) {
 	* {
 		scrollbar-width: thin;
@@ -451,24 +281,9 @@ body {
 	}
 }
 
-/* Button loading spinner (fluid). */
-@keyframes spinner-move {
-	to {
-		stroke-dashoffset: -100;
-	}
-}
+/* ─── Plot product motion (not part of coss) ───────────────────────────── */
 
-@keyframes spinner-dash {
-	0%,
-	100% {
-		stroke-dasharray: 15 85;
-	}
-	50% {
-		stroke-dasharray: 40 60;
-	}
-}
-
-/* Heartbeat: one beat per loop tick (Plot). The keyed element remounts so this
+/* Heartbeat: one beat per loop tick. The keyed element remounts so this
    one-shot replays exactly when the countdown wraps. Compositor-only, silenced
    under reduced motion. */
 @keyframes pulse-beat {
@@ -487,60 +302,13 @@ body {
 }
 
 /* Live-text shimmer: a foreground highlight sweeps across muted base text,
-   clipped to the glyphs — conveys "streaming/working" without reflow. This is
-   the `shimmer-text` class FF's ThinkingSteps / ThinkingIndicator reach for (it
-   ships the components but not the CSS). Tokens only; static under reduced
-   motion. */
+   clipped to the glyphs — conveys "streaming/working" without reflow. */
 @keyframes shimmer-text {
 	from {
 		background-position: 200% 0;
 	}
 	to {
 		background-position: -200% 0;
-	}
-}
-
-/* Sparkline motion-trail: a glowing pulse travels the line via offset-path. The
-   path itself is set inline (data-driven); this only drives the distance. */
-@keyframes throughput-trail {
-	from {
-		offset-distance: 0%;
-	}
-	to {
-		offset-distance: 100%;
-	}
-}
-
-.spark-trail {
-	animation: throughput-trail 3s cubic-bezier(0.2, 0.6, 0.6, 0.3) infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.spark-trail {
-		animation: none;
-		opacity: 0;
-	}
-}
-
-/* FF's signature weight-on-hover: a title sits at `medium` and animates to
-   `semibold` when its row (.group) is hovered. Real now that Inter is a
-   self-hosted variable font with the wght axis. */
-.weight-hover {
-	font-variation-settings:
-		"wght" 450,
-		"opsz" 15;
-	transition: font-variation-settings 150ms ease;
-}
-
-.group:hover .weight-hover {
-	font-variation-settings:
-		"wght" 550,
-		"opsz" 20;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.weight-hover {
-		transition: none;
 	}
 }
 
@@ -560,11 +328,28 @@ body {
 	animation: shimmer-text 1.6s linear infinite;
 }
 
+/* Sparkline motion-trail: a glowing pulse travels the line via offset-path. */
+@keyframes throughput-trail {
+	from {
+		offset-distance: 0%;
+	}
+	to {
+		offset-distance: 100%;
+	}
+}
+
+.spark-trail {
+	animation: throughput-trail 3s cubic-bezier(0.2, 0.6, 0.6, 0.3) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-	.pulse-beat {
+	.pulse-beat,
+	.spark-trail {
 		animation: none;
 	}
-
+	.spark-trail {
+		opacity: 0;
+	}
 	.shimmer-text {
 		animation: none;
 		background: none;

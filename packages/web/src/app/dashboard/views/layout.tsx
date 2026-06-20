@@ -1,19 +1,24 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────────────────
-// Layout primitives — the only sanctioned way to add space in app views.
+// Layout primitives — the only sanctioned way to add space + data styling in
+// app views. This module IS the design system for the dashboard; views conform
+// to it, never the reverse.
 //
-// Strict 4px base vertical rhythm: every gap/padding is a multiple of 4px, taken
-// from the `rhythm` map (4/8/12/16/24/32). No ad-hoc Tailwind spacing utility
-// (`pt-5`, `gap-0.5`, `py-1.5`, …) is permitted in a view — reach for these so
-// the rhythm is enforced structurally, not policed by eye.
+// Strict 4px base vertical rhythm: every gap/padding/margin is a multiple of
+// 4px. Tailwind v4's spacing scale is 4px/step, so this means INTEGER STEPS
+// ONLY — no `*-0.5` (2px), `*-1.5` (6px), `*-2.5` (10px). Fractional steps are
+// forbidden in views. Gaps go through `Stack`/`Row` `gap={step}`; the page
+// horizontal inset is the `px-gutter` token (24px); everything else is an
+// integer Tailwind step.
 //
-// Typography is capped at three roles per view (see globals.css):
-//   text-2xs (11px, mono)  — machine data, meta, micro labels
-//   text-sm   (13px)       — primary row text / labels
-//   text-base (14px)       — the one emphasized title per view
+// Typography is a fixed 5-role scale (see globals.css @theme), each role with a
+// grid-aligned line-height and baked letter-spacing. The only text utilities a
+// view reaches for are `text-2xs|xs|sm|base|lg` + `font-mono` + `font-medium|
+// semibold`. No ad-hoc `text-[..px]`, no ad-hoc `tracking-[..]`. Mono machine
+// data goes through `<Meta>`; status accent bars go through `<Rail>`.
 // ─────────────────────────────────────────────────────────────────────────
 
 export const rhythm = {
@@ -21,13 +26,14 @@ export const rhythm = {
 	2: 8,
 	3: 12,
 	4: 16,
+	5: 20,
 	6: 24,
 	8: 32,
 } as const satisfies Record<string, number>;
 
 export type RhythmStep = keyof typeof rhythm;
 
-const gapStyle = (step: RhythmStep): CSSProperties => ({
+const gapStyle = (step: RhythmStep): React.CSSProperties => ({
 	gap: `${rhythm[step]}px`,
 });
 
@@ -87,5 +93,82 @@ export function SectionLabel({
 				<span className="tabular-nums">{count}</span>
 			)}
 		</div>
+	);
+}
+
+// ─── data line ───────────────────────────────────────────────────────────
+// The mono "machine data" text role: numerics, identifiers, ages, meta. One
+// component owns the font/size/tabular-nums combo so the ~15 callsites that
+// repeated `font-mono text-2xs text-t3 tabular-nums` reach for this instead.
+// Tone is an explicit variant (patterns-explicit-variants), not a boolean.
+
+export type MetaTone =
+	| "default"
+	| "muted"
+	| "foreground"
+	| "attention"
+	| "destructive";
+
+const metaTone: Record<MetaTone, string> = {
+	default: "text-t3",
+	muted: "text-muted-foreground",
+	foreground: "text-foreground",
+	attention: "text-attention",
+	destructive: "text-destructive",
+};
+
+export function Meta({
+	children,
+	tone = "default",
+	className,
+}: {
+	children: ReactNode;
+	tone?: MetaTone;
+	className?: string;
+}) {
+	return (
+		<span
+			className={cn(
+				"font-mono text-2xs tabular-nums",
+				metaTone[tone],
+				className,
+			)}
+		>
+			{children}
+		</span>
+	);
+}
+
+// ─── status rail ─────────────────────────────────────────────────────────
+// The 3px rounded status accent that marks a thread's liveness/needs-you
+// state. The 3px width is a deliberate hairline owned here — it is a stroke,
+// not spacing, so it is exempt from the 4px spacing grid but must not appear
+// ad-hoc in views. Callers pass height/positioning via `className`.
+
+export type RailTone = "attention" | "live" | "border" | "outline";
+
+const railTone: Record<RailTone, string> = {
+	attention: "bg-attention",
+	live: "bg-live",
+	border: "bg-border",
+	outline: "bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]",
+};
+
+export function Rail({
+	tone = "border",
+	className,
+}: {
+	tone?: RailTone;
+	className?: string;
+}) {
+	return (
+		<span
+			aria-hidden
+			className={cn(
+				"shrink-0 rounded-full bg-border w-[3px]",
+				railTone[tone],
+				className,
+			)}
+		/>
 	);
 }

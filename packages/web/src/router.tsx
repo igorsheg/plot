@@ -58,7 +58,7 @@ function RootLayout() {
 				<FleetRail />
 				<div className="min-w-0 flex-1 overflow-y-auto">
 					{params.sessionId === undefined ? (
-						<div className="mx-auto w-full max-w-5xl px-6 py-6">
+						<div className="mx-auto w-full max-w-5xl px-gutter py-6">
 							<Outlet />
 						</div>
 					) : (

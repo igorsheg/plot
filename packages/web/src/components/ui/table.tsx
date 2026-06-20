@@ -1,219 +1,151 @@
-import {
-	useRef,
-	useEffect,
-	createContext,
-	useContext,
-	forwardRef,
-	type ReactNode,
-	type HTMLAttributes,
-	type TdHTMLAttributes,
-	type ThHTMLAttributes,
-} from "react";
-import { motion, AnimatePresence } from "motion/react";
+"use client";
+
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
+import type React from "react";
 import { cn } from "@/lib/utils";
-import { spring } from "@/lib/springs";
-import { fontWeights } from "@/lib/font-weight";
-import { useProximityHover } from "@/hooks/use-proximity-hover";
 
-// ── Context ──────────────────────────────────────────────
+export type TableVariant = "default" | "card";
 
-interface TableContextValue {
-	registerItem: (index: number, element: HTMLElement | null) => void;
-	activeIndex: number | null;
-}
+export type TableProps = React.ComponentProps<"table"> & {
+	variant?: TableVariant;
+	render?: useRender.ComponentProps<"div">["render"];
+};
 
-const TableContext = createContext<TableContextValue | null>(null);
-
-// ── Table ────────────────────────────────────────────────
-
-interface TableProps extends HTMLAttributes<HTMLTableElement> {
-	children: ReactNode;
-}
-
-const Table = forwardRef<HTMLTableElement, TableProps>(
-	({ children, className, ...props }, ref) => {
-		const containerRef = useRef<HTMLDivElement>(null);
-
-		const {
-			activeIndex,
-			itemRects,
-			sessionRef,
-			handlers,
-			registerItem,
-			measureItems,
-		} = useProximityHover(containerRef);
-
-		useEffect(() => {
-			measureItems();
-		}, [measureItems, children]);
-
-		const activeRect = activeIndex !== null ? itemRects[activeIndex] : null;
-
-		return (
-			<TableContext.Provider value={{ registerItem, activeIndex }}>
-				<div
-					ref={containerRef}
-					className="relative"
-					onMouseEnter={handlers.onMouseEnter}
-					onMouseMove={handlers.onMouseMove}
-					onMouseLeave={handlers.onMouseLeave}
-				>
-					{/* Hover background */}
-					<AnimatePresence>
-						{activeRect && (
-							<motion.div
-								key={sessionRef.current}
-								className="absolute bg-hover pointer-events-none"
-								initial={{
-									opacity: 0,
-									top: activeRect.top,
-									left: activeRect.left,
-									width: activeRect.width,
-									height: activeRect.height,
-								}}
-								animate={{
-									opacity: 1,
-									top: activeRect.top,
-									left: activeRect.left,
-									width: activeRect.width,
-									height: activeRect.height,
-								}}
-								exit={{ opacity: 0, transition: spring.fast.exit }}
-								transition={{
-									...spring.fast,
-									opacity: { duration: 0.08 },
-								}}
-							/>
-						)}
-					</AnimatePresence>
-
-					<table
-						ref={ref}
-						className={cn("w-full text-sm border-collapse", className)}
-						{...props}
-					>
-						{children}
-					</table>
-				</div>
-			</TableContext.Provider>
-		);
-	},
-);
-
-Table.displayName = "Table";
-
-// ── TableHeader ──────────────────────────────────────────
-
-const TableHeader = forwardRef<
-	HTMLTableSectionElement,
-	HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => (
-	<thead ref={ref} className={cn("", className)} {...props} />
-));
-
-TableHeader.displayName = "TableHeader";
-
-// ── TableBody ────────────────────────────────────────────
-
-const TableBody = forwardRef<
-	HTMLTableSectionElement,
-	HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => (
-	<tbody ref={ref} className={cn("", className)} {...props} />
-));
-
-TableBody.displayName = "TableBody";
-
-// ── TableRow ─────────────────────────────────────────────
-
-interface TableRowProps extends HTMLAttributes<HTMLTableRowElement> {
-	index?: number;
-}
-
-const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
-	({ index, className, style, ...props }, ref) => {
-		const internalRef = useRef<HTMLTableRowElement>(null);
-		const ctx = useContext(TableContext);
-
-		useEffect(() => {
-			if (index === undefined || !ctx) return;
-			ctx.registerItem(index, internalRef.current);
-			return () => ctx.registerItem(index, null);
-		}, [index, ctx]);
-
-		const isBodyRow = index !== undefined;
-		const activeIdx = ctx?.activeIndex ?? null;
-		const hideBorder =
-			activeIdx !== null &&
-			((isBodyRow && (index === activeIdx || index === activeIdx - 1)) ||
-				(!isBodyRow && activeIdx === 0));
-
-		return (
-			<tr
-				ref={(node) => {
-					(
-						internalRef as React.MutableRefObject<HTMLTableRowElement | null>
-					).current = node;
-					if (typeof ref === "function") ref(node);
-					else if (ref)
-						(
-							ref as React.MutableRefObject<HTMLTableRowElement | null>
-						).current = node;
-				}}
-				data-proximity-index={index}
+export function Table({
+	className,
+	variant = "default",
+	render,
+	...props
+}: TableProps): React.ReactElement {
+	const defaultProps = {
+		children: (
+			<table
 				className={cn(
-					"group/row relative z-10 border-b transition-[border-color] duration-80",
-					hideBorder ? "border-transparent" : "border-accent/40",
-					isBodyRow && activeIdx === index && "is-active",
+					"w-full caption-bottom in-data-[variant=card]:border-separate in-data-[variant=card]:border-spacing-0 text-sm",
 					className,
 				)}
-				style={{
-					...style,
-					fontVariationSettings: isBodyRow
-						? fontWeights.normal
-						: fontWeights.semibold,
-				}}
+				data-slot="table"
 				{...props}
 			/>
-		);
-	},
-);
+		),
+		className: "relative w-full overflow-x-auto",
+		"data-slot": "table-container",
+		"data-variant": variant,
+	};
 
-TableRow.displayName = "TableRow";
+	return useRender({
+		defaultTagName: "div",
+		props: mergeProps<"div">(defaultProps, {}),
+		render,
+	});
+}
 
-// ── TableHead ────────────────────────────────────────────
+export function TableHeader({
+	className,
+	...props
+}: React.ComponentProps<"thead">): React.ReactElement {
+	return (
+		<thead
+			className={cn("[&_tr]:border-b", className)}
+			data-slot="table-header"
+			{...props}
+		/>
+	);
+}
 
-const TableHead = forwardRef<
-	HTMLTableCellElement,
-	ThHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
-	<th
-		ref={ref}
-		className={cn("px-3 py-2 text-left text-foreground", className)}
-		{...props}
-	/>
-));
+export function TableBody({
+	className,
+	...props
+}: React.ComponentProps<"tbody">): React.ReactElement {
+	return (
+		<tbody
+			className={cn(
+				"relative in-data-[variant=card]:rounded-xl in-data-[variant=card]:shadow-xs/5 before:pointer-events-none before:absolute before:inset-px not-in-data-[variant=card]:before:hidden before:rounded-[calc(var(--radius-xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/8%)] [&_tr:last-child]:border-0 in-data-[variant=card]:*:[tr]:border-0 in-data-[variant=card]:*:[tr]:*:[td]:border-b in-data-[variant=card]:*:[tr]:*:[td]:bg-card in-data-[variant=card]:*:[tr]:first:*:[td]:first:rounded-ss-xl in-data-[variant=card]:*:[tr]:*:[td]:first:border-s in-data-[variant=card]:*:[tr]:first:*:[td]:border-t in-data-[variant=card]:*:[tr]:last:*:[td]:last:rounded-ee-xl in-data-[variant=card]:*:[tr]:*:[td]:last:border-e in-data-[variant=card]:*:[tr]:first:*:[td]:last:rounded-se-xl in-data-[variant=card]:*:[tr]:last:*:[td]:first:rounded-es-xl in-data-[variant=card]:*:[tr]:hover:*:[td]:bg-[color-mix(in_srgb,var(--card),var(--color-black)_2%)] in-data-[variant=card]:*:[tr]:data-[state=selected]:*:[td]:bg-[color-mix(in_srgb,var(--card),var(--color-black)_4%)] dark:in-data-[variant=card]:*:[tr]:data-[state=selected]:*:[td]:bg-[color-mix(in_srgb,var(--card),var(--color-white)_4%)] dark:in-data-[variant=card]:*:[tr]:hover:*:[td]:bg-[color-mix(in_srgb,var(--card),var(--color-white)_2%)]",
+				className,
+			)}
+			data-slot="table-body"
+			{...props}
+		/>
+	);
+}
 
-TableHead.displayName = "TableHead";
+export function TableFooter({
+	className,
+	...props
+}: React.ComponentProps<"tfoot">): React.ReactElement {
+	return (
+		<tfoot
+			className={cn(
+				"border-t in-data-[variant=card]:border-none bg-transparent not-in-data-[variant=card]:bg-[color-mix(in_srgb,var(--card),var(--color-black)_2%)] font-medium dark:not-in-data-[variant=card]:bg-[color-mix(in_srgb,var(--card),var(--color-white)_2%)] [&>tr]:last:border-b-0",
+				className,
+			)}
+			data-slot="table-footer"
+			{...props}
+		/>
+	);
+}
 
-// ── TableCell ────────────────────────────────────────────
+export function TableRow({
+	className,
+	...props
+}: React.ComponentProps<"tr">): React.ReactElement {
+	return (
+		<tr
+			className={cn(
+				"relative border-b not-in-data-[variant=card]:hover:bg-[color-mix(in_srgb,var(--background),var(--color-black)_2%)] not-in-data-[variant=card]:data-[state=selected]:bg-[color-mix(in_srgb,var(--background),var(--color-black)_4%)] dark:not-in-data-[variant=card]:data-[state=selected]:bg-[color-mix(in_srgb,var(--background),var(--color-white)_4%)] dark:not-in-data-[variant=card]:hover:bg-[color-mix(in_srgb,var(--background),var(--color-white)_2%)]",
+				className,
+			)}
+			data-slot="table-row"
+			{...props}
+		/>
+	);
+}
 
-const TableCell = forwardRef<
-	HTMLTableCellElement,
-	TdHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
-	<td
-		ref={ref}
-		className={cn(
-			"px-3 py-2 text-muted-foreground transition-colors duration-80 group-[.is-active]/row:text-foreground",
-			className,
-		)}
-		{...props}
-	/>
-));
+export function TableHead({
+	className,
+	...props
+}: React.ComponentProps<"th">): React.ReactElement {
+	return (
+		<th
+			className={cn(
+				"h-10 whitespace-nowrap px-2.5 text-left align-middle font-medium text-muted-foreground leading-none has-[[role=checkbox]]:w-px last:has-[[role=checkbox]]:ps-0 first:has-[[role=checkbox]]:pe-0",
+				className,
+			)}
+			data-slot="table-head"
+			{...props}
+		/>
+	);
+}
 
-TableCell.displayName = "TableCell";
+export function TableCell({
+	className,
+	...props
+}: React.ComponentProps<"td">): React.ReactElement {
+	return (
+		<td
+			className={cn(
+				"whitespace-nowrap bg-clip-padding p-2.5 in-data-[slot=table-footer]:py-3.5 align-middle leading-none in-data-[variant=card]:first:ps-[calc(--spacing(2.5)-1px)] in-data-[variant=card]:last:pe-[calc(--spacing(2.5)-1px)] has-[[role=checkbox]]:w-px last:has-[[role=checkbox]]:ps-0 first:has-[[role=checkbox]]:pe-0",
+				className,
+			)}
+			data-slot="table-cell"
+			{...props}
+		/>
+	);
+}
 
-// ── Exports ──────────────────────────────────────────────
-
-export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell };
+export function TableCaption({
+	className,
+	...props
+}: React.ComponentProps<"caption">): React.ReactElement {
+	return (
+		<caption
+			className={cn(
+				"in-data-[variant=card]:my-4 mt-4 text-muted-foreground text-sm",
+				className,
+			)}
+			data-slot="table-caption"
+			{...props}
+		/>
+	);
+}

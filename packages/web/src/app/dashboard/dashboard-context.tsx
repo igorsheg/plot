@@ -78,8 +78,8 @@ export function useDashboardMeta(): DashboardMeta {
 /** Tone helper for an operator action, shared by every action surface. */
 export function operatorActionTone(
 	action: OperatorAction,
-): "primary" | "tertiary" {
-	return action.tone === "primary" ? "primary" : "tertiary";
+): "default" | "outline" {
+	return action.tone === "primary" ? "default" : "outline";
 }
 
 export function DashboardProvider({
