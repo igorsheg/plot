@@ -469,7 +469,10 @@ function ThreadRow({
 				<span className={cn("h-6 w-[3px]", shape.item, rail)} />
 				<div className="min-w-0">
 					<span
-						className="block truncate text-sm"
+						className={cn(
+							"block truncate text-sm",
+							!live && !elevated && "text-muted-foreground",
+						)}
 						style={{ fontVariationSettings: weight }}
 					>
 						{row.label}
