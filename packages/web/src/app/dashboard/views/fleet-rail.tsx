@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useDashboardState } from "../dashboard-context";
 import { stoppedSessionCount, visibleFleetSessions } from "../fleet-model";
 import { Row, SectionLabel, Stack } from "./layout";
-import { toneForSessionState } from "./status";
+import { sessionIsRunning, toneForSession } from "./status";
 
 // The left chrome — the single navigation column. It owns the brand, the
 // connection state (am I linked to plot?), and the fleet (the session list).
@@ -97,6 +97,8 @@ function FleetRailItem({
 	active: boolean;
 }) {
 	const shape = useShape();
+	const running = sessionIsRunning(session);
+	const needsYou = session.needsYouCount > 0;
 	return (
 		<Link
 			to="/session/$sessionId"
@@ -109,22 +111,33 @@ function FleetRailItem({
 			)}
 		>
 			<Row gap={2}>
-				<StatusDot tone={toneForSessionState(session.state)} />
+				<StatusDot tone={toneForSession(session)} />
 				<span
 					className={cn(
 						"min-w-0 flex-1 truncate text-sm transition-[font-variation-settings]",
 						active && "font-medium",
+						!running && !needsYou && "text-muted-foreground",
 					)}
 				>
 					{session.workflowName}
 				</span>
-				{session.needsYouCount > 0 ? (
+				{needsYou ? (
 					<Badge variant="solid" color="amber" size="sm">
 						{session.needsYouCount}
 					</Badge>
+				) : running ? (
+					<span className="font-mono text-2xs tabular-nums text-live">
+						{session.agents.active}
+						{session.agents.max > 0 ? `/${session.agents.max}` : ""}
+					</span>
 				) : null}
 			</Row>
-			<span className="truncate pl-4 font-mono text-2xs text-t3">
+			<span
+				className={cn(
+					"truncate pl-4 font-mono text-2xs",
+					running ? "text-t3" : "text-t3/70",
+				)}
+			>
 				{session.cwdName}
 			</span>
 		</Link>

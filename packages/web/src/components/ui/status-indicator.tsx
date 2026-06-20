@@ -9,7 +9,13 @@ import { cn } from "@/lib/utils";
 // the tone changes, so a transition like working → blocked is *felt*, not just
 // silently re-coloured. Ported in spirit from fluid-functionalism's motion
 // philosophy.
-export type StatusTone = "active" | "attention" | "danger" | "muted" | "online";
+export type StatusTone =
+	| "active"
+	| "attention"
+	| "danger"
+	| "muted"
+	| "online"
+	| "live";
 
 const toneClass: Record<StatusTone, string> = {
 	active: "bg-foreground",
@@ -17,6 +23,7 @@ const toneClass: Record<StatusTone, string> = {
 	danger: "bg-destructive",
 	muted: "bg-muted-foreground",
 	online: "bg-green-500",
+	live: "bg-live",
 };
 
 export function StatusDot({
