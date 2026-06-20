@@ -13,8 +13,32 @@ import { stoppedSessionCount, visibleFleetSessions } from "../fleet-model";
 import { Row, SectionLabel, Stack } from "./layout";
 import { toneForSessionState } from "./status";
 
-// Persistent fleet rail (master). Always visible on the left; selecting a
-// session swaps only the detail pane.
+// The left chrome — the single navigation column. It owns the brand, the
+// connection state (am I linked to plot?), and the fleet (the session list).
+// There is no top bar and no per-session back link: switching sessions happens
+// here, so the room never repeats this affordance.
+
+function ConnectionBadge() {
+	const { connection } = useDashboardState();
+	if (connection === "online")
+		return (
+			<Badge variant="dot" color="green" size="sm">
+				online
+			</Badge>
+		);
+	if (connection === "connecting")
+		return (
+			<Badge variant="dot" color="gray" size="sm">
+				connecting
+			</Badge>
+		);
+	return (
+		<Badge variant="dot" color="amber" size="sm">
+			{connection === "offline" ? "offline · last frame" : "handoff needed"}
+		</Badge>
+	);
+}
+
 export function FleetRail() {
 	const { roster, selectedSessionId } = useDashboardState();
 	const [showStopped, setShowStopped] = useState(false);
@@ -22,7 +46,18 @@ export function FleetRail() {
 	const stopped = stoppedSessionCount(roster);
 	return (
 		<nav className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-border">
-			<div className="flex items-center justify-between px-3 pt-4 pb-2">
+			{/* brand + connection — the global strip, folded into the rail header */}
+			<div className="flex items-center justify-between px-3 pt-4 pb-3">
+				<Link
+					to="/"
+					search={(prev) => ({ role: prev.role ?? "controller" })}
+					className="text-sm font-medium text-foreground"
+				>
+					plot
+				</Link>
+				<ConnectionBadge />
+			</div>
+			<div className="flex items-center justify-between border-t border-border px-3 pt-3 pb-2">
 				<SectionLabel>fleet</SectionLabel>
 				<span className="font-mono text-2xs tabular-nums text-t3">
 					{roster.length}
@@ -96,20 +131,16 @@ function FleetRailItem({
 	);
 }
 
-// The `/` detail pane: a connect/offline state when the roster is empty, else a
-// prompt to pick a session from the rail.
+// The `/` pane: only the empty/offline state. With the fleet always in the
+// rail, there is no "pick a session" prompt — landing online with a roster
+// dives into the top session; landing with nothing shows how to start one.
 export function OverviewPane() {
-	const { roster } = useDashboardState();
-	if (roster.length === 0) return <EmptyOrOffline />;
-	return (
-		<div className="flex flex-1 items-center justify-center py-24 text-sm text-t3">
-			Select a session from the fleet.
-		</div>
-	);
+	return <EmptyOrOffline />;
 }
 
 function EmptyOrOffline() {
-	const { connection, lastError } = useDashboardState();
+	const { roster, connection, lastError } = useDashboardState();
+	if (roster.length > 0) return null;
 	return (
 		<div className="flex flex-1 items-center justify-center py-20">
 			<Card className="max-w-lg">

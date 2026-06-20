@@ -34,14 +34,14 @@ const { DashboardProvider } =
 	await import("../src/app/dashboard/dashboard-context");
 const { SessionSurface } =
 	await import("../src/app/dashboard/views/session-surface");
-const { TopBar } = await import("../src/app/dashboard/views/top-bar");
+const { FleetRail } = await import("../src/app/dashboard/views/fleet-rail");
 
-// Render the dashboard chrome (TopBar) + session surface for a fixed frame,
-// mirroring what the router's RootLayout composes around the session route.
+// Render the fleet rail (the left chrome) + session surface for a fixed
+// frame, mirroring what the router's RootLayout composes around the session route.
 function renderSession(override: PlotWebDashboardState): string {
 	return renderToStaticMarkup(
 		<DashboardProvider state={override}>
-			<TopBar />
+			<FleetRail />
 			<SessionSurface />
 		</DashboardProvider>,
 	);
@@ -133,7 +133,9 @@ describe("plot web dashboard", () => {
 				projection,
 			}),
 		);
-		expect(html).toContain("all sessions");
+		// the redundant "← all sessions" back link is gone — the fleet rail is the
+		// switcher — so assert the rail + the rendered work instead.
+		expect(html).toContain("plot");
 		expect(html).toContain("Prepare package");
 	});
 

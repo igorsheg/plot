@@ -20,7 +20,6 @@ import {
 } from "./app/dashboard/web-dashboard-state";
 import { FleetRail, OverviewPane } from "./app/dashboard/views/fleet-rail";
 import { SessionSurface } from "./app/dashboard/views/session-surface";
-import { TopBar } from "./app/dashboard/views/top-bar";
 
 // Tests render through the router but inject a fixed frame instead of a live WS
 // connection — the override rides the router context.
@@ -51,24 +50,20 @@ function RootLayout() {
 	const state = stateOverride ?? live;
 	return (
 		<DashboardProvider state={state}>
-			<div className="flex h-dvh flex-col bg-background text-foreground">
-				<TopBar />
-				<div className="flex min-h-0 flex-1">
-					<FleetRail />
-					<div className="min-w-0 flex-1 overflow-y-auto">
-						{/* Session detail is full-bleed (it owns its own gutters so lane
-						    hairlines reach the pane edges); the fleet list stays
-						    width-capped and padded for readability. */}
-						<div
-							className={
-								params.sessionId === undefined
-									? "mx-auto w-full max-w-5xl px-6 py-6"
-									: "w-full"
-							}
-						>
+			{/* The screen is two regions: the fleet rail (the single left chrome —
+			    brand, connection, session list) and the room (the selected session,
+			    full-bleed). No top bar, no per-session back link: the rail owns
+			    session switching, the room owns the live surface. */}
+			<div className="flex h-dvh bg-background text-foreground">
+				<FleetRail />
+				<div className="min-w-0 flex-1 overflow-y-auto">
+					{params.sessionId === undefined ? (
+						<div className="mx-auto w-full max-w-5xl px-6 py-6">
 							<Outlet />
 						</div>
-					</div>
+					) : (
+						<Outlet />
+					)}
 				</div>
 			</div>
 		</DashboardProvider>
@@ -87,11 +82,15 @@ function FleetRoute() {
 	useEffect(() => {
 		if (initialRouteResolved || connection !== "online") return;
 		initialRouteResolved = true;
-		const only = chooseInitialSession({ roster, explicitFleet: false });
-		if (only !== undefined) {
+		// Landing on `/` dives into the top session (the rail already shows the
+		// fleet, so `/` is never a browse view). Picks the single reachable one,
+		// else the most-needs-you / most-active — same order the rail lists in.
+		const top =
+			chooseInitialSession({ roster, explicitFleet: false }) ?? roster[0]?.id;
+		if (top !== undefined) {
 			void navigate({
 				to: "/session/$sessionId",
-				params: { sessionId: only },
+				params: { sessionId: top },
 				search: (prev) => ({ role: prev.role ?? "controller" }),
 				replace: true,
 			});

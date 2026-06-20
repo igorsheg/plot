@@ -5,7 +5,6 @@ import {
 } from "@plot/control/dashboard-model";
 import type { DashboardProjection } from "@plot/control/projection";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
-import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
 import {
 	Fragment,
@@ -110,54 +109,46 @@ function SessionDetail({
 		: null;
 
 	return (
-		<Stack className="px-6">
-			<div className="pt-4">
-				<BackLink
-					focused={focusedKey !== null}
-					onBack={() => setFocusedKey(null)}
+		<Stack gap={3} className="px-6 pt-4">
+			<PulseHeader
+				workflowName={projection.workflowName}
+				state={session?.state ?? projection.status}
+				model={projection.runtime.model}
+				cwdName={session?.cwdName}
+				throughput={model.pulse.throughput.replace("tps", "tok/s")}
+				tps={tps}
+				totalTokens={model.pulse.totalTokens}
+				totalCost={model.pulse.totalCost}
+			/>
+			<Row gap={4} className="justify-between pt-3">
+				<SessionControls
+					projection={projection}
+					paused={paused}
+					stopped={stopped}
 				/>
-			</div>
-			<Stack gap={3} className="pt-3">
-				<PulseHeader
-					workflowName={projection.workflowName}
-					state={session?.state ?? projection.status}
-					model={projection.runtime.model}
-					cwdName={session?.cwdName}
-					throughput={model.pulse.throughput.replace("tps", "tok/s")}
-					tps={tps}
-					totalTokens={model.pulse.totalTokens}
-					totalCost={model.pulse.totalCost}
-				/>
-				<Row gap={4} className="justify-between pt-3">
-					<SessionControls
-						projection={projection}
-						paused={paused}
-						stopped={stopped}
-					/>
-					{idle ? <WatchingMeta model={model} /> : null}
-				</Row>
+				{idle ? <WatchingMeta model={model} /> : null}
+			</Row>
 
-				<AnimatePresence mode="wait" initial={false}>
-					{focused ? (
-						<FocusView
-							key="focus"
-							row={focused}
-							sessionId={projection.sessionId}
-							onBack={() => setFocusedKey(null)}
-						/>
-					) : idle ? (
-						<IdleRoom key="idle" model={model} />
-					) : (
-						<FleetColumn
-							key="fleet"
-							work={work}
-							sessionId={projection.sessionId}
-							model={model}
-							onFocus={setFocusedKey}
-						/>
-					)}
-				</AnimatePresence>
-			</Stack>
+			<AnimatePresence mode="wait" initial={false}>
+				{focused ? (
+					<FocusView
+						key="focus"
+						row={focused}
+						sessionId={projection.sessionId}
+						onBack={() => setFocusedKey(null)}
+					/>
+				) : idle ? (
+					<IdleRoom key="idle" model={model} />
+				) : (
+					<FleetColumn
+						key="fleet"
+						work={work}
+						sessionId={projection.sessionId}
+						model={model}
+						onFocus={setFocusedKey}
+					/>
+				)}
+			</AnimatePresence>
 		</Stack>
 	);
 }
@@ -234,37 +225,6 @@ function PulseHeader({
 				</AnimatePresence>
 			</div>
 		</div>
-	);
-}
-
-// ─── back link ───────────────────────────────────────────────────────────
-
-function BackLink({
-	focused,
-	onBack,
-}: {
-	focused: boolean;
-	onBack: () => void;
-}) {
-	const ArrowLeft = useIcon("arrow-left");
-	if (!focused)
-		return (
-			<Link
-				to="/"
-				search={(prev) => ({ role: prev.role ?? "controller" })}
-				className="inline-flex items-center gap-1 font-mono text-2xs text-t3 transition-colors hover:text-foreground"
-			>
-				<ArrowLeft size={13} /> all sessions
-			</Link>
-		);
-	return (
-		<button
-			type="button"
-			onClick={onBack}
-			className="inline-flex items-center gap-1 font-mono text-2xs text-t3 transition-colors hover:text-foreground"
-		>
-			<ArrowLeft size={13} /> all work
-		</button>
 	);
 }
 
@@ -930,13 +890,6 @@ function SnapshotUnavailable({
 			{lastError ? (
 				<p className="font-mono text-2xs text-t3">{lastError}</p>
 			) : null}
-			<Link
-				to="/"
-				search={(prev) => ({ role: prev.role ?? "controller" })}
-				className="self-start font-mono text-2xs text-t3 transition-colors hover:text-foreground"
-			>
-				← all sessions
-			</Link>
 		</Stack>
 	);
 }
