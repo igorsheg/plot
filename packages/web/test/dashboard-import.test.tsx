@@ -170,8 +170,7 @@ describe("plot web dashboard", () => {
 			}),
 		);
 
-		expect(html).toContain("work:alpha");
-		expect(html).toContain("run-1");
+		expect(html).toContain("Prepare package");
 		expect(html).toContain("bun run check");
 	});
 

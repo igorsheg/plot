@@ -1,4 +1,3 @@
-import type { DashboardProjection } from "@plot/control/projection";
 import type {
 	PlotSessionState,
 	PlotSessionSummary,
@@ -74,8 +73,3 @@ export const chooseInitialSession = (input: {
 		return input.roster[0]?.id;
 	return undefined;
 };
-
-export const projectionReadyDoneCounts = (projection: DashboardProjection) => ({
-	ready: projection.scheduledWakes.length,
-	done: projection.completed.length,
-});

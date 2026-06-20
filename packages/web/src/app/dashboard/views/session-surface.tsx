@@ -1,15 +1,9 @@
 import {
 	dashboardModelFrom,
 	formatAgo,
-	formatDuration,
-	formatTokens,
+	type WorkRowModel,
 } from "@plot/control/dashboard-model";
-import {
-	type AgentAttemptProjection,
-	type DashboardProjection,
-	type WorkItemProjection,
-	workLabel,
-} from "@plot/control/projection";
+import type { DashboardProjection } from "@plot/control/projection";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, ChevronRight } from "lucide-react";
@@ -24,7 +18,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { InputCopy } from "@/components/ui/input-copy";
 import { Sparkline } from "@/components/ui/sparkline";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -33,7 +26,6 @@ import {
 	useDashboardMeta,
 	useDashboardState,
 } from "../dashboard-context";
-import { projectionReadyDoneCounts } from "../fleet-model";
 import { throughputSeries } from "../throughput-series";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
@@ -54,11 +46,6 @@ function Divided({ children }: { children: readonly ReactNode[] }) {
 		</>
 	);
 }
-
-type WorkSurface = {
-	readonly item: WorkItemProjection;
-	readonly attempt?: AgentAttemptProjection | undefined;
-};
 
 export function SessionSurface() {
 	const { roster, selectedSessionId, projection, lastError } =
@@ -98,47 +85,41 @@ function SessionDetail({
 	projection: DashboardProjection;
 	session?: PlotSessionSummary;
 }) {
-	const model = dashboardModelFrom(projection);
-	const counts = projectionReadyDoneCounts(projection);
+	const model = useMemo(() => dashboardModelFrom(projection), [projection]);
 	const samples = projection.tokenSamples;
 	const tps = useMemo(() => {
 		const last = samples[samples.length - 1];
 		return last === undefined ? [] : throughputSeries(samples, last.atMs);
 	}, [samples]);
-	const work = [...projection.work.values()]
-		.filter((item) => item.status !== "done")
-		.map(
-			(item): WorkSurface => ({
-				item,
-				attempt:
-					item.currentRunId === undefined
-						? undefined
-						: projection.attempts.get(item.currentRunId),
-			}),
-		)
-		.toSorted(
-			(a, b) =>
-				Number(needsAttention(b)) - Number(needsAttention(a)) ||
-				(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
-		);
-	const needs = work.filter(needsAttention);
+	const idle = model.work.length === 0;
 	const agentsActive = session?.agents.active ?? model.pulse.runningCount;
 	const agentsMax = session?.agents.max ?? model.pulse.maxConcurrentRuns;
+	const paused = session?.state === "paused" || projection.status === "paused";
+	const stopped =
+		session?.state === "stopped" || projection.status === "stopped";
 
 	return (
 		<div className="mt-3 flex flex-col">
 			{/* status bar — the one always-dense strip */}
-			<div className="sticky top-0 z-20 flex h-12 items-center border-b border-border bg-background px-6">
-				<span className="mr-2 size-1.5 shrink-0 rounded-full bg-live" />
+			<div className="sticky top-0 z-20 flex h-12 items-center gap-3 border-b border-border bg-background px-6">
+				<span className="size-1.5 shrink-0 rounded-full bg-live" />
 				<h1 className="text-sm font-medium tracking-[-0.01em]">
 					{projection.workflowName}
 				</h1>
-				<span className={cn("ml-2 text-2xs text-t3", mono)}>
+				<span className={cn("text-2xs text-t3", mono)}>
 					<span className="capitalize">
 						{session?.state ?? projection.status}
 					</span>
 					{projection.runtime.model ? ` · ${projection.runtime.model}` : ""}
 				</span>
+				{session?.cwdName ? (
+					<span
+						className={cn("hidden truncate text-2xs text-t3 sm:inline", mono)}
+					>
+						{session.cwdName}
+					</span>
+				) : null}
+
 				<div className={cn("ml-auto flex items-center text-2xs text-t3", mono)}>
 					<Divided>
 						{[
@@ -161,161 +142,167 @@ function SessionDetail({
 								tok
 								{model.pulse.totalCost ? ` · ${model.pulse.totalCost}` : ""}
 							</>,
-							<>
-								ready {counts.ready} · done {counts.done}
-							</>,
 						]}
 					</Divided>
 				</div>
 			</div>
 
-			{session?.cwd ? (
-				<div className="px-6 pt-4">
-					<InputCopy value={session.cwd} variant="icon" className="max-w-xl" />
-				</div>
-			) : null}
-
-			<div className="px-6 pt-3">
-				<SessionControls session={session} projection={projection} />
+			<div className="flex items-center justify-between gap-3 px-6 pt-3 text-2xs">
+				<SessionControls
+					projection={projection}
+					paused={paused}
+					stopped={stopped}
+				/>
+				{idle ? <WatchingMeta model={model} /> : null}
 			</div>
 
-			{needs.length > 0 ? (
-				<NeedsYouBand needs={needs} sessionId={projection.sessionId} />
+			{model.attention.length > 0 ? (
+				<AttentionBand model={model} sessionId={projection.sessionId} />
 			) : null}
 
 			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
-				work · {work.length}
+				{idle ? "watching" : `work · ${model.work.length}`}
 			</div>
-			{work.length === 0 ? (
-				<p className="border-t border-border px-6 py-4 text-2xs text-t3">
-					No active work.
-				</p>
+			{idle ? (
+				<IdleList model={model} />
 			) : (
-				work.map((item) => (
+				model.work.map((row) => (
 					<WorkLane
-						key={item.item.workKey}
-						work={item}
+						key={row.work.workKey}
+						row={row}
 						sessionId={projection.sessionId}
 					/>
 				))
 			)}
-
-			<DoneSection projection={projection} />
-			<RetrySection projection={projection} />
 		</div>
 	);
 }
 
-const needsAttention = (work: WorkSurface) =>
-	work.item.status === "blocked" || work.item.status === "failed";
-
-function statusToneText(work: WorkSurface): string {
-	if (work.item.status === "blocked") return "text-attention";
-	if (work.item.status === "failed") return "text-destructive";
-	if (work.attempt?.streaming) return "text-live";
-	return "text-t3";
+// When idle, the schedule + last run is the only thing worth watching. Mirrors
+// the TUI's "watching" block: tick/next-tick/next-wake and the most recent run.
+function WatchingMeta({
+	model,
+}: {
+	model: ReturnType<typeof dashboardModelFrom>;
+}) {
+	const parts: ReactNode[] = [];
+	const tick = model.pulse.tick;
+	if (tick !== undefined)
+		parts.push(
+			<>
+				tick #{tick.id} · {tick.ago}
+			</>,
+		);
+	if (model.pulse.nextTick !== undefined)
+		parts.push(<>next tick in {model.pulse.nextTick.inSeconds}s</>);
+	if (model.pulse.nextWake !== undefined) {
+		const wake = model.pulse.nextWake;
+		parts.push(
+			<>
+				{wake.kind === "retry" ? "retry" : "next wake"} in {wake.inSeconds}s
+			</>,
+		);
+	}
+	if (parts.length === 0) return null;
+	return (
+		<span className={cn("text-t3", mono)}>
+			<Divided>{parts}</Divided>
+		</span>
+	);
 }
 
-function WorkLane({
-	work,
+function AttentionBand({
+	model,
 	sessionId,
 }: {
-	work: WorkSurface;
+	model: ReturnType<typeof dashboardModelFrom>;
 	sessionId: string;
 }) {
-	const { item, attempt } = work;
-	const [open, setOpen] = useState(
-		(attempt?.streaming ?? false) || needsAttention(work),
-	);
-	const age =
-		attempt?.startedAtMs === undefined
-			? "n/a"
-			: formatDuration(Date.now() - attempt.startedAtMs);
-	const tokens =
-		attempt?.tokens?.total === undefined
-			? undefined
-			: formatTokens(attempt.tokens.total);
-	const activity =
-		item.status === "blocked" && item.blockedReason !== undefined
-			? item.blockedReason
-			: attempt === undefined
-				? item.status
-				: attempt.streaming
-					? (attempt.streams.tool ??
-						attempt.streams.message ??
-						(attempt.streams.thinking === undefined
-							? attempt.activity
-							: `Thinking · ${attempt.streams.thinking}`))
-					: attempt.activity;
-	const railTone =
-		item.status === "blocked"
-			? "bg-attention"
-			: item.status === "failed"
-				? "bg-destructive"
-				: attempt?.streaming
-					? "bg-live"
-					: "bg-border";
-
+	const actionable = model.work.filter((row) => row.attention);
 	return (
-		<div
-			className={cn(
-				"group border-t border-border",
-				attempt?.streaming && "bg-live/5",
-			)}
-		>
+		<div className="relative mt-6 border-y border-border bg-attention/5 px-6 py-4">
+			<span className="absolute inset-y-0 left-0 w-0.5 bg-attention" />
+			<div className={cn("mb-2 text-2xs text-attention", mono)}>attention</div>
+			<div className="flex flex-col gap-3">
+				{model.attention.map((entry, index) => {
+					const row = actionable.find((r) => r.work.workKey === entry.workKey);
+					return (
+						<div
+							key={`${entry.workKey ?? "diag"}-${index}`}
+							className="flex flex-wrap items-center justify-between gap-3"
+						>
+							<p className="min-w-0 text-2xs text-muted-foreground">
+								{entry.text}
+							</p>
+							{row ? (
+								<OperatorActionButtons
+									item={row.work}
+									sessionId={sessionId}
+									prominent
+								/>
+							) : null}
+						</div>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
+const railTone = (row: WorkRowModel) =>
+	row.attention
+		? "bg-attention"
+		: row.stale
+			? "bg-border"
+			: row.attempt?.streaming
+				? "bg-live"
+				: "bg-border";
+
+function WorkLane({
+	row,
+	sessionId,
+}: {
+	row: WorkRowModel;
+	sessionId: string;
+}) {
+	const attempt = row.attempt;
+	const live = attempt?.streaming ?? false;
+	const [open, setOpen] = useState(live || row.attention);
+	return (
+		<div className={cn("group border-t border-border", live && "bg-live/5")}>
 			<button
 				type="button"
 				onClick={() => setOpen((value) => !value)}
 				className="grid w-full grid-cols-[3px_1fr_auto_16px] items-center gap-x-4 px-6 py-4 text-left transition-colors hover:bg-hover"
 			>
-				<span className={cn("h-6 w-[3px] rounded-[3px]", railTone)} />
+				<span className={cn("h-6 w-[3px] rounded-[3px]", railTone(row))} />
 				<div className="min-w-0">
-					<div className="flex items-baseline gap-2">
-						<span className="weight-hover truncate text-sm">
-							{workLabel(item)}
-						</span>
-						<span className={cn("shrink-0 text-2xs text-t3", mono)}>
-							{item.workKey}
-						</span>
-					</div>
+					<span
+						className={cn(
+							"weight-hover truncate text-sm",
+							row.stale && "text-muted-foreground",
+						)}
+					>
+						{row.label}
+					</span>
 					<p
 						className={cn(
 							"mt-1 truncate text-2xs",
 							mono,
-							attempt?.streaming ? "shimmer-text" : "text-t3",
+							live ? "shimmer-text" : "text-t3",
 						)}
 					>
-						{activity}
+						{row.activity}
 					</p>
 				</div>
-				<div className="flex items-baseline gap-4 justify-self-end whitespace-nowrap">
-					<span
-						className={cn(
-							"flex items-baseline text-2xs text-t3 opacity-0 transition-opacity group-hover:opacity-100",
-							open && "opacity-100",
-							mono,
-						)}
-					>
-						<Divided>
-							{[
-								<>
-									t
-									<b className="font-normal text-muted-foreground">
-										{attempt?.turnCount ?? 0}
-									</b>
-								</>,
-								<b className="font-normal text-muted-foreground">
-									{tokens ?? "—"}
-								</b>,
-								<CheckBadge attempt={attempt} />,
-								<>{age}</>,
-								<span>{attempt?.runId ?? "—"}</span>,
-							]}
-						</Divided>
-					</span>
-					<span className={cn("text-2xs", statusToneText(work))}>
-						{item.status}
-					</span>
+				<div
+					className={cn(
+						"flex items-baseline justify-self-end whitespace-nowrap text-2xs text-t3 opacity-0 transition-opacity group-hover:opacity-100",
+						open && "opacity-100",
+						mono,
+					)}
+				>
+					{row.meta.length > 0 ? row.meta : null}
 				</div>
 				<ChevronRight
 					size={14}
@@ -328,22 +315,12 @@ function WorkLane({
 
 			{open ? (
 				<div className="px-6 pb-6 pl-10 text-2xs">
-					{attempt === undefined ? null : <LiveStreams attempt={attempt} />}
-					{attempt !== undefined && attempt.phases.length > 0 ? (
-						<Spine attempt={attempt} />
-					) : null}
-					{attempt === undefined ? null : (
-						<div className="grid md:grid-cols-[1.5fr_1fr_1fr]">
-							<Timeline attempt={attempt} />
-							<Commands attempt={attempt} />
-							<Observations attempt={attempt} />
-						</div>
-					)}
+					<Trail row={row} />
 					<div className="mt-4 flex flex-wrap items-center gap-2">
-						<OperatorActionButtons item={item} sessionId={sessionId} />
+						<OperatorActionButtons item={row.work} sessionId={sessionId} />
 						{attempt === undefined ? null : (
 							<InterruptRunButton
-								item={item}
+								item={row.work}
 								attempt={attempt}
 								sessionId={sessionId}
 							/>
@@ -355,206 +332,68 @@ function WorkLane({
 	);
 }
 
-function CheckBadge({ attempt }: { attempt?: AgentAttemptProjection }) {
-	if (attempt === undefined || attempt.check === "not-run") return null;
-	if (attempt.check === "failed")
-		return <span className="text-destructive">check failed</span>;
-	if (attempt.check === "running")
-		return <span className="text-live">check running</span>;
-	return <span>passed</span>;
-}
+// The trail: the timeline (completed meaningful actions + turns), newest first,
+// capped to the recent window, with the live "now" entry when streaming. One
+// column, no separate commands / observations / spine / live-stream grid — the
+// timeline already is the record; the rest duplicated it or rendered dead data.
+function Trail({ row }: { row: WorkRowModel }) {
+	const attempt = row.attempt;
+	if (attempt === undefined)
+		return <p className="text-2xs text-t3">No activity yet.</p>;
 
-function LiveStreams({ attempt }: { attempt: AgentAttemptProjection }) {
+	const history = [...attempt.timeline].toSorted((a, b) => b.atMs - a.atMs);
 	const rows = [
-		...(attempt.streams.tool === undefined
-			? []
-			: [{ label: "tool", value: attempt.streams.tool }]),
-		...(attempt.streams.message === undefined
-			? []
-			: [{ label: "message", value: attempt.streams.message }]),
-		...(attempt.streams.thinking === undefined
-			? []
-			: [{ label: "thinking", value: attempt.streams.thinking }]),
+		...(attempt.streaming
+			? [{ age: "now", text: row.activity, live: true }]
+			: []),
+		...history.slice(0, 9).map((entry) => ({
+			age: formatAgo(Date.now() - entry.atMs),
+			text: entry.text,
+			live: false,
+		})),
 	];
-	if (rows.length === 0) return null;
-	return (
-		<div className={cn("mb-5 grid gap-1", mono)}>
-			{rows.map((row) => (
-				<div key={row.label} className="grid grid-cols-[72px_1fr] gap-3">
-					<span className="text-t3">{row.label}</span>
-					<span className="truncate text-muted-foreground">{row.value}</span>
-				</div>
-			))}
-		</div>
-	);
-}
+	if (rows.length === 0)
+		return <p className="text-2xs text-t3">No activity yet.</p>;
 
-function Spine({ attempt }: { attempt: AgentAttemptProjection }) {
-	const total =
-		attempt.phases.reduce((sum, phase) => sum + phase.count, 0) || 1;
 	return (
-		<div className="mb-5">
-			<div className="mb-2 flex h-1 gap-0.5">
-				{attempt.phases.map((phase, index) => (
-					<span
-						key={`${phase.kind}-${phase.startedAtMs}`}
-						className={cn(
-							"rounded-full",
-							index === attempt.phases.length - 1 && attempt.streaming
-								? "bg-live"
-								: "bg-border",
-						)}
-						style={{ flexGrow: Math.max(1, (phase.count / total) * 100) }}
-					/>
-				))}
+		<div className={cn("mb-5", mono)}>
+			<div className={cn("mb-3 text-t3", mono)}>
+				timeline · {attempt.meaningfulCount} of {attempt.eventCount} events
 			</div>
-			<div
-				className={cn("flex flex-wrap gap-x-3 gap-y-1 text-2xs text-t3", mono)}
-			>
-				{attempt.phases.map((phase) => (
-					<span key={`label-${phase.kind}-${phase.startedAtMs}`}>
-						{phase.kind} ·{phase.count}
-					</span>
-				))}
-			</div>
-		</div>
-	);
-}
-
-function Col({ title, children }: { title: string; children: ReactNode }) {
-	return (
-		<div className="border-l border-border px-6 first:border-l-0 first:pl-0">
-			<div className={cn("mb-3 text-2xs text-t3", mono)}>{title}</div>
-			{children}
-		</div>
-	);
-}
-
-function Timeline({ attempt }: { attempt: AgentAttemptProjection }) {
-	const ordered = [...attempt.timeline].toSorted((a, b) => b.atMs - a.atMs);
-	return (
-		<Col
-			title={`timeline · ${attempt.meaningfulCount} of ${attempt.eventCount} events`}
-		>
-			{ordered.length === 0 ? (
-				<p className="text-2xs text-t3">No activity yet.</p>
-			) : (
-				<div className={mono}>
-					{ordered.map((entry, index) => (
-						<div
-							key={`${entry.atMs}-${entry.text}`}
-							className="grid grid-cols-[12px_1fr_auto] items-baseline gap-2 py-1"
-						>
-							<span
-								className={cn(
-									"size-1.5 justify-self-center self-center rounded-full",
-									index === 0 && attempt.streaming
-										? "bg-live ring-[3px] ring-live/20"
-										: "bg-border",
-								)}
-							/>
-							<span
-								className={cn(
-									"text-2xs",
-									index === 0 && attempt.streaming
-										? "text-foreground"
-										: "text-muted-foreground",
-								)}
-							>
-								{entry.text}
-							</span>
-							<span className="text-2xs text-t3">
-								{formatAgo(Date.now() - entry.atMs)}
-							</span>
-						</div>
-					))}
-				</div>
-			)}
-		</Col>
-	);
-}
-
-function Commands({ attempt }: { attempt: AgentAttemptProjection }) {
-	if (attempt.commands.length === 0) return null;
-	return (
-		<Col title="commands">
-			<div className={mono}>
-				{attempt.commands.map((command, index) => (
-					<div
-						key={`${index}-${command}`}
-						className="truncate py-1 text-2xs text-muted-foreground"
-					>
-						<span className={index === 0 ? "text-live" : "text-t3"}>$</span>{" "}
-						{command}
-					</div>
-				))}
-			</div>
-		</Col>
-	);
-}
-
-function Observations({ attempt }: { attempt: AgentAttemptProjection }) {
-	if (attempt.observations.length === 0) return null;
-	return (
-		<Col title="observations">
-			{attempt.observations.map((observation, index) => (
+			{rows.map((entry, index) => (
 				<div
-					key={`${index}-${observation}`}
-					className="grid grid-cols-[12px_1fr] gap-2 py-1"
+					key={`${entry.age}-${entry.text}-${index}`}
+					className="grid grid-cols-[12px_1fr_auto] items-baseline gap-2 py-1"
 				>
-					<span className="size-1.5 justify-self-center self-center rounded-full bg-t3" />
-					<span className="text-2xs text-muted-foreground">{observation}</span>
+					<span
+						className={cn(
+							"size-1.5 justify-self-center self-center rounded-full",
+							entry.live ? "bg-live ring-[3px] ring-live/20" : "bg-border",
+						)}
+					/>
+					<span
+						className={cn(
+							"text-2xs",
+							entry.live ? "text-foreground" : "text-muted-foreground",
+						)}
+					>
+						{entry.text}
+					</span>
+					<span className="text-2xs text-t3">{entry.age}</span>
 				</div>
 			))}
-		</Col>
-	);
-}
-
-function NeedsYouBand({
-	needs,
-	sessionId,
-}: {
-	needs: readonly WorkSurface[];
-	sessionId: string;
-}) {
-	return (
-		<div className="relative mt-6 border-y border-border bg-attention/5 px-6 py-4">
-			<span className="absolute inset-y-0 left-0 w-0.5 bg-attention" />
-			<div className="flex flex-col gap-3">
-				{needs.map(({ item }) => (
-					<div
-						key={item.workKey}
-						className="flex flex-wrap items-center justify-between gap-3"
-					>
-						<div className="min-w-0">
-							<p className="text-sm font-medium">
-								{workLabel(item)}
-								<span className={cn("ml-2 text-2xs text-t3", mono)}>
-									{item.workKey}
-								</span>
-							</p>
-							<p className="text-2xs text-muted-foreground">
-								{item.blockedReason ?? item.status}
-							</p>
-						</div>
-						<OperatorActionButtons
-							item={item}
-							sessionId={sessionId}
-							prominent
-						/>
-					</div>
-				))}
-			</div>
 		</div>
 	);
 }
 
 function SessionControls({
-	session,
 	projection,
+	paused,
+	stopped,
 }: {
-	session?: PlotSessionSummary;
 	projection: DashboardProjection;
+	paused: boolean;
+	stopped: boolean;
 }) {
 	const sessionId = projection.sessionId;
 	const { mutateSession } = useDashboardActions();
@@ -562,12 +401,8 @@ function SessionControls({
 	const { mutationError } = useDashboardState();
 	const [closeOpen, setCloseOpen] = useState(false);
 
-	const paused = session?.state === "paused" || projection.status === "paused";
-	const stopped =
-		session?.state === "stopped" || projection.status === "stopped";
-
 	return (
-		<div className="flex flex-wrap items-center justify-between gap-3 text-2xs">
+		<>
 			<div className="flex flex-wrap items-center gap-4">
 				<Switch
 					label={paused ? "Paused" : "Running"}
@@ -597,99 +432,118 @@ function SessionControls({
 				>
 					Close session
 				</Button>
-				<Dialog open={closeOpen} onOpenChange={setCloseOpen}>
-					<DialogContent>
-						<DialogHeader>
-							<DialogTitle>Close this Plot Session?</DialogTitle>
-							<DialogDescription>
-								Active Agent Runs will be interrupted; Session History is kept.
-							</DialogDescription>
-						</DialogHeader>
-						<DialogFooter>
-							<Button
-								size="sm"
-								variant="tertiary"
-								onClick={() => setCloseOpen(false)}
-							>
-								Cancel
-							</Button>
-							<Button
-								size="sm"
-								variant="primary"
-								className="bg-destructive text-white"
-								onClick={() => {
-									mutateSession(sessionId, "close_session");
-									setCloseOpen(false);
-								}}
-							>
-								Close session
-							</Button>
-						</DialogFooter>
-					</DialogContent>
-				</Dialog>
 			</div>
-			{controllerBlockReason ? (
-				<span className="text-t3">{controllerBlockReason}</span>
-			) : null}
-			{mutationError ? (
-				<span className="text-destructive">{mutationError}</span>
-			) : null}
-		</div>
-	);
-}
+			<div className="flex items-center gap-3">
+				{controllerBlockReason ? (
+					<span className="text-t3">{controllerBlockReason}</span>
+				) : null}
+				{mutationError ? (
+					<span className="text-destructive">{mutationError}</span>
+				) : null}
+			</div>
 
-function DoneSection({ projection }: { projection: DashboardProjection }) {
-	if (projection.completed.length === 0) return null;
-	return (
-		<>
-			<div className="px-6 pt-6 pb-2 text-2xs text-t3">
-				done · {projection.completed.length}
-			</div>
-			{projection.completed.slice(0, 8).map((entry) => (
-				<div
-					key={`${entry.workKey}-${entry.atMs}`}
-					className="grid grid-cols-[3px_1fr_auto] items-center gap-x-4 border-t border-border px-6 py-3"
-				>
-					<span className="h-5 w-[3px] rounded-[3px] bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]" />
-					<span className="truncate text-sm text-muted-foreground">
-						{entry.label}
-					</span>
-					<span className={cn("shrink-0 text-2xs text-t3", mono)}>
-						<span
-							className={
-								entry.status === "succeeded" ? "text-t3" : "text-destructive"
-							}
+			<Dialog open={closeOpen} onOpenChange={setCloseOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Close this Plot Session?</DialogTitle>
+						<DialogDescription>
+							Active Agent Runs will be interrupted; Session History is kept.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							size="sm"
+							variant="tertiary"
+							onClick={() => setCloseOpen(false)}
 						>
-							{entry.status === "succeeded" ? entry.status : entry.message}
-						</span>{" "}
-						· {formatAgo(Date.now() - entry.atMs)}
-					</span>
-				</div>
-			))}
+							Cancel
+						</Button>
+						<Button
+							size="sm"
+							variant="primary"
+							className="bg-destructive text-white"
+							onClick={() => {
+								mutateSession(sessionId, "close_session");
+								setCloseOpen(false);
+							}}
+						>
+							Close session
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</>
 	);
 }
 
-function RetrySection({ projection }: { projection: DashboardProjection }) {
-	if (projection.scheduledWakes.length === 0) return null;
+// Idle: the last completed run + scheduled retries. Nothing else — the schedule
+// and the most recent outcome are the only things that matter when no work is
+// running. Active work suppresses both (see WatchingMeta/AttentionBand).
+function IdleList({ model }: { model: ReturnType<typeof dashboardModelFrom> }) {
+	const last = model.completed[0];
+	const scheduled = model.scheduled;
 	return (
 		<>
-			<div className="px-6 pt-6 pb-2 text-2xs text-t3">retry</div>
-			{projection.scheduledWakes.map((wake) => (
-				<div
-					key={`${wake.dueAtMs}-${wake.workKey ?? "session"}`}
-					className="flex items-baseline justify-between gap-3 border-t border-border px-6 py-3"
-				>
-					<span className={cn("text-2xs text-muted-foreground", mono)}>
-						↻ {wake.workKey ?? "session"}
-					</span>
-					<span className={cn("shrink-0 text-2xs text-t3", mono)}>
-						attempt {wake.attempt ?? "n/a"} · in{" "}
-						{formatDuration(wake.dueAtMs - Date.now())} · {wake.reason ?? "n/a"}
-					</span>
-				</div>
-			))}
+			{last === undefined ? (
+				<p className="border-t border-border px-6 py-4 text-2xs text-t3">
+					No active work.
+				</p>
+			) : (
+				<LastRun row={last} />
+			)}
+			{scheduled.length > 0 ? (
+				<>
+					<div className="px-6 pt-6 pb-2 text-2xs text-t3">retry</div>
+					{scheduled.map((wake) => (
+						<div
+							key={`${wake.workKey ?? "session"}-${wake.inSeconds}`}
+							className="flex items-baseline justify-between gap-3 border-t border-border px-6 py-3"
+						>
+							<span className={cn("text-2xs text-muted-foreground", mono)}>
+								↻ {wake.label ?? wake.workKey ?? "session"}
+							</span>
+							<span className={cn("shrink-0 text-2xs text-t3", mono)}>
+								attempt {wake.attempt ?? "n/a"} · in {wake.inSeconds}s
+								{wake.reason ? ` · ${wake.reason}` : ""}
+							</span>
+						</div>
+					))}
+				</>
+			) : null}
 		</>
+	);
+}
+
+function LastRun({
+	row,
+}: {
+	row: ReturnType<typeof dashboardModelFrom>["completed"][number];
+}) {
+	const ok = row.tone === "ok";
+	const message =
+		row.message === "completed" || row.message === row.status
+			? undefined
+			: row.message;
+	const right = ok
+		? (row.meta ?? row.ago)
+		: [
+				row.status,
+				...(message === undefined ? [] : [message]),
+				row.meta ?? row.ago,
+			].join(" · ");
+	return (
+		<div className="grid grid-cols-[3px_1fr_auto] items-center gap-x-4 border-t border-border px-6 py-3">
+			<span className="h-5 w-[3px] rounded-[3px] bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]" />
+			<span className="truncate text-sm text-muted-foreground">
+				{row.label}
+			</span>
+			<span className={cn("shrink-0 text-2xs text-t3", mono)}>
+				<span className={ok ? "text-t3" : "text-destructive"}>
+					{ok ? row.status : (message ?? row.status)}
+				</span>{" "}
+				· {right}
+			</span>
+		</div>
 	);
 }
 
