@@ -113,7 +113,7 @@ function SessionDetail({
 		: null;
 
 	return (
-		<Stack gap={3} className="px-6 pt-4">
+		<Stack gap={3} className="pt-4">
 			<PulseHeader
 				workflowName={projection.workflowName}
 				state={session?.state ?? projection.status}
@@ -124,7 +124,7 @@ function SessionDetail({
 				totalTokens={model.pulse.totalTokens}
 				totalCost={model.pulse.totalCost}
 			/>
-			<Row gap={4} className="justify-between pt-3">
+			<Row gap={4} className="justify-between px-6 pt-3">
 				<SessionControls
 					projection={projection}
 					paused={paused}
@@ -318,7 +318,9 @@ function FleetColumn({
 
 	return (
 		<Stack gap={3} className="pt-4">
-			<SectionLabel count={work.length}>work</SectionLabel>
+			<div className="px-6">
+				<SectionLabel count={work.length}>work</SectionLabel>
+			</div>
 			<div
 				ref={containerRef}
 				tabIndex={0}
@@ -566,7 +568,9 @@ function FocusView({
 			transition={spring.moderate}
 			className="pt-4"
 		>
-			<SectionLabel>{row.work.workKey}</SectionLabel>
+			<div className="px-6">
+				<SectionLabel>{row.work.workKey}</SectionLabel>
+			</div>
 			<div className="mt-3 grid grid-cols-[3px_1fr] gap-x-4 border-b border-border px-6 pb-4">
 				<span
 					className={cn(
@@ -683,7 +687,9 @@ function IdleRoom({ model }: { model: ReturnType<typeof dashboardModelFrom> }) {
 			transition={spring.moderate}
 			className="pt-4"
 		>
-			<SectionLabel>watching</SectionLabel>
+			<div className="px-6">
+				<SectionLabel>watching</SectionLabel>
+			</div>
 			<Stack className="pt-3">
 				{last === undefined ? (
 					<p className="border-t border-border px-6 py-4 font-mono text-2xs text-t3">
