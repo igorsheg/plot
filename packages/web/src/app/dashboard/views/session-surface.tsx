@@ -87,7 +87,16 @@ function SessionDetail({
 	projection: DashboardProjection;
 	session?: PlotSessionSummary;
 }) {
-	const model = useMemo(() => dashboardModelFrom(projection), [projection]);
+	// Live render clock: ages and the watching schedule are time-derived, so
+	// they must recompute on a clock even when the projection is idle (the
+	// coalescer stops publishing). 125ms while work runs, 1s when idle — the
+	// TUI's cadence.
+	const running = projection.attempts.size > 0;
+	const now = useNow(running ? 125 : 1000);
+	const model = useMemo(
+		() => dashboardModelFrom(projection, now),
+		[projection, now],
+	);
 	const samples = projection.tokenSamples;
 	const tps = useMemo(() => {
 		const last = samples[samples.length - 1];
@@ -887,6 +896,20 @@ function useEsc(onEsc: () => void) {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onEsc]);
+}
+
+// A live render clock, mirroring the TUI's syncLiveRenderTimer. The web only
+// re-renders when the projection coalescer publishes — which stops when idle —
+// so ages ("28s ago") and the watching schedule would freeze. This ticks `now`
+// at the given interval so the view recomputes time-derived text in real time:
+// 125ms when work is running (a smooth pulse), 1s when idle (the schedule).
+function useNow(intervalMs: number): number {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+		return () => window.clearInterval(id);
+	}, [intervalMs]);
+	return now;
 }
 
 function SnapshotUnavailable({
