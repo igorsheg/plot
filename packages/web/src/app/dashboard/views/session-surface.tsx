@@ -646,12 +646,12 @@ const trailWindow = 9;
 function Trail({ row }: { row: WorkRowModel }) {
 	const attempt = row.attempt;
 	if (attempt === undefined)
-		return <p className="font-mono text-2xs text-t3">No activity yet.</p>;
+		return <div className="font-mono text-2xs text-t3">No activity yet.</div>;
 	const history = [...attempt.timeline]
 		.toSorted((a, b) => a.atMs - b.atMs)
 		.slice(-trailWindow);
 	if (history.length === 0 && !attempt.streaming)
-		return <p className="font-mono text-2xs text-t3">No activity yet.</p>;
+		return <div className="font-mono text-2xs text-t3">No activity yet.</div>;
 	return (
 		<Stack gap={3} className="mb-4">
 			<div className={cn("font-mono text-2xs text-t3", data)}>

@@ -412,11 +412,13 @@ body {
 	-webkit-font-smoothing: antialiased;
 }
 
-h1,
-h2,
-h3,
-p {
-	text-wrap: balance;
+@layer base {
+	h1,
+	h2,
+	h3,
+	p {
+		text-wrap: balance;
+	}
 }
 
 /* Slim, low-contrast native scrollbar matching the fluid language. */
