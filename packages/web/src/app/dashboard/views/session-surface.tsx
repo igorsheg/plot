@@ -53,6 +53,15 @@ const data = "font-mono tabular-nums";
 // message/tool delta, so collapse them to spaces before render — truncate clips.
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
+// The thread row surfaces only how long the run has been going — the one datum
+// that orients you in a live fleet. Per-run tokens/cost are data-dump; they live
+// in the focus view, not every row. No age yet (run not started) -> nothing.
+const rowAge = (row: WorkRowModel): string => {
+	const started = row.attempt?.startedAtMs;
+	if (started === undefined) return row.stale ? row.lastEventAgo : "";
+	return formatDuration(Date.now() - started);
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // Plot web session surface — re-imagined as a control surface, not a dashboard.
 //
@@ -482,7 +491,7 @@ function ThreadRow({
 						!(hovered || selected) && "opacity-0",
 					)}
 				>
-					{row.meta.length > 0 ? row.meta : null}
+					{rowAge(row)}
 				</div>
 				<ChevronRight
 					size={14}
