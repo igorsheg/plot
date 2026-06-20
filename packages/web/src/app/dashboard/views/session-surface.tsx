@@ -49,6 +49,10 @@ import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
 const data = "font-mono tabular-nums";
 
+// The activity line is always one line: the agent stream can carry newlines in a
+// message/tool delta, so collapse them to spaces before render — truncate clips.
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+
 // ─────────────────────────────────────────────────────────────────────────
 // Plot web session surface — re-imagined as a control surface, not a dashboard.
 //
@@ -440,7 +444,7 @@ function ThreadRow({
 					onSelect();
 					onFocus();
 				}}
-				className="grid w-full grid-cols-[3px_1fr_auto_16px] items-center gap-x-4 px-6 py-4 text-left"
+				className="grid w-full grid-cols-[3px_minmax(0,1fr)_auto_16px] items-center gap-x-4 px-6 py-4 text-left"
 			>
 				<span className={cn("h-6 w-[3px]", shape.item, rail)} />
 				<div className="min-w-0">
@@ -452,12 +456,12 @@ function ThreadRow({
 					</span>
 					<p
 						className={cn(
-							"mt-1 truncate font-mono text-2xs",
+							"mt-1 truncate font-mono text-2xs whitespace-nowrap",
 							live ? "shimmer-text" : "text-t3",
 							elevated && !live && "text-attention",
 						)}
 					>
-						{row.activity}
+						{oneLine(row.activity)}
 					</p>
 				</div>
 				<div
@@ -640,20 +644,22 @@ function Trail({ row }: { row: WorkRowModel }) {
 			<div className={cn("font-mono text-2xs text-t3", data)}>
 				timeline · {attempt.meaningfulCount} of {attempt.eventCount} events
 			</div>
-			<div className="grid grid-cols-[7ch_1fr] gap-x-3 font-mono text-2xs">
+			<div className="grid grid-cols-[7ch_minmax(0,1fr)] gap-x-3 font-mono text-2xs">
 				{history.map((entry) => (
 					<Fragment key={`${entry.atMs}-${entry.kind}`}>
 						<span className="text-t3">
 							{formatDuration(Date.now() - entry.atMs)}
 						</span>
-						<span className="truncate text-muted-foreground">{entry.text}</span>
+						<span className="min-w-0 truncate whitespace-nowrap text-muted-foreground">
+							{oneLine(entry.text)}
+						</span>
 					</Fragment>
 				))}
 				{attempt.streaming ? (
 					<Fragment key="live">
 						<span className="text-foreground">now</span>
-						<span className="truncate text-foreground shimmer-text">
-							{row.activity}
+						<span className="min-w-0 truncate whitespace-nowrap text-foreground shimmer-text">
+							{oneLine(row.activity)}
 						</span>
 					</Fragment>
 				) : null}
