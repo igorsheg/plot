@@ -18,8 +18,10 @@ import {
 	type PlotWebDashboardState,
 	usePlotWebDashboardState,
 } from "./app/dashboard/web-dashboard-state";
-import { FleetRail, OverviewPane } from "./app/dashboard/views/fleet-rail";
+import { AppSidebar } from "./app/dashboard/views/app-sidebar";
+import { OverviewPane } from "./app/dashboard/views/fleet-rail";
 import { SessionSurface } from "./app/dashboard/views/session-surface";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 // Tests render through the router but inject a fixed frame instead of a live WS
 // connection — the override rides the router context.
@@ -50,13 +52,14 @@ function RootLayout() {
 	const state = stateOverride ?? live;
 	return (
 		<DashboardProvider state={state}>
-			{/* The screen is two regions: the fleet rail (the single left chrome —
-			    brand, connection, session list) and the room (the selected session,
-			    full-bleed). No top bar, no per-session back link: the rail owns
-			    session switching, the room owns the live surface. */}
-			<div className="flex h-dvh bg-background text-foreground">
-				<FleetRail />
-				<div className="min-w-0 flex-1 overflow-y-auto">
+			{/* The web shell: a collapsible coss Sidebar (the fleet — brand,
+			    connection, session list) + a full-bleed room (the selected
+			    session). The sidebar is persistent when open and slides away to
+			    give the room full bleed when collapsed; on mobile it is a sheet.
+			    No inset header — the pulse header inside the room owns the title. */}
+			<SidebarProvider>
+				<AppSidebar />
+				<SidebarInset className="min-w-0 overflow-y-auto">
 					{params.sessionId === undefined ? (
 						<div className="mx-auto w-full max-w-5xl px-gutter py-6">
 							<Outlet />
@@ -64,8 +67,8 @@ function RootLayout() {
 					) : (
 						<Outlet />
 					)}
-				</div>
-			</div>
+				</SidebarInset>
+			</SidebarProvider>
 		</DashboardProvider>
 	);
 }

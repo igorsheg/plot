@@ -7,6 +7,7 @@ import {
 import type { SessionHistoryEvent } from "@plot/control/session-history";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { renderToStaticMarkup } from "react-dom/server";
+import { SidebarProvider } from "../src/components/ui/sidebar";
 
 import {
 	chooseInitialSession,
@@ -34,15 +35,17 @@ const { DashboardProvider } =
 	await import("../src/app/dashboard/dashboard-context");
 const { SessionSurface } =
 	await import("../src/app/dashboard/views/session-surface");
-const { FleetRail } = await import("../src/app/dashboard/views/fleet-rail");
+const { AppSidebar } = await import("../src/app/dashboard/views/app-sidebar");
 
-// Render the fleet rail (the left chrome) + session surface for a fixed
-// frame, mirroring what the router's RootLayout composes around the session route.
+// Render the sidebar (the left chrome) + session surface for a fixed frame,
+// mirroring what the router's RootLayout composes around the session route.
 function renderSession(override: PlotWebDashboardState): string {
 	return renderToStaticMarkup(
 		<DashboardProvider state={override}>
-			<FleetRail />
-			<SessionSurface />
+			<SidebarProvider>
+				<AppSidebar />
+				<SessionSurface />
+			</SidebarProvider>
 		</DashboardProvider>,
 	);
 }
