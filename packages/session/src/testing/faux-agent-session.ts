@@ -118,16 +118,17 @@ export const writePlotFauxAgentFiles = async (
 			2,
 		)}\n`,
 	);
-	await writeFile(
-		join(paths.agentDir, "settings.json"),
-		`${JSON.stringify(
-			{
-				defaultProvider: provider,
-				defaultModel: modelId,
-			},
-			null,
-			2,
-		)}\n`,
-	);
+	const settingsText = `${JSON.stringify(
+		{
+			defaultProvider: provider,
+			defaultModel: modelId,
+		},
+		null,
+		2,
+	)}\n`;
+	await Promise.all([
+		writeFile(join(paths.agentDir, "settings.json"), settingsText),
+		writeFile(join(paths.plotDir, "settings.json"), settingsText),
+	]);
 	return paths;
 };

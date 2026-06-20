@@ -118,6 +118,7 @@ describe("plot CLI", () => {
 		expect(output).toContain("A control plane for long-running coding agents.");
 		expect(output).toContain("list-models");
 		expect(output).toContain("docs");
+		expect(output).toContain("dynamic");
 		expect(output).toContain("run");
 		expect(output).toContain("tui");
 		expect(output).toContain("web");

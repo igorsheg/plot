@@ -78,6 +78,35 @@ describe("agent session work runner", () => {
 		expect(seen[1]).toBe(events[1]);
 	});
 
+	test("fails work when the agent ends with a terminal provider error", async () => {
+		const client = {
+			prompt: () =>
+				iterable([
+					{
+						type: "agent_end",
+						willRetry: false,
+						messages: [
+							{
+								role: "assistant",
+								content: [],
+								stopReason: "error",
+								errorMessage: "provider quota exhausted",
+							},
+						],
+					} as unknown as AgentSessionEvent,
+				]),
+		};
+
+		const runner = await makeAgentSessionWorkRunner(
+			{ prompt: "do work" },
+			client,
+		);
+
+		await expect(runner.run(context)).rejects.toThrow(
+			"provider quota exhausted",
+		);
+	});
+
 	test("renders prompt templates with work template context", async () => {
 		const prompts: string[] = [];
 		const client = {

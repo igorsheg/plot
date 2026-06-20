@@ -276,7 +276,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				],
 			},
 		],
-		reconcile: async ({ snapshot }) => {
+		reconcile: async ({ snapshot, signal }) => {
 			const proposals = [];
 			const previousDiscoveredWorks = decodeDiscoveredWorks(
 				snapshot.facts.get(discoveredFactKey(source)),
@@ -326,12 +326,15 @@ export const makePlotExtensionSourceBundle = (options: {
 				)
 					selectedWork.delete(completion.workKey);
 			}
-			// Completion hooks may update the source's durable state, but this
-			// tick's discovery was observed before those hooks ran. Suppress only
-			// exact keys that completed in this tick so stale discovery cannot
-			// immediately redispatch. If the source still declares the same key on
-			// a later tick, the source is authoritative and Plot runs it again.
+			// Completion hooks may update the source's durable state. Re-discover
+			// once after those hooks, then suppress only exact keys that completed
+			// in this tick so stale discovery cannot immediately redispatch.
 			if (completedThisTickKeys.size > 0) {
+				discoveredWorks = await runMaybePromise(
+					"discover",
+					String(source),
+					() => options.runtime.discover({ signal }),
+				);
 				discoveredWorks = discoveredWorks.filter(
 					(work) =>
 						!completedThisTickKeys.has(
@@ -524,8 +527,20 @@ export const makePlotExtensionSourceBundle = (options: {
 		},
 	};
 };
+const dynamicForgeRuntime = {
+	validateDynamicWorkflowBundle: async (options: unknown) =>
+		(await import("./dynamic-workflow.js")).validateDynamicWorkflowBundle(
+			options as never,
+		),
+	writeDynamicWorkflowMetadata: async (input: unknown) =>
+		(await import("./dynamic-workflow.js")).writeDynamicWorkflowMetadata(
+			input as never,
+		),
+};
+
 const extensionVirtualModules: Record<string, unknown> = {
 	"plot-ai/sdk": plotSdk,
+	"plot-ai/internal/dynamic-workflow": dynamicForgeRuntime,
 };
 
 const importExtensionModule = async (source: string): Promise<unknown> => {

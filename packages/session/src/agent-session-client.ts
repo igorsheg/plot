@@ -34,6 +34,7 @@ export interface PromptAgentSessionOptions {
 	readonly promptOptions?: PromptOptions;
 	readonly log?: Fields;
 	readonly signal?: AbortSignal;
+	/** Max high-level turns in this Agent Run: first prompt plus continuations. */
 	readonly maxTurns?: number;
 	readonly shouldContinue?: (turnNumber: number) => Promise<boolean> | boolean;
 	readonly continuationPrompt?: (

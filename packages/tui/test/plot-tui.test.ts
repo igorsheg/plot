@@ -44,6 +44,45 @@ describe("Plot TUI", () => {
 		expect(typeof runPlotTui).toBe("function");
 	});
 
+	test("opens requested oneshot sessions", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "plot-tui-oneshot-"));
+		tempDirs.push(cwd);
+		const serverDir = await mkdtemp(join(tmpdir(), "plot-tui-server-"));
+		tempDirs.push(serverDir);
+		const workflowPath = await makeWorkflow(cwd);
+		const server = await startLocalPlotServer({ serverDir, port: 0, cwd });
+		const observer = await connectLocalControlClient({
+			serverDir,
+			autostart: false,
+		});
+		try {
+			const sessionId = "tui-oneshot-test";
+			const attachment = await openAndAttachPlotTuiSession({
+				cwd,
+				workflowPath,
+				sessionId,
+				serverDir,
+				mode: "oneshot",
+			});
+			const listed = await observer.request("list_sessions", {});
+			expect(
+				(
+					listed.data as {
+						sessions: readonly { id: string; mode: string }[];
+					}
+				).sessions,
+			).toContainEqual(
+				expect.objectContaining({ id: sessionId, mode: "oneshot" }),
+			);
+			await attachment.close();
+			attachment.client.close();
+		} finally {
+			observer.close();
+			await server.stop();
+			await sleep(50);
+		}
+	});
+
 	test("detaching the TUI keeps the server session running", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-tui-detach-"));
 		tempDirs.push(cwd);

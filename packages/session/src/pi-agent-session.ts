@@ -13,6 +13,10 @@ import type {
 	CreateAgentSessionResult,
 } from "./agent-session-types.js";
 import type { PlotPaths } from "./plot-paths.js";
+import {
+	loadPlotSettings,
+	plotSettingsForAgentSession,
+} from "./plot-settings.js";
 import type {
 	AgentToolMode,
 	WorkflowAgentConfig,
@@ -119,10 +123,10 @@ const findConfiguredModel = (
 	return modelRegistry.find(agent.provider, agent.model);
 };
 
-const createSettingsManager = (paths: PlotPaths, agent: WorkflowAgentConfig) =>
-	SettingsManager.create(paths.cwd, paths.agentDir, {
-		projectTrusted: agent.allowProjectConfig ?? false,
-	});
+const createSettingsManager = async (paths: PlotPaths) =>
+	SettingsManager.inMemory(
+		plotSettingsForAgentSession(await loadPlotSettings(paths)),
+	);
 
 const resourceOptions = (
 	paths: PlotPaths,
@@ -173,7 +177,7 @@ export const makePlotCreateAgentSession = (
 			authStorage.setRuntimeApiKey(agent.provider, overrides.apiKey);
 		}
 		const settingsManager =
-			request?.settingsManager ?? createSettingsManager(paths, agent);
+			request?.settingsManager ?? (await createSettingsManager(paths));
 		const modelRegistry =
 			request?.modelRegistry ??
 			ModelRegistry.create(authStorage, join(paths.agentDir, "models.json"));

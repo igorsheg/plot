@@ -101,7 +101,7 @@ describe("plot CLI faux provider boundary", () => {
 		);
 	});
 
-	test("runs WORKFLOW.md through the explicit no-server escape hatch with the production Plot pi factory", async () => {
+	test("runs WORKFLOW.md through the explicit no-server escape hatch with the production Plot agent-session factory", async () => {
 		const workflow = await makeWorkflowFile();
 		const child = Bun.spawn(
 			[
@@ -156,7 +156,7 @@ describe("plot CLI faux provider boundary", () => {
 		expect(stderr).not.toContain("plot_cli.run_control_oneshot");
 	});
 
-	test("exercises the production Plot pi factory with a deterministic faux provider", async () => {
+	test("exercises the production Plot agent-session factory with a deterministic faux provider", async () => {
 		const workflow = await makeWorkflowFile();
 		const child = Bun.spawn(
 			[

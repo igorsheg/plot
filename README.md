@@ -73,6 +73,12 @@ You need:
 - a branch with an associated pull request
 - agent provider auth configured
 
+Optional Plot defaults live in `~/.plot/settings.json` or `.plot/settings.json`:
+
+```json
+{ "defaultProvider": "openai-codex", "defaultModel": "gpt-5.5" }
+```
+
 ## Workflows
 
 A workflow is Markdown plus config.
@@ -107,7 +113,7 @@ Extensions are trusted TypeScript.
 
 They can read GitHub, Linear, CI, logs, queues, files, or databases. They return work items. Plot runs them.
 
-Extensions can also register pi-native tools for API-shaped side effects where TypeScript should own correctness, such as posting a review or updating a ticket. Those tools are passed directly to the Agent Run Plot schedules for the Work Item.
+Extensions can also register tools for API-shaped side effects where TypeScript should own correctness, such as posting a review or updating a ticket. Those tools are passed directly to the Agent Run Plot schedules for the Work Item.
 
 Build workflows like:
 
@@ -119,6 +125,8 @@ Build workflows like:
 - run recurring repo maintenance
 
 Plot should not care what kind of work it is. It should care whether the work is running, waiting, blocked, failed, or complete.
+
+Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning.
 
 ## Dashboards
 

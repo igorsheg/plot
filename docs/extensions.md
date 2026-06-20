@@ -4,7 +4,7 @@
 
 Paste this doc, then say what work you want Plot to run.
 
-Extensions are trusted TypeScript modules. They discover work and register pi-native tools. Plot schedules one Agent Run for each selected Work Item. The agent handles judgment inside the workflow prompt.
+Extensions are trusted TypeScript modules. They discover work and register tools. Plot schedules one Agent Run for each selected Work Item. The agent handles judgment inside the workflow prompt.
 
 Use the public SDK:
 
@@ -65,7 +65,7 @@ Think in three layers:
 
 ```txt
 world -> extension -> work item -> Agent Run
-                     └─ registered pi tools
+                     └─ registered tools
 ```
 
 The extension should answer:
@@ -150,7 +150,7 @@ Examples:
 
 Data for the prompt. Keep it useful and compact.
 
-Give the agent facts, not a rigid script.
+Give the agent facts, not a rigid script. Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning.
 
 ### `display`
 
@@ -229,9 +229,9 @@ extension:
 
 ## Registered tools
 
-Extensions can register native pi tools with `registerTool`. Use tools for integration boundaries where TypeScript should own side-effect correctness: fetching prepared context, calling an API, posting a review, updating a ticket, or reporting structured progress.
+Extensions can register tools with `registerTool`. Use tools for integration boundaries where TypeScript should own side-effect correctness: fetching prepared context, calling an API, posting a review, updating a ticket, or reporting structured progress.
 
-Do not invent a Plot-specific tool system. Plot passes your `ToolDefinition` through to the pi agent session.
+Do not invent a second orchestration system. Tools run inside the Agent Run that Plot scheduled.
 
 ```ts
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
@@ -278,7 +278,7 @@ registerTool(({ work }) =>
 );
 ```
 
-Keep judgment in the prompt and agent. Put durable, idempotent, API-shaped operations in tools. Tools run inside the Agent Run that Plot scheduled; Plot does not expose separate agent-session helpers.
+Keep judgment in the prompt and agent. Put durable, idempotent, API-shaped operations in tools. For result-writing tools, bind or validate the current Work Item in the tool factory so the agent cannot write output for the wrong target. Plot does not expose separate agent-session helpers.
 
 ## Lifecycle hooks
 
@@ -350,7 +350,7 @@ Use only the public SDK:
 
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
 
-The extension should discover work and return stable work items. It may register pi-native tools with registerTool for API/integration side effects. The workflow prompt will tell the Agent Run how to handle the work and make judgments. Do not import Plot internals. Do not create custom TUI rendering.
+The extension should discover work and return stable work items. It may register tools with registerTool for API/integration side effects. The workflow prompt will tell the Agent Run how to handle the work and make judgments. Do not import Plot internals. Do not create custom TUI rendering.
 
 Create an extension for:
 

@@ -2,6 +2,10 @@
 
 Plot is a control plane for long-running coding-agent work. Its language distinguishes durable work definitions from live supervised runs so operators can reason about a fleet clearly.
 
+## Product principle
+
+Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning. Plot owns the outer loop (`tick -> observe -> reconcile -> act`), Sources own domain observation and compact Work Item context, tools own trusted side effects, and Agent Runs own investigation and judgment.
+
 ## Language
 
 **Workflow**:
@@ -87,3 +91,11 @@ _Avoid_: Agent Transcript, provider log, chat history
 **Agent Transcript**:
 The record of an Agent Run's inner conversation and tool activity.
 _Avoid_: Session History, Process Table, roster
+
+**Workflow Bundle**:
+The pair of `WORKFLOW.md` and `workflow.extension.ts` files that define a Workflow and its trusted TypeScript extension.
+_Avoid_: Dynamic runtime, generated pipeline
+
+**Dynamic Workflow Forge**:
+A Plot-native Workflow that creates or repairs a Workflow Bundle from a user goal. It runs through normal Plot scheduling, uses a trusted write tool for artifacts, and deterministic validation supplies repair context.
+_Avoid_: Separate orchestrator, agent spawner, codegen runtime

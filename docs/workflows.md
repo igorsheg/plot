@@ -39,6 +39,8 @@ Post one useful review.
 
 The extension finds work and exposes safe integration tools. The prompt teaches judgment.
 
+Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning.
+
 Good extension:
 
 ```txt
@@ -68,7 +70,20 @@ A stable workflow name.
 
 ### `agent`
 
-Provider and model settings for the inner agent session.
+Provider and model settings for the agent session. `maxTurns` limits high-level Agent Run turns: one initial prompt plus continuation prompts on the same live session. It does not cap the model/tool loop inside one turn. Use `plot.maxRunDurationMs` for a wall-clock guard.
+
+You can omit provider/model here and use Plot settings instead:
+
+```json
+{
+	"defaultProvider": "openai-codex",
+	"defaultModel": "gpt-5.5",
+	"defaultThinkingLevel": "high",
+	"dynamic": { "outDir": "workflows" }
+}
+```
+
+Plot reads `~/.plot/settings.json`, then `.plot/settings.json`. Workflow front matter and CLI flags override settings.
 
 ### `extension`
 
@@ -83,7 +98,7 @@ extension:
 
 The `config` object is passed to your extension after optional `parseConfig`.
 
-An extension can also register tools for the agent session. Tools are not configured in workflow YAML; they are normal TypeScript returned by the extension setup and passed through to pi-mono.
+An extension can also register tools for the agent session. Tools are not configured in workflow YAML; they are normal TypeScript registered by the extension setup.
 
 ### `plot`
 
@@ -92,7 +107,7 @@ Runtime settings.
 ```yaml
 plot:
   tickIntervalMs: 300000
-  maxRunDurationMs: 900000
+  maxRunDurationMs: 300000
 ```
 
 ### `resources`
@@ -126,7 +141,7 @@ The workflow can use:
 Review {{ issue.id }}: {{ issue.title }}
 ```
 
-Use context for facts the agent needs. Do not use it to micromanage every tool call.
+Use context for facts the agent needs. Do not use it to micromanage every tool call. If a Source discovers multiple Work Items, render the relevant context in the prompt (`{{ work.title }}`, `{{ issue.id }}`, etc.) or expose a work-bound context tool.
 
 ## Tools
 
@@ -140,10 +155,22 @@ Use `prepare_review_context` before reviewing. When you have a final review, cal
 
 Registered tools come from the extension SDK:
 
-- `registerTool(tool)` exposes a pi-native `ToolDefinition` to the Agent Run.
-- `defineTool(...)` is re-exported from pi-mono for tool authoring.
+- `registerTool(tool)` exposes a tool to the Agent Run.
+- `defineTool(...)` defines the tool contract.
 
-Keep this split clear: TypeScript owns integration correctness and idempotent mutations; the agent owns investigation, judgment, and final content.
+Keep this split clear: TypeScript owns integration correctness and idempotent mutations; the agent owns investigation, judgment, and final content. Output tools should bind or validate the current Work Item so the agent cannot accidentally write a result for the wrong target.
+
+## Dynamic workflows
+
+`plot dynamic` asks Plot to forge a normal Workflow Bundle from a goal:
+
+```bash
+plot dynamic "Audit each packages/* package and write .plot/dynamic/package-audit/report.md" --out workflows/package-audit --tui
+```
+
+This is dogfooding, not a second runtime. Plot writes an internal forge Workflow, runs it as a normal Plot Session, gives the Agent Run a trusted `write_dynamic_workflow_bundle` tool, passes the current Plot auth/model catalog as context, validates the generated `WORKFLOW.md` + `workflow.extension.ts`, and feeds validation errors back as repair Work Items up to a small bound. `--tui` opens that forge session so it is not a silent wait.
+
+The deterministic parts are the seam: artifact writes, configured-model context, validation, retry bounds, and Session History. The agent still owns the workflow design and the generated workflow's later investigation strategy.
 
 ## Running and observing
 
@@ -155,4 +182,4 @@ plot web
 
 `plot run` creates a oneshot Plot Session. `plot tui` opens a foreground terminal-owned watch session for this project/workflow; quitting it closes the session. `plot web` starts a foreground web gateway for the shared Local Plot Server fleet roster and can drill into live sessions. All three use the explicit control protocol by default.
 
-Plot stores project-local Session History under `.plot/sessions`. This is separate from pi-mono Agent Transcripts: Session History records Plot control-plane events and projection state, while Agent Transcripts remain the inner agent-session record.
+Plot stores project-local Session History under `.plot/sessions`. Session History records Plot control-plane events and projection state, while Agent Transcripts remain the inner agent-session record.

@@ -99,6 +99,24 @@ describe("agent session client", () => {
 		]);
 	});
 
+	test("counts the initial prompt as one of agent.maxTurns", async () => {
+		const fake = makeFakeSession();
+		const client = makeAgentSessionClientLayer({
+			createAgentSession: async () => fakeResult(fake.session),
+		});
+
+		await collect(
+			client.prompt({
+				prompt: "first",
+				maxTurns: 2,
+				shouldContinue: () => true,
+			}),
+		);
+
+		expect(fake.state().prompts).toHaveLength(2);
+		expect(fake.state().prompts[1]).toContain("continuation turn #2 of 2");
+	});
+
 	test("ends the stream when prompting resolves without an agent_end event", async () => {
 		const fake = makeFakeSession({ events: [{ type: "agent_start" }] });
 		const client = makeAgentSessionClientLayer({

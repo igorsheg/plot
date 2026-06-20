@@ -8,6 +8,9 @@ dist/
 # workspaces (agent runtime)
 workspaces/
 
+# generated dynamic workflow bundles
+workflows/*/
+
 # env
 .env
 .env.*
