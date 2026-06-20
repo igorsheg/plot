@@ -34,7 +34,15 @@ import {
 	useDashboardState,
 } from "../dashboard-context";
 import { throughputSeries } from "../throughput-series";
-import { Meta, Rail, type RailTone, Row, SectionLabel, Stack } from "./layout";
+import {
+	Meta,
+	MetaButton,
+	Rail,
+	type RailTone,
+	Row,
+	SectionLabel,
+	Stack,
+} from "./layout";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 
 // Spring tiers (Apple-style: duration + bounce, easier to reason about than
@@ -227,10 +235,8 @@ function PulseHeader({
 							className="whitespace-nowrap"
 						>
 							<span className="mx-3 h-2 w-px self-center bg-border" />
-							<b className="font-normal text-muted-foreground">
-								{totalTokens}
-							</b>{" "}
-							tok{totalCost ? ` · ${totalCost}` : ""}
+							<span className="text-muted-foreground">{totalTokens}</span> tok
+							{totalCost ? ` · ${totalCost}` : ""}
 						</motion.span>
 					) : null}
 				</AnimatePresence>
@@ -554,13 +560,9 @@ function FocusView({
 				</Row>
 			</div>
 			<div className="px-gutter pt-4">
-				<button
-					type="button"
-					onClick={onBack}
-					className="inline-flex items-center gap-1 font-mono text-2xs text-t3 transition-colors hover:text-foreground"
-				>
+				<MetaButton onClick={onBack} className="inline-flex items-center gap-1">
 					<ArrowLeft size={13} /> all work
-				</button>
+				</MetaButton>
 			</div>
 		</div>
 	);
@@ -585,23 +587,24 @@ function Trail({ row }: { row: WorkRowModel }) {
 			<Meta>
 				timeline · {attempt.meaningfulCount} of {attempt.eventCount} events
 			</Meta>
-			<div className="grid grid-cols-[7ch_minmax(0,1fr)] gap-x-3 font-mono text-2xs">
+			<div className="grid grid-cols-[7ch_minmax(0,1fr)] gap-x-3">
 				{history.map((entry) => (
 					<Fragment key={`${entry.atMs}-${entry.kind}`}>
-						<span className="text-t3">
-							{formatDuration(Date.now() - entry.atMs)}
-						</span>
-						<span className="min-w-0 truncate whitespace-nowrap text-muted-foreground">
+						<Meta>{formatDuration(Date.now() - entry.atMs)}</Meta>
+						<Meta tone="muted" className="min-w-0 truncate whitespace-nowrap">
 							{oneLine(entry.text)}
-						</span>
+						</Meta>
 					</Fragment>
 				))}
 				{attempt.streaming ? (
 					<Fragment key="live">
-						<span className="text-foreground">now</span>
-						<span className="min-w-0 truncate whitespace-nowrap text-foreground shimmer-text">
+						<Meta tone="foreground">now</Meta>
+						<Meta
+							tone="foreground"
+							className="min-w-0 truncate whitespace-nowrap shimmer-text"
+						>
 							{oneLine(row.activity)}
-						</span>
+						</Meta>
 					</Fragment>
 				) : null}
 			</div>

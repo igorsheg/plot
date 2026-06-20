@@ -9,7 +9,7 @@ import { StatusDot } from "@/components/ui/status-indicator";
 import { cn } from "@/lib/utils";
 import { useDashboardState } from "../dashboard-context";
 import { stoppedSessionCount, visibleFleetSessions } from "../fleet-model";
-import { Meta, Row, SectionLabel, Stack } from "./layout";
+import { Meta, MetaButton, Row, SectionLabel, Stack } from "./layout";
 import { sessionIsRunning, toneForSession } from "./status";
 
 // The left chrome — the single navigation column. It owns the brand, the
@@ -33,7 +33,7 @@ function ConnectionBadge() {
 	const { connection } = useDashboardState();
 	const dot = connectionDot[connection] ?? connectionDot.offline;
 	return (
-		<span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+		<span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
 			<StatusDot tone={dot.tone} />
 			{dot.label}
 		</span>
@@ -75,13 +75,12 @@ export function FleetRail() {
 					))
 				)}
 				{stopped > 0 ? (
-					<button
-						type="button"
+					<MetaButton
 						onClick={() => setShowStopped((value) => !value)}
-						className="mt-1 self-start px-2 py-1 font-mono text-2xs text-t3 transition-colors hover:text-foreground"
+						className="mt-1 self-start px-2 py-1"
 					>
 						{showStopped ? "hide" : "show"} recently finished ({stopped})
-					</button>
+					</MetaButton>
 				) : null}
 			</Stack>
 		</nav>
@@ -123,20 +122,15 @@ function FleetRailItem({
 						{session.needsYouCount}
 					</Badge>
 				) : running ? (
-					<span className="font-mono text-2xs tabular-nums text-live">
+					<Meta tone="live">
 						{session.agents.active}
 						{session.agents.max > 0 ? `/${session.agents.max}` : ""}
-					</span>
+					</Meta>
 				) : null}
 			</Row>
-			<span
-				className={cn(
-					"truncate pl-4 font-mono text-2xs",
-					running ? "text-t3" : "text-t3/70",
-				)}
-			>
+			<Meta tone={running ? "default" : "muted"} className="truncate pl-4">
 				{session.cwdName}
-			</span>
+			</Meta>
 		</Link>
 	);
 }

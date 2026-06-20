@@ -14,11 +14,18 @@ import { cn } from "@/lib/utils";
 // horizontal inset is the `px-gutter` token (24px); everything else is an
 // integer Tailwind step.
 //
-// Typography is a fixed 5-role scale (see globals.css @theme), each role with a
-// grid-aligned line-height and baked letter-spacing. The only text utilities a
-// view reaches for are `text-2xs|xs|sm|base|lg` + `font-mono` + `font-medium|
-// semibold`. No ad-hoc `text-[..px]`, no ad-hoc `tracking-[..]`. Mono machine
-// data goes through `<Meta>`; status accent bars go through `<Rail>`.
+// Typography — a fixed scale (see globals.css @theme) used as four roles.
+// Each role is a size + weight + (mono?) combo; a view reaches for the role,
+// never a one-off. No ad-hoc `text-[..px]`, no ad-hoc `tracking-[..]`, no bare
+// `font-mono`/`tabular-nums` outside the primitives that own them.
+//
+//   Title       text-base font-medium            the one page H1
+//   Label       text-sm   font-medium            primary row/nav labels
+//   Secondary   text-sm   (normal)               descriptive text
+//   Data        text-2xs  font-mono tabular-nums  machine data — owned by <Meta>
+//
+// text-xs/text-lg exist in the scale for coss components but are not used in
+// app views. Status accent bars go through <Rail>.
 // ─────────────────────────────────────────────────────────────────────────
 
 export const rhythm = {
@@ -106,6 +113,7 @@ export type MetaTone =
 	| "default"
 	| "muted"
 	| "foreground"
+	| "live"
 	| "attention"
 	| "destructive";
 
@@ -113,6 +121,7 @@ const metaTone: Record<MetaTone, string> = {
 	default: "text-t3",
 	muted: "text-muted-foreground",
 	foreground: "text-foreground",
+	live: "text-live",
 	attention: "text-attention",
 	destructive: "text-destructive",
 };
@@ -136,6 +145,33 @@ export function Meta({
 		>
 			{children}
 		</span>
+	);
+}
+
+// ─── meta control ────────────────────────────────────────────────────────
+// A button styled in the Data role (mono, 2xs, t3) that promotes to foreground
+// on hover — chrome that reads as meta, not a primary action. Owns the type
+// tokens so controls never re-derive `font-mono text-2xs text-t3`; callers add
+// layout (padding / flex / icon gap) via `className`.
+export function MetaButton({
+	children,
+	className,
+	...props
+}: {
+	children: ReactNode;
+	className?: string;
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+	return (
+		<button
+			type="button"
+			className={cn(
+				"font-mono text-2xs text-t3 transition-colors hover:text-foreground",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</button>
 	);
 }
 
