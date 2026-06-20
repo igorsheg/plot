@@ -1,6 +1,6 @@
 import {
 	dashboardModelFrom,
-	formatAgo,
+	formatDuration,
 	type WorkRowModel,
 } from "@plot/control/dashboard-model";
 import type { DashboardProjection } from "@plot/control/projection";
@@ -92,6 +92,17 @@ function SessionDetail({
 		return last === undefined ? [] : throughputSeries(samples, last.atMs);
 	}, [samples]);
 	const idle = model.work.length === 0;
+	// Stable insertion order, not the model's attention-first sort: the
+	// AttentionBand already surfaces what needs you, and reordering blocked
+	// rows to the top is what makes the list jump as agents stream.
+	const work = useMemo(
+		() =>
+			model.work.toSorted(
+				(a, b) =>
+					(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
+			),
+		[model.work],
+	);
 	const agentsActive = session?.agents.active ?? model.pulse.runningCount;
 	const agentsMax = session?.agents.max ?? model.pulse.maxConcurrentRuns;
 	const paused = session?.state === "paused" || projection.status === "paused";
@@ -166,7 +177,7 @@ function SessionDetail({
 			{idle ? (
 				<IdleList model={model} />
 			) : (
-				model.work.map((row) => (
+				work.map((row) => (
 					<WorkLane
 						key={row.work.workKey}
 						row={row}
@@ -332,27 +343,24 @@ function WorkLane({
 	);
 }
 
-// The trail: the timeline (completed meaningful actions + turns), newest first,
-// capped to the recent window, with the live "now" entry when streaming. One
-// column, no separate commands / observations / spine / live-stream grid — the
-// timeline already is the record; the rest duplicated it or rendered dead data.
+// The trail: a bottom-anchored rolling window over the timeline, the way the
+// TUI streams it. Newest sits at the bottom and the live "now" line is pinned
+// last — new entries append above the live line, old ones fall off the top, so
+// nothing shifts position. The age column is a fixed-width track (formatDuration,
+// no "ago" suffix) so ages tick in place without reflowing the text column, and
+// keys are stable (atMs, not the age that changes every tick) so React reuses
+// the DOM instead of remounting/reordering it on every coalesced frame.
+const trailWindow = 9;
+
 function Trail({ row }: { row: WorkRowModel }) {
 	const attempt = row.attempt;
 	if (attempt === undefined)
 		return <p className="text-2xs text-t3">No activity yet.</p>;
 
-	const history = [...attempt.timeline].toSorted((a, b) => b.atMs - a.atMs);
-	const rows = [
-		...(attempt.streaming
-			? [{ age: "now", text: row.activity, live: true }]
-			: []),
-		...history.slice(0, 9).map((entry) => ({
-			age: formatAgo(Date.now() - entry.atMs),
-			text: entry.text,
-			live: false,
-		})),
-	];
-	if (rows.length === 0)
+	const history = [...attempt.timeline]
+		.toSorted((a, b) => a.atMs - b.atMs)
+		.slice(-trailWindow);
+	if (history.length === 0 && !attempt.streaming)
 		return <p className="text-2xs text-t3">No activity yet.</p>;
 
 	return (
@@ -360,28 +368,26 @@ function Trail({ row }: { row: WorkRowModel }) {
 			<div className={cn("mb-3 text-t3", mono)}>
 				timeline · {attempt.meaningfulCount} of {attempt.eventCount} events
 			</div>
-			{rows.map((entry, index) => (
-				<div
-					key={`${entry.age}-${entry.text}-${index}`}
-					className="grid grid-cols-[12px_1fr_auto] items-baseline gap-2 py-1"
-				>
-					<span
-						className={cn(
-							"size-1.5 justify-self-center self-center rounded-full",
-							entry.live ? "bg-live ring-[3px] ring-live/20" : "bg-border",
-						)}
-					/>
-					<span
-						className={cn(
-							"text-2xs",
-							entry.live ? "text-foreground" : "text-muted-foreground",
-						)}
-					>
-						{entry.text}
-					</span>
-					<span className="text-2xs text-t3">{entry.age}</span>
-				</div>
-			))}
+			<div className="grid grid-cols-[7ch_1fr] gap-x-3">
+				{history.map((entry) => (
+					<Fragment key={`${entry.atMs}-${entry.kind}`}>
+						<span className="text-2xs text-t3">
+							{formatDuration(Date.now() - entry.atMs)}
+						</span>
+						<span className="truncate text-2xs text-muted-foreground">
+							{entry.text}
+						</span>
+					</Fragment>
+				))}
+				{attempt.streaming ? (
+					<Fragment key="live">
+						<span className="text-2xs text-foreground">now</span>
+						<span className="truncate text-2xs text-foreground shimmer-text">
+							{row.activity}
+						</span>
+					</Fragment>
+				) : null}
+			</div>
 		</div>
 	);
 }
