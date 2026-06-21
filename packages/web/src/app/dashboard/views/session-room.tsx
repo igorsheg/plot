@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Sparkline } from "@/components/ui/sparkline";
 import { Switch } from "@/components/ui/switch";
+import { useNow } from "@/hooks/use-now";
 import { cn } from "@/lib/utils";
 import {
 	useDashboardActions,
@@ -46,10 +47,10 @@ import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
 // and operator actions. One accent (`--attention`) marks needs-you; everything
 // autonomous-and-fine reads as neutral ink, liveness through motion.
 //
-// Most internals are lifted (copied) from the legacy session-surface: useNow,
-// useEsc, the running-clock + dashboardModelFrom usage, spring tiers, oneLine,
-// rowAge, the timeline (Trail), the throughput header, and SessionControls.
-// session-surface is retired in a later task; the duplication is temporary.
+// Most internals are lifted from the legacy session-surface: useEsc, the
+// running-clock + dashboardModelFrom usage, spring tiers, oneLine, the timeline
+// (Trail), the throughput header, and SessionControls. The shared `useNow`
+// clock now lives in `@/hooks/use-now`.
 // ─────────────────────────────────────────────────────────────────────────
 
 // Spring tiers — crisp, professional (bounce 0). Used for the focus-change
@@ -944,19 +945,6 @@ function useEsc(onEsc: () => void) {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onEsc]);
-}
-
-// A live render clock mirroring the TUI's syncLiveRenderTimer. The web only
-// re-renders when the projection coalescer publishes — which stops when idle —
-// so ages ("28s ago") and the schedule would freeze. This ticks `now` at the
-// given interval: 125ms when work runs (smooth pulse), 1s when idle.
-function useNow(intervalMs: number): number {
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		const id = window.setInterval(() => setNow(Date.now()), intervalMs);
-		return () => window.clearInterval(id);
-	}, [intervalMs]);
-	return now;
 }
 
 function SnapshotUnavailable({
