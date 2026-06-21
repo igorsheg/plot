@@ -76,13 +76,25 @@
 	--sidebar-border: --alpha(var(--color-black) / 6%);
 	--sidebar-ring: var(--color-neutral-400);
 
-	/* Plot product tokens — the only semantic colours the dashboard adds. */
+	/* Plot product tokens — the single accent + neutral data tones.
+	   ONE accent rule: monochrome = autonomous & fine; --attention is the only
+	   chromatic token and means "a human is needed". Live is ink + motion. */
 	--selected: --alpha(var(--color-black) / 6%);
 	--hover: --alpha(var(--color-black) / 4%);
 	--active: --alpha(var(--color-black) / 8%);
 	--attention: var(--color-amber-600);
+	--attention-soft: --alpha(var(--color-amber-600) / 5%);
+	--attention-border: --alpha(var(--color-amber-600) / 22%);
 	--t3: var(--color-neutral-400);
-	--live: var(--color-blue-600);
+	/* Live is no longer chromatic — it resolves to ink so liveness reads through
+	   motion (pulse-beat / shimmer-text), not hue. Token kept so callsites that
+	   reference --live/-bg-live keep working through the sweep. */
+	--live: var(--foreground);
+	/* Danger folds into the one accent: a danger action still means "a human is
+	   involved". Kept as an alias so coss components referencing --destructive
+	   render in the accent, not red. */
+	--destructive: var(--attention);
+	--destructive-foreground: var(--attention);
 }
 
 .dark {
@@ -140,13 +152,17 @@
 	--sidebar-border: --alpha(var(--color-white) / 5%);
 	--sidebar-ring: var(--color-neutral-400);
 
-	/* Plot product tokens (dark). */
+	/* Plot product tokens (dark) — same one-accent rule. */
 	--selected: --alpha(var(--color-white) / 6%);
 	--hover: --alpha(var(--color-white) / 4%);
 	--active: --alpha(var(--color-white) / 8%);
 	--attention: var(--color-amber-400);
+	--attention-soft: --alpha(var(--color-amber-400) / 6%);
+	--attention-border: --alpha(var(--color-amber-400) / 24%);
 	--t3: var(--color-neutral-500);
-	--live: var(--color-blue-400);
+	--live: var(--foreground);
+	--destructive: var(--attention);
+	--destructive-foreground: var(--attention);
 }
 
 @theme inline {
@@ -196,6 +212,8 @@
 	--color-hover: var(--hover);
 	--color-active: var(--active);
 	--color-attention: var(--attention);
+	--color-attention-soft: var(--attention-soft);
+	--color-attention-border: var(--attention-border);
 	--color-t3: var(--t3);
 	--color-live: var(--live);
 
