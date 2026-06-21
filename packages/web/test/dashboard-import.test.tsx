@@ -362,6 +362,72 @@ describe("plot web dashboard", () => {
 		expect(html).toContain("error");
 	});
 
+	test("extension-defined long strings render without breaking layout", () => {
+		// Operator-action `label`, `disabledReason`, `model`, `workflowPath` are
+		// extension-defined and unbounded. The Room must render long values without
+		// crashing; truncation itself is CSS (asserted by class, not measured here).
+		const longLabel =
+			"Ship this very-long extension-defined operator action label that should never break the row layout";
+		const longPath = `/very/deeply/nested/workspace/${"segment-".repeat(20)}WORKFLOW.md`;
+		const session = summary({
+			id: "session-1",
+			workflowName: "review",
+			workflowPath: longPath,
+		});
+		const event: SessionHistoryEvent = {
+			...workStarted("session-1"),
+			payload: {
+				run: {
+					workKey: "work:alpha",
+					runId: "run-1",
+					sourceId: "source",
+					display: { title: "Needs operator" },
+					operatorActions: [
+						{ id: "ship", label: longLabel, disabledReason: longPath },
+					],
+				},
+			},
+		};
+		const projection = applySnapshot(
+			reduceSessionHistoryEvent(emptyProjection("session-1", "review"), event),
+			{
+				snapshot: {
+					work: new Map([
+						[
+							"work:alpha",
+							{
+								workKey: "work:alpha",
+								sourceId: "source",
+								status: "blocked",
+								display: { title: "Needs operator" },
+								blockedReason: "waiting for operator",
+								operatorActions: [
+									{ id: "ship", label: longLabel, disabledReason: longPath },
+								],
+								currentRunId: "run-1",
+							},
+						],
+					]),
+					running: new Map([
+						[
+							"work:alpha",
+							{ workKey: "work:alpha", runId: "run-1", sourceId: "source" },
+						],
+					]),
+				},
+			},
+		);
+		const html = renderSession(
+			state({
+				roster: [session],
+				selectedSessionId: "session-1",
+				projection,
+			}),
+		);
+		expect(html).toContain(longLabel);
+		expect(html).toContain("Needs operator");
+	});
+
 	test("offline state preserves the last good frame", () => {
 		const session = summary({ id: "session-1", workflowName: "docs" });
 		const projection = reduceSessionHistoryEvent(

@@ -78,12 +78,18 @@ function OperatorActionButton({
 			<Button
 				size="sm"
 				variant={operatorActionTone(action)}
-				className={cn(dangerClass(action), prominent && "font-medium")}
+				className={cn(
+					dangerClass(action),
+					prominent && "font-medium",
+					// `label` is extension-defined and unbounded — cap the button so a
+					// long label truncates instead of stretching the wrapping row.
+					"max-w-full",
+				)}
 				disabled={disabledReason !== undefined || pending}
 				loading={pending}
 				onClick={() => (needsDialog ? setOpen(true) : void run(undefined))}
 			>
-				{action.label}
+				<span className="min-w-0 truncate">{action.label}</span>
 			</Button>
 
 			{needsDialog ? (
@@ -102,7 +108,11 @@ function OperatorActionButton({
 				/>
 			) : null}
 
-			{disabledReason ? <Meta>{disabledReason}</Meta> : null}
+			{disabledReason ? (
+				// `disabledReason` is extension-defined — keep it on one truncating line
+				// so a long reason can't widen the action row.
+				<Meta className="min-w-0 max-w-full truncate">{disabledReason}</Meta>
+			) : null}
 		</>
 	);
 }
