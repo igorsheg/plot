@@ -801,7 +801,7 @@ function FocusedDetail({
 					</Stack>
 				) : null}
 				{attempt ? (
-					<AgentRunPanel row={row} attempt={attempt} />
+					<AgentRunPanel attempt={attempt} />
 				) : status !== "blocked" && status !== "failed" ? (
 					<Meta tone="muted" className="block">
 						{oneLine(row.activity)}
@@ -834,10 +834,8 @@ function FocusedDetail({
 // ─── agent run panel ─────────────────────────────────────────────────────
 
 function AgentRunPanel({
-	row,
 	attempt,
 }: {
-	row: WorkRowModel;
 	attempt: NonNullable<WorkRowModel["attempt"]>;
 }) {
 	const check =
@@ -848,12 +846,11 @@ function AgentRunPanel({
 				: attempt.check === "failed"
 					? "check failed"
 					: undefined;
-	const meta = [
-		formatTokensMeta(attempt),
-		`turn ${attempt.turnCount}`,
-		`${attempt.eventCount} events`,
-		`${attempt.meaningfulCount} meaningful`,
-	]
+	// Telemetry = resource spend + turn count only. The event/meaningful counts
+	// were dropped: they just recount the timeline rows rendered below, which is
+	// the slop this panel was restating. What's left is data the timeline does
+	// NOT carry (tokens, cost, turn) — a true summary, not a second log.
+	const meta = [formatTokensMeta(attempt), `turn ${attempt.turnCount}`]
 		.filter((part) => part.length > 0)
 		.join(" · ");
 	// Aggregate phase counts by kind — the stream emits many count-1 entries, so a
@@ -865,70 +862,55 @@ function AgentRunPanel({
 			(phaseTotals.get(phase.kind) ?? 0) + phase.count,
 		);
 	const phases = [...phaseTotals.entries()];
-	// The run panel is a bordered card with a header strip — the centerpiece of
-	// the right pane, so it reads as an app surface, not loose meta lines. The
-	// header carries the run id + stage; the body carries the live activity,
-	// phase chips, check chip, run meta, and the dark commands block.
+	// The run panel is a LEAN telemetry + progress header — NOT a second log.
+	// The timeline below is the single canonical record of what the agent did
+	// (its `now` row carries the live activity; its history carries each
+	// completed action, including `Ran <command>`). So this panel carries only
+	// what the timeline does NOT: the run id, the current stage, the aggregated
+	// phase counts, the check state, and resource spend (tokens/cost/turn). No
+	// streaming line, no commands block, no event recounts — those were the
+	// three variants of the same data this area used to repeat.
 	return (
 		<div className="mt-4 overflow-hidden rounded border border-border">
 			<div className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
 				<Meta tone="muted">agent run · {attempt.runId}</Meta>
 				<Meta>stage · {attempt.stage}</Meta>
 			</div>
-			<Stack gap={3} className="p-4">
-				{attempt.streaming ? (
-					<Meta tone="foreground" className="block truncate shimmer-text">
-						{oneLine(row.activity)}
-					</Meta>
-				) : null}
-				{phases.length > 0 || check ? (
-					<Row gap={2} className="flex-wrap">
-						{phases.map(([kind, count]) => (
-							<span
-								key={kind}
-								className="rounded-[10px] border border-border px-2 py-1 font-mono text-2xs text-muted-foreground"
-							>
-								{kind}·{count}
-							</span>
-						))}
-						{check ? (
-							<span
-								className={cn(
-									"rounded-[10px] border px-2 py-1 font-mono text-2xs",
-									attempt.check === "failed"
-										? "border-attention-border text-attention"
-										: attempt.check === "passed"
-											? "border-border text-foreground"
-											: "border-border text-muted-foreground",
-								)}
-							>
-								{check}
-							</span>
-						) : null}
-					</Row>
-				) : null}
-				{/* The run meta is a single line of frequently-updating numbers
-				    (tokens, turn, events). Truncate so a growing count can't toggle a
-				    wrap and make the panel height jitter frame to frame. */}
-				<Meta tone="muted" className="block truncate">
-					{meta}
-				</Meta>
-				{attempt.commands.length > 0 ? (
-					<div className="rounded bg-foreground px-4 py-3 text-background">
-						<Stack gap={1}>
-							{attempt.commands.map((command, index) => (
+			{phases.length > 0 || check || meta.length > 0 ? (
+				<Stack gap={3} className="p-4">
+					{phases.length > 0 || check ? (
+						<Row gap={2} className="flex-wrap">
+							{phases.map(([kind, count]) => (
 								<span
-									key={`${index}-${command}`}
-									className="block truncate font-mono text-2xs"
+									key={kind}
+									className="rounded-[10px] border border-border px-2 py-1 font-mono text-2xs text-muted-foreground"
 								>
-									<span className="text-t3">$ </span>
-									{command}
+									{kind}·{count}
 								</span>
 							))}
-						</Stack>
-					</div>
-				) : null}
-			</Stack>
+							{check ? (
+								<span
+									className={cn(
+										"rounded-[10px] border px-2 py-1 font-mono text-2xs",
+										attempt.check === "failed"
+											? "border-attention-border text-attention"
+											: attempt.check === "passed"
+												? "border-border text-foreground"
+												: "border-border text-muted-foreground",
+									)}
+								>
+									{check}
+								</span>
+							) : null}
+						</Row>
+					) : null}
+					{meta.length > 0 ? (
+						<Meta tone="muted" className="block truncate">
+							{meta}
+						</Meta>
+					) : null}
+				</Stack>
+			) : null}
 		</div>
 	);
 }
