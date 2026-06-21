@@ -29,6 +29,9 @@ mock.module("@tanstack/react-router", () => ({
 		children?: unknown;
 		className?: string;
 	}) => <a className={className}>{children as never}</a>,
+	// status.tsx's RoleToggle reaches for useNavigate; stub it so the surfaces
+	// that import status (sidebar/session) resolve under the non-DOM test env.
+	useNavigate: () => () => undefined,
 }));
 
 const { DashboardProvider } =
