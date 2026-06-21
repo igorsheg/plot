@@ -572,7 +572,7 @@ function TwoPane({
 	return (
 		<div className="grid min-h-[440px] grid-cols-[minmax(0,360px)_1fr] gap-x-6">
 			<LeftPane work={work} focusedKey={focusedKey} onFocus={onFocus} />
-			<div className="border-l border-border pl-6">
+			<div className="min-w-0 border-l border-border pl-6">
 				{focused ? (
 					<FocusedDetail
 						key={focused.work.workKey}
@@ -851,6 +851,15 @@ function AgentRunPanel({
 	]
 		.filter((part) => part.length > 0)
 		.join(" · ");
+	// Aggregate phase counts by kind — the stream emits many count-1 entries, so a
+	// compact `think·12 read·5 run·8` reads far better than 20 repeated `·1` chips.
+	const phaseTotals = new Map<string, number>();
+	for (const phase of attempt.phases)
+		phaseTotals.set(
+			phase.kind,
+			(phaseTotals.get(phase.kind) ?? 0) + phase.count,
+		);
+	const phases = [...phaseTotals.entries()];
 	return (
 		<Stack gap={2} className="mt-4">
 			<Row gap={2} className="flex-wrap">
@@ -862,17 +871,25 @@ function AgentRunPanel({
 					{oneLine(row.activity)}
 				</Meta>
 			) : null}
-			{attempt.phases.length > 0 ? (
-				<Row gap={2} className="flex-wrap">
-					{attempt.phases.map((phase, index) => (
-						<Meta key={`${phase.kind}-${index}`} tone="muted">
-							{phase.kind}·{phase.count}
+			{phases.length > 0 ? (
+				<Row gap={3} className="flex-wrap">
+					{phases.map(([kind, count]) => (
+						<Meta key={kind} tone="muted">
+							{kind}·{count}
 						</Meta>
 					))}
 				</Row>
 			) : null}
 			{check ? (
-				<Meta tone={attempt.check === "running" ? "muted" : "attention"}>
+				<Meta
+					tone={
+						attempt.check === "failed"
+							? "attention"
+							: attempt.check === "passed"
+								? "foreground"
+								: "muted"
+					}
+				>
 					{check}
 				</Meta>
 			) : null}
