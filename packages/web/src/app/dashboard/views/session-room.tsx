@@ -860,56 +860,66 @@ function AgentRunPanel({
 			(phaseTotals.get(phase.kind) ?? 0) + phase.count,
 		);
 	const phases = [...phaseTotals.entries()];
+	// The run panel is a bordered card with a header strip — the centerpiece of
+	// the right pane, so it reads as an app surface, not loose meta lines. The
+	// header carries the run id + stage; the body carries the live activity,
+	// phase chips, check chip, run meta, and the dark commands block.
 	return (
-		<Stack gap={2} className="mt-4">
-			<Row gap={2} className="flex-wrap">
+		<div className="mt-4 overflow-hidden rounded border border-border">
+			<div className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
 				<Meta tone="muted">agent run · {attempt.runId}</Meta>
 				<Meta>stage · {attempt.stage}</Meta>
-			</Row>
-			{attempt.streaming ? (
-				<Meta tone="foreground" className="block truncate shimmer-text">
-					{oneLine(row.activity)}
-				</Meta>
-			) : null}
-			{phases.length > 0 ? (
-				<Row gap={3} className="flex-wrap">
-					{phases.map(([kind, count]) => (
-						<Meta key={kind} tone="muted">
-							{kind}·{count}
-						</Meta>
-					))}
-				</Row>
-			) : null}
-			{check ? (
-				<Meta
-					tone={
-						attempt.check === "failed"
-							? "attention"
-							: attempt.check === "passed"
-								? "foreground"
-								: "muted"
-					}
-				>
-					{check}
-				</Meta>
-			) : null}
-			<Meta tone="muted">{meta}</Meta>
-			{attempt.commands.length > 0 ? (
-				<div className="rounded bg-foreground px-4 py-3 text-background">
-					<Stack gap={1}>
-						{attempt.commands.map((command, index) => (
+			</div>
+			<Stack gap={3} className="p-4">
+				{attempt.streaming ? (
+					<Meta tone="foreground" className="block truncate shimmer-text">
+						{oneLine(row.activity)}
+					</Meta>
+				) : null}
+				{phases.length > 0 || check ? (
+					<Row gap={2} className="flex-wrap">
+						{phases.map(([kind, count]) => (
 							<span
-								key={`${index}-${command}`}
-								className="block truncate font-mono text-2xs"
+								key={kind}
+								className="rounded-[10px] border border-border px-2 py-1 font-mono text-2xs text-muted-foreground"
 							>
-								<span className="text-t3">$ </span>
-								{command}
+								{kind}·{count}
 							</span>
 						))}
-					</Stack>
-				</div>
-			) : null}
-		</Stack>
+						{check ? (
+							<span
+								className={cn(
+									"rounded-[10px] border px-2 py-1 font-mono text-2xs",
+									attempt.check === "failed"
+										? "border-attention-border text-attention"
+										: attempt.check === "passed"
+											? "border-border text-foreground"
+											: "border-border text-muted-foreground",
+								)}
+							>
+								{check}
+							</span>
+						) : null}
+					</Row>
+				) : null}
+				<Meta tone="muted">{meta}</Meta>
+				{attempt.commands.length > 0 ? (
+					<div className="rounded bg-foreground px-4 py-3 text-background">
+						<Stack gap={1}>
+							{attempt.commands.map((command, index) => (
+								<span
+									key={`${index}-${command}`}
+									className="block truncate font-mono text-2xs"
+								>
+									<span className="text-t3">$ </span>
+									{command}
+								</span>
+							))}
+						</Stack>
+					</div>
+				) : null}
+			</Stack>
+		</div>
 	);
 }
 
