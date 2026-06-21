@@ -7,7 +7,6 @@ import {
 import type { SessionHistoryEvent } from "@plot/control/session-history";
 import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SidebarProvider } from "../src/components/ui/sidebar";
 
 import {
 	chooseInitialSession,
@@ -38,7 +37,6 @@ const { DashboardProvider } =
 	await import("../src/app/dashboard/dashboard-context");
 const { SessionSurface } =
 	await import("../src/app/dashboard/views/session-surface");
-const { AppSidebar } = await import("../src/app/dashboard/views/app-sidebar");
 const { TriageLobby } = await import("../src/app/dashboard/views/triage-lobby");
 
 // Render the Triage Lobby for a fixed frame — the cross-fleet summary surface
@@ -51,15 +49,13 @@ function renderLobby(override: PlotWebDashboardState): string {
 	);
 }
 
-// Render the sidebar (the left chrome) + session surface for a fixed frame,
-// mirroring what the router's RootLayout composes around the session route.
+// Render just the session route's component for a fixed frame. The sidebar
+// shell is retired — the router now renders the session component directly
+// inside the DashboardProvider scroll container, so the harness mirrors that.
 function renderSession(override: PlotWebDashboardState): string {
 	return renderToStaticMarkup(
 		<DashboardProvider state={override}>
-			<SidebarProvider>
-				<AppSidebar />
-				<SessionSurface />
-			</SidebarProvider>
+			<SessionSurface />
 		</DashboardProvider>,
 	);
 }
@@ -150,10 +146,11 @@ describe("plot web dashboard", () => {
 				projection,
 			}),
 		);
-		// the redundant "← all sessions" back link is gone — the fleet rail is the
-		// switcher — so assert the rail + the rendered work instead.
-		expect(html).toContain("plot");
+		// The session route renders the work; the `plot` wordmark now lives in the
+		// Lobby chrome (the sidebar is retired), so assert it via renderLobby.
 		expect(html).toContain("Prepare package");
+		const lobbyHtml = renderLobby(state({ roster: [session] }));
+		expect(lobbyHtml).toContain("plot");
 	});
 
 	test("projection events render an updated Level 1 Work Item row", () => {
@@ -303,17 +300,16 @@ describe("plot web dashboard", () => {
 			emptyProjection("session-1", "docs"),
 			workStarted("session-1"),
 		);
-		const html = renderSession(
-			state({
-				connection: "offline",
-				lastError: "Local Plot Server connection closed",
-				roster: [session],
-				selectedSessionId: "session-1",
-				projection,
-			}),
-		);
-
-		expect(html).toContain("offline · last frame");
-		expect(html).toContain("Prepare package");
+		const offlineState = state({
+			connection: "offline",
+			lastError: "Local Plot Server connection closed",
+			roster: [session],
+			selectedSessionId: "session-1",
+			projection,
+		});
+		// The persisted frame stays in the session route; the `offline · last frame`
+		// connection label is Lobby chrome now (the sidebar that carried it is gone).
+		expect(renderSession(offlineState)).toContain("Prepare package");
+		expect(renderLobby(offlineState)).toContain("offline · last frame");
 	});
 });
