@@ -82,16 +82,19 @@ export function Row({
 export function SectionLabel({
 	children,
 	count,
+	tone = "default",
 	className,
 }: {
 	children: ReactNode;
 	count?: number;
+	tone?: "default" | "accent";
 	className?: string;
 }) {
 	return (
 		<div
 			className={cn(
-				"flex items-baseline justify-between font-mono text-2xs text-t3",
+				"flex items-baseline justify-between font-mono text-2xs uppercase tracking-wider",
+				tone === "accent" ? "text-attention" : "text-t3",
 				className,
 			)}
 		>
@@ -181,12 +184,18 @@ export function MetaButton({
 // not spacing, so it is exempt from the 4px spacing grid but must not appear
 // ad-hoc in views. Callers pass height/positioning via `className`.
 
-export type RailTone = "attention" | "live" | "border" | "outline";
+export type RailTone =
+	| "attention" // blocked/failed — the one accent
+	| "live" // running — ink (motion conveys liveness)
+	| "border" // idle/default
+	| "resolved" // done/stale — a settled stroke
+	| "outline";
 
 const railTone: Record<RailTone, string> = {
 	attention: "bg-attention",
-	live: "bg-live",
+	live: "bg-foreground",
 	border: "bg-border",
+	resolved: "bg-border", // line-strong equivalent in the neutral ramp
 	outline: "bg-transparent shadow-[inset_0_0_0_1px_var(--color-border)]",
 };
 
