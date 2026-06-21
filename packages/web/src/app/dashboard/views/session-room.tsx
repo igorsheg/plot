@@ -955,10 +955,24 @@ function Divided({ children }: { children: readonly ReactNode[] }) {
 }
 
 // esc → back. A control-surface affordance: the depth is one keystroke away.
+//
+// Both this listener and Base UI's dialog dismiss live on `document`, so a
+// `stopPropagation()` from the dialog does NOT stop this sibling document
+// listener — the Room would navigate home while a dialog is open. Guard against
+// that: when any Base UI dialog popup is open (the Close-session dialog or an
+// operator-action dialog), Escape must close the DIALOG, not leave the Room. We
+// detect an open dialog by its rendered popup (`data-slot="dialog-popup"` carries
+// `data-open` only while open) and no-op the back-nav so Base UI's own handler
+// wins.
 function useEsc(onEsc: () => void) {
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onEsc();
+			if (e.key !== "Escape") return;
+			if (
+				document.querySelector('[data-slot="dialog-popup"][data-open]') !== null
+			)
+				return;
+			onEsc();
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
