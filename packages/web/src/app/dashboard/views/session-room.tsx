@@ -800,13 +800,6 @@ function FocusedDetail({
 						<Meta tone="muted">↻ will auto-retry on the next wake.</Meta>
 					</Stack>
 				) : null}
-				{attempt ? (
-					<AgentRunPanel attempt={attempt} />
-				) : status !== "blocked" && status !== "failed" ? (
-					<Meta tone="muted" className="block">
-						{oneLine(row.activity)}
-					</Meta>
-				) : null}
 			</div>
 
 			<Row gap={2} className="mt-4 flex-wrap">
@@ -824,20 +817,29 @@ function FocusedDetail({
 				) : null}
 			</Row>
 
-			<div className="mt-4">
-				<Timeline row={row} />
-			</div>
+			{attempt ? (
+				<AgentRunPanel row={row} />
+			) : status !== "blocked" && status !== "failed" ? (
+				<Meta tone="muted" className="mt-4 block">
+					{oneLine(row.activity)}
+				</Meta>
+			) : null}
 		</motion.div>
 	);
 }
 
 // ─── agent run panel ─────────────────────────────────────────────────────
+// One bordered card: a telemetry header (run id · stage · spend) over a
+// compact counter line (phase counts + check, as mono text — not badges) over
+// the trace itself — a bounded ring buffer that runs through the card. This
+// merges the old run panel + the separate timeline into a single surface so
+// the agent's progress is told once, not in three restated variants.
 
-function AgentRunPanel({
-	attempt,
-}: {
-	attempt: NonNullable<WorkRowModel["attempt"]>;
-}) {
+const timelineWindow = 9;
+
+function AgentRunPanel({ row }: { row: WorkRowModel }) {
+	const attempt = row.attempt;
+	if (attempt === undefined) return null;
 	const check =
 		attempt.check === "running"
 			? "checking…"
@@ -846,71 +848,103 @@ function AgentRunPanel({
 				: attempt.check === "failed"
 					? "check failed"
 					: undefined;
-	// Telemetry = resource spend + turn count only. The event/meaningful counts
-	// were dropped: they just recount the timeline rows rendered below, which is
-	// the slop this panel was restating. What's left is data the timeline does
-	// NOT carry (tokens, cost, turn) — a true summary, not a second log.
-	const meta = [formatTokensMeta(attempt), `turn ${attempt.turnCount}`]
+	const checkTone =
+		attempt.check === "failed"
+			? "attention"
+			: attempt.check === "passed"
+				? "foreground"
+				: "muted";
+	// Telemetry = resource spend + turn count — the one thing the trace below
+	// does NOT carry. The event/meaningful counts were dropped (they just
+	// recounted the trace rows). Sits in the header with the stage so the body
+	// stays a pure log.
+	const telemetry = [formatTokensMeta(attempt), `turn ${attempt.turnCount}`]
 		.filter((part) => part.length > 0)
 		.join(" · ");
-	// Aggregate phase counts by kind — the stream emits many count-1 entries, so a
-	// compact `think·12 read·5 run·8` reads far better than 20 repeated `·1` chips.
+	// Phase counts as ONE compact mono line (`think 6 · run 6 · read 1`), not a
+	// row of pill badges — these are counters, not chips, and a dense line reads
+	// as data instead of badge-soup.
 	const phaseTotals = new Map<string, number>();
 	for (const phase of attempt.phases)
 		phaseTotals.set(
 			phase.kind,
 			(phaseTotals.get(phase.kind) ?? 0) + phase.count,
 		);
-	const phases = [...phaseTotals.entries()];
-	// The run panel is a LEAN telemetry + progress header — NOT a second log.
-	// The timeline below is the single canonical record of what the agent did
-	// (its `now` row carries the live activity; its history carries each
-	// completed action, including `Ran <command>`). So this panel carries only
-	// what the timeline does NOT: the run id, the current stage, the aggregated
-	// phase counts, the check state, and resource spend (tokens/cost/turn). No
-	// streaming line, no commands block, no event recounts — those were the
-	// three variants of the same data this area used to repeat.
+	const phaseSummary = [...phaseTotals.entries()]
+		.map(([kind, count]) => `${kind} ${count}`)
+		.join(" · ");
+	// The trace — a bounded ring buffer (newest first) that runs THROUGH this
+	// one card. Its `now` row is the live activity (shimmer); its history is each
+	// completed action incl. `Ran <command>`. Merging it INTO the bordered card
+	// (instead of a separate section below) makes the run panel + trace one
+	// surface: the card IS the agent-run trace, with a telemetry header on top.
+	const history = [...attempt.timeline]
+		.toSorted((a, b) => b.atMs - a.atMs)
+		.slice(0, timelineWindow);
+	const empty = history.length === 0 && !attempt.streaming;
 	return (
 		<div className="mt-4 overflow-hidden rounded border border-border">
-			<div className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
-				<Meta tone="muted">agent run · {attempt.runId}</Meta>
-				<Meta>stage · {attempt.stage}</Meta>
+			<div className="flex items-center justify-between gap-4 border-b border-border bg-card px-4 py-2">
+				<Meta tone="muted" className="min-w-0 truncate">
+					agent run · {attempt.runId}
+				</Meta>
+				<Row gap={3} className="shrink-0 whitespace-nowrap">
+					<Meta>stage · {attempt.stage}</Meta>
+					{telemetry.length > 0 ? <Meta tone="muted">{telemetry}</Meta> : null}
+				</Row>
 			</div>
-			{phases.length > 0 || check || meta.length > 0 ? (
-				<Stack gap={3} className="p-4">
-					{phases.length > 0 || check ? (
-						<Row gap={2} className="flex-wrap">
-							{phases.map(([kind, count]) => (
-								<span
-									key={kind}
-									className="rounded-[10px] border border-border px-2 py-1 font-mono text-2xs text-muted-foreground"
-								>
-									{kind}·{count}
-								</span>
-							))}
-							{check ? (
-								<span
-									className={cn(
-										"rounded-[10px] border px-2 py-1 font-mono text-2xs",
-										attempt.check === "failed"
-											? "border-attention-border text-attention"
-											: attempt.check === "passed"
-												? "border-border text-foreground"
-												: "border-border text-muted-foreground",
-									)}
-								>
-									{check}
-								</span>
-							) : null}
-						</Row>
-					) : null}
-					{meta.length > 0 ? (
-						<Meta tone="muted" className="block truncate">
-							{meta}
-						</Meta>
-					) : null}
-				</Stack>
+			{phaseSummary.length > 0 || check ? (
+				<div className="border-b border-border px-4 py-2">
+					<Row gap={3} className="min-w-0">
+						{phaseSummary.length > 0 ? (
+							<Meta tone="muted" className="min-w-0 truncate">
+								{phaseSummary}
+							</Meta>
+						) : null}
+						{check ? (
+							<Meta tone={checkTone} className="ml-auto shrink-0">
+								{check}
+							</Meta>
+						) : null}
+					</Row>
+				</div>
 			) : null}
+			<div className="p-4">
+				{empty ? (
+					<Meta>No activity yet.</Meta>
+				) : (
+					<div className="grid grid-cols-[7ch_8ch_minmax(0,1fr)] gap-x-3 gap-y-1">
+						{attempt.streaming ? (
+							<Fragment key="live">
+								<Meta tone="foreground">now</Meta>
+								<Meta tone="foreground" className="uppercase">
+									{attempt.activityKind}
+								</Meta>
+								<Meta
+									tone="foreground"
+									className="min-w-0 truncate whitespace-nowrap shimmer-text"
+								>
+									{oneLine(row.activity)}
+								</Meta>
+							</Fragment>
+						) : null}
+						{history.map((entry) => (
+							<Fragment key={`${entry.atMs}-${entry.kind}`}>
+								<Meta>{formatDuration(Date.now() - entry.atMs)}</Meta>
+								<Meta tone="muted" className="uppercase">
+									{entry.kind}
+								</Meta>
+								<Meta
+									tone="muted"
+									className="min-w-0 truncate whitespace-nowrap"
+								>
+									{oneLine(entry.text)}
+								</Meta>
+							</Fragment>
+						))}
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -926,55 +960,6 @@ const formatTokensMeta = (
 		? `${tok} tok`
 		: `${tok} tok · $${cost.toFixed(2)}`;
 };
-
-// ─── timeline (rolling window) ─────────────────────────────────────────────
-// 3-col grid `age · KIND · text`, newest first, with a live `now` shimmer row
-// when streaming. KIND is the entry's activityKind. Lifted from the legacy
-// Trail and re-laid-out to the handoff's 3-column form.
-
-const timelineWindow = 9;
-
-function Timeline({ row }: { row: WorkRowModel }) {
-	const attempt = row.attempt;
-	if (attempt === undefined) return <Meta>No activity yet.</Meta>;
-	const history = [...attempt.timeline]
-		.toSorted((a, b) => b.atMs - a.atMs)
-		.slice(0, timelineWindow);
-	if (history.length === 0 && !attempt.streaming)
-		return <Meta>No activity yet.</Meta>;
-	return (
-		<Stack gap={2}>
-			<SectionLabel>timeline</SectionLabel>
-			<div className="grid grid-cols-[7ch_8ch_minmax(0,1fr)] gap-x-3 gap-y-1">
-				{attempt.streaming ? (
-					<Fragment key="live">
-						<Meta tone="foreground">now</Meta>
-						<Meta tone="foreground" className="uppercase">
-							{attempt.activityKind}
-						</Meta>
-						<Meta
-							tone="foreground"
-							className="min-w-0 truncate whitespace-nowrap shimmer-text"
-						>
-							{oneLine(row.activity)}
-						</Meta>
-					</Fragment>
-				) : null}
-				{history.map((entry) => (
-					<Fragment key={`${entry.atMs}-${entry.kind}`}>
-						<Meta>{formatDuration(Date.now() - entry.atMs)}</Meta>
-						<Meta tone="muted" className="uppercase">
-							{entry.kind}
-						</Meta>
-						<Meta tone="muted" className="min-w-0 truncate whitespace-nowrap">
-							{oneLine(entry.text)}
-						</Meta>
-					</Fragment>
-				))}
-			</div>
-		</Stack>
-	);
-}
 
 // ─── primitives (lifted) ───────────────────────────────────────────────────
 
