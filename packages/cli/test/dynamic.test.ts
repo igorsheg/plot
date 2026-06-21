@@ -3,7 +3,7 @@ import type {
 	AgentSession,
 	AgentSessionEventListener,
 	CreateAgentSessionResult,
-} from "@earendil-works/pi-coding-agent";
+} from "@plot/session/agent-session-types";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
