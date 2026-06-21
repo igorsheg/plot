@@ -39,6 +39,17 @@ const { DashboardProvider } =
 const { SessionSurface } =
 	await import("../src/app/dashboard/views/session-surface");
 const { AppSidebar } = await import("../src/app/dashboard/views/app-sidebar");
+const { TriageLobby } = await import("../src/app/dashboard/views/triage-lobby");
+
+// Render the Triage Lobby for a fixed frame — the cross-fleet summary surface
+// the index route lands on. Summary-only: no projection attaches here.
+function renderLobby(override: PlotWebDashboardState): string {
+	return renderToStaticMarkup(
+		<DashboardProvider state={override}>
+			<TriageLobby />
+		</DashboardProvider>,
+	);
+}
 
 // Render the sidebar (the left chrome) + session surface for a fixed frame,
 // mirroring what the router's RootLayout composes around the session route.
@@ -261,6 +272,29 @@ describe("plot web dashboard", () => {
 		expect(html).toContain("Hold");
 		expect(html).toContain("not ready");
 		expect(html).toContain("controller required");
+	});
+
+	test("lobby groups sessions into needs-you / acting / watching", () => {
+		const html = renderLobby(
+			state({
+				roster: [
+					summary({ id: "blocked", workflowName: "review", needsYouCount: 2 }),
+					summary({
+						id: "busy",
+						workflowName: "build",
+						state: "acting",
+						agents: { active: 1, max: 4 },
+					}),
+					summary({ id: "calm", workflowName: "docs", state: "watching" }),
+				],
+			}),
+		);
+		expect(html).toContain("needs you");
+		expect(html).toContain("review");
+		expect(html).toContain("acting");
+		expect(html).toContain("build");
+		expect(html).toContain("watching");
+		expect(html).toContain("docs");
 	});
 
 	test("offline state preserves the last good frame", () => {
