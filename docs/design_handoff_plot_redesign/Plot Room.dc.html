@@ -1,0 +1,1676 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script src="./support.js"></script>
+	</head>
+	<body>
+		<x-dc>
+			<helmet>
+				<link rel="preconnect" href="https://fonts.googleapis.com" />
+				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+				<link
+					href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+					rel="stylesheet"
+				/>
+				<style>
+					* {
+						box-sizing: border-box;
+					}
+					html,
+					body {
+						margin: 0;
+						background: #f1f0ea;
+					}
+					@keyframes beat {
+						0% {
+							transform: scale(1);
+							opacity: 0.4;
+						}
+						70% {
+							transform: scale(2.6);
+							opacity: 0;
+						}
+						100% {
+							opacity: 0;
+						}
+					}
+					@keyframes shimmer {
+						0% {
+							background-position: 160% 0;
+						}
+						100% {
+							background-position: -60% 0;
+						}
+					}
+					@keyframes zoomIn {
+						from {
+							transform: scale(0.95);
+						}
+						to {
+							transform: scale(1);
+						}
+					}
+					@keyframes slideUp {
+						from {
+							transform: translateY(7px);
+						}
+						to {
+							transform: translateY(0);
+						}
+					}
+					@keyframes toastIn {
+						from {
+							transform: translate(-50%, 9px);
+						}
+						to {
+							transform: translate(-50%, 0);
+						}
+					}
+					::selection {
+						background: rgba(207, 90, 46, 0.18);
+					}
+				</style>
+			</helmet>
+
+			<div
+				data-app
+				style="
+					position: relative;
+					width: 100%;
+					min-height: 100vh;
+					background: #f1f0ea;
+					font-family: &quot;JetBrains Mono&quot;, ui-monospace, monospace;
+					color: #1c1b18;
+					display: flex;
+					justify-content: center;
+					padding: 0 0 80px;
+				"
+			>
+				<div style="width: 100%; max-width: 1080px">
+					<!-- ════════════════ TRIAGE LOBBY ════════════════ -->
+					<sc-if value="{{ isTriage }}" hint-placeholder-val="{{ true }}">
+						<div>
+							<!-- chrome: connection + role -->
+							<div
+								style="
+									display: flex;
+									align-items: center;
+									justify-content: space-between;
+									padding: 22px 26px 18px;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 11px">
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 8px;
+											height: 8px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 1.9s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 8px;
+												height: 8px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span
+									></span>
+									<span
+										style="
+											font-size: 15px;
+											font-weight: 600;
+											letter-spacing: -0.01em;
+										"
+										>plot</span
+									>
+									<span style="font-size: 11px; color: #9b988d">online</span>
+									<span style="font-size: 11px; color: #bdbab0">·</span>
+									<button
+										style="
+											font-family: inherit;
+											font-size: 11px;
+											color: #9b988d;
+											background: none;
+											border: none;
+											padding: 0;
+											cursor: pointer;
+										"
+										style-hover="color:#1c1b18"
+										onClick="{{ toggleRole }}"
+									>
+										{{ roleLabel }} ⇅
+									</button>
+									<span style="font-size: 11px; color: #bdbab0">·</span>
+									<span style="font-size: 11px; color: #9b988d"
+										>5 sessions</span
+									>
+								</div>
+								<div
+									style="
+										display: flex;
+										align-items: center;
+										gap: 9px;
+										font-size: 11.5px;
+										color: #9b988d;
+									"
+								>
+									<svg width="50" height="15" viewBox="0 0 50 15" fill="none">
+										<polyline
+											points="0,11 7,8 13,4 20,9 26,2 33,7 39,4 46,7 50,5"
+											stroke="#9b988d"
+											stroke-width="1.2"
+										/>
+									</svg>
+									<span style="color: #57554d">{{ fleetTok }}</span>
+								</div>
+							</div>
+
+							<!-- NEEDS YOU: blocked / failed work with operator actions -->
+							<div
+								style="
+									margin: 6px 26px 0;
+									border: 1px solid #e6e4dc;
+									border-radius: 4px;
+									background: #faf9f5;
+									overflow: hidden;
+								"
+							>
+								<div
+									style="
+										display: flex;
+										align-items: baseline;
+										justify-content: space-between;
+										padding: 15px 18px 12px;
+									"
+								>
+									<span
+										style="
+											font-size: 11px;
+											letter-spacing: 0.16em;
+											text-transform: uppercase;
+											color: #cf5a2e;
+										"
+										>needs you</span
+									>
+									<span style="font-size: 11px; color: #cf5a2e"
+										>{{ needsCount }}</span
+									>
+								</div>
+								<sc-for list="{{ needsYou }}" as="n" hint-placeholder-count="2">
+									<div
+										style="
+											display: grid;
+											grid-template-columns: 3px 1fr;
+											gap: 15px;
+											padding: 15px 18px;
+											border-top: 1px solid #efeee8;
+										"
+									>
+										<span
+											style="background: #cf5a2e; border-radius: 2px"
+										></span>
+										<div>
+											<div
+												style="
+													display: flex;
+													justify-content: space-between;
+													gap: 12px;
+													align-items: baseline;
+												"
+											>
+												<span
+													style="
+														font-size: 14px;
+														font-weight: 500;
+														color: #1c1b18;
+														line-height: 1.3;
+														cursor: pointer;
+													"
+													style-hover="color:#cf5a2e"
+													onClick="{{ n.onOpen }}"
+													>{{ n.title }}</span
+												>
+												<span
+													style="
+														font-size: 11px;
+														color: #9b988d;
+														white-space: nowrap;
+													"
+													>{{ n.where }}</span
+												>
+											</div>
+											<div
+												style="
+													font-size: 12px;
+													color: #57554d;
+													margin-top: 6px;
+													line-height: 1.5;
+												"
+											>
+												{{ n.reason }}
+											</div>
+											<div
+												style="
+													display: flex;
+													align-items: center;
+													gap: 7px;
+													margin-top: 11px;
+													flex-wrap: wrap;
+												"
+											>
+												<sc-for
+													list="{{ n.actions }}"
+													as="a"
+													hint-placeholder-count="2"
+												>
+													<button
+														style="{{ a.style }}"
+														style-hover="{{ a.hover }}"
+														onClick="{{ a.onClick }}"
+													>
+														{{ a.label }}
+													</button>
+												</sc-for>
+												<span style="font-size: 11px; color: #9b988d"
+													>{{ obsNote }}</span
+												>
+												<button
+													style="
+														font-family: inherit;
+														font-size: 11px;
+														padding: 6px 8px;
+														border: none;
+														background: none;
+														color: #9b988d;
+														cursor: pointer;
+													"
+													style-hover="color:#1c1b18"
+													onClick="{{ n.onOpen }}"
+												>
+													open →
+												</button>
+											</div>
+										</div>
+									</div>
+								</sc-for>
+							</div>
+
+							<!-- ATTENTION: failed runs, stale, diagnostics (FYI, not actionable) -->
+							<sc-if value="{{ hasAttention }}">
+								<div
+									style="
+										margin: 14px 26px 0;
+										border-left: 3px solid #cf5a2e;
+										background: rgba(207, 90, 46, 0.045);
+										border-radius: 0 4px 4px 0;
+										padding: 12px 16px;
+									"
+								>
+									<div
+										style="
+											font-size: 11px;
+											letter-spacing: 0.14em;
+											text-transform: uppercase;
+											color: #cf5a2e;
+											margin-bottom: 8px;
+										"
+									>
+										attention
+									</div>
+									<sc-for
+										list="{{ attention }}"
+										as="d"
+										hint-placeholder-count="2"
+									>
+										<div
+											style="
+												display: flex;
+												gap: 10px;
+												padding: 3px 0;
+												font-size: 11.5px;
+											"
+										>
+											<span style="color: #cf5a2e; white-space: nowrap"
+												>{{ d.tag }}</span
+											>
+											<span style="color: #57554d">{{ d.text }}</span>
+										</div>
+									</sc-for>
+								</div>
+							</sc-if>
+
+							<!-- RUNNING -->
+							<div style="margin: 22px 26px 0">
+								<div
+									style="
+										display: flex;
+										align-items: baseline;
+										justify-content: space-between;
+										padding: 0 0 8px;
+									"
+								>
+									<span
+										style="
+											font-size: 11px;
+											letter-spacing: 0.16em;
+											text-transform: uppercase;
+											color: #9b988d;
+										"
+										>acting · self-driving</span
+									>
+									<span style="font-size: 11px; color: #9b988d"
+										>{{ runningCount }}</span
+									>
+								</div>
+								<div style="border-top: 1px solid #e6e4dc">
+									<sc-for
+										list="{{ running }}"
+										as="r"
+										hint-placeholder-count="2"
+									>
+										<div
+											style="
+												display: grid;
+												grid-template-columns: auto 1fr auto auto;
+												align-items: center;
+												gap: 13px;
+												padding: 13px 6px;
+												cursor: pointer;
+												border-bottom: 1px solid #ebe9e2;
+											"
+											style-hover="background:#f5f3ed"
+											onClick="{{ r.onOpen }}"
+										>
+											<span
+												style="
+													position: relative;
+													display: inline-flex;
+													width: 7px;
+													height: 7px;
+													margin-left: 4px;
+												"
+												><span
+													style="
+														position: absolute;
+														inset: 0;
+														border-radius: 50%;
+														background: #57554d;
+														animation: beat 2.2s ease-out infinite;
+													"
+												></span
+												><span
+													style="
+														position: relative;
+														width: 7px;
+														height: 7px;
+														border-radius: 50%;
+														background: #57554d;
+													"
+												></span
+											></span>
+											<span
+												style="
+													font-size: 13px;
+													color: #57554d;
+													overflow: hidden;
+													text-overflow: ellipsis;
+													white-space: nowrap;
+												"
+												><span style="color: #1c1b18; font-weight: 500"
+													>{{ r.name }}</span
+												>
+												&nbsp;·&nbsp;
+												<span style="{{ r.actStyle }}"
+													>{{ r.activity }}</span
+												></span
+											>
+											<span style="font-size: 10.5px; color: #9b988d"
+												>{{ r.cwdName }}</span
+											>
+											<span
+												style="
+													font-size: 11px;
+													color: #9b988d;
+													white-space: nowrap;
+													margin-right: 6px;
+												"
+												>{{ r.agents }}</span
+											>
+										</div>
+									</sc-for>
+								</div>
+							</div>
+
+							<!-- WATCHING / SCHEDULED -->
+							<div style="margin: 22px 26px 0">
+								<div
+									style="
+										display: flex;
+										align-items: baseline;
+										justify-content: space-between;
+										padding: 0 0 8px;
+									"
+								>
+									<span
+										style="
+											font-size: 11px;
+											letter-spacing: 0.16em;
+											text-transform: uppercase;
+											color: #9b988d;
+										"
+										>watching · scheduled</span
+									>
+									<span style="font-size: 11px; color: #9b988d"
+										>{{ idleCount }}</span
+									>
+								</div>
+								<div style="border-top: 1px solid #e6e4dc">
+									<sc-for list="{{ idle }}" as="s" hint-placeholder-count="2">
+										<div
+											style="
+												display: grid;
+												grid-template-columns: auto 1fr auto;
+												align-items: center;
+												gap: 13px;
+												padding: 12px 6px;
+												cursor: pointer;
+												border-bottom: 1px solid #ebe9e2;
+											"
+											style-hover="background:#f5f3ed"
+											onClick="{{ s.onOpen }}"
+										>
+											<span
+												style="
+													font-size: 11px;
+													color: #bdbab0;
+													margin-left: 4px;
+												"
+												>{{ s.glyph }}</span
+											>
+											<span
+												style="
+													font-size: 12.5px;
+													color: #9b988d;
+													overflow: hidden;
+													text-overflow: ellipsis;
+													white-space: nowrap;
+												"
+												><span style="color: #57554d">{{ s.name }}</span>
+												&nbsp;·&nbsp; {{ s.sub }}</span
+											>
+											<span
+												style="
+													font-size: 11px;
+													color: #bdbab0;
+													white-space: nowrap;
+													margin-right: 6px;
+												"
+												>{{ s.right }}</span
+											>
+										</div>
+									</sc-for>
+								</div>
+							</div>
+
+							<div style="margin: 26px 26px 0; font-size: 11px; color: #bdbab0">
+								⌘K to jump to any session · open a session for the full
+								agent-run trail · operator actions record an observation back
+								into the Plot loop
+							</div>
+						</div>
+					</sc-if>
+
+					<!-- ════════════════ SESSION ROOM ════════════════ -->
+					<sc-if value="{{ isRoom }}">
+						<div style="{{ roomEnterStyle }}">
+							<!-- back + switcher -->
+							<div
+								style="
+									display: flex;
+									align-items: center;
+									justify-content: space-between;
+									padding: 18px 26px 0;
+								"
+							>
+								<button
+									style="
+										font-family: inherit;
+										font-size: 11.5px;
+										color: #9b988d;
+										background: none;
+										border: none;
+										cursor: pointer;
+										display: inline-flex;
+										align-items: center;
+										gap: 7px;
+									"
+									style-hover="color:#1c1b18"
+									onClick="{{ back }}"
+								>
+									← all work <span style="color: #d8d6cc">·</span> esc
+								</button>
+								<div style="display: flex; align-items: center; gap: 7px">
+									<sc-for
+										list="{{ switcher }}"
+										as="sw"
+										hint-placeholder-count="5"
+									>
+										<button style="{{ sw.style }}" onClick="{{ sw.onOpen }}">
+											{{ sw.mono }}<sc-if value="{{ sw.needsYou }}"
+												><span
+													style="
+														position: absolute;
+														top: -3px;
+														right: -3px;
+														width: 7px;
+														height: 7px;
+														border-radius: 50%;
+														background: #cf5a2e;
+														border: 1.5px solid #f1f0ea;
+													"
+												></span
+											></sc-if>
+										</button>
+									</sc-for>
+								</div>
+							</div>
+
+							<!-- identity header -->
+							<div
+								style="
+									display: flex;
+									align-items: flex-start;
+									gap: 16px;
+									padding: 20px 26px 16px;
+								"
+							>
+								<div
+									style="
+										width: 46px;
+										height: 46px;
+										border-radius: 6px;
+										background: #1c1b18;
+										color: #f1f0ea;
+										display: flex;
+										align-items: center;
+										justify-content: center;
+										font-size: 13px;
+										font-weight: 600;
+										letter-spacing: 0.04em;
+										flex: none;
+									"
+								>
+									{{ session.mono }}
+								</div>
+								<div style="flex: 1; min-width: 0">
+									<div style="display: flex; align-items: center; gap: 10px">
+										<span
+											style="
+												font-family:
+													&quot;IBM Plex Sans&quot;, system-ui, sans-serif;
+												font-size: 19px;
+												font-weight: 500;
+												letter-spacing: -0.01em;
+											"
+											>{{ session.workflow }}</span
+										>
+										<span style="{{ session.statePill }}"
+											>{{ session.stateLabel }}</span
+										>
+										<span
+											style="
+												font-size: 10px;
+												letter-spacing: 0.08em;
+												text-transform: uppercase;
+												padding: 2px 7px;
+												border-radius: 10px;
+												border: 1px solid #e0ddd4;
+												color: #9b988d;
+											"
+											>{{ session.mode }}</span
+										>
+									</div>
+									<div
+										style="
+											display: flex;
+											align-items: center;
+											gap: 9px;
+											margin-top: 6px;
+											font-size: 11.5px;
+											color: #9b988d;
+											flex-wrap: wrap;
+										"
+									>
+										<span style="color: #57554d">{{ session.cwdName }}</span
+										><span style="color: #d8d6cc">·</span>
+										<span>{{ session.workflowPath }}</span
+										><span style="color: #d8d6cc">·</span>
+										<span>{{ session.model }}</span>
+									</div>
+								</div>
+								<div
+									style="
+										display: flex;
+										align-items: center;
+										gap: 8px;
+										flex: none;
+									"
+								>
+									<svg width="56" height="16" viewBox="0 0 56 16" fill="none">
+										<polyline
+											points="{{ session.spark }}"
+											stroke="#9b988d"
+											stroke-width="1.2"
+										/>
+									</svg>
+									<span
+										style="
+											font-size: 11.5px;
+											color: #57554d;
+											white-space: nowrap;
+										"
+										>{{ session.tokps }}</span
+									>
+								</div>
+							</div>
+
+							<!-- loop pulse strip + controls -->
+							<div
+								style="
+									display: flex;
+									align-items: center;
+									justify-content: space-between;
+									gap: 18px;
+									padding: 11px 26px;
+									border-top: 1px solid #e6e4dc;
+									border-bottom: 1px solid #e6e4dc;
+									background: #faf9f5;
+									flex-wrap: wrap;
+								"
+							>
+								<div
+									style="
+										display: flex;
+										align-items: center;
+										gap: 9px;
+										font-size: 11.5px;
+										color: #57554d;
+									"
+								>
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #9b988d;
+												animation: beat 2.4s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #9b988d;
+											"
+										></span
+									></span>
+									<span>{{ session.pulseLine }}</span>
+								</div>
+								<div
+									style="display:flex; align-items:center; gap:14px; {{ controlsStyle }}"
+								>
+									<span style="font-size: 11px; color: #cf5a2e"
+										>{{ controlNote }}</span
+									>
+									<label
+										style="
+											display: inline-flex;
+											align-items: center;
+											gap: 8px;
+											font-size: 11.5px;
+											color: #57554d;
+											cursor: pointer;
+										"
+										onClick="{{ toggleLive }}"
+									>
+										<span style="{{ liveTrack }}"
+											><span style="{{ liveKnob }}"></span></span
+										>{{ liveLabel }}
+									</label>
+									<button
+										style="
+											font-family: inherit;
+											font-size: 11.5px;
+											padding: 6px 13px;
+											border-radius: 3px;
+											border: 1px solid #d8d6cc;
+											background: transparent;
+											color: #1c1b18;
+											cursor: pointer;
+										"
+										style-hover="background:#f0efe8"
+										onClick="{{ reconcile }}"
+									>
+										Reconcile now
+									</button>
+									<button
+										style="
+											font-family: inherit;
+											font-size: 11.5px;
+											padding: 6px 6px;
+											border: none;
+											background: none;
+											color: #9b988d;
+											cursor: pointer;
+										"
+										style-hover="color:#cf5a2e"
+										onClick="{{ closeSession }}"
+									>
+										Close
+									</button>
+								</div>
+							</div>
+
+							<!-- diagnostics -->
+							<sc-if value="{{ session.hasDiagnostics }}">
+								<div
+									style="
+										border-bottom: 1px solid #e6e4dc;
+										background: rgba(207, 90, 46, 0.04);
+										padding: 9px 26px;
+										display: flex;
+										gap: 10px;
+										align-items: center;
+									"
+								>
+									<span
+										style="
+											font-size: 10.5px;
+											letter-spacing: 0.1em;
+											text-transform: uppercase;
+											color: #cf5a2e;
+										"
+										>diagnostic</span
+									>
+									<span style="font-size: 11.5px; color: #57554d"
+										>{{ session.diagnostic }}</span
+									>
+								</div>
+							</sc-if>
+
+							<!-- two panes -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: minmax(0, 360px) 1fr;
+									min-height: 440px;
+								"
+							>
+								<!-- work list -->
+								<div style="border-right: 1px solid #e6e4dc; padding: 14px 0">
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											padding: 0 20px 8px;
+										"
+									>
+										<span
+											style="
+												font-size: 11px;
+												letter-spacing: 0.14em;
+												text-transform: uppercase;
+												color: #9b988d;
+											"
+											>work</span
+										>
+										<span style="font-size: 11px; color: #9b988d"
+											>{{ session.workCount }}</span
+										>
+									</div>
+									<sc-for
+										list="{{ threads }}"
+										as="t"
+										hint-placeholder-count="3"
+									>
+										<div
+											style="{{ t.rowStyle }}"
+											style-hover="background:#f3f1ec"
+											onClick="{{ t.onFocus }}"
+										>
+											<span style="{{ t.railStyle }}"></span>
+											<div style="min-width: 0">
+												<div style="{{ t.titleStyle }}">{{ t.title }}</div>
+												<span style="{{ t.subStyle }}">{{ t.sub }}</span>
+											</div>
+											<span
+												style="
+													font-size: 10px;
+													color: #9b988d;
+													white-space: nowrap;
+													align-self: center;
+													text-transform: uppercase;
+													letter-spacing: 0.06em;
+												"
+												>{{ t.status }}</span
+											>
+										</div>
+									</sc-for>
+								</div>
+
+								<!-- focused detail -->
+								<div
+									style="padding: 18px 24px; animation: slideUp 0.26s ease both"
+									key="{{ focused.key }}"
+								>
+									<div style="display: flex; align-items: center; gap: 9px">
+										<span style="{{ focused.glyphStyle }}"
+											>{{ focused.glyph }}</span
+										>
+										<span
+											style="
+												font-size: 15px;
+												font-weight: 500;
+												line-height: 1.3;
+											"
+											>{{ focused.title }}</span
+										>
+									</div>
+									<div
+										style="
+											display: flex;
+											align-items: center;
+											gap: 8px;
+											margin-top: 6px;
+											flex-wrap: wrap;
+										"
+									>
+										<span style="font-size: 11.5px; color: #9b988d"
+											>{{ focused.subtitle }}</span
+										>
+										<sc-for
+											list="{{ focused.labels }}"
+											as="lb"
+											hint-placeholder-count="2"
+										>
+											<span
+												style="
+													font-size: 10px;
+													padding: 2px 7px;
+													border-radius: 3px;
+													background: #ecebe4;
+													color: #57554d;
+												"
+												>{{ lb.text }}</span
+											>
+										</sc-for>
+										<sc-if value="{{ focused.hasUrl }}"
+											><span
+												style="
+													font-size: 11px;
+													color: #cf5a2e;
+													text-decoration: underline;
+													text-underline-offset: 2px;
+													cursor: pointer;
+												"
+												>{{ focused.url }}</span
+											></sc-if
+										>
+									</div>
+
+									<!-- blocked: waiting on you -->
+									<sc-if value="{{ focused.isBlocked }}">
+										<div
+											style="
+												margin-top: 14px;
+												padding: 12px 15px;
+												border: 1px solid #e6c9bc;
+												border-radius: 4px;
+												background: rgba(207, 90, 46, 0.05);
+											"
+										>
+											<div
+												style="
+													font-size: 12.5px;
+													color: #1c1b18;
+													line-height: 1.6;
+												"
+											>
+												{{ focused.blockedReason }}
+											</div>
+										</div>
+									</sc-if>
+
+									<!-- failed -->
+									<sc-if value="{{ focused.isFailed }}">
+										<div
+											style="
+												margin-top: 14px;
+												padding: 12px 15px;
+												border: 1px solid #e6c9bc;
+												border-radius: 4px;
+												background: rgba(207, 90, 46, 0.05);
+											"
+										>
+											<div
+												style="
+													font-size: 12.5px;
+													color: #1c1b18;
+													line-height: 1.6;
+												"
+											>
+												{{ focused.failMessage }}
+											</div>
+										</div>
+										<sc-if value="{{ focused.hasWake }}">
+											<div
+												style="
+													margin-top: 9px;
+													font-size: 11.5px;
+													color: #9b988d;
+												"
+											>
+												↻ {{ focused.wakeText }}
+											</div>
+										</sc-if>
+									</sc-if>
+
+									<!-- run panel: stage, phases, check, tokens, commands -->
+									<sc-if value="{{ focused.hasRun }}">
+										<div
+											style="
+												margin-top: 16px;
+												border: 1px solid #e6e4dc;
+												border-radius: 4px;
+												overflow: hidden;
+											"
+										>
+											<div
+												style="
+													display: flex;
+													align-items: center;
+													justify-content: space-between;
+													padding: 9px 14px;
+													background: #faf9f5;
+													border-bottom: 1px solid #e6e4dc;
+												"
+											>
+												<span
+													style="
+														font-size: 11px;
+														letter-spacing: 0.1em;
+														text-transform: uppercase;
+														color: #9b988d;
+													"
+													>agent run · {{ focused.runId }}</span
+												>
+												<span style="font-size: 11px; color: #57554d"
+													>{{ focused.stageLabel }}</span
+												>
+											</div>
+											<div style="padding: 12px 14px">
+												<sc-if value="{{ focused.isRunning }}">
+													<span style="{{ shimmerStyle }}"
+														>{{ focused.runActivity }}</span
+													>
+												</sc-if>
+												<div
+													style="
+														display: flex;
+														align-items: center;
+														gap: 6px;
+														margin-top: 10px;
+														flex-wrap: wrap;
+													"
+												>
+													<sc-for
+														list="{{ focused.phases }}"
+														as="ph"
+														hint-placeholder-count="4"
+													>
+														<span
+															style="
+																font-size: 10.5px;
+																padding: 2px 8px;
+																border-radius: 10px;
+																border: 1px solid #e0ddd4;
+																color: #57554d;
+															"
+															>{{ ph.text }}</span
+														>
+													</sc-for>
+													<sc-if value="{{ focused.hasCheck }}"
+														><span style="{{ focused.checkStyle }}"
+															>{{ focused.checkLabel }}</span
+														></sc-if
+													>
+												</div>
+												<div
+													style="
+														margin-top: 11px;
+														font-size: 11px;
+														color: #9b988d;
+													"
+												>
+													{{ focused.runMeta }}
+												</div>
+												<sc-if value="{{ focused.hasCommands }}">
+													<div
+														style="
+															margin-top: 10px;
+															padding: 8px 11px;
+															border-radius: 4px;
+															background: #1c1b18;
+														"
+													>
+														<sc-for
+															list="{{ focused.commands }}"
+															as="cmd"
+															hint-placeholder-count="2"
+														>
+															<div
+																style="
+																	font-size: 11px;
+																	color: #cfccc2;
+																	line-height: 1.7;
+																"
+															>
+																<span style="color: #857f72">$</span> {{
+																cmd.text }}
+															</div>
+														</sc-for>
+													</div>
+												</sc-if>
+											</div>
+										</div>
+									</sc-if>
+
+									<!-- done summary -->
+									<sc-if value="{{ focused.isDone }}">
+										<div
+											style="
+												margin-top: 14px;
+												font-size: 12.5px;
+												color: #57554d;
+												line-height: 1.6;
+											"
+										>
+											{{ focused.doneSummary }}
+										</div>
+									</sc-if>
+
+									<!-- resolved confirmation -->
+									<sc-if value="{{ focused.resolved }}">
+										<div
+											style="
+												margin-top: 16px;
+												display: inline-flex;
+												align-items: center;
+												gap: 9px;
+												padding: 9px 14px;
+												border-radius: 4px;
+												background: rgba(28, 27, 24, 0.05);
+												font-size: 12px;
+												color: #1c1b18;
+											"
+										>
+											<span>✓</span>{{ focused.resolvedLabel }} — observation
+											recorded
+										</div>
+									</sc-if>
+
+									<!-- operator actions -->
+									<sc-if value="{{ focused.hasActions }}">
+										<div
+											style="
+												display: flex;
+												align-items: center;
+												gap: 9px;
+												margin-top: 18px;
+												flex-wrap: wrap;
+											"
+										>
+											<sc-for
+												list="{{ focused.actions }}"
+												as="action"
+												hint-placeholder-count="2"
+											>
+												<button
+													style="{{ action.style }}"
+													style-hover="{{ action.hover }}"
+													onClick="{{ action.onClick }}"
+												>
+													{{ action.label }}
+												</button>
+											</sc-for>
+											<span
+												style="
+													font-size: 11px;
+													color: #9b988d;
+													align-self: center;
+												"
+												>{{ obsNote }}</span
+											>
+										</div>
+									</sc-if>
+
+									<!-- interrupt (running) -->
+									<sc-if value="{{ focused.isRunning }}">
+										<div style="margin-top: 16px">
+											<button
+												style="
+													font-family: inherit;
+													font-size: 11.5px;
+													padding: 7px 14px;
+													border-radius: 3px;
+													border: 1px solid #e0d6cf;
+													background: transparent;
+													color: #9b988d;
+													cursor: pointer;
+												"
+												style-hover="color:#cf5a2e"
+												onClick="{{ focused.onInterrupt }}"
+											>
+												Interrupt agent run
+											</button>
+										</div>
+									</sc-if>
+
+									<!-- trail / timeline -->
+									<sc-if value="{{ focused.hasTrail }}">
+										<div
+											style="
+												margin-top: 22px;
+												border-top: 1px solid #e6e4dc;
+												padding-top: 14px;
+											"
+										>
+											<div
+												style="
+													font-size: 11px;
+													letter-spacing: 0.12em;
+													text-transform: uppercase;
+													color: #9b988d;
+													margin-bottom: 10px;
+												"
+											>
+												timeline
+											</div>
+											<div
+												style="
+													display: grid;
+													grid-template-columns: 46px 52px 1fr;
+													gap: 8px;
+													row-gap: 6px;
+													align-items: baseline;
+												"
+											>
+												<sc-for
+													list="{{ focused.trail }}"
+													as="ev"
+													hint-placeholder-count="4"
+												>
+													<span style="font-size: 10.5px; color: #bdbab0"
+														>{{ ev.age }}</span
+													>
+													<span
+														style="
+															font-size: 10px;
+															color: #a8a59a;
+															text-transform: uppercase;
+															letter-spacing: 0.04em;
+														"
+														>{{ ev.kind }}</span
+													>
+													<span style="{{ ev.textStyle }}">{{ ev.text }}</span>
+												</sc-for>
+											</div>
+										</div>
+									</sc-if>
+								</div>
+							</div>
+						</div>
+					</sc-if>
+
+					<!-- operator-action dialog (confirm / comment) -->
+					<sc-if value="{{ hasDialog }}">
+						<div
+							style="
+								position: fixed;
+								inset: 0;
+								background: rgba(28, 27, 24, 0.28);
+								display: flex;
+								align-items: center;
+								justify-content: center;
+								z-index: 60;
+							"
+							onClick="{{ closeDialog }}"
+						>
+							<div
+								style="
+									width: 420px;
+									max-width: calc(100vw - 40px);
+									background: #f6f5f1;
+									border: 1px solid #e6e4dc;
+									border-radius: 6px;
+									box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+									padding: 20px;
+								"
+								onClick="{{ stop }}"
+							>
+								<div style="font-size: 14px; font-weight: 600">
+									{{ dialog.title }}
+								</div>
+								<sc-if value="{{ dialog.hasMessage }}"
+									><div
+										style="
+											font-size: 12px;
+											color: #57554d;
+											margin-top: 8px;
+											line-height: 1.6;
+										"
+									>
+										{{ dialog.message }}
+									</div></sc-if
+								>
+								<sc-if value="{{ dialog.requiresComment }}">
+									<div style="margin-top: 14px">
+										<div
+											style="
+												font-size: 11px;
+												color: #9b988d;
+												margin-bottom: 6px;
+											"
+										>
+											Comment {{ dialog.commentHint }}
+										</div>
+										<textarea
+											value="{{ dialog.comment }}"
+											onInput="{{ dialog.onComment }}"
+											style="width:100%; height:72px; resize:none; font-family:inherit; font-size:12px; padding:9px 11px; border:1px solid {{ dialog.commentBorder }}; border-radius:4px; background:#fff; color:#1c1b18;"
+										></textarea>
+									</div>
+								</sc-if>
+								<div
+									style="
+										display: flex;
+										justify-content: flex-end;
+										gap: 9px;
+										margin-top: 18px;
+									"
+								>
+									<button
+										style="
+											font-family: inherit;
+											font-size: 11.5px;
+											padding: 7px 15px;
+											border-radius: 3px;
+											border: 1px solid #d8d6cc;
+											background: transparent;
+											color: #1c1b18;
+											cursor: pointer;
+										"
+										onClick="{{ closeDialog }}"
+									>
+										Cancel
+									</button>
+									<button
+										style="{{ dialog.confirmStyle }}"
+										onClick="{{ dialog.onConfirm }}"
+									>
+										{{ dialog.confirmLabel }}
+									</button>
+								</div>
+							</div>
+						</div>
+					</sc-if>
+
+					<!-- toast -->
+					<sc-if value="{{ hasToast }}">
+						<div
+							style="
+								position: fixed;
+								left: 50%;
+								bottom: 26px;
+								transform: translateX(-50%);
+								background: #1c1b18;
+								color: #f1f0ea;
+								font-size: 12px;
+								padding: 10px 18px;
+								border-radius: 5px;
+								box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+								animation: toastIn 0.24s ease both;
+								z-index: 50;
+							"
+						>
+							{{ toast }}
+						</div>
+					</sc-if>
+				</div>
+			</div>
+		</x-dc>
+		<script type="text/x-dc" data-dc-script>
+			class Component extends DCLogic {
+			  state = { view: "triage", sessionId: null, workKey: null, origin: "50% 30%", live: true, role: "controller", resolved: {}, toast: null, zoomDone: true, dialog: null, comment: "" };
+
+			  componentDidMount() {
+			    this._onKey = (e) => {
+			      if (e.key === "Escape") {
+			        if (this.state.dialog) this.setState({ dialog: null, comment: "" });
+			        else if (this.state.view === "room") this.setState({ view: "triage" });
+			      }
+			    };
+			    document.addEventListener("keydown", this._onKey);
+			  }
+			  componentWillUnmount() {
+			    document.removeEventListener("keydown", this._onKey);
+			    if (this._toastT) clearTimeout(this._toastT);
+			    if (this._zoomT) clearTimeout(this._zoomT);
+			  }
+
+			  data() {
+			    return [
+			      { id:"deps", workflow:"review dependency PRs", mono:"DP", cwdName:"web-app", workflowPath:"workflows/review-deps/WORKFLOW.md", mode:"watch", model:"anthropic/claude-sonnet-4", state:"acting", tokps:"312 tok/s", agents:"1/2", spark:"0,12 9,9 16,4 24,11 32,7 40,3 48,9 56,6",
+			        pulseLine:"tick #214 · 8s ago · found 2 · started 1 · next tick 22s · 1/2 runs", diagnostics:[],
+			        work:[
+			          { key:"zod4", title:"Upgrade zod to v4", subtitle:"web-app · package.json", labels:["deps","breaking"], status:"blocked",
+			            blockedReason:"The agent finished the change and ran checks. It is waiting for your review before it opens the PR.",
+			            operatorActions:[ {id:"approve",label:"Approve & open PR",tone:"primary"}, {id:"changes",label:"Request changes",tone:"secondary",requiresComment:true}, {id:"discard",label:"Discard",tone:"danger",confirm:{title:"Discard this change?",message:"The agent's branch is deleted. Session History is kept."}} ],
+			            run:{ runId:"run 7f3a", stage:"finishing", activity:"Waiting for review", check:"passed", phases:[{k:"think",n:3},{k:"read",n:6},{k:"edit",n:9},{k:"test",n:2}], tokens:"31.8k tok · $0.27", turn:2, events:284, meaningful:38, commands:["bun test dashboard","bunx tsc --noEmit"],
+			              timeline:[ {age:"1m",k:"finish",text:"Posted summary · ready for review"}, {age:"1m",k:"test",text:"Ran bun test — 142 passed"}, {age:"2m",k:"edit",text:"Edited package.json"}, {age:"2m",k:"edit",text:"Edited src/validators.ts"}, {age:"3m",k:"read",text:"Read src/validators.ts"}, {age:"3m",k:"think",text:"Thinking"} ] } },
+			          { key:"vitest", title:"Bump vitest 1 → 3", subtitle:"qa · vitest.config.ts", labels:["deps"], status:"running",
+			            run:{ runId:"run b3f9", stage:"working", activity:"Editing vitest.config.ts", streaming:true, check:"not-run", phases:[{k:"think",n:2},{k:"read",n:5},{k:"edit",n:4}], tokens:"12.4k tok · $0.09", turn:1, events:96, meaningful:14, commands:["bun test"],
+			              timeline:[ {age:"now",k:"edit",text:"Editing vitest.config.ts"}, {age:"12s",k:"read",text:"Read vitest.config.ts"}, {age:"30s",k:"search",text:"Searched \"defineConfig\""}, {age:"45s",k:"think",text:"Thinking"} ] } },
+			          { key:"eslint", title:"Re-pin eslint config", subtitle:"superseded · draining out", labels:["deps"], status:"draining",
+			            run:{ runId:"run 9c2e", stage:"working", activity:"Editing .eslintrc", streaming:false, check:"not-run", phases:[{k:"read",n:2},{k:"edit",n:1}], tokens:"4.2k tok · $0.03", turn:1, events:22, meaningful:3, commands:[],
+			              timeline:[ {age:"2m",k:"edit",text:"Editing .eslintrc"}, {age:"2m",k:"read",text:"Read .eslintrc"} ] } },
+			          { key:"lodash", title:"Patch lodash advisory", subtitle:"security", labels:["security"], status:"done",
+			            completed:"Merged as PR #482 · succeeded in 4m 12s · 22.1k tok · $0.18" } ] },
+
+			      { id:"flakes", workflow:"hunt e2e flakes", mono:"EF", cwdName:"qa-infra", workflowPath:"workflows/flake-hunt/WORKFLOW.md", mode:"watch", model:"anthropic/claude-opus-4", state:"acting", tokps:"540 tok/s", agents:"2/3", spark:"0,13 8,4 16,13 24,3 32,11 40,5 48,13 56,5",
+			        pulseLine:"tick #88 · 22s ago · found 1 · started 1 · next tick 38s · 2/3 runs", diagnostics:["warn/reconcile: 1 source returned 0 work items"],
+			        work:[
+			          { key:"repro", title:"Reproduce auth.spec flake", subtitle:"e2e/auth.spec.ts", labels:["flake"], status:"running",
+			            run:{ runId:"run a1d2", stage:"verifying", activity:"Running bun test e2e/auth.spec.ts", streaming:true, check:"running", phases:[{k:"think",n:2},{k:"read",n:3},{k:"run",n:1},{k:"test",n:5}], tokens:"28.7k tok · $0.41", turn:3, events:212, meaningful:19, commands:["bun test e2e/auth.spec.ts --retry 50"],
+			              timeline:[ {age:"now",k:"test",text:"Running bun test e2e/auth.spec.ts (attempt 5)"}, {age:"20s",k:"test",text:"Ran suite — 1 failure"}, {age:"40s",k:"read",text:"Read e2e/auth.spec.ts"}, {age:"1m",k:"think",text:"Thinking"} ] } },
+			          { key:"bisect", title:"Bisect retry backoff", subtitle:"stale · last event 4m ago", labels:["flake"], status:"running", stale:true,
+			            run:{ runId:"run d7b8", stage:"working", activity:"Waiting on bash output", streaming:false, check:"running", phases:[{k:"run",n:2},{k:"test",n:3}], tokens:"15.0k tok · $0.22", turn:2, events:140, meaningful:11, commands:["git bisect run bun test"],
+			              timeline:[ {age:"4m",k:"run",text:"Ran git bisect step"}, {age:"5m",k:"think",text:"Thinking"} ] } },
+			          { key:"stabilize", title:"Stabilize token-refresh race", subtitle:"pending · waiting on reproduction", labels:[], status:"pending",
+			            run:null } ] },
+
+			      { id:"forge", workflow:"forge: add rate-limit workflow", mono:"WF", cwdName:"core", workflowPath:".plot/dynamic/forge/WORKFLOW.md", mode:"oneshot", model:"anthropic/claude-sonnet-4", state:"error", tokps:"0 tok/s", agents:"0/1", spark:"0,8 28,8 32,3 36,13 40,8 56,8",
+			        pulseLine:"tick #3 · 40s ago · found 1 · started 0 · oneshot · 0/1 runs", diagnostics:["error/validate: extension imports @plot/agent (forbidden)"],
+			        work:[
+			          { key:"bundle", title:"Generate dynamic workflow bundle", subtitle:"forge · attempt 2 of 3", labels:["forge"], status:"failed",
+			            failMessage:"Validation failed: the generated extension imports @plot/agent (forbidden). The forge will retry with the validation errors attached to the next prompt.",
+			            wakeText:"auto-retry · attempt 3 · in 6s · reason validation_retry",
+			            operatorActions:[ {id:"retry",label:"Retry now",tone:"primary"}, {id:"stop",label:"Stop forging",tone:"danger",confirm:{title:"Stop the forge?",message:"The oneshot session ends. The partial bundle is kept on disk."}} ],
+			            run:{ runId:"run c4e1", stage:"failed", activity:"Validation failed", check:"failed", phases:[{k:"think",n:1},{k:"edit",n:2}], tokens:"9.1k tok · $0.06", turn:1, events:54, meaningful:6, commands:[],
+			              timeline:[ {age:"40s",k:"finish",text:"Wrote dynamic workflow bundle"}, {age:"50s",k:"edit",text:"Edited workflow.extension.ts"}, {age:"1m",k:"think",text:"Thinking"} ] } } ] },
+
+			      { id:"issues", workflow:"triage github issues", mono:"TI", cwdName:"web-app", workflowPath:"workflows/triage/WORKFLOW.md", mode:"watch", model:"anthropic/claude-haiku-4", state:"watching", tokps:"0 tok/s", agents:"0/4", spark:"0,8 56,8",
+			        pulseLine:"tick #512 · 1m ago · found 0 · started 0 · next tick 74s · 0/4 runs", diagnostics:[],
+			        work:[
+			          { key:"watch", title:"Watching for new issues", subtitle:"no open work · woke on tick #512", labels:[], status:"pending",
+			            idleNote:"No work discovered on the last tick. The session sleeps until the next tick or a roster change.", run:null } ] },
+
+			      { id:"nightly", workflow:"nightly codemods", mono:"NC", cwdName:"core", workflowPath:"workflows/codemod/WORKFLOW.md", mode:"oneshot", model:"anthropic/claude-sonnet-4", state:"idle", tokps:"0 tok/s", agents:"0/1", spark:"0,8 56,8",
+			        pulseLine:"tick #1 · 6m ago · found 1 · started 0 · oneshot · 0/1 runs", diagnostics:[],
+			        work:[
+			          { key:"retry", title:"Apply scheduled codemods", subtitle:"scheduled retry", labels:[], status:"pending",
+			            wakeText:"retry · attempt 2 · in 84s · reason lockfile_conflict",
+			            idleNote:"The first attempt hit a lockfile conflict. A retry is scheduled.", run:null } ] }
+			    ];
+			  }
+
+			  getSession(id) { return this.data().find((s) => s.id === id); }
+			  rk(id, key) { return id + ":" + key; }
+			  isResolved(id, key) { return !!this.state.resolved[this.rk(id, key)]; }
+			  // a work item the operator must act on: blocked, or failed-with-actions, not yet resolved
+			  isActionable(s, t) {
+			    if (this.isResolved(s.id, t.key)) return false;
+			    const acts = (t.operatorActions || []).length > 0;
+			    return acts && (t.status === "blocked" || t.status === "failed");
+			  }
+
+			  originFrom(e) {
+			    try {
+			      const app = e.currentTarget.closest("[data-app]");
+			      const r = e.currentTarget.getBoundingClientRect();
+			      const a = app.getBoundingClientRect();
+			      return (r.left + r.width / 2 - a.left) + "px " + (r.top + r.height / 2 - a.top) + "px";
+			    } catch (_) { return "50% 30%"; }
+			  }
+			  open(e, id, key) {
+			    const o = this.originFrom(e);
+			    const s = this.getSession(id);
+			    const action = s.work.find((t) => this.isActionable(s, t));
+			    const fk = key || (action && action.key) || (s.work[0] && s.work[0].key) || null;
+			    this.setState({ view: "room", sessionId: id, workKey: fk, origin: o, zoomDone: false });
+			    if (this._zoomT) clearTimeout(this._zoomT);
+			    this._zoomT = setTimeout(() => this.setState({ zoomDone: true }), 480);
+			  }
+			  back() { this.setState({ view: "triage" }); }
+			  focus(key) { this.setState({ workKey: key }); }
+			  toggleLive() { this.setState((s) => ({ live: !s.live })); }
+
+			  toast(msg) {
+			    this.setState({ toast: msg });
+			    if (this._toastT) clearTimeout(this._toastT);
+			    this._toastT = setTimeout(() => this.setState({ toast: null }), 2600);
+			  }
+			  // operator action click: dialog if confirm/requiresComment, else perform
+			  onAction(id, key, action) {
+			    if (action.confirm || action.requiresComment) {
+			      this.setState({ dialog: { sessionId: id, workKey: key, action, error: false }, comment: "" });
+			    } else {
+			      this.perform(id, key, action);
+			    }
+			  }
+			  perform(id, key, action) {
+			    this.setState((st) => ({ resolved: { ...st.resolved, [this.rk(id, key)]: action.label }, dialog: null, comment: "" }));
+			    this.toast(action.label + " — observation recorded");
+			  }
+			  confirmDialog() {
+			    const d = this.state.dialog;
+			    if (!d) return;
+			    if (d.action.requiresComment && this.state.comment.trim() === "") {
+			      this.setState({ dialog: { ...d, error: true } });
+			      return;
+			    }
+			    this.perform(d.sessionId, d.workKey, d.action);
+			  }
+
+			  btnStyle(tone) {
+			    if (tone === "primary") return "font-family:inherit;font-size:11.5px;padding:7px 14px;border-radius:3px;border:none;background:#cf5a2e;color:#fff;cursor:pointer;";
+			    if (tone === "danger") return "font-family:inherit;font-size:11.5px;padding:7px 14px;border-radius:3px;border:1px solid #e0c6ba;background:transparent;color:#cf5a2e;cursor:pointer;";
+			    return "font-family:inherit;font-size:11.5px;padding:7px 14px;border-radius:3px;border:1px solid #d8d6cc;background:transparent;color:#1c1b18;cursor:pointer;";
+			  }
+			  btnHover(tone) { return tone === "primary" ? "background:#b94a23" : "background:#f0efe8"; }
+			  mkActions(s, t) {
+			    const obs = this.state.role !== "controller";
+			    return (t.operatorActions || []).map((a) => ({ label: a.label, style: this.btnStyle(a.tone) + (obs ? "opacity:.4;cursor:not-allowed;" : ""), hover: obs ? "" : this.btnHover(a.tone), onClick: obs ? () => this.toast("Controller required to act") : () => this.onAction(s.id, t.key, a) }));
+			  }
+			  toggleRole() { this.setState((s) => ({ role: s.role === "controller" ? "observer" : "controller" })); }
+			  guardCtrl(fn) { if (this.state.role !== "controller") { this.toast("Controller required"); return; } fn(); }
+
+			  railTone(t, resolved) {
+			    if (resolved) return "#cfccc2";
+			    if (t.stale) return "#dcdad1";
+			    if (t.status === "blocked" || t.status === "failed") return "#cf5a2e";
+			    if (t.status === "running") return "#1c1b18";
+			    return "#dcdad1";
+			  }
+			  checkVM(check) {
+			    if (check === "passed") return { has: true, label: "check passed", style: "font-size:10.5px;padding:2px 8px;border-radius:10px;background:#ecebe4;color:#57554d;" };
+			    if (check === "failed") return { has: true, label: "check failed", style: "font-size:10.5px;padding:2px 8px;border-radius:10px;background:rgba(207,90,46,.1);color:#cf5a2e;" };
+			    if (check === "running") return { has: true, label: "checking…", style: "font-size:10.5px;padding:2px 8px;border-radius:10px;border:1px solid #e0ddd4;color:#57554d;" };
+			    return { has: false, label: "", style: "" };
+			  }
+			  buildFocused(s, t) {
+			    const base = { key:"", title:"", subtitle:"", labels:[], hasUrl:false, url:"", glyph:"·", glyphStyle:"", isRunning:false, isBlocked:false, isFailed:false, isDone:false, blockedReason:"", failMessage:"", hasWake:false, wakeText:"", hasRun:false, runId:"", stageLabel:"", runActivity:"", phases:[], hasCheck:false, checkLabel:"", checkStyle:"", runMeta:"", hasCommands:false, commands:[], doneSummary:"", hasActions:false, actions:[], resolved:false, resolvedLabel:"", hasTrail:false, trail:[], onInterrupt:() => {} };
+			    if (!s || !t) return base;
+			    const resolved = this.isResolved(s.id, t.key);
+			    const glyphMap = { running:"●", blocked:"◆", failed:"✕", done:"✓", pending:"○", draining:"◑" };
+			    const f = { ...base, key: t.key, title: t.title, subtitle: t.subtitle || "", labels: (t.labels || []).map((x) => ({ text: x })) };
+			    f.glyph = resolved ? "✓" : (glyphMap[t.status] || "·");
+			    const accentG = t.status === "blocked" || t.status === "failed";
+			    f.glyphStyle = "font-size:12px;color:" + (resolved ? "#1c1b18" : accentG ? "#cf5a2e" : t.status === "running" ? "#1c1b18" : "#bdbab0") + ";";
+			    f.isRunning = t.status === "running";
+			    f.isBlocked = t.status === "blocked" && !resolved;
+			    f.isFailed = t.status === "failed" && !resolved;
+			    f.isDone = t.status === "done";
+			    f.blockedReason = t.blockedReason || "";
+			    f.failMessage = t.failMessage || "";
+			    if (t.wakeText) { f.hasWake = true; f.wakeText = t.wakeText; }
+			    if (t.completed) { f.isDone = true; f.doneSummary = t.completed; }
+			    if (t.idleNote && !t.run) { f.isDone = true; f.doneSummary = t.idleNote; }
+			    // run panel
+			    if (t.run) {
+			      const r = t.run;
+			      f.hasRun = true; f.runId = r.runId; f.stageLabel = "stage · " + r.stage;
+			      f.runActivity = r.activity;
+			      f.phases = (r.phases || []).map((p) => ({ text: p.k + "·" + p.n }));
+			      const chk = this.checkVM(r.check);
+			      f.hasCheck = chk.has; f.checkLabel = chk.label; f.checkStyle = chk.style;
+			      f.runMeta = r.tokens + " · turn " + r.turn + " · " + r.events + " events · " + r.meaningful + " meaningful";
+			      f.hasCommands = (r.commands || []).length > 0;
+			      f.commands = (r.commands || []).map((c) => ({ text: c }));
+			      f.hasTrail = (r.timeline || []).length > 0;
+			      f.trail = (r.timeline || []).map((ev) => ({ age: ev.age, kind: ev.k, text: ev.text, textStyle: ev.age === "now" ? "font-size:11.5px;color:#1c1b18;background:linear-gradient(90deg,#9b988d,#9b988d 40%,#1c1b18 50%,#9b988d 60%,#9b988d);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 2.6s linear infinite;" : "font-size:11.5px;color:#57554d;" }));
+			      f.onInterrupt = () => this.guardCtrl(() => this.toast("Interrupt requested · " + r.runId));
+			    }
+			    if (resolved) { f.resolved = true; f.resolvedLabel = this.state.resolved[this.rk(s.id, t.key)]; }
+			    else if ((t.operatorActions || []).length) { f.hasActions = true; f.actions = this.mkActions(s, t); }
+			    return f;
+			  }
+
+			  renderVals() {
+			    const sessions = this.data();
+
+			    // ── triage ──
+			    const needsYou = [];
+			    sessions.forEach((s) => s.work.forEach((t) => {
+			      if (this.isActionable(s, t)) {
+			        const reason = t.status === "blocked" ? t.blockedReason : t.failMessage;
+			        needsYou.push({ title: t.title, where: s.workflow + " · " + s.cwdName, reason, actions: this.mkActions(s, t), onOpen: (e) => this.open(e, s.id, t.key) });
+			      }
+			    }));
+			    const attention = [];
+			    sessions.forEach((s) => (s.diagnostics || []).forEach((d) => {
+			      const slash = d.indexOf(":");
+			      attention.push({ tag: slash > 0 ? d.slice(0, slash) : "diagnostic", text: slash > 0 ? d.slice(slash + 1).trim() : d });
+			    }));
+			    sessions.forEach((s) => s.work.forEach((t) => {
+			      if (t.stale && !this.isResolved(s.id, t.key))
+			        attention.push({ tag: "stale", text: t.title + " · " + (t.subtitle || "") });
+			    }));
+			    const running = sessions.filter((s) => s.state === "acting").map((s) => {
+			      const lt = s.work.find((t) => t.status === "running") || s.work[0];
+			      const isLive = lt && lt.status === "running";
+			      return { name: s.workflow, activity: (lt && lt.run && lt.run.activity) || (lt && lt.title) || "", cwdName: s.cwdName, agents: s.agents, onOpen: (e) => this.open(e, s.id),
+			        actStyle: isLive ? "background:linear-gradient(90deg,#9b988d,#9b988d 40%,#1c1b18 50%,#9b988d 60%,#9b988d);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 2.6s linear infinite;" : "color:#57554d;" };
+			    });
+			    const idle = sessions.filter((s) => s.state === "watching" || s.state === "idle").map((s) => {
+			      const w = s.work[0];
+			      return { name: s.workflow, sub: (w && w.subtitle) || s.cwdName, glyph: s.state === "idle" ? "↻" : "○", right: (w && w.wakeText) ? w.wakeText.split("·")[2] && w.wakeText.split("·")[2].trim() : "watching", onOpen: (e) => this.open(e, s.id) };
+			    });
+			    const fleetTok = sessions.reduce((a, s) => a + (parseInt(s.tokps) || 0), 0).toLocaleString() + " tok/s";
+
+			    // ── room ──
+			    const session = this.getSession(this.state.sessionId);
+			    let roomVM = { roomEnterStyle: "", session: {}, switcher: [], threads: [], focused: this.buildFocused(null, null), shimmerStyle: "", liveLabel: "", liveTrack: "", liveKnob: "" };
+			    if (session) {
+			      const live = this.state.live && session.state === "acting";
+			      const stateLabel = session.state === "acting" ? (this.state.live ? "acting" : "paused") : session.state === "error" ? "error" : session.state;
+			      const accentState = session.state === "error";
+			      const sessionVM = {
+			        mono: session.mono, workflow: session.workflow, cwdName: session.cwdName, workflowPath: session.workflowPath, model: session.model, mode: session.mode,
+			        stateLabel, tokps: this.state.live || session.state !== "acting" ? session.tokps : "paused", spark: session.spark, workCount: session.work.length, pulseLine: session.pulseLine,
+			        hasDiagnostics: (session.diagnostics || []).length > 0, diagnostic: (session.diagnostics || [])[0] || "",
+			        statePill: "font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:10px;border:1px solid " + (accentState ? "#e0c6ba" : "#e0ddd4") + ";color:" + (accentState ? "#cf5a2e" : "#9b988d") + ";"
+			      };
+			      const switcher = sessions.map((s) => {
+			        const need = s.work.some((t) => this.isActionable(s, t));
+			        const active = s.id === session.id;
+			        const style = "position:relative;font-family:inherit;font-size:9.5px;font-weight:600;width:30px;height:30px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;letter-spacing:.04em;border:1px solid " + (active ? "#1c1b18" : "#e0ddd4") + ";background:" + (active ? "#1c1b18" : "transparent") + ";color:" + (active ? "#f1f0ea" : "#9b988d") + ";";
+			        return { mono: s.mono, needsYou: need, style, onOpen: (e) => this.open(e, s.id) };
+			      });
+			      const threads = session.work.map((t) => {
+			        const sel = t.key === this.state.workKey;
+			        const resolved = this.isResolved(session.id, t.key);
+			        const isLive = t.status === "running" && !t.stale;
+			        const dim = (t.status === "done" || t.status === "pending" || t.status === "draining" || t.stale) && !sel;
+			        const sub = t.stale ? t.subtitle : (t.status === "running" && t.run ? t.run.activity : (t.status === "blocked" ? "waiting for you" : t.subtitle));
+			        return {
+			          title: t.title, sub, status: resolved ? "done" : t.status,
+			          rowStyle: "display:grid;grid-template-columns:3px 1fr auto;gap:13px;align-items:stretch;padding:11px 20px;cursor:pointer;" + (sel ? "background:#ecebe4;" : ""),
+			          railStyle: "width:3px;border-radius:2px;background:" + this.railTone(t, resolved) + ";",
+			          titleStyle: "font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:" + (dim ? "#9b988d" : "#1c1b18") + ";font-weight:" + (sel ? "600" : "500") + ";",
+			          subStyle: isLive ? "display:block;margin-top:4px;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:linear-gradient(90deg,#9b988d,#9b988d 40%,#1c1b18 50%,#9b988d 60%,#9b988d);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 2.6s linear infinite;" : "display:block;margin-top:4px;font-size:10.5px;color:#9b988d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+			          onFocus: () => this.focus(t.key)
+			        };
+			      });
+			      const focusedWork = session.work.find((t) => t.key === this.state.workKey) || session.work[0];
+			      roomVM = {
+			        roomEnterStyle: this.state.zoomDone ? "" : ("transform-origin:" + this.state.origin + ";animation:zoomIn .44s cubic-bezier(.2,.8,.2,1) both;"),
+			        session: sessionVM, switcher, threads, focused: this.buildFocused(session, focusedWork),
+			        shimmerStyle: "font-size:12px;background:linear-gradient(90deg,#9b988d,#9b988d 40%,#1c1b18 50%,#9b988d 60%,#9b988d);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 2.6s linear infinite;",
+			        liveLabel: live ? "Live" : "Paused",
+			        liveTrack: "width:30px;height:17px;border-radius:9px;padding:2px;display:inline-flex;background:" + (live ? "#1c1b18" : "#d8d6cc") + ";" + (live ? "justify-content:flex-end;" : "justify-content:flex-start;"),
+			        liveKnob: "width:13px;height:13px;border-radius:50%;background:#f1f0ea;"
+			      };
+			    }
+
+			    // ── dialog ──
+			    const d = this.state.dialog;
+			    const dialogVM = d ? {
+			      title: (d.action.confirm && d.action.confirm.title) || d.action.label,
+			      hasMessage: !!(d.action.confirm && d.action.confirm.message), message: (d.action.confirm && d.action.confirm.message) || "",
+			      requiresComment: !!d.action.requiresComment, commentHint: d.error ? "· required" : "", commentBorder: d.error ? "#cf5a2e" : "#e6e4dc",
+			      comment: this.state.comment, onComment: (e) => this.setState({ comment: e.target.value }),
+			      confirmLabel: d.action.label, confirmStyle: this.btnStyle(d.action.tone), onConfirm: () => this.confirmDialog()
+			    } : { title:"", hasMessage:false, message:"", requiresComment:false, commentHint:"", commentBorder:"#e6e4dc", comment:"", onComment:() => {}, confirmLabel:"", confirmStyle:"", onConfirm:() => {} };
+
+			    return {
+			      isTriage: this.state.view === "triage", isRoom: this.state.view === "room",
+			      fleetTok, needsYou, needsCount: needsYou.length, attention, hasAttention: attention.length > 0, running, runningCount: running.length, idle, idleCount: idle.length,
+			      back: () => this.back(), toggleLive: () => this.guardCtrl(() => this.toggleLive()),
+			      reconcile: () => this.guardCtrl(() => this.toast("Reconcile requested · tick now")), closeSession: () => this.guardCtrl(() => this.toast("Close requested — confirm in a dialog")),
+			      roleLabel: this.state.role, toggleRole: () => this.toggleRole(),
+			      controlsStyle: this.state.role === "controller" ? "" : "opacity:.5;",
+			      controlNote: this.state.role === "controller" ? "" : "observer · read-only",
+			      obsNote: this.state.role === "controller" ? "" : "controller required",
+			      hasToast: !!this.state.toast, toast: this.state.toast || "",
+			      hasDialog: !!d, dialog: dialogVM, closeDialog: () => this.setState({ dialog: null, comment: "" }), stop: (e) => e.stopPropagation(),
+			      ...roomVM
+			    };
+			  }
+			}
+		</script>
+	</body>
+</html>
