@@ -146,7 +146,7 @@ function RoomShell({
 	const sessionId = projection.sessionId;
 
 	return (
-		<div className="mx-auto w-full max-w-[1080px] px-gutter pb-20 pt-6">
+		<div className="w-full px-gutter pb-20 pt-6">
 			<RoomTopBar
 				roster={roster}
 				currentId={sessionId}

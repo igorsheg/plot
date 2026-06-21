@@ -65,10 +65,7 @@ export function TriageLobby() {
 	const needsYouTotal = needsYou.reduce((n, s) => n + s.needsYouCount, 0);
 
 	return (
-		<Stack
-			gap={6}
-			className="mx-auto w-full max-w-[1080px] px-gutter pb-20 pt-6"
-		>
+		<Stack gap={6} className="w-full px-gutter pb-20 pt-6">
 			<LobbyChrome
 				connection={connection}
 				sessionCount={sessions.length}
