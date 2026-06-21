@@ -40,6 +40,7 @@ import { sortPlotSessions } from "../fleet-model";
 import { throughputSeries } from "../throughput-series";
 import { Meta, Rail, type RailTone, Row, SectionLabel, Stack } from "./layout";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
+import { lobbyLinkProps, sessionLinkProps } from "./session-links";
 import { connectionLabel, connectionTone } from "./status";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -160,7 +161,7 @@ function RoomShell({
 				workflowPath={projection.runtime.workflowPath}
 				provider={projection.runtime.provider}
 				model={projection.runtime.model}
-				throughput={model.pulse.throughput.replace("tps", "tok/s")}
+				throughput={model.pulse.throughput}
 				tps={tps}
 			/>
 			<LoopPulseStrip
@@ -186,23 +187,8 @@ function RoomShell({
 
 // ─── top bar ───────────────────────────────────────────────────────────────
 // "← all work · esc" back to the Lobby (esc is keyboard nav → no animation) and
-// the session switcher rail. Both preserve the `?role=` posture.
-
-const lobbyLinkProps = {
-	to: "/" as const,
-	search: (prev: { role?: "observer" | "controller" }) => ({
-		role: prev.role ?? "controller",
-	}),
-};
-
-const sessionLinkProps = (id: string) =>
-	({
-		to: "/session/$sessionId",
-		params: { sessionId: id },
-		search: (prev: { role?: "observer" | "controller" }) => ({
-			role: prev.role ?? "controller",
-		}),
-	}) as const;
+// the session switcher rail. Both preserve the `?role=` posture via the shared
+// link contracts in `./session-links`.
 
 function RoomTopBar({
 	roster,
@@ -217,12 +203,7 @@ function RoomTopBar({
 	const { connection } = useDashboardState();
 	// esc → back to the Lobby. Keyboard nav, so the Room enters/exits static.
 	useEsc(() => {
-		void navigate({
-			to: "/",
-			search: (prev: { role?: "observer" | "controller" }) => ({
-				role: prev.role ?? "controller",
-			}),
-		});
+		void navigate(lobbyLinkProps);
 	});
 	return (
 		<Row className="mb-4 justify-between">

@@ -22,18 +22,6 @@ export const sessionIsRunning = (session: {
 	session.state === "reconciling" ||
 	session.agents.active > 0;
 
-export function toneForSession(session: {
-	readonly state: PlotSessionSummary["state"];
-	readonly agents: { readonly active: number };
-}): StatusTone {
-	if (session.state === "error") return "danger";
-	if (session.state === "paused") return "attention";
-	if (session.state === "stopped" || session.state === "idle") return "muted";
-	if (sessionIsRunning(session)) return "live";
-	// starting / watching / stopping — alive but not working
-	return "muted";
-}
-
 // Connection state → human label + dot tone. Lifted from the (retiring)
 // app-sidebar's `connectionDot` so both the Lobby chrome and the Room's
 // degraded look read the connection the same way. The two attention states

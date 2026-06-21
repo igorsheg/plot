@@ -50,9 +50,6 @@ export const visibleFleetSessions = (
 		: sorted.filter((session) => session.state !== "stopped");
 };
 
-export const stoppedSessionCount = (sessions: readonly PlotSessionSummary[]) =>
-	sessions.filter((session) => session.state === "stopped").length;
-
 export const chooseInitialSession = (input: {
 	readonly roster: readonly PlotSessionSummary[];
 	readonly requestedSessionId?: string | undefined;

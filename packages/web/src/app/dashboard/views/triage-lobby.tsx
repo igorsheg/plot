@@ -8,6 +8,7 @@ import type { ConnectionState } from "../web-dashboard-state";
 import { useDashboardState } from "../dashboard-context";
 import { visibleFleetSessions } from "../fleet-model";
 import { Meta, Rail, Row, SectionLabel, Stack } from "./layout";
+import { sessionLinkProps } from "./session-links";
 import {
 	connectionLabel,
 	connectionTone,
@@ -21,19 +22,10 @@ import {
 // here — full operator actions / blockedReason live in the Room). The one
 // accent (`--attention`) is reserved for actionable NEEDS YOU; everything that
 // is autonomous-and-fine reads as neutral ink. Every NEEDS YOU row routes INTO
-// the Room rather than rendering an operator action inline.
+// the Room rather than rendering an operator action inline. Each row navigates
+// to the session's Room via the shared `sessionLinkProps` (`./session-links`),
+// preserving the controller/observer posture carried in `?role=`.
 // ─────────────────────────────────────────────────────────────────────────
-
-// Each row navigates to the session's Room, preserving the controller/observer
-// posture carried in the `?role=` search param (defaulting to controller).
-const sessionLinkProps = (id: string) =>
-	({
-		to: "/session/$sessionId",
-		params: { sessionId: id },
-		search: (prev: { role?: "observer" | "controller" }) => ({
-			role: prev.role ?? "controller",
-		}),
-	}) as const;
 
 // The ink "live" dot — liveness reads through motion (the beat), not hue.
 // Mirrors the PulseHeader pulse-dot markup from session-surface.
