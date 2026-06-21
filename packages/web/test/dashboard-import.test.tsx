@@ -375,9 +375,12 @@ describe("plot web dashboard", () => {
 			selectedSessionId: "session-1",
 			projection,
 		});
-		// The persisted frame stays in the session route; the `offline · last frame`
-		// connection label is Lobby chrome now (the sidebar that carried it is gone).
-		expect(renderSession(offlineState)).toContain("Prepare package");
+		// The persisted frame stays in the session route; the Room top bar now
+		// surfaces the degraded connection too, so it reads `offline · last frame`
+		// alongside the preserved frame.
+		const sessionHtml = renderSession(offlineState);
+		expect(sessionHtml).toContain("Prepare package");
+		expect(sessionHtml).toContain("offline · last frame");
 		expect(renderLobby(offlineState)).toContain("offline · last frame");
 	});
 });

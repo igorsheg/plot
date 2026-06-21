@@ -27,6 +27,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Sparkline } from "@/components/ui/sparkline";
+import { StatusDot } from "@/components/ui/status-indicator";
 import { Switch } from "@/components/ui/switch";
 import { useNow } from "@/hooks/use-now";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ import { sortPlotSessions } from "../fleet-model";
 import { throughputSeries } from "../throughput-series";
 import { Meta, Rail, type RailTone, Row, SectionLabel, Stack } from "./layout";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
+import { connectionLabel, connectionTone } from "./status";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Session Room — the zoomed-in, two-pane detail for one session. Attention is
@@ -212,6 +214,7 @@ function RoomTopBar({
 	selectedId?: string;
 }) {
 	const navigate = useNavigate();
+	const { connection } = useDashboardState();
 	// esc → back to the Lobby. Keyboard nav, so the Room enters/exits static.
 	useEsc(() => {
 		void navigate({
@@ -223,10 +226,21 @@ function RoomTopBar({
 	});
 	return (
 		<Row className="mb-4 justify-between">
-			<Link {...lobbyLinkProps} className="inline-flex items-center gap-1">
-				<ArrowLeft size={13} className="text-t3" />
-				<Meta>all work · esc</Meta>
-			</Link>
+			<Row gap={3}>
+				<Link {...lobbyLinkProps} className="inline-flex items-center gap-1">
+					<ArrowLeft size={13} className="text-t3" />
+					<Meta>all work · esc</Meta>
+				</Link>
+				{/* Degraded connection is visible in the Room too (not just the Lobby
+				    chrome). Offline preserves the last good frame — the projection
+				    persists — so this reads `offline · last frame` over the kept frame.
+				    Monochrome: the dot tone is muted/attention, never the needs-you
+				    accent (locked decision #6). */}
+				<Row gap={1}>
+					<StatusDot tone={connectionTone(connection)} />
+					<Meta>{connectionLabel(connection)}</Meta>
+				</Row>
+			</Row>
 			<SessionSwitcherRail
 				roster={roster}
 				currentId={selectedId ?? currentId}
