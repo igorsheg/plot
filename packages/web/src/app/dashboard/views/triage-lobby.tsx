@@ -187,7 +187,7 @@ function Section({
 // the right of the bounded measure (close enough to scan).
 
 const rowClass =
-	"group -mx-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover";
+	"group -mx-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-3 outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:ring-1 focus-visible:ring-foreground/25";
 
 function NeedsYouRow({ session }: { session: PlotSessionSummary }) {
 	return (
@@ -285,8 +285,8 @@ function EmptyFleet({ connection }: { connection: ConnectionState }) {
 			? "Local Plot Server handoff was not provided."
 			: "No sessions yet.";
 	return (
-		<Stack gap={2} className="py-16">
-			<Meta>{copy}</Meta>
-		</Stack>
+		<div className="flex flex-col items-center gap-2 py-24 text-center">
+			<Meta tone="muted">{copy}</Meta>
+		</div>
 	);
 }

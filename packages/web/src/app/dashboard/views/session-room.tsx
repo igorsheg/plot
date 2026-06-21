@@ -581,7 +581,9 @@ function TwoPane({
 						completed={completed}
 					/>
 				) : (
-					<Meta className="block pt-4">No work in this session.</Meta>
+					<div className="flex min-h-[280px] items-center justify-center">
+						<Meta tone="muted">No work in this session.</Meta>
+					</div>
 				)}
 			</div>
 		</div>
@@ -678,7 +680,7 @@ function WorkRow({
 			type="button"
 			onClick={onSelect}
 			className={cn(
-				"group grid w-full grid-cols-[3px_minmax(0,1fr)_auto] items-center gap-x-3 px-2 py-2 text-left transition-colors",
+				"group grid w-full grid-cols-[3px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-md px-2 py-2 text-left outline-none transition-colors focus-visible:ring-1 focus-visible:ring-foreground/25",
 				selected ? "bg-selected" : "hover:bg-hover",
 			)}
 		>
