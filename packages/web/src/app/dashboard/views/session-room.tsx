@@ -356,7 +356,12 @@ function IdentityHeader({
 			</div>
 			<Row gap={2} className="shrink-0 self-center">
 				<Sparkline data={tps} />
-				<Meta tone="muted">{throughput}</Meta>
+				{/* The throughput string ("312 tok/s" / "1.2k tok/s") changes width as
+				    tokens flow; pin it in a fixed right-aligned box so the value's left
+				    edge stays put and the subline to the left doesn't reflow each frame. */}
+				<Meta tone="muted" className="min-w-[10ch] text-right">
+					{throughput}
+				</Meta>
 			</Row>
 		</Row>
 	);
@@ -902,7 +907,12 @@ function AgentRunPanel({
 						) : null}
 					</Row>
 				) : null}
-				<Meta tone="muted">{meta}</Meta>
+				{/* The run meta is a single line of frequently-updating numbers
+				    (tokens, turn, events). Truncate so a growing count can't toggle a
+				    wrap and make the panel height jitter frame to frame. */}
+				<Meta tone="muted" className="block truncate">
+					{meta}
+				</Meta>
 				{attempt.commands.length > 0 ? (
 					<div className="rounded bg-foreground px-4 py-3 text-background">
 						<Stack gap={1}>

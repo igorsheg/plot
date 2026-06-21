@@ -142,8 +142,13 @@ function LobbyChrome({
 					<RoleToggle />
 				</Row>
 				<Row gap={3}>
+					{/* Fleet tok/s updates every roster push; pin it in a fixed
+					   right-aligned box so the session-count Meta to its right never
+					   shifts as the digit count changes. */}
 					{throughput === null ? null : (
-						<Meta tone="muted">{throughput} tok/s</Meta>
+						<Meta tone="muted" className="min-w-[10ch] text-right tabular-nums">
+							{throughput} tok/s
+						</Meta>
 					)}
 					<Meta>
 						{sessionCount} {sessionCount === 1 ? "session" : "sessions"}
@@ -231,7 +236,10 @@ function ActingRow({ session }: { session: PlotSessionSummary }) {
 					{session.agents.active}
 					{session.agents.max > 0 ? `/${session.agents.max}` : ""}
 				</Meta>
-				<Meta tone="muted" className="tabular-nums">
+				{/* Throughput (or "—") updates every roster push; pin it in a fixed
+				   right-aligned box so this right cluster's width stays constant and
+				   the workflow name to the left doesn't re-truncate each frame. */}
+				<Meta tone="muted" className="min-w-[10ch] text-right tabular-nums">
 					{tps !== null && tps > 0 ? `${Math.round(tps)} tok/s` : "—"}
 				</Meta>
 			</Row>
