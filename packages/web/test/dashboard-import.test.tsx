@@ -35,8 +35,7 @@ mock.module("@tanstack/react-router", () => ({
 
 const { DashboardProvider } =
 	await import("../src/app/dashboard/dashboard-context");
-const { SessionSurface } =
-	await import("../src/app/dashboard/views/session-surface");
+const { SessionRoom } = await import("../src/app/dashboard/views/session-room");
 const { TriageLobby } = await import("../src/app/dashboard/views/triage-lobby");
 
 // Render the Triage Lobby for a fixed frame — the cross-fleet summary surface
@@ -55,7 +54,7 @@ function renderLobby(override: PlotWebDashboardState): string {
 function renderSession(override: PlotWebDashboardState): string {
 	return renderToStaticMarkup(
 		<DashboardProvider state={override}>
-			<SessionSurface />
+			<SessionRoom />
 		</DashboardProvider>,
 	);
 }
@@ -188,6 +187,10 @@ describe("plot web dashboard", () => {
 
 		expect(html).toContain("Prepare package");
 		expect(html).toContain("bun run check");
+		// Room-specific: the loop-pulse strip surfaces the run concurrency line,
+		// and the right pane's agent-run panel surfaces the run id + stage.
+		expect(html).toContain("runs");
+		expect(html).toContain("agent run · run-1");
 	});
 
 	test("renders Operator Action confirm comment danger disabled and observer states", () => {

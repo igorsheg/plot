@@ -18,7 +18,7 @@ import {
 	type PlotWebDashboardState,
 	usePlotWebDashboardState,
 } from "./app/dashboard/web-dashboard-state";
-import { SessionSurface } from "./app/dashboard/views/session-surface";
+import { SessionRoom } from "./app/dashboard/views/session-room";
 import { TriageLobby } from "./app/dashboard/views/triage-lobby";
 
 // Tests render through the router but inject a fixed frame instead of a live WS
@@ -97,7 +97,7 @@ const indexRoute = createRoute({
 const sessionRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "session/$sessionId",
-	component: SessionSurface,
+	component: SessionRoom,
 });
 
 export const routeTree = rootRoute.addChildren([indexRoute, sessionRoute]);
