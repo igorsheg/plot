@@ -297,6 +297,55 @@ describe("plot web dashboard", () => {
 		expect(html).toContain("docs");
 	});
 
+	test("a failed work item surfaces its completed failure message", () => {
+		const session = summary({ id: "session-1", workflowName: "review" });
+		const base = reduceSessionHistoryEvent(
+			emptyProjection("session-1", "review"),
+			workStarted("session-1"),
+		);
+		// A failed work row carries no live activity (its attempt is gone), so the
+		// failure box must read the matching `completed` entry's `message`.
+		const projection = applySnapshot(
+			{
+				...base,
+				completed: [
+					{
+						workKey: "work:alpha",
+						label: "Prepare package",
+						status: "failed",
+						message: "check failed: bun run check exited 1",
+						atMs: 1,
+					},
+				],
+			},
+			{
+				snapshot: {
+					work: new Map([
+						[
+							"work:alpha",
+							{
+								workKey: "work:alpha",
+								sourceId: "source",
+								status: "failed",
+								display: { title: "Prepare package" },
+								currentRunId: undefined,
+							},
+						],
+					]),
+					running: new Map(),
+				},
+			},
+		);
+		const html = renderSession(
+			state({
+				roster: [session],
+				selectedSessionId: "session-1",
+				projection,
+			}),
+		);
+		expect(html).toContain("check failed: bun run check exited 1");
+	});
+
 	test("offline state preserves the last good frame", () => {
 		const session = summary({ id: "session-1", workflowName: "docs" });
 		const projection = reduceSessionHistoryEvent(

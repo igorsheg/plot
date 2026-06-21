@@ -176,6 +176,7 @@ function RoomShell({
 				focusedKey={focused?.work.workKey ?? null}
 				onFocus={setFocusedKey}
 				sessionId={sessionId}
+				completed={projection.completed}
 			/>
 		</div>
 	);
@@ -541,12 +542,14 @@ function TwoPane({
 	focusedKey,
 	onFocus,
 	sessionId,
+	completed,
 }: {
 	work: readonly WorkRowModel[];
 	focused: WorkRowModel | null;
 	focusedKey: string | null;
 	onFocus: (key: string) => void;
 	sessionId: string;
+	completed: DashboardProjection["completed"];
 }) {
 	return (
 		<div className="grid min-h-[440px] grid-cols-[minmax(0,360px)_1fr] gap-x-6">
@@ -557,6 +560,7 @@ function TwoPane({
 						key={focused.work.workKey}
 						row={focused}
 						sessionId={sessionId}
+						completed={completed}
 					/>
 				) : (
 					<Meta className="block pt-4">No work in this session.</Meta>
@@ -694,12 +698,24 @@ function WorkRow({
 function FocusedDetail({
 	row,
 	sessionId,
+	completed,
 }: {
 	row: WorkRowModel;
 	sessionId: string;
+	completed: DashboardProjection["completed"];
 }) {
 	const attempt = row.attempt;
 	const status = row.work.status;
+	// A failed work row has no live attempt and `WorkItemProjection` carries no
+	// failMessage — `row.activity` resolves to the bare status. The real failure
+	// text lives on the matching `completed` entry (reduceAttemptCompleted keeps
+	// the work as `failed` AND records a completed entry with the error in
+	// `message`). Match by workKey; fall back to the status line if absent.
+	const failMessage =
+		status === "failed"
+			? (completed.find((entry) => entry.workKey === row.work.workKey)
+					?.message ?? oneLine(row.activity))
+			: undefined;
 	const glyph =
 		status === "blocked" || status === "failed"
 			? "▲"
@@ -752,7 +768,9 @@ function FocusedDetail({
 				{status === "failed" ? (
 					<Stack gap={2}>
 						<div className="rounded border border-attention-border bg-attention-soft px-4 py-3">
-							<Meta tone="attention">{oneLine(row.activity)}</Meta>
+							<Meta tone="attention" className="min-w-0">
+								{failMessage}
+							</Meta>
 						</div>
 						<Meta tone="muted">↻ will auto-retry on the next wake.</Meta>
 					</Stack>
