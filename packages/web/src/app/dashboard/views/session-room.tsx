@@ -36,7 +36,7 @@ import {
 	useDashboardMeta,
 	useDashboardState,
 } from "../dashboard-context";
-import { sortPlotSessions } from "../fleet-model";
+import { visibleFleetSessions } from "../fleet-model";
 import { throughputSeries } from "../throughput-series";
 import { Meta, Rail, type RailTone, Row, SectionLabel, Stack } from "./layout";
 import { InterruptRunButton, OperatorActionButtons } from "./operator-actions";
@@ -146,41 +146,43 @@ function RoomShell({
 	const sessionId = projection.sessionId;
 
 	return (
-		<div className="w-full px-gutter pb-20 pt-6">
+		<div className="w-full">
 			<RoomTopBar
 				roster={roster}
 				currentId={sessionId}
 				selectedId={session?.id}
 			/>
-			<IdentityHeader
-				monogram={session?.workflowName ?? projection.workflowName}
-				workflowName={session?.workflowName ?? projection.workflowName}
-				state={session?.state ?? projection.status}
-				mode={session?.mode}
-				cwdName={session?.cwdName ?? projection.runtime.cwdName}
-				workflowPath={projection.runtime.workflowPath}
-				provider={projection.runtime.provider}
-				model={projection.runtime.model}
-				throughput={model.pulse.throughput}
-				tps={tps}
-			/>
-			<LoopPulseStrip
-				model={model}
-				projection={projection}
-				paused={paused}
-				stopped={stopped}
-			/>
-			{diagnostics.length > 0 ? (
-				<DiagnosticsStrip text={diagnostics[0]?.text ?? ""} />
-			) : null}
-			<TwoPane
-				work={work}
-				focused={focused}
-				focusedKey={focused?.work.workKey ?? null}
-				onFocus={setFocusedKey}
-				sessionId={sessionId}
-				completed={projection.completed}
-			/>
+			<div className="mx-auto w-full max-w-6xl px-gutter pb-20 pt-8">
+				<IdentityHeader
+					monogram={session?.workflowName ?? projection.workflowName}
+					workflowName={session?.workflowName ?? projection.workflowName}
+					state={session?.state ?? projection.status}
+					mode={session?.mode}
+					cwdName={session?.cwdName ?? projection.runtime.cwdName}
+					workflowPath={projection.runtime.workflowPath}
+					provider={projection.runtime.provider}
+					model={projection.runtime.model}
+					throughput={model.pulse.throughput}
+					tps={tps}
+				/>
+				<LoopPulseStrip
+					model={model}
+					projection={projection}
+					paused={paused}
+					stopped={stopped}
+				/>
+				{diagnostics.length > 0 ? (
+					<DiagnosticsStrip text={diagnostics[0]?.text ?? ""} />
+				) : null}
+				<TwoPane
+					work={work}
+					focused={focused}
+					focusedKey={focused?.work.workKey ?? null}
+					onFocus={setFocusedKey}
+					sessionId={sessionId}
+					completed={projection.completed}
+				/>
+			</div>
 		</div>
 	);
 }
@@ -205,28 +207,39 @@ function RoomTopBar({
 	useEsc(() => {
 		void navigate(lobbyLinkProps);
 	});
+	// Full-bleed sticky app bar — the same frame as the Lobby chrome, so the
+	// bounded content below reads as an app surface, not a floating document.
 	return (
-		<Row className="mb-4 justify-between">
-			<Row gap={3}>
-				<Link {...lobbyLinkProps} className="inline-flex items-center gap-1">
-					<ArrowLeft size={13} className="text-t3" />
-					<Meta>all work · esc</Meta>
-				</Link>
-				{/* Degraded connection is visible in the Room too (not just the Lobby
-				    chrome). Offline preserves the last good frame — the projection
-				    persists — so this reads `offline · last frame` over the kept frame.
-				    Monochrome: the dot tone is muted/attention, never the needs-you
-				    accent (locked decision #6). */}
-				<Row gap={1}>
-					<StatusDot tone={connectionTone(connection)} />
-					<Meta>{connectionLabel(connection)}</Meta>
+		<div className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-sm">
+			<Row className="h-12 justify-between px-gutter">
+				<Row gap={3}>
+					<Link
+						{...lobbyLinkProps}
+						className="group inline-flex items-center gap-1"
+					>
+						<ArrowLeft
+							size={13}
+							className="text-t3 transition-transform group-hover:-translate-x-0.5"
+						/>
+						<Meta className="transition-colors group-hover:text-foreground">
+							all work · esc
+						</Meta>
+					</Link>
+					<span className="h-3 w-px bg-border" />
+					{/* Degraded connection is visible in the Room too. Offline preserves
+					    the last good frame (the projection persists). Monochrome: the dot
+					    tone is muted/attention, never the needs-you accent (decision #6). */}
+					<Row gap={2}>
+						<StatusDot tone={connectionTone(connection)} />
+						<Meta>{connectionLabel(connection)}</Meta>
+					</Row>
 				</Row>
+				<SessionSwitcherRail
+					roster={roster}
+					currentId={selectedId ?? currentId}
+				/>
 			</Row>
-			<SessionSwitcherRail
-				roster={roster}
-				currentId={selectedId ?? currentId}
-			/>
-		</Row>
+		</div>
 	);
 }
 
@@ -237,7 +250,13 @@ function SessionSwitcherRail({
 	roster: readonly PlotSessionSummary[];
 	currentId: string;
 }) {
-	const sessions = sortPlotSessions(roster);
+	// Mirror the Lobby's visible set (stopped sessions are hidden there too), but
+	// always keep the session you're currently viewing — even if it has stopped.
+	const visible = visibleFleetSessions(roster, false);
+	const sessions =
+		visible.some((s) => s.id === currentId) || visible.length === roster.length
+			? visible
+			: [...visible, ...roster.filter((s) => s.id === currentId)];
 	if (sessions.length <= 1) return null;
 	return (
 		<Row gap={1}>
@@ -402,7 +421,7 @@ function LoopPulseStrip({
 		</>,
 	);
 	return (
-		<div className="my-4 border-y border-border bg-card px-gutter py-3">
+		<div className="my-4 border-y border-border bg-card py-3">
 			<Row gap={4} className="flex-wrap justify-between">
 				<Row gap={2} className="min-w-0">
 					<span className="size-2 shrink-0 rounded-full bg-t3" />
@@ -520,11 +539,15 @@ function SessionControls({
 
 function DiagnosticsStrip({ text }: { text: string }) {
 	return (
-		<div className="relative mb-4 border-y border-border px-gutter py-3">
-			<Rail tone="attention" className="absolute inset-y-0 left-0" />
-			<Meta tone="muted" className="min-w-0">
-				{text}
-			</Meta>
+		<div className="mb-4 border-y border-border py-3">
+			<Row gap={2} className="min-w-0">
+				<Meta tone="muted" className="shrink-0 uppercase tracking-wider">
+					diagnostic
+				</Meta>
+				<Meta tone="muted" className="min-w-0 truncate">
+					{text}
+				</Meta>
+			</Row>
 		</div>
 	);
 }

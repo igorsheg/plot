@@ -2,7 +2,6 @@ import type { PlotSessionSummary } from "@plot/control/session-summary";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 
-import { Card } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-indicator";
 import type { ConnectionState } from "../web-dashboard-state";
 import { useDashboardState } from "../dashboard-context";
@@ -21,14 +20,16 @@ import {
 // whole fleet needs me?" from roster SUMMARIES ONLY (no projection attaches
 // here — full operator actions / blockedReason live in the Room). The one
 // accent (`--attention`) is reserved for actionable NEEDS YOU; everything that
-// is autonomous-and-fine reads as neutral ink. Every NEEDS YOU row routes INTO
-// the Room rather than rendering an operator action inline. Each row navigates
-// to the session's Room via the shared `sessionLinkProps` (`./session-links`),
-// preserving the controller/observer posture carried in `?role=`.
+// is autonomous-and-fine reads as neutral ink. Every row routes INTO the Room
+// via the shared `sessionLinkProps`, preserving the `?role=` posture.
+//
+// Layout: a full-bleed sticky chrome bar (the app frame) over a bounded,
+// centred content measure. Edge-to-edge ledger rows don't scan — a name on the
+// far left and its status on the far right are too far apart — so the page is
+// full-bleed but the reading column is held to a comfortable measure.
 // ─────────────────────────────────────────────────────────────────────────
 
 // The ink "live" dot — liveness reads through motion (the beat), not hue.
-// Mirrors the PulseHeader pulse-dot markup from session-surface.
 function LiveDot() {
 	return (
 		<span className="relative flex size-2 shrink-0">
@@ -39,8 +40,7 @@ function LiveDot() {
 }
 
 // Sum throughput across the acting sessions — the only honest fleet-wide token
-// figure available from summaries (there is no fleet token series, so no
-// sparkline). Returns null when there is nothing flowing.
+// figure available from summaries. Returns null when nothing is flowing.
 const fleetThroughput = (
 	sessions: readonly PlotSessionSummary[],
 ): number | null => {
@@ -65,61 +65,56 @@ export function TriageLobby() {
 	const needsYouTotal = needsYou.reduce((n, s) => n + s.needsYouCount, 0);
 
 	return (
-		<Stack gap={6} className="w-full px-gutter pb-20 pt-6">
+		<div className="w-full">
 			<LobbyChrome
 				connection={connection}
 				sessionCount={sessions.length}
 				throughput={fleetThroughput(acting)}
 			/>
+			<div className="mx-auto w-full max-w-4xl px-gutter pb-24 pt-12">
+				<Stack gap={8}>
+					{needsYou.length > 0 ? (
+						<Section label="needs you" count={needsYouTotal} accent>
+							{needsYou.map((s) => (
+								<NeedsYouRow key={s.id} session={s} />
+							))}
+						</Section>
+					) : null}
 
-			{needsYou.length > 0 ? (
-				<Card className="border-attention-border bg-attention-soft p-0">
-					<div className="px-4 pt-4">
-						<SectionLabel tone="accent" count={needsYouTotal}>
-							needs you
-						</SectionLabel>
-					</div>
-					<div className="flex flex-col pt-2">
-						{needsYou.map((s) => (
-							<NeedsYouRow key={s.id} session={s} />
-						))}
-					</div>
-				</Card>
-			) : null}
+					{acting.length > 0 ? (
+						<Section label="acting · self-driving" count={acting.length}>
+							{acting.map((s) => (
+								<ActingRow key={s.id} session={s} />
+							))}
+						</Section>
+					) : null}
 
-			{acting.length > 0 ? (
-				<Stack gap={2}>
-					<SectionLabel count={acting.length}>
-						acting · self-driving
-					</SectionLabel>
-					{acting.map((s) => (
-						<ActingRow key={s.id} session={s} />
-					))}
+					{watching.length > 0 ? (
+						<Section label="watching · scheduled" count={watching.length}>
+							{watching.map((s) => (
+								<WatchingRow key={s.id} session={s} />
+							))}
+						</Section>
+					) : null}
+
+					{sessions.length === 0 ? (
+						<EmptyFleet connection={connection} />
+					) : null}
+
+					<Meta tone="muted" className="pt-2">
+						⌘K to jump · operator actions record an observation back into the
+						Plot loop.
+					</Meta>
 				</Stack>
-			) : null}
-
-			{watching.length > 0 ? (
-				<Stack gap={2}>
-					<SectionLabel count={watching.length}>
-						watching · scheduled
-					</SectionLabel>
-					{watching.map((s) => (
-						<WatchingRow key={s.id} session={s} />
-					))}
-				</Stack>
-			) : null}
-
-			{sessions.length === 0 ? <EmptyFleet connection={connection} /> : null}
-
-			<Meta className="pt-2">
-				⌘K to jump · operator actions record an observation back into the Plot
-				loop.
-			</Meta>
-		</Stack>
+			</div>
+		</div>
 	);
 }
 
 // ─── chrome ────────────────────────────────────────────────────────────────
+// A full-bleed sticky app bar: a hairline edge-to-edge rule frames the page so
+// the bounded content below never reads as "floating in a void".
+
 function LobbyChrome({
 	connection,
 	sessionCount,
@@ -130,41 +125,90 @@ function LobbyChrome({
 	throughput: number | null;
 }) {
 	return (
-		<Row className="justify-between">
-			<Row gap={2}>
-				<LiveDot />
-				<span className="text-sm font-medium text-foreground">plot</span>
-				<StatusDot tone={connectionTone(connection)} />
-				<Meta>{connectionLabel(connection)}</Meta>
-				<RoleToggle />
-				<Meta>
-					{sessionCount} {sessionCount === 1 ? "session" : "sessions"}
-				</Meta>
+		<div className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-sm">
+			<Row className="h-12 justify-between px-gutter">
+				<Row gap={3}>
+					<Row gap={2}>
+						<LiveDot />
+						<span className="text-sm font-semibold tracking-tight text-foreground">
+							plot
+						</span>
+					</Row>
+					<span className="h-3 w-px bg-border" />
+					<Row gap={2}>
+						<StatusDot tone={connectionTone(connection)} />
+						<Meta>{connectionLabel(connection)}</Meta>
+					</Row>
+					<RoleToggle />
+				</Row>
+				<Row gap={3}>
+					{throughput === null ? null : (
+						<Meta tone="muted">{throughput} tok/s</Meta>
+					)}
+					<Meta>
+						{sessionCount} {sessionCount === 1 ? "session" : "sessions"}
+					</Meta>
+				</Row>
 			</Row>
-			{throughput === null ? null : <Meta>{throughput} tok/s</Meta>}
-		</Row>
+		</div>
+	);
+}
+
+// ─── section ─────────────────────────────────────────────────────────────
+// A labelled group: the section label + count over a hairline rule, then its
+// rows as a quiet ledger. Rows manage their own hover; the rule anchors them.
+
+function Section({
+	label,
+	count,
+	accent = false,
+	children,
+}: {
+	label: string;
+	count: number;
+	accent?: boolean;
+	children: React.ReactNode;
+}) {
+	return (
+		<div>
+			<div className="border-b border-border pb-2">
+				<SectionLabel tone={accent ? "accent" : "default"} count={count}>
+					{label}
+				</SectionLabel>
+			</div>
+			<div className="flex flex-col pt-1">{children}</div>
+		</div>
 	);
 }
 
 // ─── rows ────────────────────────────────────────────────────────────────
-// Each row is a Link styled with the layout kit (NOT a coss Button) — a quiet
-// surface that promotes on hover.
+// Each row is a Link styled with the layout kit — a quiet surface that promotes
+// on hover. The row body is the lead glyph + name + cwd; trailing meta sits at
+// the right of the bounded measure (close enough to scan).
+
+const rowClass =
+	"group -mx-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover";
 
 function NeedsYouRow({ session }: { session: PlotSessionSummary }) {
 	return (
-		<Link
-			{...sessionLinkProps(session.id)}
-			className="grid grid-cols-[3px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 transition-colors hover:bg-hover"
-		>
-			<Rail tone="attention" className="h-6" />
-			<span className="min-w-0 truncate text-sm font-medium text-foreground">
-				{session.workflowName}
-			</span>
-			<Row gap={2}>
+		<Link {...sessionLinkProps(session.id)} className={rowClass}>
+			<Rail tone="attention" className="h-5" />
+			<Row gap={2} className="min-w-0">
+				<span className="truncate text-sm font-medium text-foreground">
+					{session.workflowName}
+				</span>
 				<Meta className="truncate">{session.cwdName}</Meta>
-				<Meta tone="attention">{session.needsYouCount}</Meta>
-				<Meta className="inline-flex items-center gap-1">
-					open <ArrowRight size={14} />
+			</Row>
+			<Row gap={3}>
+				<Meta tone="attention">
+					{session.needsYouCount} need{session.needsYouCount === 1 ? "" : "s"}{" "}
+					you
+				</Meta>
+				<Meta
+					tone="muted"
+					className="inline-flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"
+				>
+					open <ArrowRight size={13} />
 				</Meta>
 			</Row>
 		</Link>
@@ -174,10 +218,7 @@ function NeedsYouRow({ session }: { session: PlotSessionSummary }) {
 function ActingRow({ session }: { session: PlotSessionSummary }) {
 	const tps = session.tokenThroughputPerSecond;
 	return (
-		<Link
-			{...sessionLinkProps(session.id)}
-			className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2 transition-colors hover:bg-hover"
-		>
+		<Link {...sessionLinkProps(session.id)} className={rowClass}>
 			<LiveDot />
 			<Row gap={2} className="min-w-0">
 				<span className="truncate text-sm font-medium text-foreground">
@@ -185,12 +226,12 @@ function ActingRow({ session }: { session: PlotSessionSummary }) {
 				</span>
 				<Meta className="truncate">{session.cwdName}</Meta>
 			</Row>
-			<Row gap={2}>
+			<Row gap={3}>
 				<Meta tone="foreground">
 					{session.agents.active}
 					{session.agents.max > 0 ? `/${session.agents.max}` : ""}
 				</Meta>
-				<Meta>
+				<Meta tone="muted" className="tabular-nums">
 					{tps !== null && tps > 0 ? `${Math.round(tps)} tok/s` : "—"}
 				</Meta>
 			</Row>
@@ -200,9 +241,9 @@ function ActingRow({ session }: { session: PlotSessionSummary }) {
 
 // The calm baseline states — watching/idle read as genuinely autonomous-and-fine.
 // Anything else (error, paused, stopping, starting) is a degraded/transitional
-// posture that must stay legible: a session in `error` with needsYouCount 0 is
-// NOT needs-you (locked decision #5) and must NOT take the accent (locked #6),
-// but it cannot be a silently-calm `○` row either. We surface its `state` word as
+// posture that stays legible: a session in `error` with needsYouCount 0 is NOT
+// needs-you (locked decision #5) and must NOT take the accent (locked #6), but it
+// cannot be a silently-calm `○` row either. We surface its `state` word as
 // neutral monochrome meta so the degraded posture is visible at a glance.
 const calmWatchingStates = new Set<PlotSessionSummary["state"]>([
 	"watching",
@@ -214,15 +255,12 @@ function WatchingRow({ session }: { session: PlotSessionSummary }) {
 	const glyph = session.state === "reconciling" ? "↻" : "○";
 	const degraded = !calmWatchingStates.has(session.state);
 	return (
-		<Link
-			{...sessionLinkProps(session.id)}
-			className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2 transition-colors hover:bg-hover"
-		>
-			<Meta tone="muted" className="w-3 text-center">
+		<Link {...sessionLinkProps(session.id)} className={rowClass}>
+			<Meta tone="muted" className="w-2 text-center">
 				{glyph}
 			</Meta>
 			<Row gap={2} className="min-w-0">
-				<span className="truncate text-sm text-muted-foreground">
+				<span className="truncate text-sm text-muted-foreground transition-colors group-hover:text-foreground">
 					{session.workflowName}
 				</span>
 				<Meta tone="muted" className="truncate">
@@ -230,13 +268,12 @@ function WatchingRow({ session }: { session: PlotSessionSummary }) {
 				</Meta>
 			</Row>
 			{degraded ? (
-				<Meta
-					tone="foreground"
-					className="justify-self-end uppercase tracking-wider"
-				>
+				<Meta tone="foreground" className="uppercase tracking-wider">
 					{session.state}
 				</Meta>
-			) : null}
+			) : (
+				<span />
+			)}
 		</Link>
 	);
 }
@@ -248,7 +285,7 @@ function EmptyFleet({ connection }: { connection: ConnectionState }) {
 			? "Local Plot Server handoff was not provided."
 			: "No sessions yet.";
 	return (
-		<Stack gap={2} className="py-8">
+		<Stack gap={2} className="py-16">
 			<Meta>{copy}</Meta>
 		</Stack>
 	);
