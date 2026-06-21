@@ -18,10 +18,8 @@ import {
 	type PlotWebDashboardState,
 	usePlotWebDashboardState,
 } from "./app/dashboard/web-dashboard-state";
-import { AppSidebar } from "./app/dashboard/views/app-sidebar";
-import { OverviewPane } from "./app/dashboard/views/fleet-rail";
-import { SessionSurface } from "./app/dashboard/views/session-surface";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { SessionRoom } from "./app/dashboard/views/session-room";
+import { TriageLobby } from "./app/dashboard/views/triage-lobby";
 
 // Tests render through the router but inject a fixed frame instead of a live WS
 // connection — the override rides the router context.
@@ -50,33 +48,23 @@ function RootLayout() {
 		role: controlRole,
 	});
 	const state = stateOverride ?? live;
+	// The shell is now a plain scroll container; each route owns its own width —
+	// the Lobby centers its column, the Room is full-bleed. The fleet sidebar is
+	// retired (the Lobby is the cross-fleet surface, the Room switches sessions).
 	return (
 		<DashboardProvider state={state}>
-			{/* The web shell: a collapsible coss Sidebar (the fleet — brand,
-			    connection, session list) + a full-bleed room (the selected
-			    session). The sidebar is persistent when open and slides away to
-			    give the room full bleed when collapsed; on mobile it is a sheet.
-			    No inset header — the pulse header inside the room owns the title. */}
-			<SidebarProvider>
-				<AppSidebar />
-				<SidebarInset className="min-w-0 overflow-y-auto">
-					{params.sessionId === undefined ? (
-						<div className="mx-auto w-full max-w-5xl px-gutter py-6">
-							<Outlet />
-						</div>
-					) : (
-						<Outlet />
-					)}
-				</SidebarInset>
-			</SidebarProvider>
+			<div className="min-h-screen overflow-y-auto bg-background">
+				<Outlet />
+			</div>
 		</DashboardProvider>
 	);
 }
 
 // Resolve the initial route once per page load: landing on the fleet with
-// exactly one reachable session collapses straight into it (the common
-// `plot` → open-web case). Module-scoped so navigating back to "all
-// sessions" afterwards does not bounce — only a fresh load re-resolves.
+// exactly ONE reachable session collapses straight into it (the common
+// `plot` → open-web case). Module-scoped so navigating back to the Lobby
+// afterwards does not bounce — only a fresh load re-resolves. With more than
+// one session the Lobby is the destination; we never auto-redirect.
 let initialRouteResolved = false;
 
 function FleetRoute() {
@@ -84,22 +72,20 @@ function FleetRoute() {
 	const navigate = useNavigate();
 	useEffect(() => {
 		if (initialRouteResolved || connection !== "online") return;
+		// Only the single-reachable-session case collapses into the Room; any
+		// multi-session roster stays on the Lobby (the cross-fleet surface).
+		if (roster.length !== 1) return;
+		const top = chooseInitialSession({ roster, explicitFleet: false });
+		if (top === undefined) return;
 		initialRouteResolved = true;
-		// Landing on `/` dives into the top session (the rail already shows the
-		// fleet, so `/` is never a browse view). Picks the single reachable one,
-		// else the most-needs-you / most-active — same order the rail lists in.
-		const top =
-			chooseInitialSession({ roster, explicitFleet: false }) ?? roster[0]?.id;
-		if (top !== undefined) {
-			void navigate({
-				to: "/session/$sessionId",
-				params: { sessionId: top },
-				search: (prev) => ({ role: prev.role ?? "controller" }),
-				replace: true,
-			});
-		}
+		void navigate({
+			to: "/session/$sessionId",
+			params: { sessionId: top },
+			search: (prev) => ({ role: prev.role ?? "controller" }),
+			replace: true,
+		});
 	}, [roster, connection, navigate]);
-	return <OverviewPane />;
+	return <TriageLobby />;
 }
 
 const indexRoute = createRoute({
@@ -111,7 +97,7 @@ const indexRoute = createRoute({
 const sessionRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "session/$sessionId",
-	component: SessionSurface,
+	component: SessionRoom,
 });
 
 export const routeTree = rootRoute.addChildren([indexRoute, sessionRoute]);

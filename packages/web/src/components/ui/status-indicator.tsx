@@ -19,7 +19,10 @@ const toneClass: Record<StatusTone, string> = {
 	attention: "bg-attention",
 	danger: "bg-destructive",
 	muted: "bg-muted-foreground",
-	online: "bg-green-500",
+	// One-accent rule: a healthy "online" connection is autonomous & fine, so it
+	// reads as neutral ink — never a second chromatic signal. Degraded states use
+	// the `attention` accent instead.
+	online: "bg-foreground",
 	live: "bg-live",
 };
 

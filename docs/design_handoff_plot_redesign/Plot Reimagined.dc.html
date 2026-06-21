@@ -1,0 +1,2692 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script src="./support.js"></script>
+	</head>
+	<body>
+		<x-dc>
+			<helmet>
+				<link rel="preconnect" href="https://fonts.googleapis.com" />
+				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+				<link
+					href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+					rel="stylesheet"
+				/>
+				<style>
+					* {
+						box-sizing: border-box;
+					}
+					body {
+						margin: 0;
+						background: #e7e5df;
+					}
+					@keyframes beat {
+						0% {
+							transform: scale(1);
+							opacity: 0.42;
+						}
+						70% {
+							transform: scale(2.7);
+							opacity: 0;
+						}
+						100% {
+							opacity: 0;
+						}
+					}
+					@keyframes shimmer {
+						0% {
+							background-position: 160% 0;
+						}
+						100% {
+							background-position: -60% 0;
+						}
+					}
+					@keyframes scan {
+						0% {
+							transform: translateX(-30%);
+						}
+						100% {
+							transform: translateX(130%);
+						}
+					}
+					::selection {
+						background: rgba(207, 90, 46, 0.18);
+					}
+				</style>
+			</helmet>
+
+			<div
+				style="
+					width: max-content;
+					min-width: 100%;
+					min-height: 100vh;
+					box-sizing: border-box;
+					padding: 48px;
+					background: #e7e5df;
+					font-family: &quot;JetBrains Mono&quot;, ui-monospace, monospace;
+					color: #1c1b18;
+				"
+			>
+				<!-- ───────────────── board header ───────────────── -->
+				<div style="max-width: 760px; margin-bottom: 40px">
+					<div
+						style="
+							font-size: 11px;
+							letter-spacing: 0.22em;
+							color: #cf5a2e;
+							text-transform: uppercase;
+							margin-bottom: 14px;
+						"
+					>
+						plot · reimagined
+					</div>
+					<div
+						style="
+							font-family: &quot;IBM Plex Sans&quot;, system-ui, sans-serif;
+							font-size: 30px;
+							line-height: 1.18;
+							font-weight: 500;
+							letter-spacing: -0.01em;
+							max-width: 620px;
+						"
+					>
+						Five mental models for commanding a fleet of autonomous agents.
+					</div>
+					<div
+						style="
+							margin-top: 16px;
+							font-size: 12.5px;
+							line-height: 1.7;
+							color: #57554d;
+							max-width: 600px;
+						"
+					>
+						Same fleet, reframed five ways — from sparse to dense, reorganized
+						around attention, time, work, signal, and the row. One rule holds
+						across all of them:
+						<span style="color: #1c1b18"
+							>monochrome means autonomous &amp; fine.</span
+						>
+						<span style="color: #cf5a2e"
+							>The single accent is reserved for one thing — a human is
+							needed.</span
+						>
+					</div>
+				</div>
+
+				<!-- ───────────────── frames row ───────────────── -->
+				<div style="display: flex; gap: 48px; align-items: flex-start">
+					<!-- ════════════ A · TRIAGE INBOX ════════════ -->
+					<div style="flex: none; width: 720px">
+						<div style="margin-bottom: 14px">
+							<div
+								style="
+									font-size: 12px;
+									letter-spacing: 0.16em;
+									text-transform: uppercase;
+									color: #1c1b18;
+								"
+							>
+								A · Triage Inbox
+							</div>
+							<div style="font-size: 11.5px; color: #9b988d; margin-top: 5px">
+								The fleet comes to you. No rooms to enter — one ranked queue of
+								what needs a human. Everything healthy collapses to a quiet
+								strip.
+							</div>
+						</div>
+						<div
+							style="
+								background: #f6f5f1;
+								border-radius: 2px;
+								box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+								overflow: hidden;
+								border: 1px solid #e6e4dc;
+							"
+						>
+							<!-- chrome -->
+							<div
+								style="
+									display: flex;
+									align-items: center;
+									justify-content: space-between;
+									padding: 13px 18px;
+									border-bottom: 1px solid #e6e4dc;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 10px">
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 7px;
+											height: 7px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 1.9s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 7px;
+												height: 7px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span
+									></span>
+									<span style="font-size: 13px; font-weight: 600">plot</span>
+									<span style="font-size: 11px; color: #9b988d"
+										>7 sessions · 4 running</span
+									>
+								</div>
+								<div
+									style="
+										display: flex;
+										align-items: center;
+										gap: 8px;
+										font-size: 11px;
+										color: #9b988d;
+									"
+								>
+									<svg width="44" height="14" viewBox="0 0 44 14" fill="none">
+										<polyline
+											points="0,11 6,9 12,5 18,8 24,3 30,7 36,4 44,6"
+											stroke="#9b988d"
+											stroke-width="1.2"
+										/>
+									</svg>
+									<span style="color: #57554d">1.0k tok/s</span>
+								</div>
+							</div>
+
+							<!-- NEEDS YOU -->
+							<div
+								style="
+									padding: 16px 18px 6px;
+									display: flex;
+									align-items: baseline;
+									justify-content: space-between;
+								"
+							>
+								<span
+									style="
+										font-size: 11px;
+										letter-spacing: 0.14em;
+										text-transform: uppercase;
+										color: #cf5a2e;
+									"
+									>needs you</span
+								>
+								<span style="font-size: 11px; color: #cf5a2e">3</span>
+							</div>
+
+							<!-- triage card 1 -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 3px 1fr;
+									gap: 14px;
+									padding: 0 18px 14px;
+								"
+							>
+								<span style="background: #cf5a2e; border-radius: 2px"></span>
+								<div>
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											gap: 12px;
+										"
+									>
+										<span style="font-size: 13.5px; font-weight: 500"
+											>Replace raw SQL with query builder</span
+										>
+										<span
+											style="
+												font-size: 11px;
+												color: #9b988d;
+												white-space: nowrap;
+											"
+											>migrate-billing-v2 · 5m</span
+										>
+									</div>
+									<div
+										style="font-size: 11.5px; color: #57554d; margin-top: 5px"
+									>
+										review diff · 6 files · +210 −64
+									</div>
+									<div style="display: flex; gap: 8px; margin-top: 11px">
+										<button
+											style="
+												font-family: inherit;
+												font-size: 11.5px;
+												padding: 6px 13px;
+												border-radius: 3px;
+												border: none;
+												background: #cf5a2e;
+												color: #fff;
+												cursor: pointer;
+											"
+										>
+											Approve
+										</button>
+										<button
+											style="
+												font-family: inherit;
+												font-size: 11.5px;
+												padding: 6px 13px;
+												border-radius: 3px;
+												border: 1px solid #d8d6cc;
+												background: transparent;
+												color: #1c1b18;
+												cursor: pointer;
+											"
+										>
+											Request changes
+										</button>
+										<button
+											style="
+												font-family: inherit;
+												font-size: 11.5px;
+												padding: 6px 13px;
+												border-radius: 3px;
+												border: none;
+												background: transparent;
+												color: #9b988d;
+												cursor: pointer;
+											"
+										>
+											View diff
+										</button>
+									</div>
+								</div>
+							</div>
+
+							<!-- triage card 2 -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 3px 1fr;
+									gap: 14px;
+									padding: 0 18px 14px;
+									border-top: 1px solid #efeee8;
+									padding-top: 14px;
+								"
+							>
+								<span style="background: #cf5a2e; border-radius: 2px"></span>
+								<div>
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											gap: 12px;
+										"
+									>
+										<span style="font-size: 13.5px; font-weight: 500"
+											>Agent paused on a peer-dep conflict</span
+										>
+										<span
+											style="
+												font-size: 11px;
+												color: #9b988d;
+												white-space: nowrap;
+											"
+											>dep-upgrade-react19 · 12m</span
+										>
+									</div>
+									<div
+										style="font-size: 11.5px; color: #57554d; margin-top: 5px"
+									>
+										react@19 vs @testing-library/react@14 — handoff required
+									</div>
+									<div style="display: flex; gap: 8px; margin-top: 11px">
+										<button
+											style="
+												font-family: inherit;
+												font-size: 11.5px;
+												padding: 6px 13px;
+												border-radius: 3px;
+												border: none;
+												background: #cf5a2e;
+												color: #fff;
+												cursor: pointer;
+											"
+										>
+											Resume
+										</button>
+										<button
+											style="
+												font-family: inherit;
+												font-size: 11.5px;
+												padding: 6px 13px;
+												border-radius: 3px;
+												border: 1px solid #d8d6cc;
+												background: transparent;
+												color: #1c1b18;
+												cursor: pointer;
+											"
+										>
+											Open log
+										</button>
+									</div>
+								</div>
+							</div>
+
+							<!-- triage card 3 -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 3px 1fr;
+									gap: 14px;
+									padding: 0 18px 16px;
+									border-top: 1px solid #efeee8;
+									padding-top: 14px;
+								"
+							>
+								<span style="background: #cf5a2e; border-radius: 2px"></span>
+								<div>
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											gap: 12px;
+										"
+									>
+										<span style="font-size: 13.5px; font-weight: 500"
+											>Plan ready — extract session token guard</span
+										>
+										<span
+											style="
+												font-size: 11px;
+												color: #9b988d;
+												white-space: nowrap;
+											"
+											>refactor-auth · 1m</span
+										>
+									</div>
+									<div
+										style="font-size: 11.5px; color: #57554d; margin-top: 5px"
+									>
+										touches 6 files · web-control-client, app-sidebar, +4
+									</div>
+									<div style="display: flex; gap: 8px; margin-top: 11px">
+										<button
+											style="
+												font-family: inherit;
+												font-size: 11.5px;
+												padding: 6px 13px;
+												border-radius: 3px;
+												border: none;
+												background: #cf5a2e;
+												color: #fff;
+												cursor: pointer;
+											"
+										>
+											Approve plan
+										</button>
+										<button
+											style="
+												font-family: inherit;
+												font-size: 11.5px;
+												padding: 6px 13px;
+												border-radius: 3px;
+												border: 1px solid #d8d6cc;
+												background: transparent;
+												color: #1c1b18;
+												cursor: pointer;
+											"
+										>
+											Edit
+										</button>
+									</div>
+								</div>
+							</div>
+
+							<!-- RUNNING (demoted) -->
+							<div
+								style="
+									padding: 14px 18px 6px;
+									display: flex;
+									align-items: baseline;
+									justify-content: space-between;
+									border-top: 1px solid #e6e4dc;
+									background: #f1f0ea;
+								"
+							>
+								<span
+									style="
+										font-size: 11px;
+										letter-spacing: 0.14em;
+										text-transform: uppercase;
+										color: #9b988d;
+									"
+									>running · self-driving</span
+								>
+								<span style="font-size: 11px; color: #9b988d">4</span>
+							</div>
+							<div style="background: #f1f0ea; padding: 2px 0 8px">
+								<div
+									style="
+										display: grid;
+										grid-template-columns: auto 1fr auto auto;
+										align-items: center;
+										gap: 12px;
+										padding: 8px 18px;
+									"
+								>
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #57554d;
+												animation: beat 2.2s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #57554d;
+											"
+										></span
+									></span>
+									<span
+										style="
+											font-size: 12px;
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										><span style="color: #1c1b18">refactor-auth</span> · editing
+										web-control-client.ts</span
+									>
+									<svg width="40" height="12" viewBox="0 0 40 12" fill="none">
+										<polyline
+											points="0,9 6,6 12,8 18,3 24,7 30,5 40,7"
+											stroke="#9b988d"
+											stroke-width="1.1"
+										/>
+									</svg>
+									<span style="font-size: 11px; color: #9b988d">3/4</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: auto 1fr auto auto;
+										align-items: center;
+										gap: 12px;
+										padding: 8px 18px;
+									"
+								>
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #57554d;
+												animation: beat 2.4s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #57554d;
+											"
+										></span
+									></span>
+									<span
+										style="
+											font-size: 12px;
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										><span style="color: #1c1b18">e2e-flake-hunt</span> ·
+										re-running auth.spec.ts 3/8</span
+									>
+									<svg width="40" height="12" viewBox="0 0 40 12" fill="none">
+										<polyline
+											points="0,8 6,4 12,9 18,5 24,2 30,8 40,4"
+											stroke="#9b988d"
+											stroke-width="1.1"
+										/>
+									</svg>
+									<span style="font-size: 11px; color: #9b988d">2/2</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: auto 1fr auto auto;
+										align-items: center;
+										gap: 12px;
+										padding: 8px 18px;
+									"
+								>
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #57554d;
+												animation: beat 2s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #57554d;
+											"
+										></span
+									></span>
+									<span
+										style="
+											font-size: 12px;
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										><span style="color: #1c1b18">report-gen</span> ·
+										summarizing changelog</span
+									>
+									<svg width="40" height="12" viewBox="0 0 40 12" fill="none">
+										<polyline
+											points="0,8 6,7 12,5 18,6 24,4 30,6 40,5"
+											stroke="#9b988d"
+											stroke-width="1.1"
+										/>
+									</svg>
+									<span style="font-size: 11px; color: #9b988d">3/3</span>
+								</div>
+							</div>
+
+							<!-- SCHEDULED -->
+							<div
+								style="
+									padding: 12px 18px;
+									border-top: 1px solid #e6e4dc;
+									display: flex;
+									align-items: center;
+									justify-content: space-between;
+								"
+							>
+								<span
+									style="
+										font-size: 11px;
+										letter-spacing: 0.14em;
+										text-transform: uppercase;
+										color: #9b988d;
+									"
+									>scheduled · 2</span
+								>
+								<span style="font-size: 11px; color: #9b988d"
+									>docs-site-rebuild · next tick 40s &nbsp;·&nbsp;
+									nightly-codemod · retry 90s</span
+								>
+							</div>
+						</div>
+					</div>
+
+					<!-- ════════════ B · THE STREAM ════════════ -->
+					<div style="flex: none; width: 860px">
+						<div style="margin-bottom: 14px">
+							<div
+								style="
+									font-size: 12px;
+									letter-spacing: 0.16em;
+									text-transform: uppercase;
+									color: #1c1b18;
+								"
+							>
+								B · The Stream
+							</div>
+							<div style="font-size: 11.5px; color: #9b988d; margin-top: 5px">
+								One river of everything. You don't navigate to a session — you
+								watch the whole fleet flow and grep it down. tail -f for
+								autonomous work.
+							</div>
+						</div>
+						<div
+							style="
+								background: #f6f5f1;
+								border-radius: 2px;
+								box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+								overflow: hidden;
+								border: 1px solid #e6e4dc;
+							"
+						>
+							<!-- filter bar -->
+							<div
+								style="
+									display: flex;
+									align-items: center;
+									gap: 8px;
+									padding: 11px 16px;
+									border-bottom: 1px solid #e6e4dc;
+									flex-wrap: wrap;
+								"
+							>
+								<span
+									style="
+										font-size: 11px;
+										padding: 4px 10px;
+										border-radius: 3px;
+										background: #1c1b18;
+										color: #f6f5f1;
+									"
+									>all</span
+								>
+								<span
+									style="
+										font-size: 11px;
+										padding: 4px 10px;
+										border-radius: 3px;
+										border: 1px solid #e0c6ba;
+										color: #cf5a2e;
+									"
+									>needs you · 3</span
+								>
+								<span
+									style="
+										font-size: 11px;
+										padding: 4px 10px;
+										border-radius: 3px;
+										border: 1px solid #d8d6cc;
+										color: #57554d;
+									"
+									>errors · 1</span
+								>
+								<span
+									style="
+										font-size: 11px;
+										padding: 4px 10px;
+										border-radius: 3px;
+										border: 1px solid #d8d6cc;
+										color: #57554d;
+									"
+									>refactor-auth</span
+								>
+								<div
+									style="
+										flex: 1;
+										display: flex;
+										align-items: center;
+										gap: 7px;
+										min-width: 120px;
+										margin-left: 4px;
+										padding: 5px 10px;
+										border: 1px solid #e6e4dc;
+										border-radius: 3px;
+										background: #fbfaf7;
+									"
+								>
+									<span style="color: #9b988d; font-size: 11px">grep</span
+									><span style="color: #bdbab0; font-size: 11px"
+										>/ filter the river…</span
+									>
+								</div>
+								<span
+									style="
+										display: flex;
+										align-items: center;
+										gap: 6px;
+										font-size: 11px;
+										color: #1c1b18;
+									"
+									><span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 1.8s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span></span
+									>live</span
+								>
+							</div>
+
+							<!-- stream rows -->
+							<div style="font-size: 12px; line-height: 1.5">
+								<!-- live row -->
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+										background: rgba(28, 27, 24, 0.025);
+									"
+								>
+									<span style="color: #bdbab0">14:02:31</span>
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 1.8s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span
+									></span>
+									<span style="color: #57554d">[refactor-auth]</span>
+									<span
+										style="
+											background: linear-gradient(
+												90deg,
+												#9b988d 0%,
+												#9b988d 38%,
+												#1c1b18 50%,
+												#9b988d 62%,
+												#9b988d 100%
+											);
+											background-size: 200% 100%;
+											-webkit-background-clip: text;
+											background-clip: text;
+											color: transparent;
+											animation: shimmer 2.6s linear infinite;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>editing web-control-client.ts — extracting token
+										guard</span
+									>
+									<span style="color: #bdbab0">now</span>
+								</div>
+								<!-- regular rows -->
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+									"
+								>
+									<span style="color: #bdbab0">14:02:30</span><span></span>
+									<span style="color: #57554d">[e2e-flake-hunt]</span>
+									<span
+										style="
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>re-ran auth.spec.ts — 0 failures</span
+									>
+									<span style="color: #bdbab0">1s</span>
+								</div>
+								<!-- needs you -->
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+										background: rgba(207, 90, 46, 0.05);
+										box-shadow: inset 3px 0 0 #cf5a2e;
+									"
+								>
+									<span style="color: #cf5a2e">14:02:18</span>
+									<span style="color: #cf5a2e">◆</span>
+									<span style="color: #1c1b18">[migrate-billing-v2]</span>
+									<span
+										style="
+											color: #1c1b18;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>review requested · replace raw SQL with query builder
+										<span
+											style="
+												color: #cf5a2e;
+												text-decoration: underline;
+												text-underline-offset: 2px;
+											"
+											>→ review</span
+										></span
+									>
+									<span style="color: #cf5a2e">13s</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+									"
+								>
+									<span style="color: #bdbab0">14:02:04</span><span></span>
+									<span style="color: #57554d">[refactor-auth]</span>
+									<span
+										style="
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>bun test dashboard — 142 passed in 3.1s</span
+									>
+									<span style="color: #bdbab0">27s</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+										background: rgba(207, 90, 46, 0.05);
+										box-shadow: inset 3px 0 0 #cf5a2e;
+									"
+								>
+									<span style="color: #cf5a2e">14:01:52</span>
+									<span style="color: #cf5a2e">✕</span>
+									<span style="color: #1c1b18">[dep-upgrade-react19]</span>
+									<span
+										style="
+											color: #1c1b18;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>agent paused · peer-dep conflict
+										<span
+											style="
+												color: #cf5a2e;
+												text-decoration: underline;
+												text-underline-offset: 2px;
+											"
+											>→ open log</span
+										></span
+									>
+									<span style="color: #cf5a2e">39s</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+									"
+								>
+									<span style="color: #bdbab0">14:01:40</span><span></span>
+									<span style="color: #57554d">[report-gen]</span>
+									<span
+										style="
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>summarized changelog (1.2k tok)</span
+									>
+									<span style="color: #bdbab0">51s</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+									"
+								>
+									<span style="color: #bdbab0">14:01:39</span><span></span>
+									<span style="color: #57554d">[refactor-auth]</span>
+									<span
+										style="
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>applied codemod to app-sidebar.tsx (+42 −18)</span
+									>
+									<span style="color: #bdbab0">52s</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+									"
+								>
+									<span style="color: #bdbab0">14:01:22</span><span></span>
+									<span style="color: #57554d">[e2e-flake-hunt]</span>
+									<span
+										style="
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>spawned agent run #4</span
+									>
+									<span style="color: #bdbab0">1m</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+										background: rgba(207, 90, 46, 0.05);
+										box-shadow: inset 3px 0 0 #cf5a2e;
+									"
+								>
+									<span style="color: #cf5a2e">14:01:05</span>
+									<span style="color: #cf5a2e">◆</span>
+									<span style="color: #1c1b18">[refactor-auth]</span>
+									<span
+										style="
+											color: #1c1b18;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>plan ready · extract session token guard
+										<span
+											style="
+												color: #cf5a2e;
+												text-decoration: underline;
+												text-underline-offset: 2px;
+											"
+											>→ approve</span
+										></span
+									>
+									<span style="color: #cf5a2e">1m</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+									"
+								>
+									<span style="color: #bdbab0">14:00:58</span><span></span>
+									<span style="color: #57554d">[docs-site-rebuild]</span>
+									<span
+										style="
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>tick #214 · no changes · sleeping 60s</span
+									>
+									<span style="color: #bdbab0">1m</span>
+								</div>
+								<div
+									style="
+										display: grid;
+										grid-template-columns: 64px 16px 168px 1fr auto;
+										align-items: center;
+										gap: 10px;
+										padding: 7px 16px;
+									"
+								>
+									<span style="color: #bdbab0">14:00:40</span><span></span>
+									<span style="color: #57554d">[refactor-auth]</span>
+									<span
+										style="
+											color: #57554d;
+											overflow: hidden;
+											text-overflow: ellipsis;
+											white-space: nowrap;
+										"
+										>read web-dashboard-state.ts</span
+									>
+									<span style="color: #bdbab0">2m</span>
+								</div>
+							</div>
+							<div
+								style="
+									padding: 9px 16px;
+									border-top: 1px solid #e6e4dc;
+									font-size: 11px;
+									color: #9b988d;
+								"
+							>
+								↑ 218 earlier events today · scroll to replay
+							</div>
+						</div>
+					</div>
+
+					<!-- ════════════ C · WORK BOARD ════════════ -->
+					<div style="flex: none; width: 1180px">
+						<div style="margin-bottom: 14px">
+							<div
+								style="
+									font-size: 12px;
+									letter-spacing: 0.16em;
+									text-transform: uppercase;
+									color: #1c1b18;
+								"
+							>
+								C · Work Board
+							</div>
+							<div style="font-size: 11.5px; color: #9b988d; margin-top: 5px">
+								Manage work, not sessions. The unit becomes the work item; the
+								session is just a tag. Agents pull cards across a lifecycle you
+								can see end-to-end.
+							</div>
+						</div>
+						<div
+							style="
+								background: #f6f5f1;
+								border-radius: 2px;
+								box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+								overflow: hidden;
+								border: 1px solid #e6e4dc;
+							"
+						>
+							<div
+								style="
+									display: flex;
+									align-items: center;
+									justify-content: space-between;
+									padding: 12px 18px;
+									border-bottom: 1px solid #e6e4dc;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 10px">
+									<span style="font-size: 13px; font-weight: 600">work</span
+									><span style="font-size: 11px; color: #9b988d"
+										>across 7 sessions · 14 items</span
+									>
+								</div>
+								<span
+									style="
+										display: flex;
+										align-items: center;
+										gap: 6px;
+										font-size: 11px;
+										color: #57554d;
+									"
+									><span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 1.9s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span></span
+									>9 agents working</span
+								>
+							</div>
+							<!-- columns -->
+							<div style="display: grid; grid-template-columns: repeat(4, 1fr)">
+								<!-- QUEUED -->
+								<div
+									style="
+										border-right: 1px solid #e6e4dc;
+										padding: 14px 12px;
+										display: flex;
+										flex-direction: column;
+										gap: 10px;
+									"
+								>
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											margin-bottom: 2px;
+										"
+									>
+										<span
+											style="
+												font-size: 11px;
+												letter-spacing: 0.12em;
+												text-transform: uppercase;
+												color: #9b988d;
+											"
+											>queued</span
+										><span style="font-size: 11px; color: #9b988d">3</span>
+									</div>
+									<div
+										style="
+											background: #fbfaf7;
+											border: 1px solid #e6e4dc;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Backfill invoice currency
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #9b988d;
+											"
+										>
+											<span>migrate-billing-v2</span><span>est 4m</span>
+										</div>
+									</div>
+									<div
+										style="
+											background: #fbfaf7;
+											border: 1px solid #e6e4dc;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Add telemetry to operator actions
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #9b988d;
+											"
+										>
+											<span>refactor-auth</span><span>est 6m</span>
+										</div>
+									</div>
+									<div
+										style="
+											background: #fbfaf7;
+											border: 1px solid #e6e4dc;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Upgrade vitest to v3
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #9b988d;
+											"
+										>
+											<span>dep-upgrade-react19</span><span>est 2m</span>
+										</div>
+									</div>
+								</div>
+								<!-- RUNNING -->
+								<div
+									style="
+										border-right: 1px solid #e6e4dc;
+										padding: 14px 12px;
+										display: flex;
+										flex-direction: column;
+										gap: 10px;
+									"
+								>
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											margin-bottom: 2px;
+										"
+									>
+										<span
+											style="
+												font-size: 11px;
+												letter-spacing: 0.12em;
+												text-transform: uppercase;
+												color: #9b988d;
+											"
+											>running</span
+										><span style="font-size: 11px; color: #9b988d">4</span>
+									</div>
+									<div
+										style="
+											background: #fff;
+											border: 1px solid #e6e4dc;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Extract session token guard
+										</div>
+										<div
+											style="
+												font-size: 10.5px;
+												color: #57554d;
+												margin-top: 6px;
+												overflow: hidden;
+												text-overflow: ellipsis;
+												white-space: nowrap;
+											"
+										>
+											<span
+												style="
+													background: linear-gradient(
+														90deg,
+														#9b988d,
+														#9b988d 40%,
+														#1c1b18 50%,
+														#9b988d 60%,
+														#9b988d
+													);
+													background-size: 200% 100%;
+													-webkit-background-clip: text;
+													background-clip: text;
+													color: transparent;
+													animation: shimmer 2.6s linear infinite;
+												"
+												>editing web-control-client.ts</span
+											>
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #9b988d;
+											"
+										>
+											<span>refactor-auth · ag-7</span><span>2m</span>
+										</div>
+									</div>
+									<div
+										style="
+											background: #fff;
+											border: 1px solid #e6e4dc;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Re-run flaky auth specs
+										</div>
+										<div
+											style="font-size: 10.5px; color: #57554d; margin-top: 6px"
+										>
+											auth.spec.ts 3/8
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #9b988d;
+											"
+										>
+											<span>e2e-flake-hunt · ag-1</span><span>1m</span>
+										</div>
+									</div>
+									<div
+										style="
+											background: #fff;
+											border: 1px solid #e6e4dc;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Migrate invoice rows
+										</div>
+										<div
+											style="font-size: 10.5px; color: #57554d; margin-top: 6px"
+										>
+											12k / 40k
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #9b988d;
+											"
+										>
+											<span>migrate-billing-v2 · ag-3</span><span>3m</span>
+										</div>
+									</div>
+									<div
+										style="
+											background: #fff;
+											border: 1px solid #e6e4dc;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Summarize changelog
+										</div>
+										<div
+											style="font-size: 10.5px; color: #57554d; margin-top: 6px"
+										>
+											writing summary
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #9b988d;
+											"
+										>
+											<span>report-gen · ag-2</span><span>40s</span>
+										</div>
+									</div>
+								</div>
+								<!-- NEEDS YOU -->
+								<div
+									style="
+										border-right: 1px solid #e6e4dc;
+										padding: 14px 12px;
+										display: flex;
+										flex-direction: column;
+										gap: 10px;
+										background: rgba(207, 90, 46, 0.04);
+									"
+								>
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											margin-bottom: 2px;
+										"
+									>
+										<span
+											style="
+												font-size: 11px;
+												letter-spacing: 0.12em;
+												text-transform: uppercase;
+												color: #cf5a2e;
+											"
+											>needs you</span
+										><span style="font-size: 11px; color: #cf5a2e">3</span>
+									</div>
+									<div
+										style="
+											background: #fff;
+											border: 1px solid #e6c9bc;
+											border-radius: 3px;
+											padding: 11px 12px;
+											box-shadow: inset 3px 0 0 #cf5a2e;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Replace raw SQL with query builder
+										</div>
+										<div
+											style="font-size: 10.5px; color: #57554d; margin-top: 6px"
+										>
+											review diff · 6 files · +210 −64
+										</div>
+										<div style="display: flex; gap: 6px; margin-top: 9px">
+											<button
+												style="
+													font-family: inherit;
+													font-size: 10.5px;
+													padding: 4px 10px;
+													border-radius: 3px;
+													border: none;
+													background: #cf5a2e;
+													color: #fff;
+													cursor: pointer;
+												"
+											>
+												Approve</button
+											><button
+												style="
+													font-family: inherit;
+													font-size: 10.5px;
+													padding: 4px 10px;
+													border-radius: 3px;
+													border: 1px solid #d8d6cc;
+													background: transparent;
+													color: #1c1b18;
+													cursor: pointer;
+												"
+											>
+												Changes
+											</button>
+										</div>
+									</div>
+									<div
+										style="
+											background: #fff;
+											border: 1px solid #e6c9bc;
+											border-radius: 3px;
+											padding: 11px 12px;
+											box-shadow: inset 3px 0 0 #cf5a2e;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Codemod class components
+										</div>
+										<div
+											style="font-size: 10.5px; color: #57554d; margin-top: 6px"
+										>
+											paused · peer-dep conflict
+										</div>
+										<div style="display: flex; gap: 6px; margin-top: 9px">
+											<button
+												style="
+													font-family: inherit;
+													font-size: 10.5px;
+													padding: 4px 10px;
+													border-radius: 3px;
+													border: none;
+													background: #cf5a2e;
+													color: #fff;
+													cursor: pointer;
+												"
+											>
+												Resume</button
+											><button
+												style="
+													font-family: inherit;
+													font-size: 10.5px;
+													padding: 4px 10px;
+													border-radius: 3px;
+													border: 1px solid #d8d6cc;
+													background: transparent;
+													color: #1c1b18;
+													cursor: pointer;
+												"
+											>
+												Log
+											</button>
+										</div>
+									</div>
+									<div
+										style="
+											background: #fff;
+											border: 1px solid #e6c9bc;
+											border-radius: 3px;
+											padding: 11px 12px;
+											box-shadow: inset 3px 0 0 #cf5a2e;
+										"
+									>
+										<div style="font-size: 12.5px; color: #1c1b18">
+											Approve plan · token guard
+										</div>
+										<div
+											style="font-size: 10.5px; color: #57554d; margin-top: 6px"
+										>
+											touches 6 files
+										</div>
+										<div style="display: flex; gap: 6px; margin-top: 9px">
+											<button
+												style="
+													font-family: inherit;
+													font-size: 10.5px;
+													padding: 4px 10px;
+													border-radius: 3px;
+													border: none;
+													background: #cf5a2e;
+													color: #fff;
+													cursor: pointer;
+												"
+											>
+												Approve</button
+											><button
+												style="
+													font-family: inherit;
+													font-size: 10.5px;
+													padding: 4px 10px;
+													border-radius: 3px;
+													border: 1px solid #d8d6cc;
+													background: transparent;
+													color: #1c1b18;
+													cursor: pointer;
+												"
+											>
+												Edit
+											</button>
+										</div>
+									</div>
+								</div>
+								<!-- DONE -->
+								<div
+									style="
+										padding: 14px 12px;
+										display: flex;
+										flex-direction: column;
+										gap: 10px;
+									"
+								>
+									<div
+										style="
+											display: flex;
+											align-items: baseline;
+											justify-content: space-between;
+											margin-bottom: 2px;
+										"
+									>
+										<span
+											style="
+												font-size: 11px;
+												letter-spacing: 0.12em;
+												text-transform: uppercase;
+												color: #9b988d;
+											"
+											>done · today</span
+										><span style="font-size: 11px; color: #9b988d">31</span>
+									</div>
+									<div
+										style="
+											background: transparent;
+											border: 1px solid #ebe9e2;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #9b988d">
+											Update sidebar connection states
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #bdbab0;
+											"
+										>
+											<span>refactor-auth</span><span>✓ 8m</span>
+										</div>
+									</div>
+									<div
+										style="
+											background: transparent;
+											border: 1px solid #ebe9e2;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #9b988d">
+											Replace window.confirm with Dialog
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #bdbab0;
+											"
+										>
+											<span>refactor-auth</span><span>✓ 22m</span>
+										</div>
+									</div>
+									<div
+										style="
+											background: transparent;
+											border: 1px solid #ebe9e2;
+											border-radius: 3px;
+											padding: 11px 12px;
+										"
+									>
+										<div style="font-size: 12.5px; color: #9b988d">
+											Reconcile work graph
+										</div>
+										<div
+											style="
+												display: flex;
+												justify-content: space-between;
+												margin-top: 8px;
+												font-size: 10.5px;
+												color: #bdbab0;
+											"
+										>
+											<span>docs-site-rebuild</span><span>✓ 31m</span>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- ════════════ D · VITALS MONITOR ════════════ -->
+					<div style="flex: none; width: 940px">
+						<div style="margin-bottom: 14px">
+							<div
+								style="
+									font-size: 12px;
+									letter-spacing: 0.16em;
+									text-transform: uppercase;
+									color: #1c1b18;
+								"
+							>
+								D · Vitals Monitor
+							</div>
+							<div style="font-size: 11.5px; color: #9b988d; margin-top: 5px">
+								An ICU for agents. Each session is a throughput waveform — you
+								scan for the flatline or the accent flag instead of reading.
+								Glanceable, no prose.
+							</div>
+						</div>
+						<div
+							style="
+								background: #f6f5f1;
+								border-radius: 2px;
+								box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+								overflow: hidden;
+								border: 1px solid #e6e4dc;
+							"
+						>
+							<!-- aggregate -->
+							<div
+								style="
+									padding: 16px 18px;
+									border-bottom: 1px solid #e6e4dc;
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+								"
+							>
+								<div>
+									<div
+										style="
+											font-size: 11px;
+											letter-spacing: 0.12em;
+											text-transform: uppercase;
+											color: #9b988d;
+										"
+									>
+										fleet pulse
+									</div>
+									<div
+										style="font-size: 22px; font-weight: 600; margin-top: 4px"
+									>
+										1,040
+										<span
+											style="font-size: 11px; color: #9b988d; font-weight: 400"
+											>tok/s</span
+										>
+									</div>
+								</div>
+								<div style="position: relative; height: 46px; overflow: hidden">
+									<svg
+										width="100%"
+										height="46"
+										viewBox="0 0 520 46"
+										preserveAspectRatio="none"
+										fill="none"
+									>
+										<polyline
+											points="0,32 18,28 30,12 44,30 58,22 74,8 90,26 104,20 120,34 136,14 152,28 168,22 184,10 200,30 216,18 232,30 250,14 266,26 282,20 300,30 318,12 334,26 352,20 368,30 386,16 402,28 420,20 438,12 456,28 474,22 492,16 510,26 520,20"
+											stroke="#1c1b18"
+											stroke-width="1.4"
+										/>
+									</svg>
+									<div
+										style="
+											position: absolute;
+											top: 0;
+											bottom: 0;
+											width: 80px;
+											background: linear-gradient(
+												90deg,
+												transparent,
+												rgba(207, 90, 46, 0.12),
+												transparent
+											);
+											animation: scan 4s linear infinite;
+										"
+									></div>
+								</div>
+								<div
+									style="
+										text-align: right;
+										font-size: 11px;
+										color: #57554d;
+										line-height: 1.7;
+									"
+								>
+									9 agents active<br />4 of 7 running<br /><span
+										style="color: #cf5a2e"
+										>3 need you</span
+									>
+								</div>
+							</div>
+							<!-- strips -->
+							<!-- running -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+									padding: 13px 18px;
+									border-bottom: 1px solid #efeee8;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 9px">
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 2s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span
+									></span>
+									<div>
+										<div style="font-size: 12.5px">refactor-auth</div>
+										<div style="font-size: 10px; color: #9b988d">web-app</div>
+									</div>
+								</div>
+								<svg
+									width="100%"
+									height="34"
+									viewBox="0 0 520 34"
+									preserveAspectRatio="none"
+									fill="none"
+								>
+									<polyline
+										points="0,24 24,20 40,10 60,22 80,16 104,8 128,20 150,16 176,24 200,12 224,20 248,16 272,10 296,22 320,16 344,22 372,12 396,20 420,16 448,22 472,14 500,20 520,16"
+										stroke="#57554d"
+										stroke-width="1.3"
+									/>
+								</svg>
+								<div style="text-align: right; font-size: 11px; color: #57554d">
+									312 tok/s · 3/4 · 2m
+								</div>
+							</div>
+							<!-- needs you (accent) -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+									padding: 13px 18px;
+									border-bottom: 1px solid #efeee8;
+									background: rgba(207, 90, 46, 0.05);
+									box-shadow: inset 3px 0 0 #cf5a2e;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 9px">
+									<span style="color: #cf5a2e; font-size: 11px">◆</span>
+									<div>
+										<div style="font-size: 12.5px">migrate-billing-v2</div>
+										<div style="font-size: 10px; color: #cf5a2e">
+											review requested
+										</div>
+									</div>
+								</div>
+								<svg
+									width="100%"
+									height="34"
+									viewBox="0 0 520 34"
+									preserveAspectRatio="none"
+									fill="none"
+								>
+									<polyline
+										points="0,22 30,20 56,16 84,21 112,17 140,14 168,20 196,16 224,22 252,15 280,20 308,17 336,21 364,14 392,20 420,16 448,21 476,17 504,20 520,18"
+										stroke="#cf5a2e"
+										stroke-width="1.3"
+									/>
+								</svg>
+								<div style="text-align: right; font-size: 11px; color: #cf5a2e">
+									review · 6 files
+								</div>
+							</div>
+							<!-- error flatline -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+									padding: 13px 18px;
+									border-bottom: 1px solid #efeee8;
+									background: rgba(207, 90, 46, 0.05);
+									box-shadow: inset 3px 0 0 #cf5a2e;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 9px">
+									<span style="color: #cf5a2e; font-size: 11px">✕</span>
+									<div>
+										<div style="font-size: 12.5px">dep-upgrade-react19</div>
+										<div style="font-size: 10px; color: #cf5a2e">
+											paused · handoff
+										</div>
+									</div>
+								</div>
+								<svg
+									width="100%"
+									height="34"
+									viewBox="0 0 520 34"
+									preserveAspectRatio="none"
+									fill="none"
+								>
+									<polyline
+										points="0,18 180,18 188,9 196,27 204,18 520,18"
+										stroke="#cf5a2e"
+										stroke-width="1.3"
+									/>
+								</svg>
+								<div style="text-align: right; font-size: 11px; color: #cf5a2e">
+									0 tok/s · paused 12m
+								</div>
+							</div>
+							<!-- running 2 high -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+									padding: 13px 18px;
+									border-bottom: 1px solid #efeee8;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 9px">
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 1.7s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span
+									></span>
+									<div>
+										<div style="font-size: 12.5px">e2e-flake-hunt</div>
+										<div style="font-size: 10px; color: #9b988d">qa-infra</div>
+									</div>
+								</div>
+								<svg
+									width="100%"
+									height="34"
+									viewBox="0 0 520 34"
+									preserveAspectRatio="none"
+									fill="none"
+								>
+									<polyline
+										points="0,26 20,14 36,28 52,8 72,24 92,6 112,26 132,12 156,28 176,7 200,24 224,10 248,27 272,9 296,25 320,13 344,28 368,8 392,24 416,12 440,27 464,9 492,25 520,12"
+										stroke="#57554d"
+										stroke-width="1.3"
+									/>
+								</svg>
+								<div style="text-align: right; font-size: 11px; color: #57554d">
+									540 tok/s · 2/2 · 1m
+								</div>
+							</div>
+							<!-- running 3 -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+									padding: 13px 18px;
+									border-bottom: 1px solid #efeee8;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 9px">
+									<span
+										style="
+											position: relative;
+											display: inline-flex;
+											width: 6px;
+											height: 6px;
+										"
+										><span
+											style="
+												position: absolute;
+												inset: 0;
+												border-radius: 50%;
+												background: #1c1b18;
+												animation: beat 2.3s ease-out infinite;
+											"
+										></span
+										><span
+											style="
+												position: relative;
+												width: 6px;
+												height: 6px;
+												border-radius: 50%;
+												background: #1c1b18;
+											"
+										></span
+									></span>
+									<div>
+										<div style="font-size: 12.5px">report-gen</div>
+										<div style="font-size: 10px; color: #9b988d">core</div>
+									</div>
+								</div>
+								<svg
+									width="100%"
+									height="34"
+									viewBox="0 0 520 34"
+									preserveAspectRatio="none"
+									fill="none"
+								>
+									<polyline
+										points="0,22 40,19 72,21 108,16 144,20 180,18 216,15 252,20 288,17 324,21 360,16 396,20 432,18 468,21 504,17 520,19"
+										stroke="#57554d"
+										stroke-width="1.3"
+									/>
+								</svg>
+								<div style="text-align: right; font-size: 11px; color: #57554d">
+									240 tok/s · 3/3 · 40s
+								</div>
+							</div>
+							<!-- idle watching -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+									padding: 13px 18px;
+									border-bottom: 1px solid #efeee8;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 9px">
+									<span
+										style="
+											width: 6px;
+											height: 6px;
+											border-radius: 50%;
+											border: 1px solid #bdbab0;
+										"
+									></span>
+									<div>
+										<div style="font-size: 12.5px; color: #57554d">
+											docs-site-rebuild
+										</div>
+										<div style="font-size: 10px; color: #9b988d">marketing</div>
+									</div>
+								</div>
+								<svg
+									width="100%"
+									height="34"
+									viewBox="0 0 520 34"
+									preserveAspectRatio="none"
+									fill="none"
+								>
+									<polyline
+										points="0,18 520,18"
+										stroke="#cfccc2"
+										stroke-width="1.2"
+									/>
+								</svg>
+								<div style="text-align: right; font-size: 11px; color: #9b988d">
+									watching · tick 40s
+								</div>
+							</div>
+							<!-- scheduled -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 200px 1fr 150px;
+									align-items: center;
+									gap: 18px;
+									padding: 13px 18px;
+								"
+							>
+								<div style="display: flex; align-items: center; gap: 9px">
+									<span style="color: #bdbab0; font-size: 11px">↻</span>
+									<div>
+										<div style="font-size: 12.5px; color: #57554d">
+											nightly-codemod
+										</div>
+										<div style="font-size: 10px; color: #9b988d">core</div>
+									</div>
+								</div>
+								<svg
+									width="100%"
+									height="34"
+									viewBox="0 0 520 34"
+									preserveAspectRatio="none"
+									fill="none"
+								>
+									<polyline
+										points="0,18 520,18"
+										stroke="#cfccc2"
+										stroke-width="1.2"
+										stroke-dasharray="3 5"
+									/>
+								</svg>
+								<div style="text-align: right; font-size: 11px; color: #9b988d">
+									retry · attempt 2 · 90s
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- ════════════ E · THE LEDGER ════════════ -->
+					<div style="flex: none; width: 1280px">
+						<div style="margin-bottom: 14px">
+							<div
+								style="
+									font-size: 12px;
+									letter-spacing: 0.16em;
+									text-transform: uppercase;
+									color: #1c1b18;
+								"
+							>
+								E · The Ledger
+							</div>
+							<div style="font-size: 11.5px; color: #9b988d; margin-top: 5px">
+								The anti-room. Every thread across every session is one row in a
+								single sortable grid. Maximum density for the operator who wants
+								it all on one screen.
+							</div>
+						</div>
+						<div
+							style="
+								background: #f6f5f1;
+								border-radius: 2px;
+								box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+								overflow: hidden;
+								border: 1px solid #e6e4dc;
+							"
+						>
+							<!-- header -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 10px 18px;
+									border-bottom: 1px solid #d8d6cc;
+									font-size: 10px;
+									letter-spacing: 0.1em;
+									text-transform: uppercase;
+									color: #9b988d;
+								"
+							>
+								<span></span><span>session ▾</span><span>thread</span
+								><span>agent</span><span>activity</span
+								><span style="text-align: right">tok/s ▾</span
+								><span style="text-align: right">age</span><span></span>
+							</div>
+							<!-- rows -->
+							<!-- live -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #1c1b18">●</span
+								><span style="color: #1c1b18">refactor-auth</span
+								><span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Extract session token guard</span
+								><span style="color: #9b988d">ag-7</span>
+								<span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									><span
+										style="
+											background: linear-gradient(
+												90deg,
+												#9b988d,
+												#9b988d 40%,
+												#1c1b18 50%,
+												#9b988d 60%,
+												#9b988d
+											);
+											background-size: 200% 100%;
+											-webkit-background-clip: text;
+											background-clip: text;
+											color: transparent;
+											animation: shimmer 2.6s linear infinite;
+										"
+										>editing web-control-client.ts</span
+									></span
+								>
+								<span style="text-align: right; color: #57554d"
+									><span style="color: #bdbab0; letter-spacing: -1px"
+										>▁▂▅▇▆</span
+									>
+									312</span
+								><span style="text-align: right; color: #9b988d">2m14s</span
+								><span></span>
+							</div>
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #1c1b18">●</span
+								><span style="color: #1c1b18">refactor-auth</span
+								><span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Wire operator telemetry</span
+								><span style="color: #9b988d">ag-9</span>
+								<span
+									style="
+										color: #57554d;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>bun test dashboard — 142 passed</span
+								>
+								<span style="text-align: right; color: #57554d"
+									><span style="color: #bdbab0; letter-spacing: -1px"
+										>▂▃▄▃▂</span
+									>
+									140</span
+								><span style="text-align: right; color: #9b988d">48s</span
+								><span></span>
+							</div>
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #bdbab0">✓</span
+								><span style="color: #9b988d">refactor-auth</span
+								><span
+									style="
+										color: #9b988d;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Update sidebar connection states</span
+								><span style="color: #bdbab0">—</span>
+								<span style="color: #9b988d">done</span>
+								<span style="text-align: right; color: #bdbab0">—</span
+								><span style="text-align: right; color: #bdbab0">8m</span
+								><span></span>
+							</div>
+							<!-- needs you -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+									background: rgba(207, 90, 46, 0.05);
+									box-shadow: inset 3px 0 0 #cf5a2e;
+								"
+							>
+								<span style="color: #cf5a2e">◆</span
+								><span style="color: #1c1b18">migrate-billing-v2</span
+								><span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Replace raw SQL with builder</span
+								><span style="color: #bdbab0">—</span>
+								<span
+									style="
+										color: #1c1b18;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>review diff · 6 files
+									<span
+										style="
+											color: #cf5a2e;
+											text-decoration: underline;
+											text-underline-offset: 2px;
+										"
+										>approve</span
+									>
+									·
+									<span
+										style="
+											color: #cf5a2e;
+											text-decoration: underline;
+											text-underline-offset: 2px;
+										"
+										>changes</span
+									></span
+								>
+								<span style="text-align: right; color: #bdbab0">—</span
+								><span style="text-align: right; color: #cf5a2e">5m</span
+								><span></span>
+							</div>
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #1c1b18">●</span
+								><span style="color: #1c1b18">migrate-billing-v2</span
+								><span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Backfill invoice currency</span
+								><span style="color: #9b988d">ag-3</span>
+								<span
+									style="
+										color: #57554d;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>migrating rows 12k / 40k</span
+								>
+								<span style="text-align: right; color: #57554d"
+									><span style="color: #bdbab0; letter-spacing: -1px"
+										>▃▄▄▅▄</span
+									>
+									188</span
+								><span style="text-align: right; color: #9b988d">3m</span
+								><span></span>
+							</div>
+							<!-- error -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+									background: rgba(207, 90, 46, 0.05);
+									box-shadow: inset 3px 0 0 #cf5a2e;
+								"
+							>
+								<span style="color: #cf5a2e">✕</span
+								><span style="color: #1c1b18">dep-upgrade-react19</span
+								><span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Codemod class components</span
+								><span style="color: #bdbab0">—</span>
+								<span
+									style="
+										color: #1c1b18;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>paused · peer-dep conflict
+									<span
+										style="
+											color: #cf5a2e;
+											text-decoration: underline;
+											text-underline-offset: 2px;
+										"
+										>resume</span
+									>
+									·
+									<span
+										style="
+											color: #cf5a2e;
+											text-decoration: underline;
+											text-underline-offset: 2px;
+										"
+										>log</span
+									></span
+								>
+								<span style="text-align: right; color: #bdbab0">—</span
+								><span style="text-align: right; color: #cf5a2e">12m</span
+								><span></span>
+							</div>
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #1c1b18">●</span
+								><span style="color: #1c1b18">e2e-flake-hunt</span
+								><span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Re-run flaky auth specs</span
+								><span style="color: #9b988d">ag-1</span>
+								<span
+									style="
+										color: #57554d;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>auth.spec.ts 3/8</span
+								>
+								<span style="text-align: right; color: #57554d"
+									><span style="color: #bdbab0; letter-spacing: -1px"
+										>▅▆▇▆▅</span
+									>
+									540</span
+								><span style="text-align: right; color: #9b988d">1m</span
+								><span></span>
+							</div>
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #1c1b18">●</span
+								><span style="color: #1c1b18">report-gen</span
+								><span
+									style="
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Summarize changelog</span
+								><span style="color: #9b988d">ag-2</span>
+								<span
+									style="
+										color: #57554d;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>writing summary</span
+								>
+								<span style="text-align: right; color: #57554d"
+									><span style="color: #bdbab0; letter-spacing: -1px"
+										>▂▃▃▄▃</span
+									>
+									240</span
+								><span style="text-align: right; color: #9b988d">40s</span
+								><span></span>
+							</div>
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #bdbab0">○</span
+								><span style="color: #57554d">docs-site-rebuild</span
+								><span
+									style="
+										color: #57554d;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Watching for changes</span
+								><span style="color: #bdbab0">—</span>
+								<span style="color: #9b988d">next tick 40s</span>
+								<span style="text-align: right; color: #bdbab0">0</span
+								><span style="text-align: right; color: #bdbab0">—</span
+								><span></span>
+							</div>
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 9px 18px;
+									border-bottom: 1px solid #efeee8;
+									font-size: 12px;
+								"
+							>
+								<span style="color: #bdbab0">↻</span
+								><span style="color: #57554d">nightly-codemod</span
+								><span
+									style="
+										color: #57554d;
+										overflow: hidden;
+										text-overflow: ellipsis;
+										white-space: nowrap;
+									"
+									>Scheduled retry</span
+								><span style="color: #bdbab0">—</span>
+								<span style="color: #9b988d">attempt 2 · in 90s</span>
+								<span style="text-align: right; color: #bdbab0">0</span
+								><span style="text-align: right; color: #bdbab0">—</span
+								><span></span>
+							</div>
+							<!-- totals -->
+							<div
+								style="
+									display: grid;
+									grid-template-columns: 22px 168px 250px 60px 1fr 92px 70px 60px;
+									align-items: center;
+									gap: 14px;
+									padding: 11px 18px;
+									font-size: 11px;
+									color: #9b988d;
+									background: #f1f0ea;
+								"
+							>
+								<span></span><span>7 sessions</span><span>11 threads</span
+								><span style="color: #57554d">9 ag</span
+								><span>$12.40 spent today</span
+								><span style="text-align: right; color: #57554d">1,040</span
+								><span></span><span></span>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- ───────────────── footer note ───────────────── -->
+				<div
+					style="
+						margin-top: 36px;
+						font-size: 11.5px;
+						color: #9b988d;
+						max-width: 760px;
+						line-height: 1.7;
+					"
+				>
+					Pick the metaphors that resonate — or mix them (e.g. Triage as the
+					home screen, Ledger behind a key). Tell me which one or two to take to
+					a real interactive prototype and I'll build it out with working
+					filters, focus views, and keyboard nav.
+				</div>
+			</div>
+		</x-dc>
+	</body>
+</html>

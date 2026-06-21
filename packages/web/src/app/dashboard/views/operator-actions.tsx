@@ -6,15 +6,6 @@ import type {
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import {
 	operatorActionTone,
@@ -22,17 +13,18 @@ import {
 	useDashboardMeta,
 } from "../dashboard-context";
 import { Meta } from "./layout";
+import { OperatorActionDialog } from "./operator-action-dialog";
 
+// Danger reads in the one accent: `--destructive` now aliases the accent, so
+// `text-destructive` already renders in-accent (no red on the product surface).
 function dangerClass(action: OperatorAction) {
-	return action.tone === "danger"
-		? "border-destructive/40 text-destructive"
-		: "";
+	return action.tone === "danger" ? "text-destructive" : "";
 }
 
 // A single operator action. A plain action fires immediately; one that carries
 // a `confirm` or `requiresComment` opens a Dialog instead of the old native
 // window.confirm / window.prompt — the comment is captured with an input group,
-// danger actions read in the destructive tone.
+// danger actions read in the accent tone.
 function OperatorActionButton({
 	action,
 	item,
@@ -86,70 +78,41 @@ function OperatorActionButton({
 			<Button
 				size="sm"
 				variant={operatorActionTone(action)}
-				className={cn(dangerClass(action), prominent && "font-medium")}
+				className={cn(
+					dangerClass(action),
+					prominent && "font-medium",
+					// `label` is extension-defined and unbounded — cap the button so a
+					// long label truncates instead of stretching the wrapping row.
+					"max-w-full",
+				)}
 				disabled={disabledReason !== undefined || pending}
 				loading={pending}
 				onClick={() => (needsDialog ? setOpen(true) : void run(undefined))}
 			>
-				{action.label}
+				<span className="min-w-0 truncate">{action.label}</span>
 			</Button>
 
 			{needsDialog ? (
-				<Dialog open={open} onOpenChange={setOpen}>
-					<DialogContent>
-						<DialogHeader>
-							<DialogTitle>{action.confirm?.title ?? action.label}</DialogTitle>
-							{action.confirm?.message ? (
-								<DialogDescription>{action.confirm.message}</DialogDescription>
-							) : null}
-						</DialogHeader>
-						{action.requiresComment ? (
-							<div className="px-6">
-								<label className="mb-1 block text-sm text-muted-foreground">
-									Comment
-								</label>
-								<InputGroup>
-									<InputGroupInput
-										value={comment}
-										aria-invalid={commentError !== undefined}
-										onChange={(e) => {
-											setComment(e.target.value);
-											if (commentError) setCommentError(undefined);
-										}}
-									/>
-								</InputGroup>
-								{commentError ? (
-									<p className="mt-1 text-sm text-destructive">
-										{commentError}
-									</p>
-								) : null}
-							</div>
-						) : null}
-						<DialogFooter>
-							<Button
-								size="sm"
-								variant="outline"
-								onClick={() => setOpen(false)}
-							>
-								Cancel
-							</Button>
-							<Button
-								size="sm"
-								variant="default"
-								className={
-									action.tone === "danger" ? "bg-destructive text-white" : ""
-								}
-								loading={pending}
-								onClick={onConfirm}
-							>
-								{action.label}
-							</Button>
-						</DialogFooter>
-					</DialogContent>
-				</Dialog>
+				<OperatorActionDialog
+					action={action}
+					open={open}
+					onOpenChange={setOpen}
+					pending={pending}
+					comment={comment}
+					onCommentChange={(next) => {
+						setComment(next);
+						if (commentError) setCommentError(undefined);
+					}}
+					commentError={commentError}
+					onConfirm={onConfirm}
+				/>
 			) : null}
 
-			{disabledReason ? <Meta>{disabledReason}</Meta> : null}
+			{disabledReason ? (
+				// `disabledReason` is extension-defined — keep it on one truncating line
+				// so a long reason can't widen the action row.
+				<Meta className="min-w-0 max-w-full truncate">{disabledReason}</Meta>
+			) : null}
 		</>
 	);
 }
