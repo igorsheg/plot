@@ -209,13 +209,25 @@ function ActingRow({ session }: { session: PlotSessionSummary }) {
 	);
 }
 
+// The calm baseline states — watching/idle read as genuinely autonomous-and-fine.
+// Anything else (error, paused, stopping, starting) is a degraded/transitional
+// posture that must stay legible: a session in `error` with needsYouCount 0 is
+// NOT needs-you (locked decision #5) and must NOT take the accent (locked #6),
+// but it cannot be a silently-calm `○` row either. We surface its `state` word as
+// neutral monochrome meta so the degraded posture is visible at a glance.
+const calmWatchingStates = new Set<PlotSessionSummary["state"]>([
+	"watching",
+	"idle",
+]);
+
 function WatchingRow({ session }: { session: PlotSessionSummary }) {
 	// `↻` reads as reconciling/retry; `○` reads as watching/idle.
 	const glyph = session.state === "reconciling" ? "↻" : "○";
+	const degraded = !calmWatchingStates.has(session.state);
 	return (
 		<Link
 			{...sessionLinkProps(session.id)}
-			className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-2 py-2 transition-colors hover:bg-hover"
+			className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2 transition-colors hover:bg-hover"
 		>
 			<Meta tone="muted" className="w-3 text-center">
 				{glyph}
@@ -228,6 +240,14 @@ function WatchingRow({ session }: { session: PlotSessionSummary }) {
 					{session.cwdName}
 				</Meta>
 			</Row>
+			{degraded ? (
+				<Meta
+					tone="foreground"
+					className="justify-self-end uppercase tracking-wider"
+				>
+					{session.state}
+				</Meta>
+			) : null}
 		</Link>
 	);
 }

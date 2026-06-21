@@ -346,6 +346,22 @@ describe("plot web dashboard", () => {
 		expect(html).toContain("check failed: bun run check exited 1");
 	});
 
+	test("an error-state session stays legible in the lobby", () => {
+		// An error session with needsYouCount 0 is NOT NEEDS YOU (locked decision
+		// #5) and must not take the accent (locked #6) — but it must not read as a
+		// silently-calm watching row either. Its `state` surfaces as neutral meta.
+		const html = renderLobby(
+			state({
+				roster: [
+					summary({ id: "down", workflowName: "deploy", state: "error" }),
+				],
+			}),
+		);
+		expect(html).toContain("watching");
+		expect(html).toContain("deploy");
+		expect(html).toContain("error");
+	});
+
 	test("offline state preserves the last good frame", () => {
 		const session = summary({ id: "session-1", workflowName: "docs" });
 		const projection = reduceSessionHistoryEvent(
