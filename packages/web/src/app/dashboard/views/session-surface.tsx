@@ -208,8 +208,8 @@ function PulseHeader({
 			onMouseLeave={() => setShowStats(false)}
 		>
 			<span className="relative flex size-2 shrink-0">
-				<span className="pulse-beat absolute inline-flex size-2 rounded-full bg-live" />
-				<span className="relative inline-flex size-2 rounded-full bg-live" />
+				<span className="pulse-beat absolute inline-flex size-2 rounded-full bg-foreground" />
+				<span className="relative inline-flex size-2 rounded-full bg-foreground" />
 			</span>
 			<h1 className="text-base font-medium">{workflowName}</h1>
 			<Meta>
@@ -384,7 +384,7 @@ function ThreadRow({
 			transition={spring.fast}
 			className={cn(
 				"group relative",
-				live && "bg-live/5",
+				live && "bg-foreground/5",
 				selected && "bg-selected",
 				!selected && "hover:bg-hover",
 			)}
