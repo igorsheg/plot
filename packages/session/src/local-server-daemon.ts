@@ -59,9 +59,15 @@ export const currentPlotServeCommand = (
 	input: {
 		readonly argv?: readonly string[];
 		readonly execPath?: string;
+		readonly localServerBinary?: string;
 		readonly override?: string;
 	} = {},
 ): { command: string; args: string[] } => {
+	const binary =
+		input.localServerBinary ?? process.env["PLOT_LOCAL_SERVER_BINARY"];
+	if (binary !== undefined && binary.trim() !== "")
+		return { command: binary, args: ["_serve"] };
+
 	const override = input.override ?? process.env["PLOT_LOCAL_SERVER_COMMAND"];
 	if (override !== undefined && override.trim() !== "") {
 		const [command, ...args] = override.trim().split(/\s+/);

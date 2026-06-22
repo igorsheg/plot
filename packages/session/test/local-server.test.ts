@@ -100,6 +100,13 @@ describe("Local Plot Server", () => {
 		).toEqual({ command: "/tmp/npm/plot", args: ["_serve"] });
 		expect(
 			currentPlotServeCommand({
+				localServerBinary: "/opt/plot/bin/plot",
+				execPath: "/tmp/npm/plot",
+				argv: ["bun", "/$bunfs/root/main", "tui"],
+			}),
+		).toEqual({ command: "/opt/plot/bin/plot", args: ["_serve"] });
+		expect(
+			currentPlotServeCommand({
 				execPath: "/tmp/npm/plot",
 				argv: ["bun", "/$bunfs/root/main", "tui"],
 			}),
