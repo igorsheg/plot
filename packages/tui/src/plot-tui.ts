@@ -313,9 +313,9 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 };
 
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	// Use the shared Local Plot Server for roster/web visibility. TUI exit only
-	// detaches the controller; the Plot session keeps running on the server.
-	// `--no-server` is the explicit in-process escape hatch.
+	// Use the shared Local Plot Server for roster/web visibility. The TUI owns
+	// the session it opens; quitting closes it. Browser/web observers may detach
+	// without owning session lifetime.
 	if (options.noServer) return runPlotTuiInProcess(options);
 	const attachment = await openAndAttachPlotTuiSession(options);
 	let projection = attachment.projection;
@@ -400,16 +400,13 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		resolveStopped();
 		tui.stop();
 	};
-	const detachAndStop = () => {
+	const closeAndStop = () => {
 		if (exitStarted) {
 			forceStop();
 			return;
 		}
 		exitStarted = true;
-		void attachment.client
-			.detachSession({ sessionId: options.sessionId })
-			.catch(fail)
-			.finally(forceStop);
+		void attachment.close().catch(fail).finally(forceStop);
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
@@ -420,7 +417,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		},
 		refresh,
 		toggleDebug: render,
-		quit: detachAndStop,
+		quit: closeAndStop,
 		openUrl,
 		height: () => terminal.rows,
 		requestRender: () => tui.requestRender(),
@@ -455,9 +452,11 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	} finally {
 		dashboard.stopLiveUpdates();
 		tui.stop();
-		await attachment.client
-			.detachSession({ sessionId: options.sessionId })
-			.catch(() => undefined);
+		await attachment.close().catch(async () => {
+			await attachment.client
+				.detachSession({ sessionId: attachment.sessionId })
+				.catch(() => undefined);
+		});
 		attachment.client.close();
 	}
 };

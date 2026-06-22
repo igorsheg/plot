@@ -83,7 +83,7 @@ describe("Plot TUI", () => {
 		}
 	});
 
-	test("detaching the TUI keeps the server session running", async () => {
+	test("explicit detach keeps the server session running", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-tui-detach-"));
 		tempDirs.push(cwd);
 		const serverDir = await mkdtemp(join(tmpdir(), "plot-tui-server-"));
