@@ -98,6 +98,12 @@ describe("Local Plot Server", () => {
 				argv: ["/tmp/npm/plot", "tui", "--workflow", "WORKFLOW.md"],
 			}),
 		).toEqual({ command: "/tmp/npm/plot", args: ["_serve"] });
+		expect(
+			currentPlotServeCommand({
+				execPath: "/tmp/npm/plot",
+				argv: ["bun", "/$bunfs/root/main", "tui"],
+			}),
+		).toEqual({ command: "/tmp/npm/plot", args: ["_serve"] });
 	});
 
 	test("generates a persistent local token and rejects missing or wrong tokens", async () => {

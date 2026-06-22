@@ -53,6 +53,8 @@ const looksLikeScriptPath = (value: string) =>
 	value.includes("/") ||
 	value.includes("\\");
 
+const isBunCompiledEntrypoint = (value: string) => value.startsWith("/$bunfs/");
+
 export const currentPlotServeCommand = (
 	input: {
 		readonly argv?: readonly string[];
@@ -71,6 +73,7 @@ export const currentPlotServeCommand = (
 	if (
 		entrypoint !== undefined &&
 		entrypoint !== exec &&
+		!isBunCompiledEntrypoint(entrypoint) &&
 		looksLikeScriptPath(entrypoint)
 	)
 		return { command: exec, args: [entrypoint, "_serve"] };
