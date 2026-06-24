@@ -95,7 +95,7 @@ describe("PlotDashboard", () => {
 							activity: "working",
 							activityKind: "run",
 							streaming: false,
-							lastMeaningful: "working",
+							lastDisplay: "working",
 							check: "not-run",
 							commands: [],
 							observations: [],

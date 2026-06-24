@@ -1,4 +1,9 @@
 import type { PlotServerRecord, EventLogEvent } from "@plot/session/protocol";
+import {
+	appendStreamDelta,
+	piEventDisplay,
+	type PiUsageDelta,
+} from "./pi-event-display.js";
 
 export type DashboardStatus =
 	| "starting"
@@ -113,7 +118,7 @@ export interface AgentAttemptProjection {
 	readonly activity: string;
 	readonly activityKind: ActivityKind;
 	readonly streaming: boolean;
-	readonly lastMeaningful: string;
+	readonly lastDisplay: string;
 	readonly check: WorkCheck;
 	readonly commands: readonly string[];
 	readonly observations: readonly string[];
@@ -266,73 +271,6 @@ export const workLabel = (work: {
 }) =>
 	work.primary === undefined ? work.title : `${work.primary} ${work.title}`;
 
-const classifyTool = (
-	name: string | undefined,
-	args: Record<string, unknown>,
-): {
-	kind: ActivityKind;
-	stage: AttemptStage;
-	text: string;
-	check: WorkCheck;
-	target?: string | undefined;
-} => {
-	if (name === "read")
-		return {
-			kind: "read",
-			stage: "working",
-			text: `read ${str(args["path"]) ?? "file"}`,
-			check: "not-run",
-			target: str(args["path"]),
-		};
-	if (name === "grep" || name === "find" || name === "ls")
-		return {
-			kind: "search",
-			stage: "working",
-			text: `${name} ${str(args["pattern"]) ?? str(args["path"]) ?? ""}`.trim(),
-			check: "not-run",
-		};
-	if (name === "edit" || name === "write")
-		return {
-			kind: "edit",
-			stage: "working",
-			text: `${name} ${str(args["path"]) ?? "file"}`,
-			check: "not-run",
-			target: str(args["path"]),
-		};
-	const command = str(args["command"]);
-	if (name === "bash" && command !== undefined) {
-		if (/\b(test|check|lint|typecheck|tsc|bun test|npm test)\b/.test(command))
-			return {
-				kind: "test",
-				stage: "verifying",
-				text: command,
-				check: "running",
-				target: command,
-			};
-		if (/\b(gh pr review|gh pr comment|git commit|npm publish)\b/.test(command))
-			return {
-				kind: "finish",
-				stage: "finishing",
-				text: command,
-				check: "not-run",
-				target: command,
-			};
-		return {
-			kind: "run",
-			stage: "working",
-			text: command,
-			check: "not-run",
-			target: command,
-		};
-	}
-	return {
-		kind: "run",
-		stage: "working",
-		text: name ?? "tool",
-		check: "not-run",
-	};
-};
-
 const mergeAttempt = (
 	a: AgentAttemptProjection,
 	patch: Partial<AgentAttemptProjection>,
@@ -350,6 +288,31 @@ const timeline = (
 	kind: ActivityKind,
 	when: number,
 ) => cap([...a.timeline, { atMs: when, text, kind }], 30);
+const activeTool = (tool: {
+	readonly kind: ActivityKind;
+	readonly check: string;
+	readonly target?: string | undefined;
+	readonly toolCallId?: string | undefined;
+}) => ({
+	kind: tool.kind,
+	isCheck: tool.check === "running",
+	...(tool.target === undefined ? {} : { target: tool.target }),
+	...(tool.toolCallId === undefined ? {} : { toolCallId: tool.toolCallId }),
+});
+const lifecycleActivity = (
+	prev: AgentAttemptProjection,
+	summary: string,
+): Partial<AgentAttemptProjection> =>
+	prev.meaningfulCount === 0 ? { activity: summary, lastDisplay: summary } : {};
+const addUsage = (
+	previous: AgentAttemptProjection["tokens"],
+	usage: PiUsageDelta,
+): NonNullable<AgentAttemptProjection["tokens"]> => ({
+	input: (previous?.input ?? 0) + (usage.input ?? 0),
+	output: (previous?.output ?? 0) + (usage.output ?? 0),
+	total: (previous?.total ?? 0) + usage.total,
+	cost: (previous?.cost ?? 0) + (usage.cost ?? 0),
+});
 
 const reduceAgentEvent = (
 	p: DashboardProjection,
@@ -358,134 +321,164 @@ const reduceAgentEvent = (
 ): DashboardProjection => {
 	const runId = str(payload["runId"]);
 	if (runId === undefined) return p;
-	const event = record(payload["event"]) ? payload["event"] : {};
+	const rawEvent = record(payload["event"]) ? payload["event"] : {};
+	const activity = piEventDisplay(rawEvent);
+	if (activity === undefined) return p;
 	const prev = p.attempts.get(runId);
 	if (prev === undefined) return p;
 	const when = at(e);
-	const type = str(event["type"]);
-	let next = prev;
-	if (type === "turn_start")
-		next = mergeAttempt(
-			prev,
-			{
-				turnCount: prev.turnCount + 1,
-				activity: "thinking",
-				activityKind: "think",
-				streaming: true,
-			},
-			e,
-		);
-	else if (type === "message_delta" || type === "message_partial")
-		next = mergeAttempt(
-			prev,
-			{
-				messageCount: prev.messageCount + 1,
-				activity: str(event["text"]) ?? str(event["content"]) ?? prev.activity,
-				activityKind: "message",
-				streaming: true,
-				streams: {
-					...prev.streams,
-					message:
-						str(event["text"]) ?? str(event["content"]) ?? prev.streams.message,
+	const handlers = {
+		turn_start: () => {
+			if (activity.type !== "turn_start") return prev;
+			return mergeAttempt(
+				prev,
+				{
+					turnCount: prev.turnCount + 1,
+					activityKind: "think",
+					streaming: true,
+					...lifecycleActivity(prev, activity.summary),
 				},
-			},
-			e,
-		);
-	else if (type === "thinking_delta")
-		next = mergeAttempt(
-			prev,
-			{
-				activity: str(event["text"]) ?? prev.activity,
-				activityKind: "think",
-				streaming: true,
-				streams: {
-					...prev.streams,
-					thinking: str(event["text"]) ?? prev.streams.thinking,
+				e,
+			);
+		},
+		turn_end: () => {
+			if (activity.type !== "turn_end") return prev;
+			return mergeAttempt(
+				prev,
+				{
+					streaming: false,
+					streams: {},
+					...lifecycleActivity(prev, activity.summary),
+					...(activity.usage === undefined
+						? {}
+						: { tokens: addUsage(prev.tokens, activity.usage) }),
 				},
-			},
-			e,
-		);
-	else if (
-		type === "tool_execution_start" ||
-		type === "tool_execution_update"
-	) {
-		const args = record(event["args"]) ? event["args"] : {};
-		const tool = classifyTool(str(event["toolName"]), args);
-		const id = str(event["toolCallId"]);
-		const activeTools = new Map(prev.activeTools ?? []);
-		if (id)
-			activeTools.set(id, {
-				kind: tool.kind,
-				isCheck: tool.check === "running",
-				target: tool.target,
-				toolCallId: id,
-			});
-		next = mergeAttempt(
-			prev,
-			{
-				stage: tool.stage,
-				activity: tool.text,
-				activityKind: tool.kind,
-				streaming: true,
-				lastMeaningful: tool.text,
-				check: tool.check === "running" ? "running" : prev.check,
-				commands:
-					tool.kind === "run" || tool.kind === "test" || tool.kind === "finish"
-						? [...prev.commands, tool.text]
-						: prev.commands,
-				toolUpdateCount:
-					prev.toolUpdateCount + (type === "tool_execution_update" ? 1 : 0),
-				activeTool: {
-					kind: tool.kind,
-					isCheck: tool.check === "running",
-					target: tool.target,
-					...(id ? { toolCallId: id } : {}),
+				e,
+			);
+		},
+		thinking: () => {
+			if (activity.type !== "thinking") return prev;
+			const text = appendStreamDelta(prev.streams.thinking, activity.delta);
+			return mergeAttempt(
+				prev,
+				{
+					activity: activity.summary,
+					activityKind: "think",
+					streaming: true,
+					lastDisplay: activity.summary,
+					meaningfulCount: prev.meaningfulCount + 1,
+					streams: { ...prev.streams, thinking: text },
 				},
-				activeTools,
-				streams: { ...prev.streams, tool: tool.text },
-				timeline: timeline(prev, tool.text, tool.kind, when),
-			},
-			e,
-		);
-	} else if (type === "tool_execution_end") {
-		const id = str(event["toolCallId"]);
-		const activeTools = new Map(prev.activeTools ?? []);
-		const active = id ? activeTools.get(id) : prev.activeTool;
-		if (id) activeTools.delete(id);
-		const failed = event["isError"] === true;
-		const check = active?.isCheck ? (failed ? "failed" : "passed") : prev.check;
-		next = mergeAttempt(
-			prev,
-			{
-				stage: failed ? "failed" : prev.stage,
-				check,
-				streaming: activeTools.size > 0,
-				activeTools,
-				activeTool: activeTools.values().next().value,
-				streams: { ...prev.streams, tool: undefined },
-			},
-			e,
-		);
-	} else if (type === "turn_end" || type === "agent_end") {
-		const usage = record(event["usage"]) ? event["usage"] : undefined;
-		const total = num(usage?.["total"]) ?? num(usage?.["totalTokens"]);
-		next = mergeAttempt(
-			prev,
-			{
-				streaming: false,
-				streams: {},
-				...(total === undefined ? {} : { tokens: { total } }),
-			},
-			e,
-		);
-	}
+				e,
+			);
+		},
+		message: () => {
+			if (activity.type !== "message") return prev;
+			const text = appendStreamDelta(prev.streams.message, activity.delta);
+			return mergeAttempt(
+				prev,
+				{
+					messageCount: prev.messageCount + 1,
+					activity: activity.summary,
+					activityKind: "message",
+					streaming: true,
+					lastDisplay: activity.summary,
+					meaningfulCount: prev.meaningfulCount + 1,
+					streams: { ...prev.streams, message: text },
+				},
+				e,
+			);
+		},
+		tool_start: () => {
+			if (activity.type !== "tool_start") return prev;
+			const tool = activity.tool;
+			const nextActiveTool = activeTool(tool);
+			const activeTools = new Map(prev.activeTools ?? []);
+			if (tool.toolCallId) activeTools.set(tool.toolCallId, nextActiveTool);
+			return mergeAttempt(
+				prev,
+				{
+					stage: tool.stage,
+					activity: tool.text,
+					activityKind: tool.kind,
+					streaming: true,
+					lastDisplay: tool.text,
+					meaningfulCount: prev.meaningfulCount + 1,
+					check: tool.check === "running" ? "running" : prev.check,
+					commands:
+						tool.kind === "run" ||
+						tool.kind === "test" ||
+						tool.kind === "finish"
+							? [...prev.commands, tool.text]
+							: prev.commands,
+					activeTool: nextActiveTool,
+					activeTools,
+					streams: { ...prev.streams, tool: tool.text },
+					timeline: timeline(prev, tool.text, tool.kind, when),
+				},
+				e,
+			);
+		},
+		tool_update: () => {
+			if (activity.type !== "tool_update") return prev;
+			const tool = activity.tool;
+			const nextActiveTool = activeTool(tool);
+			const activeTools = new Map(prev.activeTools ?? []);
+			if (tool.toolCallId) activeTools.set(tool.toolCallId, nextActiveTool);
+			return mergeAttempt(
+				prev,
+				{
+					stage: tool.stage,
+					activity: tool.text,
+					activityKind: tool.kind,
+					streaming: true,
+					lastDisplay: tool.text,
+					meaningfulCount: prev.meaningfulCount + 1,
+					check: tool.check === "running" ? "running" : prev.check,
+					toolUpdateCount: prev.toolUpdateCount + 1,
+					activeTool: nextActiveTool,
+					activeTools,
+					streams: { ...prev.streams, tool: tool.text },
+				},
+				e,
+			);
+		},
+		tool_end: () => {
+			if (activity.type !== "tool_end") return prev;
+			const activeTools = new Map(prev.activeTools ?? []);
+			const active = activity.toolCallId
+				? activeTools.get(activity.toolCallId)
+				: prev.activeTool;
+			if (activity.toolCallId) activeTools.delete(activity.toolCallId);
+			return mergeAttempt(
+				prev,
+				{
+					stage: activity.failed ? "failed" : prev.stage,
+					check: active?.isCheck
+						? activity.failed
+							? "failed"
+							: "passed"
+						: prev.check,
+					streaming: activeTools.size > 0,
+					activeTools,
+					activeTool: activeTools.values().next().value,
+					streams: { ...prev.streams, tool: undefined },
+				},
+				e,
+			);
+		},
+	} satisfies Record<typeof activity.type, () => AgentAttemptProjection>;
+	const next = handlers[activity.type]();
 	const attempts = new Map(p.attempts).set(runId, next);
+	const usage = activity.type === "turn_end" ? activity.usage : undefined;
 	const usageTotals =
-		next.tokens?.total === undefined || next.tokens.total === prev.tokens?.total
+		usage === undefined
 			? p.usageTotals
 			: {
-					tokens: p.usageTotals.tokens + next.tokens.total,
-					cost: p.usageTotals.cost,
+					tokens: p.usageTotals.tokens + usage.total,
+					...(usage.cost === undefined && p.usageTotals.cost === undefined
+						? {}
+						: { cost: (p.usageTotals.cost ?? 0) + (usage.cost ?? 0) }),
 				};
 	return {
 		...p,
@@ -504,6 +497,8 @@ const reduceEvent = (
 ): DashboardProjection => {
 	let p = debug(p0, e);
 	const payload = record(e.payload) ? e.payload : {};
+	if ("kind" in e && e.kind === "agent_session_event")
+		return reduceAgentEvent(p, e, e as Record<string, unknown>);
 	if (e.type === "session_paused") return { ...p, status: "paused" };
 	if (e.type === "session_resumed") return { ...p, status: "running" };
 	if (e.type === "session_close_requested")
@@ -570,7 +565,7 @@ const reduceEvent = (
 			activity: "starting",
 			activityKind: "wait",
 			streaming: false,
-			lastMeaningful: "starting",
+			lastDisplay: "starting",
 			check: "not-run",
 			commands: [],
 			observations: [],
@@ -667,7 +662,7 @@ export const reduceRecord = (
 	projection: DashboardProjection,
 	input: PlotServerRecord,
 ): DashboardProjection =>
-	input.kind === "session_event"
+	input.kind === "event" || input.kind === "session_event"
 		? reduceEventLogEvent(projection, input.event)
 		: projection;
 
@@ -716,7 +711,7 @@ export const applySnapshot = (
 					activity: "running",
 					activityKind: "wait",
 					streaming: false,
-					lastMeaningful: "running",
+					lastDisplay: "running",
 					check: "not-run",
 					turnCount: 0,
 					eventCount: 0,
