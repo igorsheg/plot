@@ -7,7 +7,7 @@ This example keeps Cloudflare-style review discipline but removes Cloudflare-sty
 - `github-pr-reviewer.extension.ts` is a generic GitHub Source. It discovers open PRs, parses the one Plot anchor comment, and returns one Work Item per PR head that still needs review.
 - The extension exposes only two write tools: `upsert_review_anchor` and `post_pr_review`. They check the head SHA and perform idempotent GitHub mutations.
 - The Agent Run owns the review: clone/fetch, read code, run searches/tests, apply review lenses, synthesize findings, and post one review.
-- Durable state lives on the PR in one anchor comment. A crashed run leaves `status=reviewing`; the next Plot tick reconciles GitHub truth and retries.
+- Durable state lives on the PR in one anchor comment. A crashed run leaves `status=reviewing`; the next Plot tick reconciles GitHub truth and the source can select it again.
 - There are no source-launched subagents and no prompt-owned phase machine.
 
 ## Use
@@ -20,13 +20,13 @@ npm install --prefix examples/pr-review
 plot run --workflow examples/pr-review/WORKFLOW.md
 ```
 
-For the dashboard/control plane:
+For the dashboard:
 
 ```bash
 plot tui --workflow examples/pr-review/WORKFLOW.md
 ```
 
-The workflow expects GitHub CLI authentication and a repository with open pull requests. Review progress is durable in the PR anchor comment, so the outer Plot loop can retry without local state.
+The workflow expects GitHub CLI authentication and a repository with open pull requests. Review progress is durable in the PR anchor comment, so the source can select unfinished work without local state.
 
 ## Project shape
 

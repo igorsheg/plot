@@ -1,9 +1,6 @@
-import { matchesKey, parseKey, type Component } from "./pi-tui/index.ts";
+import { matchesKey, parseKey, type Component } from "./terminal-ui.js";
 import { configViewLines } from "./config-view.js";
-import {
-	dashboardModelFrom,
-	type DashboardModel,
-} from "@plot/control/dashboard-model";
+import { dashboardModelFrom, type DashboardModel } from "./dashboard-model.js";
 import {
 	renderLines,
 	asLine,
@@ -13,10 +10,7 @@ import {
 import { debugViewLines } from "./debug-view.js";
 import { detailBodyLines, detailViewLines } from "./detail-view.js";
 import { fleetViewLines } from "./fleet-view.js";
-import type {
-	DashboardProjection,
-	DashboardStatus,
-} from "@plot/control/projection";
+import type { DashboardProjection, DashboardStatus } from "./projection.js";
 import { style } from "./style.js";
 
 export interface DashboardActions {

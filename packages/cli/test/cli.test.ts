@@ -3,7 +3,7 @@ import {
 	decodePlotServerRecord,
 	plotProtocolVersion,
 } from "@plot/session/protocol";
-import { writePlotFauxAgentFiles } from "@plot/session/testing/faux-agent-session";
+import { writePlotFauxAgentFiles } from "@plot/session/pi/testing";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -21,7 +21,7 @@ const makeWorkflowFile = async () => {
 	const path = join(dir, "WORKFLOW.md");
 	await writeFile(
 		path,
-		"---\nname: cli-test\nplot:\n  replayCapacity: 7\n---\nRun the workflow.\n",
+		"---\nname: cli-test\nplot:\n  eventBufferCapacity: 7\n---\nRun the workflow.\n",
 	);
 	return path;
 };
@@ -115,19 +115,18 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain("A control plane for long-running coding agents.");
+		expect(output).toContain("Run coding-agent workflows.");
 		expect(output).toContain("list-models");
 		expect(output).toContain("docs");
-		expect(output).toContain("dynamic");
+		expect(output).not.toContain("dynamic");
 		expect(output).toContain("run");
 		expect(output).toContain("tui");
-		expect(output).toContain("web");
-		expect(output).toContain("stop");
+		expect(output).toContain("serve");
+		expect(output).not.toContain("stop");
 		expect(output).not.toContain("service");
-		expect(output).not.toContain("_serve");
 	});
 
-	test("prints root short help without internal commands", async () => {
+	test("prints root short help", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["-h"], {
 			stdin: chunks([]),
@@ -138,7 +137,7 @@ describe("plot CLI", () => {
 
 		const output = stdout.join("");
 		expect(output).toContain("plot [OPTIONS]");
-		expect(output).not.toContain("_serve");
+		expect(output).toContain("serve");
 	});
 
 	test("runs the root TUI entrypoint when no subcommand is provided", async () => {
@@ -147,13 +146,7 @@ describe("plot CLI", () => {
 		const calls: unknown[] = [];
 
 		await runPlotCli(
-			[
-				"--workflow",
-				workflowPath,
-				"--cwd",
-				dirname(workflowPath),
-				"--no-server",
-			],
+			["--workflow", workflowPath, "--cwd", dirname(workflowPath)],
 			{
 				stdin: chunks([]),
 				writeStdout: (line) => {
@@ -170,7 +163,6 @@ describe("plot CLI", () => {
 			expect.objectContaining({
 				workflowPath,
 				cwd: dirname(workflowPath),
-				noServer: true,
 			}),
 		]);
 	});
@@ -193,8 +185,8 @@ describe("plot CLI", () => {
 		expect(calls).toEqual([]);
 	});
 
-	test("allows root options before a subcommand", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "plot-cli-global-option-"));
+	test("lets subcommands own their options", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-cli-subcommand-option-"));
 		tempDirs.push(dir);
 		await writePlotFauxAgentFiles({ cwd: dir });
 		const previousKey = process.env["PLOT_FAUX_API_KEY"];
@@ -204,12 +196,12 @@ describe("plot CLI", () => {
 		try {
 			await runPlotCli(
 				[
+					"list-models",
+					"faux",
 					"--cwd",
 					dir,
 					"--agent-dir",
 					join(dir, ".plot/agent"),
-					"list-models",
-					"faux",
 				],
 				{
 					stdin: chunks([]),
@@ -238,28 +230,10 @@ describe("plot CLI", () => {
 
 		const output = stdout.join("");
 		expect(output).toContain(
-			"Run a workflow once through the Local Plot Server without opening the dashboard.",
+			"Run a workflow once without opening the dashboard.",
 		);
 		expect(output).toContain("--workflow");
 		expect(output).toContain("--provider");
-	});
-
-	test("prints web command help", async () => {
-		const stdout: string[] = [];
-		await runPlotCli(["web", "--help"], {
-			stdin: chunks([]),
-			writeStdout: (line) => {
-				stdout.push(line);
-			},
-		});
-
-		const output = stdout.join("");
-		expect(output).toContain(
-			"Open the web dashboard against the shared Local Plot Server.",
-		);
-		expect(output).toContain("--no-open");
-		expect(output).toContain("--session-id");
-		expect(output).not.toContain("--workflow");
 	});
 
 	test("prints nested citty auth help", async () => {
@@ -278,9 +252,9 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("--tick-interval-ms");
 	});
 
-	test("prints nested citty internal serve help", async () => {
+	test("prints nested serve stdio help", async () => {
 		const stdout: string[] = [];
-		await runPlotCli(["_serve", "stdio", "--help"], {
+		await runPlotCli(["serve", "stdio", "--help"], {
 			stdin: chunks([]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -289,7 +263,7 @@ describe("plot CLI", () => {
 
 		const output = stdout.join("");
 		expect(output).toContain(
-			"Serve Plot control protocol over newline-delimited JSON on stdio.",
+			"Serve the Plot session protocol over newline-delimited JSON on stdio.",
 		);
 		expect(output).toContain("--workflow");
 		expect(output).toContain("--tick-interval-ms");
@@ -326,21 +300,12 @@ describe("plot CLI", () => {
 		expect(output).toContain("Do not import Plot internals");
 	});
 
-	test("serves explicit control protocol over stdio with telemetry on stderr", async () => {
+	test("serves session protocol over stdio with telemetry on stderr", async () => {
 		const workflowPath = await makeWorkflowFile();
 		const captured = await captureConsole(async () => {
 			const stdout: string[] = [];
 			await runPlotCli(
-				[
-					"_serve",
-					"stdio",
-					"--workflow",
-					workflowPath,
-					"--log-format",
-					"json",
-					"--log-level",
-					"info",
-				],
+				["serve", "stdio", "--workflow", workflowPath, "--log-level", "info"],
 				{
 					stdin: chunks([
 						`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,

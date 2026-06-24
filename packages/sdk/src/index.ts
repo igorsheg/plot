@@ -56,7 +56,7 @@ export interface PlotExtensionWork {
 	 */
 	readonly status?: PlotExtensionWorkStatus;
 	readonly blockedReason?: string;
-	/** Optional generic display hints. TUI/web own rendering; hints have no scheduling semantics. */
+	/** Optional generic display hints. The TUI owns rendering; hints have no scheduling semantics. */
 	readonly display?: WorkDisplay;
 	/** Source-declared choices a human controller may perform on this work item. */
 	readonly operatorActions?: readonly OperatorAction[];

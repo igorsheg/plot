@@ -49,11 +49,6 @@ export const loggingArgs = {
 		description: "Log level: debug, info, warn, error.",
 		valueHint: "level",
 	},
-	"log-format": {
-		type: "string",
-		description: "Log format: text or json.",
-		valueHint: "format",
-	},
 } satisfies ArgsDef;
 
 export const runtimeArgs = {
@@ -67,9 +62,9 @@ export const runtimeArgs = {
 		description: "Maximum retained session events.",
 		valueHint: "count",
 	},
-	"replay-capacity": {
+	"event-buffer-capacity": {
 		type: "string",
-		description: "Maximum protocol events available for replay.",
+		description: "Maximum buffered protocol event records.",
 		valueHint: "count",
 	},
 	"tick-interval-ms": {

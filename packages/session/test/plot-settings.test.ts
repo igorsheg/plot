@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlotSettings } from "../src/plot-settings.js";
+import { loadPlotSettings } from "../src/pi/settings.js";
 
 const tempDirs: string[] = [];
 
@@ -29,14 +29,12 @@ describe("Plot settings", () => {
 				defaultProvider: "global-provider",
 				defaultModel: "global-model",
 				defaultThinkingLevel: "low",
-				dynamic: { outDir: "global-workflows" },
 			}),
 		);
 		await writeFile(
 			join(cwd, ".plot", "settings.json"),
 			JSON.stringify({
 				defaultModel: "project-model",
-				dynamic: { outDir: "project-workflows" },
 			}),
 		);
 
@@ -46,7 +44,6 @@ describe("Plot settings", () => {
 			defaultProvider: "global-provider",
 			defaultModel: "project-model",
 			defaultThinkingLevel: "low",
-			dynamic: { outDir: "project-workflows" },
 		});
 	});
 });

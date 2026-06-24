@@ -1,6 +1,5 @@
-import type { SessionHistoryEvent } from "@plot/session/protocol";
-import type { PlotSessionEvent } from "@plot/session/plot-session";
-import type { PlotAuthStatusInfo, PlotModelInfo } from "@plot/session/pi-auth";
+import type { EventLogEvent } from "@plot/session/protocol";
+import type { PlotAuthStatusInfo, PlotModelInfo } from "@plot/session/pi/auth";
 
 const formatTokenCount = (count: number): string =>
 	count >= 1_000_000
@@ -101,32 +100,7 @@ const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
 	return fallback.length ? fallback : undefined;
 };
 
-export const renderRunEvent = (event: PlotSessionEvent): string | undefined => {
-	if (event.type === "session_started")
-		return `Started session ${event.sessionId}.\n`;
-	if (event.type === "session_shutdown")
-		return `Shutdown session ${event.sessionId}.\n`;
-	if (event.type === "agent_session_event") {
-		if (event.eventType === "agent_start") return "Inner agent started.\n";
-		if (event.eventType === "agent_end") {
-			const text = finalAssistantTextFromAgentEnd(event.event);
-			return text === undefined
-				? "Inner agent finished.\n"
-				: `\nFinal assistant message:\n${text}\n\nInner agent finished.\n`;
-		}
-	}
-	if (event.type === "plot_agent_event") {
-		if (event.event.type === "attempt_started")
-			return `Started work ${event.event.run.workKey}.\n`;
-		if (event.event.type === "attempt_completed")
-			return `Completed work ${event.event.completion.workKey}: ${event.event.completion.status}.\n`;
-	}
-	return undefined;
-};
-
-export const renderRunHistoryEvent = (
-	event: SessionHistoryEvent,
-): string | undefined => {
+export const renderRunEvent = (event: EventLogEvent): string | undefined => {
 	if (event.type === "session_started")
 		return `Started session ${event.sessionId}.\n`;
 	if (event.type === "session_shutdown")

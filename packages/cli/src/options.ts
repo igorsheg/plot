@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { makePlotAuth } from "@plot/session/pi-auth";
+import { makePlotAuth } from "@plot/session/pi/auth";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
-import type { PlotAgentSessionCliOverrides } from "@plot/session/pi-agent-session";
+import type { PlotAgentSessionCliOverrides } from "@plot/session/pi/agent-session";
 import type { ParsedArgs } from "citty";
-import type { LogFormat, LogLevelFlag } from "./runtime.js";
+import type { LogLevelFlag } from "./runtime.js";
 
 export const str = (
 	args: Record<string, unknown>,
@@ -132,16 +132,15 @@ export const baseOptions = (args: ParsedArgs) => {
 			? {}
 			: { sessionDir: str(args, "session-dir")! }),
 		logLevel: (str(args, "log-level") ?? "warn") as LogLevelFlag,
-		logFormat: (str(args, "log-format") ?? "json") as LogFormat,
 		...(int(args, "request-queue-capacity") === undefined
 			? {}
 			: { requestQueueCapacity: int(args, "request-queue-capacity")! }),
 		...(int(args, "event-capacity") === undefined
 			? {}
 			: { eventCapacity: int(args, "event-capacity")! }),
-		...(int(args, "replay-capacity") === undefined
+		...(int(args, "event-buffer-capacity") === undefined
 			? {}
-			: { replayCapacity: int(args, "replay-capacity")! }),
+			: { eventBufferCapacity: int(args, "event-buffer-capacity")! }),
 		...(int(args, "tick-interval-ms") === undefined
 			? {}
 			: { tickIntervalMs: int(args, "tick-interval-ms")! }),

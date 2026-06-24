@@ -1,13 +1,15 @@
-import { Result, TaggedError } from "better-result";
 import { Eta } from "eta";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
+import { errorMessage } from "./util.js";
 
-export class PlotPromptTemplateError extends TaggedError(
-	"PlotPromptTemplateError",
-)<{
-	readonly phase?: "render";
-	readonly message: string;
-}>() {}
+export class PlotPromptTemplateError extends Error {
+	override readonly name = "PlotPromptTemplateError";
+	readonly phase?: "render" | undefined;
+	constructor(input: { readonly phase?: "render"; readonly message: string }) {
+		super(input.message);
+		this.phase = input.phase;
+	}
+}
 const eta = new Eta({
 	tags: ["{{", "}}"],
 	parse: { exec: "#", interpolate: "", raw: "~" },
@@ -15,8 +17,6 @@ const eta = new Eta({
 	autoEscape: false,
 	debug: true,
 });
-const errorMessage = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
 const isTemplateData = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 export const makePromptTemplateData = (
@@ -27,25 +27,18 @@ export const makePromptTemplateData = (
 	if (isTemplateData(templateContext)) return templateContext;
 	return { value: templateContext };
 };
-export const renderPromptTemplateResult = (
-	template: string,
-	data: Record<string, unknown>,
-): Result<string, PlotPromptTemplateError> =>
-	Result.try({
-		try: () => eta.renderString(template, data),
-		catch: (error) =>
-			new PlotPromptTemplateError({
-				phase: "render",
-				message: errorMessage(error),
-			}),
-	});
 export const renderPromptTemplate = async (
 	template: string,
 	data: Record<string, unknown>,
 ): Promise<string> => {
-	const result = renderPromptTemplateResult(template, data);
-	if (Result.isError(result)) throw result.error;
-	return result.value;
+	try {
+		return eta.renderString(template, data);
+	} catch (error) {
+		throw new PlotPromptTemplateError({
+			phase: "render",
+			message: errorMessage(error),
+		});
+	}
 };
 export const renderPromptTemplateForRunnerContext = (
 	template: string,

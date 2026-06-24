@@ -3,49 +3,32 @@ import { defineCommand } from "citty";
 import { sessionCommandArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
-import { baseOptions, bool, str } from "../options.js";
-import { renderRunEvent, renderRunHistoryEvent } from "../render.js";
-import { runControlOneshot, runInProcessOnce } from "../runtime.js";
+import { baseOptions, str } from "../options.js";
+import { renderRunEvent } from "../render.js";
+import { runInProcessOnce } from "../runtime.js";
+import { cliSemantics } from "../semantics.js";
 
 export const runCommand = defineCommand({
 	meta: {
 		name: "run",
-		description:
-			"Run a workflow once through the Local Plot Server without opening the dashboard.",
+		description: cliSemantics.run.description,
 	},
-	args: {
-		...sessionCommandArgs,
-		"no-server": {
-			type: "boolean",
-			description:
-				"Explicit escape hatch: run an in-process session instead of the Local Plot Server.",
-		},
-	},
+	args: sessionCommandArgs,
 	async run({ args, rawArgs }) {
 		const io = getCliIo();
-		const noServer = bool(args, "no-server") || rawArgs.includes("--no-server");
+		void rawArgs;
 		const base = {
 			...baseOptions(args),
 			sessionId: str(args, "session-id") ?? `oneshot-${randomUUID()}`,
 		};
 		try {
-			if (noServer) {
-				await runInProcessOnce({
-					...base,
-					...(io.createAgentSession === undefined
-						? {}
-						: { createAgentSession: io.createAgentSession }),
-					onEvent: async (event) => {
-						const line = renderRunEvent(event);
-						if (line) await io.writeStdout(line);
-					},
-				});
-				return;
-			}
-			await runControlOneshot({
+			await runInProcessOnce({
 				...base,
+				...(io.createAgentSession === undefined
+					? {}
+					: { createAgentSession: io.createAgentSession }),
 				onEvent: async (event) => {
-					const line = renderRunHistoryEvent(event);
+					const line = renderRunEvent(event);
 					if (line) await io.writeStdout(line);
 				},
 			});

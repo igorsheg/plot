@@ -1,8 +1,4 @@
-import {
-	truncateToWidth,
-	visibleWidth,
-	type Component,
-} from "./pi-tui/index.ts";
+import { truncateToWidth, visibleWidth } from "./text-width.js";
 import { style } from "./style.js";
 
 export type TextStyle = (value: string) => string;
@@ -18,7 +14,7 @@ export const asLine = (text: string, selected = false): DashboardLine => ({
 });
 
 export const fit = (value: string, width: number) =>
-	truncateToWidth(value, Math.max(1, width), "…", true);
+	truncateToWidth(value, Math.max(1, width), "…");
 
 export const cell = (
 	value: string,
@@ -71,5 +67,3 @@ export const renderLines = (
 
 export const maxScroll = (items: readonly unknown[], viewportRows: number) =>
 	Math.max(0, items.length - Math.max(1, viewportRows));
-
-export type PlotView = Component;

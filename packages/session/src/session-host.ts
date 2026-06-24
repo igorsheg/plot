@@ -5,40 +5,35 @@ import {
 	subjectKey,
 	workKey,
 	type Completion,
-	type TickResult,
 } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { makeAgentSessionClientLayer } from "./agent-session-client.js";
+import { makePiWorkRunner } from "./pi/runner.js";
 import { makePlotExtensionSourceBundleFromWorkflow } from "./extension-source.js";
-import type { CreateAgentSession } from "./agent-session-types.js";
+import type { CreateAgentSession } from "./pi/agent-session.js";
 import {
 	makePlotCreateAgentSession,
 	type PlotAgentSessionCliOverrides,
-} from "./pi-agent-session.js";
-import { makePlotAuth } from "./pi-auth.js";
+} from "./pi/agent-session.js";
 import { resolvePlotPaths, type PlotPaths } from "./plot-paths.js";
 import {
 	makePlotSessionLayer,
 	plotSessionId,
-	type PlotSessionEvent,
 	type PlotSessionShape,
-} from "./plot-session.js";
-import {
-	createSessionHistoryStore,
-	type SessionHistoryStore,
-} from "./session-history.js";
-import { makePlotProtocolLayer } from "./protocol-handler.js";
+} from "./session.js";
+import { createEventLogStore, type EventLogStore } from "./event-log.js";
+import { makePlotProtocolLayer } from "./protocol-session.js";
 import {
 	defaultPlotProtocolLimits,
 	type PlotProtocolLimits,
-} from "./protocol.js";
+	type EventLogEvent,
+} from "@plot/session/protocol";
 import { runPlotProtocolStdio, type StdioChunk } from "./protocol-stdio.js";
 import {
 	loadDiscoveredWorkflowFromNode,
 	type WorkflowDefinition,
 } from "./workflow.js";
-import { makeWorkspaceManager, workspaceBaseDir } from "./workspace.js";
+import { isRecord } from "./util.js";
 
 export interface PlotSessionHostOptions {
 	readonly workflowPath?: string;
@@ -49,12 +44,10 @@ export interface PlotSessionHostOptions {
 	readonly sessionDir?: string;
 	readonly requestQueueCapacity?: number;
 	readonly eventCapacity?: number;
-	readonly replayCapacity?: number;
+	readonly eventBufferCapacity?: number;
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
 	readonly stallTimeoutMs?: number;
-	readonly retryInitialDelayMs?: number;
-	readonly retryMaxDelayMs?: number;
 	readonly agentSessionOverrides?: PlotAgentSessionCliOverrides;
 	readonly createAgentSession?: CreateAgentSession;
 }
@@ -63,10 +56,10 @@ export interface PlotSessionHostStdioOptions extends PlotSessionHostOptions {
 	readonly writeStdout: (line: string) => Promise<void> | void;
 }
 export interface PlotSessionHostRunOptions extends PlotSessionHostOptions {
-	readonly onEvent?: (event: PlotSessionEvent) => Promise<void> | void;
+	readonly onEvent?: (event: EventLogEvent) => Promise<void> | void;
 }
 export interface PlotSessionHostDaemonOptions extends PlotSessionHostOptions {
-	readonly onEvent?: (event: PlotSessionEvent) => Promise<void> | void;
+	readonly onEvent?: (event: EventLogEvent) => Promise<void> | void;
 }
 export interface PlotSessionHostRunResult {
 	readonly workflow: WorkflowDefinition;
@@ -77,8 +70,8 @@ export interface PlotSessionHost {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: PlotPaths;
 	readonly requestQueueCapacity: number;
-	readonly replayCapacity: number;
-	readonly sessionHistory: SessionHistoryStore;
+	readonly eventBufferCapacity: number;
+	readonly eventLog: EventLogStore;
 	readonly session: PlotSessionShape;
 	readonly shutdown: () => Promise<void>;
 }
@@ -121,11 +114,11 @@ export const makeOneShotWorkflowSource = (
 });
 export const makePlotProtocolLimits = (values: {
 	readonly requestQueueCapacity: number;
-	readonly replayCapacity: number;
+	readonly eventBufferCapacity: number;
 }): PlotProtocolLimits => ({
 	...defaultPlotProtocolLimits,
 	maxPendingRequests: positiveInt(values.requestQueueCapacity),
-	maxEventBufferEvents: positiveInt(values.replayCapacity),
+	maxEventBufferEvents: positiveInt(values.eventBufferCapacity),
 });
 export const createPlotSessionHost = async (
 	options: PlotSessionHostOptions,
@@ -148,21 +141,17 @@ export const createPlotSessionHost = async (
 	const requestQueueCapacity =
 		options.requestQueueCapacity ?? plot?.queueCapacity ?? 64;
 	const eventCapacity = options.eventCapacity ?? plot?.eventCapacity ?? 256;
-	const replayCapacity = options.replayCapacity ?? plot?.replayCapacity ?? 1024;
+	const eventBufferCapacity =
+		options.eventBufferCapacity ?? plot?.eventBufferCapacity ?? 1024;
 	const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
 	const maxRunDurationMs = options.maxRunDurationMs ?? plot?.maxRunDurationMs;
 	const stallTimeoutMs = options.stallTimeoutMs ?? plot?.stallTimeoutMs;
-	const retryInitialDelayMs =
-		options.retryInitialDelayMs ?? plot?.retryInitialDelayMs;
-	const retryMaxDelayMs = options.retryMaxDelayMs ?? plot?.retryMaxDelayMs;
 	const agentOptions = {
 		queueCapacity: requestQueueCapacity,
 		eventCapacity,
 		...(tickIntervalMs === undefined ? {} : { tickIntervalMs }),
 		...(maxRunDurationMs === undefined ? {} : { maxRunDurationMs }),
 		...(stallTimeoutMs === undefined ? {} : { stallTimeoutMs }),
-		...(retryInitialDelayMs === undefined ? {} : { retryInitialDelayMs }),
-		...(retryMaxDelayMs === undefined ? {} : { retryMaxDelayMs }),
 	};
 	const createAgentSession =
 		options.createAgentSession ??
@@ -173,115 +162,76 @@ export const createPlotSessionHost = async (
 				? {}
 				: { overrides: options.agentSessionOverrides }),
 		});
-	const client = makeAgentSessionClientLayer({ createAgentSession });
-	const sessionHistory = await createSessionHistoryStore({
+	const eventLog = await createEventLogStore({
 		sessionDir: paths.sessionDir,
 		sessionId: options.sessionId,
 	});
-	// Workspace manager (opt-in via plot.workspace): the runtime guarantees a
-	// safe, durable per-work directory and runs the agent session inside it;
-	// populating the directory stays with the agent/workflow.
-	const workspaceConfig = plot?.workspace;
-	const workspaces =
-		workspaceConfig === undefined
-			? undefined
-			: makeWorkspaceManager({
-					root: workspaceConfig.root,
-					baseDir: workspaceBaseDir(workflow.path, options.cwd),
-					namespace: workflow.runtime.name ?? "workflow",
-					...(workspaceConfig.cleanup === undefined
-						? {}
-						: { cleanup: workspaceConfig.cleanup }),
-				});
-	const workspaceKeyFor = (context: WorkRunnerContext) =>
-		extensionBundle?.workFor(context)?.id ??
-		String(context.run.subject ?? context.work.workKey);
 	const extensionBundle = workflow.runtime.extension
-		? await makePlotExtensionSourceBundleFromWorkflow({
-				workflow,
-				paths,
-				...(workspaces === undefined || workspaces.cleanup !== "on_released"
-					? {}
-					: {
-							onWorkReleased: async (workId: string) => {
-								await workspaces.remove(workId);
-							},
-						}),
-			})
+		? await makePlotExtensionSourceBundleFromWorkflow({ workflow, paths })
 		: undefined;
 	const sources = extensionBundle
 		? [extensionBundle.source]
 		: [makeOneShotWorkflowSource(workflow)];
 	const agentRunnerCreate = async (context: WorkRunnerContext) => {
 		const extensionCreate = await extensionBundle?.createOptions(context);
-		const workspace =
-			workspaces === undefined
-				? undefined
-				: await workspaces.ensure(workspaceKeyFor(context));
 		return {
-			cwd: workspace?.path ?? paths.cwd,
+			cwd: paths.cwd,
 			...(extensionCreate === undefined ||
 			extensionCreate.customTools.length === 0
 				? {}
 				: { customTools: extensionCreate.customTools }),
 		};
 	};
-	const workspaceTemplateData =
-		workspaces === undefined
-			? undefined
-			: async (context: WorkRunnerContext) => ({
-					workspace: await workspaces.ensure(workspaceKeyFor(context)),
-				});
 	const session = makePlotSessionLayer({
 		id: plotSessionId(options.sessionId),
 		workflow,
 		sources,
 		eventCapacity,
-		sessionHistory,
+		eventLog,
 		agent: agentOptions,
-		agentRunner: {
-			prompt: workflow.prompt,
-			create: agentRunnerCreate,
-			maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
-			...(workspaceTemplateData === undefined
-				? {}
-				: { templateData: workspaceTemplateData }),
-			...(extensionBundle === undefined
-				? {}
-				: { wrapRunner: extensionBundle.wrapRunner }),
+		runner: (emitAgentEvent) => {
+			const runner = makePiWorkRunner({
+				createAgentSession,
+				prompt: workflow.prompt,
+				create: agentRunnerCreate,
+				maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
+				onEvent: ({ context, event }) => emitAgentEvent(context, event),
+			});
+			return extensionBundle?.wrapRunner(runner) ?? runner;
 		},
-		client,
 	});
 	return {
 		workflow,
 		paths,
 		requestQueueCapacity,
-		replayCapacity,
-		sessionHistory,
+		eventBufferCapacity,
+		eventLog,
 		session,
 		shutdown: extensionBundle?.shutdown ?? (async () => {}),
 	};
 };
-const completionFromEvent = (event: PlotSessionEvent): Completion | undefined =>
-	event.type === "plot_agent_event" && event.event.type === "attempt_completed"
-		? event.event.completion
+const completionFromEvent = (event: EventLogEvent): Completion | undefined =>
+	(!("kind" in event) || event.kind !== "agent_session_event") &&
+	event.type === "attempt_completed" &&
+	isRecord(event.payload) &&
+	isRecord(event.payload["completion"])
+		? (event.payload["completion"] as unknown as Completion)
 		: undefined;
-const quiescentTickFromEvent = (
-	event: PlotSessionEvent,
-): TickResult | undefined => {
+const quiescentTickFromEvent = (event: EventLogEvent): boolean => {
 	if (
-		event.type !== "plot_agent_event" ||
-		event.event.type !== "tick_completed"
+		("kind" in event && event.kind === "agent_session_event") ||
+		event.type !== "tick_completed" ||
+		!isRecord(event.payload)
 	)
-		return undefined;
-	const result = event.event.result;
-	if (
-		result.snapshot.running.size > 0 ||
-		result.started.length > 0 ||
-		result.selected.length > 0
-	)
-		return undefined;
-	return result;
+		return false;
+	const result = event.payload["result"];
+	if (!isRecord(result) || typeof result["runningCount"] !== "number")
+		return false;
+	return (
+		result["runningCount"] === 0 &&
+		result["startedCount"] === 0 &&
+		result["selectedCount"] === 0
+	);
 };
 export const createPlotProtocolSessionHost = async (
 	options: PlotSessionHostOptions,
@@ -289,7 +239,7 @@ export const createPlotProtocolSessionHost = async (
 	const host = await createPlotSessionHost(options);
 	const limits = makePlotProtocolLimits({
 		requestQueueCapacity: host.requestQueueCapacity,
-		replayCapacity: host.replayCapacity,
+		eventBufferCapacity: host.eventBufferCapacity,
 	});
 	return {
 		...host,
@@ -297,9 +247,7 @@ export const createPlotProtocolSessionHost = async (
 		protocol: makePlotProtocolLayer({
 			limits,
 			outputCapacity: host.requestQueueCapacity,
-			auth: makePlotAuth(host.paths),
 			session: host.session,
-			sessionHistory: host.sessionHistory,
 		}),
 	};
 };

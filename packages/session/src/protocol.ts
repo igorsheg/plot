@@ -1,287 +1,309 @@
-import { positiveInt, type PositiveInt } from "@plot/agent/model";
-import {
-	plotControlProtocolVersion,
-	type PlotControlProtocolVersion,
-} from "@plot/control";
-import {
-	safeParsePlotClientRecord,
-	safeParsePlotServerRecord,
-	type AuthLoginParams,
-	type AuthProviderParams,
-	type AuthStatusParams,
-	type AttachSessionParams,
-	type CloseSessionParams,
-	type ControlConnectionRole,
-	type DetachSessionParams,
-	type GetSnapshotParams,
-	type InterruptAgentRunParams,
-	type OpenSessionLifetime,
-	type OpenSessionMode,
-	type OpenSessionParams,
-	type PauseSessionParams,
-	type PerformOperatorActionParams,
-	type PlotClientRecord,
-	type PlotCommand,
-	type PlotErrorPayload as PlotErrorPayloadType,
-	type PlotProtocolErrorCode,
-	type PlotProtocolEpoch,
-	type PlotProtocolLimits,
-	type PlotProtocolRequestId,
-	type PlotProtocolSequence,
-	type PlotRosterEventRecord as PlotRosterEventRecordType,
-	type PlotServerRecord,
-	type PlotSessionEventRecord as PlotSessionEventRecordType,
-	type PlotSuccessResponseRecord as PlotSuccessResponseRecordType,
-	type PlotWelcomeRecord as PlotWelcomeRecordType,
-	type RequestTickParams,
-	type ResumeSessionParams,
-	plotProtocolEpoch as parsePlotProtocolEpoch,
-	plotProtocolRequestId as parsePlotProtocolRequestId,
-	plotProtocolSequence as parsePlotProtocolSequence,
-} from "@plot/control/protocol";
-import type { SessionHistoryEvent } from "@plot/control/session-history";
-import type { PlotSessionSummary } from "@plot/control/session-summary";
-import { Result, TaggedError } from "better-result";
+import { z } from "zod";
 
-export type { AuthLoginParams, AuthProviderParams, AuthStatusParams };
-export type { AttachSessionParams, CloseSessionParams, ControlConnectionRole };
-export type { DetachSessionParams, GetSnapshotParams };
-export type {
-	InterruptAgentRunParams,
-	OpenSessionLifetime,
-	OpenSessionMode,
-	OpenSessionParams,
-};
-export type { PauseSessionParams, PerformOperatorActionParams };
-export type { PlotClientRecord, PlotCommand };
-export type { PlotProtocolErrorCode, PlotProtocolEpoch, PlotProtocolLimits };
-export type { PlotProtocolRequestId, PlotProtocolSequence };
-export type {
-	PlotRosterEventRecordType,
-	PlotServerRecord,
-	PlotSessionEventRecordType,
-};
-export type { PlotSuccessResponseRecordType, PlotWelcomeRecordType };
-export type { RequestTickParams, ResumeSessionParams };
-export type { SessionHistoryEvent };
+export const plotProtocolPackageName = "@plot/session/protocol";
+export const plotProtocolVersion = "plot.control.v1";
+export const plotProtocolVersionSchema = z.literal(plotProtocolVersion);
+export type PlotProtocolVersion = z.infer<typeof plotProtocolVersionSchema>;
 
-export type PlotProtocolVersion = PlotControlProtocolVersion;
-export const plotProtocolVersion: PlotProtocolVersion =
-	plotControlProtocolVersion;
-export const plotProtocolRequestId = parsePlotProtocolRequestId;
-export const plotProtocolEpoch = parsePlotProtocolEpoch;
-export const plotProtocolSequence = parsePlotProtocolSequence;
+export const nonEmptyStringSchema = z.string().min(1);
+export const nonNegativeIntegerSchema = z.number().int().nonnegative();
+export const positiveIntegerSchema = z.number().int().positive();
+const boundedIdentifierSchema = nonEmptyStringSchema.max(128);
 
-export class PlotProtocolFailure extends TaggedError("PlotProtocolFailure")<{
-	readonly code: PlotProtocolErrorCode;
-	readonly message: string;
-	readonly details?: unknown;
-}>() {}
+export const plotProtocolRequestIdSchema = boundedIdentifierSchema;
+export type PlotProtocolRequestId = z.infer<typeof plotProtocolRequestIdSchema>;
+export const plotProtocolRequestId = (value: string): PlotProtocolRequestId =>
+	plotProtocolRequestIdSchema.parse(value);
 
+export const plotProtocolSequenceSchema = nonNegativeIntegerSchema;
+export type PlotProtocolSequence = z.infer<typeof plotProtocolSequenceSchema>;
+export const plotProtocolSequence = (value: number): PlotProtocolSequence =>
+	plotProtocolSequenceSchema.parse(value);
+
+export const plotCommandSchema = z.enum([
+	"ping",
+	"get_snapshot",
+	"request_tick",
+]);
+export type PlotCommand = z.infer<typeof plotCommandSchema>;
+
+export const plotProtocolErrorCodeSchema = z.enum([
+	"parse_error",
+	"invalid_request",
+	"unknown_command",
+	"payload_too_large",
+	"request_queue_full",
+	"session_closed",
+	"internal_error",
+]);
+export type PlotProtocolErrorCode = z.infer<typeof plotProtocolErrorCodeSchema>;
+
+export const plotProtocolLimitsSchema = z
+	.object({
+		maxInputLineBytes: positiveIntegerSchema,
+		maxOutputRecordBytes: positiveIntegerSchema,
+		maxPendingRequests: positiveIntegerSchema,
+		maxEventBufferEvents: positiveIntegerSchema,
+		maxEventBufferBytes: positiveIntegerSchema,
+		maxObservationPayloadBytes: positiveIntegerSchema,
+		maxRequestIdBytes: positiveIntegerSchema,
+		maxReconnectAgeMs: positiveIntegerSchema,
+	})
+	.strict();
+export type PlotProtocolLimits = z.infer<typeof plotProtocolLimitsSchema>;
 export const defaultPlotProtocolLimits: PlotProtocolLimits = {
-	maxInputLineBytes: positiveInt(1024 * 1024) as PositiveInt,
-	maxOutputRecordBytes: positiveInt(2 * 1024 * 1024) as PositiveInt,
-	maxPendingRequests: positiveInt(64) as PositiveInt,
-	maxEventBufferEvents: positiveInt(1024) as PositiveInt,
-	maxEventBufferBytes: positiveInt(16 * 1024 * 1024) as PositiveInt,
-	maxObservationPayloadBytes: positiveInt(512 * 1024) as PositiveInt,
-	maxRequestIdBytes: positiveInt(128) as PositiveInt,
-	maxReconnectAgeMs: positiveInt(5 * 60 * 1000) as PositiveInt,
+	maxInputLineBytes: 1024 * 1024,
+	maxOutputRecordBytes: 2 * 1024 * 1024,
+	maxPendingRequests: 64,
+	maxEventBufferEvents: 1024,
+	maxEventBufferBytes: 16 * 1024 * 1024,
+	maxObservationPayloadBytes: 512 * 1024,
+	maxRequestIdBytes: 128,
+	maxReconnectAgeMs: 5 * 60 * 1000,
 };
 
-type ProtocolParseIssue = {
+export const eventLogSequenceSchema = positiveIntegerSchema;
+export type EventLogSequence = z.infer<typeof eventLogSequenceSchema>;
+
+export const plotEventSchema = z.union([
+	z
+		.object({
+			sessionId: nonEmptyStringSchema,
+			epoch: nonEmptyStringSchema.optional(),
+			sequence: eventLogSequenceSchema,
+			timestamp: nonEmptyStringSchema,
+			type: nonEmptyStringSchema,
+			payload: z.unknown(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("agent_session_event"),
+			sessionId: nonEmptyStringSchema,
+			sequence: eventLogSequenceSchema,
+			timestamp: nonEmptyStringSchema,
+			epoch: nonEmptyStringSchema.optional(),
+			type: nonEmptyStringSchema,
+			payload: z.unknown().optional(),
+			sourceId: nonEmptyStringSchema.optional(),
+			runId: nonEmptyStringSchema.optional(),
+			workKey: nonEmptyStringSchema.optional(),
+			event: z.unknown(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("plot_event"),
+			sessionId: nonEmptyStringSchema,
+			sequence: eventLogSequenceSchema,
+			timestamp: nonEmptyStringSchema,
+			epoch: nonEmptyStringSchema.optional(),
+			type: nonEmptyStringSchema,
+			payload: z.unknown(),
+		})
+		.strict(),
+]);
+export type PlotEvent = z.infer<typeof plotEventSchema>;
+export type EventLogEvent = PlotEvent;
+
+export const eventLogEventSchema = plotEventSchema;
+export const safeParseEventLogEvent = (value: unknown) =>
+	eventLogEventSchema.safeParse(value);
+
+export const getSnapshotParamsSchema = z.object({}).strict();
+export type GetSnapshotParams = z.infer<typeof getSnapshotParamsSchema>;
+export const requestTickParamsSchema = z.object({}).strict();
+export type RequestTickParams = z.infer<typeof requestTickParamsSchema>;
+
+export const plotClientRequestRecordSchema = z
+	.object({
+		protocol: plotProtocolVersionSchema,
+		kind: z.literal("request"),
+		id: plotProtocolRequestIdSchema,
+		command: plotCommandSchema,
+		params: z.unknown().optional(),
+	})
+	.strict();
+export type PlotClientRequestRecord = z.infer<
+	typeof plotClientRequestRecordSchema
+>;
+export const plotClientRecordSchema = plotClientRequestRecordSchema;
+export type PlotClientRecord = PlotClientRequestRecord;
+
+export const plotWelcomeRecordSchema = z
+	.object({
+		protocol: plotProtocolVersionSchema,
+		kind: z.literal("welcome"),
+		sessionId: nonEmptyStringSchema,
+		limits: plotProtocolLimitsSchema,
+	})
+	.strict();
+export type PlotWelcomeRecord = z.infer<typeof plotWelcomeRecordSchema>;
+
+export const plotEventRecordSchema = z
+	.object({
+		protocol: plotProtocolVersionSchema,
+		kind: z.enum(["event", "session_event"]),
+		sessionId: nonEmptyStringSchema.optional(),
+		epoch: nonEmptyStringSchema.optional(),
+		sequence: eventLogSequenceSchema.optional(),
+		event: plotEventSchema,
+	})
+	.strict();
+export type PlotEventRecord = z.infer<typeof plotEventRecordSchema>;
+
+export const plotSuccessResponseRecordSchema = z
+	.object({
+		protocol: plotProtocolVersionSchema,
+		kind: z.literal("response"),
+		id: plotProtocolRequestIdSchema,
+		command: plotCommandSchema,
+		ok: z.literal(true),
+		lastSequence: plotProtocolSequenceSchema.optional(),
+		data: z.unknown().optional(),
+	})
+	.strict();
+export type PlotSuccessResponseRecord = z.infer<
+	typeof plotSuccessResponseRecordSchema
+>;
+
+export const plotErrorPayloadSchema = z
+	.object({
+		code: plotProtocolErrorCodeSchema,
+		message: z.string(),
+		details: z.unknown().optional(),
+	})
+	.strict();
+export type PlotErrorPayload = z.infer<typeof plotErrorPayloadSchema>;
+export const plotErrorResponseRecordSchema = z
+	.object({
+		protocol: plotProtocolVersionSchema,
+		kind: z.literal("response"),
+		id: plotProtocolRequestIdSchema.optional(),
+		command: z.string().optional(),
+		ok: z.literal(false),
+		lastSequence: plotProtocolSequenceSchema.optional(),
+		error: plotErrorPayloadSchema,
+	})
+	.strict();
+export type PlotErrorResponseRecord = z.infer<
+	typeof plotErrorResponseRecordSchema
+>;
+
+export const plotServerRecordSchema = z.union([
+	plotWelcomeRecordSchema,
+	plotEventRecordSchema,
+	plotSuccessResponseRecordSchema,
+	plotErrorResponseRecordSchema,
+]);
+export type PlotServerRecord = z.infer<typeof plotServerRecordSchema>;
+
+export interface ProtocolParseIssue {
 	readonly path: readonly PropertyKey[];
 	readonly message: string;
-};
-
+}
 export const formatProtocolParseIssues = (
 	issues: readonly ProtocolParseIssue[],
 ): string =>
 	issues
-		.map((issue) => {
-			const path =
-				issue.path.length === 0
-					? "record"
-					: issue.path.map((part) => String(part)).join(".");
-			return `${path}: ${issue.message}`;
-		})
+		.map(
+			(issue) =>
+				`${issue.path.length === 0 ? "record" : issue.path.map(String).join(".")}: ${issue.message}`,
+		)
 		.join("; ");
 
-export class PlotWelcomeRecord {
-	readonly protocol = plotControlProtocolVersion;
-	readonly kind = "welcome";
-	readonly connectionId!: string;
-	readonly capabilities!: string[];
-	readonly limits!: PlotProtocolLimits;
-	readonly identity?: unknown;
-	constructor(input: Omit<PlotWelcomeRecord, "protocol" | "kind">) {
-		Object.assign(this, input);
-	}
-}
-
-export class PlotSessionEventRecord {
-	readonly protocol = plotControlProtocolVersion;
-	readonly kind = "session_event";
-	readonly sessionId!: string;
-	readonly epoch!: PlotProtocolEpoch;
-	readonly sequence!: number;
-	readonly event!: SessionHistoryEvent;
-	constructor(input: Omit<PlotSessionEventRecord, "protocol" | "kind">) {
-		Object.assign(this, input);
-	}
-}
-
-export class PlotRosterEventRecord {
-	readonly protocol = plotControlProtocolVersion;
-	readonly kind = "roster_event";
-	readonly event!: "session_opened" | "session_changed" | "session_closed";
-	readonly session!: PlotSessionSummary;
-	constructor(input: Omit<PlotRosterEventRecord, "protocol" | "kind">) {
-		Object.assign(this, input);
-	}
-}
-
-export class PlotSuccessResponseRecord {
-	readonly protocol = plotControlProtocolVersion;
-	readonly kind = "response";
-	readonly id!: PlotProtocolRequestId;
-	readonly command!: PlotCommand;
-	readonly ok = true;
-	readonly asOfSequence?: PlotProtocolSequence;
-	readonly lastSequence?: PlotProtocolSequence;
-	readonly data?: unknown;
-	constructor(
-		input: Omit<PlotSuccessResponseRecord, "protocol" | "kind" | "ok">,
-	) {
-		Object.assign(this, input);
-	}
-}
-
-export class PlotErrorPayload {
-	readonly code!: PlotProtocolErrorCode;
-	readonly message!: string;
+export class PlotProtocolFailure extends Error {
+	readonly code: PlotProtocolErrorCode;
 	readonly details?: unknown;
-	constructor(input: PlotErrorPayloadType) {
-		Object.assign(this, input);
+	constructor(input: {
+		readonly code: PlotProtocolErrorCode;
+		readonly message: string;
+		readonly details?: unknown;
+	}) {
+		super(input.message);
+		this.name = "PlotProtocolFailure";
+		this.code = input.code;
+		if (input.details !== undefined) this.details = input.details;
 	}
 }
-
-export class PlotErrorResponseRecord {
-	readonly protocol = plotControlProtocolVersion;
-	readonly kind = "response";
-	readonly id?: PlotProtocolRequestId;
-	readonly command?: string;
-	readonly ok = false;
-	readonly asOfSequence?: PlotProtocolSequence;
-	readonly lastSequence?: PlotProtocolSequence;
-	readonly error!: PlotErrorPayloadType;
-	constructor(
-		input: Omit<PlotErrorResponseRecord, "protocol" | "kind" | "ok">,
-	) {
-		Object.assign(this, input);
-	}
-}
-
-export const decodePlotClientRecordResult = (
-	value: unknown,
-): Result<PlotClientRecord, PlotProtocolFailure> =>
-	Result.try({
-		try: () => {
-			const parsed = safeParsePlotClientRecord(value);
-			if (!parsed.success)
-				throw new Error(formatProtocolParseIssues(parsed.error.issues));
-			return parsed.data as PlotClientRecord;
-		},
-		catch: (error) =>
-			new PlotProtocolFailure({
-				code: "invalid_request",
-				message: error instanceof Error ? error.message : String(error),
-			}),
+const invalidRecord = (issues: readonly ProtocolParseIssue[]) =>
+	new PlotProtocolFailure({
+		code: "invalid_request",
+		message: formatProtocolParseIssues(issues),
 	});
 
-export const decodePlotClientRecord = async (
-	value: unknown,
-): Promise<PlotClientRecord> => {
-	const result = decodePlotClientRecordResult(value);
-	if (Result.isError(result)) throw result.error;
-	return result.value;
+export const safeParsePlotClientRecord = (value: unknown) =>
+	plotClientRecordSchema.safeParse(value);
+export const safeParsePlotServerRecord = (value: unknown) =>
+	plotServerRecordSchema.safeParse(value);
+export const decodePlotClientRecord = (value: unknown): PlotClientRecord => {
+	const parsed = safeParsePlotClientRecord(value);
+	if (!parsed.success) throw invalidRecord(parsed.error.issues);
+	return parsed.data;
+};
+export const decodePlotServerRecord = (value: unknown): PlotServerRecord => {
+	const parsed = safeParsePlotServerRecord(value);
+	if (!parsed.success) throw invalidRecord(parsed.error.issues);
+	return parsed.data;
 };
 
-export const decodePlotServerRecordResult = (
-	value: unknown,
-): Result<PlotServerRecord, PlotProtocolFailure> =>
-	Result.try({
-		try: () => {
-			const parsed = safeParsePlotServerRecord(value);
-			if (!parsed.success)
-				throw new Error(formatProtocolParseIssues(parsed.error.issues));
-			return parsed.data as PlotServerRecord;
-		},
-		catch: (error) =>
-			new PlotProtocolFailure({
-				code: "invalid_request",
-				message: error instanceof Error ? error.message : String(error),
-			}),
-	});
-
-export const decodePlotServerRecord = async (
-	value: unknown,
-): Promise<PlotServerRecord> => {
-	const result = decodePlotServerRecordResult(value);
-	if (Result.isError(result)) throw result.error;
-	return result.value;
-};
-
-export const makePlotSessionEventRecord = (
-	event: SessionHistoryEvent,
-): PlotSessionEventRecord =>
-	new PlotSessionEventRecord({
-		sessionId: event.sessionId,
-		epoch: plotProtocolEpoch(event.epoch),
-		sequence: Number(event.sequence),
-		event,
-	});
-
+export const makePlotWelcomeRecord = (options: {
+	readonly sessionId: string;
+	readonly limits: PlotProtocolLimits;
+}): PlotWelcomeRecord => ({
+	protocol: plotProtocolVersion,
+	kind: "welcome",
+	sessionId: options.sessionId,
+	limits: options.limits,
+});
+export const makePlotEventRecord = (event: PlotEvent): PlotEventRecord => ({
+	protocol: plotProtocolVersion,
+	kind: "event",
+	event,
+});
+export const makePlotSessionEventRecord = makePlotEventRecord;
 export const makePlotSuccessResponse = (options: {
 	readonly id: PlotProtocolRequestId;
 	readonly command: PlotCommand;
-	readonly asOfSequence?: PlotProtocolSequence;
 	readonly lastSequence?: PlotProtocolSequence;
 	readonly data?: unknown;
-}): PlotSuccessResponseRecord =>
-	new PlotSuccessResponseRecord({
-		id: options.id,
-		command: options.command,
-		...(options.asOfSequence === undefined
-			? {}
-			: { asOfSequence: options.asOfSequence }),
-		...(options.lastSequence === undefined
-			? {}
-			: { lastSequence: options.lastSequence }),
-		...(options.data === undefined ? {} : { data: options.data }),
-	});
-
+}): PlotSuccessResponseRecord => ({
+	protocol: plotProtocolVersion,
+	kind: "response",
+	id: options.id,
+	command: options.command,
+	ok: true,
+	...(options.lastSequence === undefined
+		? {}
+		: { lastSequence: options.lastSequence }),
+	...(options.data === undefined ? {} : { data: options.data }),
+});
 export const makePlotErrorResponse = (options: {
 	readonly code: PlotProtocolErrorCode;
 	readonly message: string;
 	readonly id?: PlotProtocolRequestId;
 	readonly command?: string;
-	readonly asOfSequence?: PlotProtocolSequence;
 	readonly lastSequence?: PlotProtocolSequence;
 	readonly details?: unknown;
-}): PlotErrorResponseRecord =>
-	new PlotErrorResponseRecord({
-		...(options.id === undefined ? {} : { id: options.id }),
-		...(options.command === undefined ? {} : { command: options.command }),
-		...(options.asOfSequence === undefined
-			? {}
-			: { asOfSequence: options.asOfSequence }),
-		...(options.lastSequence === undefined
-			? {}
-			: { lastSequence: options.lastSequence }),
-		error: new PlotErrorPayload({
-			code: options.code,
-			message: options.message,
-			...(options.details === undefined ? {} : { details: options.details }),
-		}),
-	});
+}): PlotErrorResponseRecord => ({
+	protocol: plotProtocolVersion,
+	kind: "response",
+	...(options.id === undefined ? {} : { id: options.id }),
+	...(options.command === undefined ? {} : { command: options.command }),
+	ok: false,
+	...(options.lastSequence === undefined
+		? {}
+		: { lastSequence: options.lastSequence }),
+	error: {
+		code: options.code,
+		message: options.message,
+		...(options.details === undefined ? {} : { details: options.details }),
+	},
+});
+
+const safeParseParams = <S extends z.ZodType>(schema: S, value: unknown) =>
+	schema.safeParse(value ?? {});
+export const safeParseGetSnapshotParams = (value: unknown) =>
+	safeParseParams(getSnapshotParamsSchema, value);
+export const safeParseRequestTickParams = (value: unknown) =>
+	safeParseParams(requestTickParamsSchema, value);

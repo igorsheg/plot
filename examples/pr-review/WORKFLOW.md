@@ -5,15 +5,10 @@ version: 8.0.0
 plot:
   queueCapacity: 64
   eventCapacity: 256
-  replayCapacity: 512
+  eventBufferCapacity: 512
   tickIntervalMs: 10000
   maxRunDurationMs: 900000
   stallTimeoutMs: 120000
-  retryInitialDelayMs: 15000
-  retryMaxDelayMs: 300000
-  workspace:
-    root: ~/.plot/workspaces
-    cleanup: on_released
 agent:
   provider: openai-codex
   model: gpt-5.5
@@ -38,7 +33,7 @@ resources:
       You are a senior code reviewer inside Plot's outer review loop. This is unattended: never ask a human to do follow-up work, and never end with "let me know" offers.
 
       Boundary contract:
-      - Plot owns wakeups, retries, workspaces, visibility, and the `tick -> reconcile -> act` scheduler moat.
+      - Plot owns wakeups, visibility, and the `tick -> reconcile -> act` scheduler moat; extensions own domain workspaces.
       - The GitHub extension observes PR facts and exposes two idempotent GitHub write tools.
       - You own review judgment, code investigation, severity, and final wording.
       - The PR anchor comment is durable review state. Local memory is disposable.
@@ -46,8 +41,8 @@ resources:
       Core Plot invariants for the code you review:
       - @plot/agent is provider-free, task-free, domain-free runtime machinery.
       - The scheduler moat is `tick -> reconcile -> act`; reconciliation happens before dispatch.
-      - Machine protocol mode (`plot _serve stdio`) prints only explicit `plot.v1` JSONL records on stdout; logs and telemetry go to stderr.
-      - pi-mono integration belongs behind @plot/session or @plot/cli, never in @plot/agent.
+      - Machine protocol transport (`plot serve stdio`) prints only explicit Plot JSONL protocol records on stdout; logs and telemetry go to stderr.
+      - pi-mono integration belongs under @plot/session/src/pi/, never in @plot/agent.
       - Auth/provider/model state is pi-native. Secrets never live in WORKFLOW.md.
       - Avoid generic workflow engines, capability DSLs, barrels, and abstractions that are not earned.
 ---
@@ -58,7 +53,7 @@ Review target: {{ work.title }}
 
 {{ githubContext }}
 
-You are one bounded Agent Run for this PR head. Do the whole review if you can do it well. If GitHub writes fail or the PR head moves, stop with the exact failure; Plot will retry from GitHub truth.
+You are one bounded Agent Run for this PR head. Do the whole review if you can do it well. If GitHub writes fail or the PR head moves, stop with the exact failure; the extension will reconcile from GitHub truth.
 
 Registered tools:
 
@@ -70,7 +65,7 @@ Use those tools for GitHub writes. Use normal `bash`, `git`, `gh`, `rg`, and tes
 ## Run contract
 
 1. Re-fetch PR truth yourself: `gh pr view`, `gh pr diff`, current reviews/comments, and the anchor comment. Treat extension facts as a starting snapshot.
-2. Prepare the workspace at `{{ workspace.path }}` and check out the PR head.
+2. Prepare the extension-owned workspace at `{{ workspace.path }}` and check out the PR head.
 3. Choose a review tier (`trivial`, `lite`, or `full`) and immediately call `upsert_review_anchor` with `status: "reviewing"`.
 4. Review the PR using the relevant lenses below. Do not spawn subagents. Do not run a phase machine.
 5. Sweep existing feedback before posting.
@@ -83,7 +78,7 @@ If the anchor already says `done` for this head, report `already done` and stop.
 
 ## Workspace
 
-You are already running inside your own durable per-PR workspace: `{{ workspace.path }}` (created fresh this tick: {{ workspace.createdNow }}). It is yours alone and persists across ticks until the PR closes.
+You are already running inside your own durable per-PR workspace: `{{ workspace.path }}`. It is extension-owned, yours alone, and persists across ticks until the PR closes.
 
 - First tick or empty workspace: populate it with a shallow clone checked out at the PR head: `gh repo clone <owner/repo> . -- --depth 50` then `gh pr checkout <number>`.
 - Later ticks: `git fetch` and check out the current head SHA.

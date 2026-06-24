@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { ProcessTerminal, TUI, matchesKey } from "./pi-tui/index.ts";
+import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 import {
 	createPlotProtocolSessionHost,
 	type PlotSessionHostOptions,
@@ -12,128 +12,40 @@ import {
 	type PlotProtocolRequestId,
 	type PlotServerRecord,
 } from "@plot/session/protocol";
-import {
-	connectLocalControlClient,
-	type LocalControlClient,
-} from "@plot/session/local-control-client";
 import { PlotDashboard } from "./dashboard.js";
 import {
 	applySnapshot,
 	emptyProjection,
 	reduceRecord,
 	type DashboardProjection,
-	type RuntimeIdentityProjection,
-} from "@plot/control/projection";
-import type { PlotSessionSummary } from "@plot/control/session-summary";
+} from "./projection.js";
 import { runtimeIdentityFrom } from "./runtime-identity.js";
 
 export interface PlotTuiOptions extends PlotSessionHostOptions {
-	readonly noServer?: boolean;
 	readonly mode?: "watch" | "oneshot";
-	readonly lifetime?: "server" | "connection";
-	readonly homeDir?: string;
-	readonly serverDir?: string;
-}
-
-export interface PlotTuiControlAttachment {
-	readonly client: LocalControlClient;
-	readonly projection: DashboardProjection;
-	readonly sessionId: string;
-	readonly close: () => Promise<void>;
 }
 
 const errorMessage = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
-
-const summaryRuntime = (
-	summary: PlotSessionSummary,
-): RuntimeIdentityProjection => ({
-	cwd: summary.cwd,
-	cwdName: summary.cwdName,
-	workflowPath: summary.workflowPath,
-	skills: [],
-	skillPaths: [],
-});
-
-const openSessionParamsFrom = (options: PlotTuiOptions) => ({
-	sessionId: options.sessionId,
-	mode: options.mode ?? "watch",
-	lifetime: options.lifetime ?? "server",
-	role: "controller" as const,
-	cwd: options.cwd,
-	...(options.workflowPath === undefined
-		? {}
-		: { workflowPath: options.workflowPath }),
-	...(options.plotDir === undefined ? {} : { plotDir: options.plotDir }),
-	...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
-	...(options.sessionDir === undefined
-		? {}
-		: { sessionDir: options.sessionDir }),
-	...(options.requestQueueCapacity === undefined
-		? {}
-		: { requestQueueCapacity: options.requestQueueCapacity }),
-	...(options.eventCapacity === undefined
-		? {}
-		: { eventCapacity: options.eventCapacity }),
-	...(options.replayCapacity === undefined
-		? {}
-		: { replayCapacity: options.replayCapacity }),
-	...(options.tickIntervalMs === undefined
-		? {}
-		: { tickIntervalMs: options.tickIntervalMs }),
-	...(options.maxRunDurationMs === undefined
-		? {}
-		: { maxRunDurationMs: options.maxRunDurationMs }),
-	...(options.agentSessionOverrides === undefined
-		? {}
-		: { agentSessionOverrides: options.agentSessionOverrides }),
-});
-
-export const openAndAttachPlotTuiSession = async (
-	options: PlotTuiOptions,
-): Promise<PlotTuiControlAttachment> => {
-	const client = await connectLocalControlClient({
-		cwd: options.cwd,
-		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
-		...(options.serverDir === undefined
-			? {}
-			: { serverDir: options.serverDir }),
-	});
-	const opened = await client.openSession(openSessionParamsFrom(options));
-	const summary = isRecord(opened.data)
-		? (opened.data["session"] as PlotSessionSummary | undefined)
-		: undefined;
-	const attached = await client.attachSession({
-		sessionId: options.sessionId,
-		role: "controller",
-		afterSequence: 0,
-	});
-	const base = emptyProjection(
-		options.sessionId,
-		summary?.workflowName ?? options.sessionId,
-		summary === undefined
-			? { cwd: options.cwd, cwdName: options.cwd, skills: [], skillPaths: [] }
-			: summaryRuntime(summary),
-	);
-	let closePromise: Promise<void> | undefined;
-	return {
-		client,
-		sessionId: options.sessionId,
-		projection: {
-			...applySnapshot(base, { snapshot: attached.snapshot }),
-			frontier: attached.lastSequence,
-			status: "running",
-		},
-		close: () => {
-			closePromise ??= client
-				.closeSession({ sessionId: options.sessionId })
-				.then(() => undefined);
-			return closePromise;
-		},
-	};
+const withTimeout = async <A>(
+	work: Promise<A>,
+	ms: number,
+	label: string,
+): Promise<A | undefined> => {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			work,
+			new Promise<undefined>((resolve) => {
+				timeout = setTimeout(() => resolve(undefined), ms);
+				timeout.unref?.();
+			}),
+		]);
+	} finally {
+		if (timeout !== undefined) clearTimeout(timeout);
+		void label;
+	}
 };
 
 const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
@@ -189,7 +101,10 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 		const response = new Promise<PlotServerRecord>((resolve) =>
 			pending.set(id, resolve),
 		);
-		if (!(await host.protocol.submit(record))) pending.delete(id);
+		if (!(await host.protocol.submit(record))) {
+			pending.delete(id);
+			throw new Error(`protocol request failed: ${command}`);
+		}
 		return response;
 	};
 	let refreshInFlight = false;
@@ -200,7 +115,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 			return;
 		}
 		refreshInFlight = true;
-		void request("get_snapshot", { sessionId: options.sessionId })
+		void request("get_snapshot")
 			.then((record) => {
 				if (record.kind === "response" && record.ok)
 					setProjection(applySnapshot(projection, record.data));
@@ -239,18 +154,14 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
-			void request("request_tick", { sessionId: options.sessionId })
-				.then(refresh)
-				.catch(fail);
+			void request("request_tick").then(refresh).catch(fail);
 		},
 		refresh,
 		toggleDebug: render,
 		quit: () => {
-			resolveStopped();
 			setStatus("shutting_down");
-			void request("detach_session", { sessionId: options.sessionId }).finally(
-				() => tui.stop(),
-			);
+			resolveStopped();
+			tui.stop();
 		},
 		openUrl,
 		height: () => terminal.rows,
@@ -289,174 +200,16 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 		});
 		void welcome;
 		await host.session.start();
-		const attachResponse = await request("attach_session", {
-			sessionId: options.sessionId,
-			role: "controller",
-			afterSequence: 0,
-		});
-		setStatus(
-			attachResponse.kind === "response" && attachResponse.ok
-				? "running"
-				: "error",
-		);
-		refresh();
-		await stopped;
-	} finally {
-		dashboard.stopLiveUpdates();
-		tui.stop();
-		await request("detach_session", { sessionId: options.sessionId }).catch(
-			() => undefined,
-		);
-		await host.session.shutdown();
-		await host.shutdown();
-	}
-};
-
-export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	// Use the shared Local Plot Server for roster/web visibility. The TUI owns
-	// the session it opens; quitting closes it. Browser/web observers may detach
-	// without owning session lifetime.
-	if (options.noServer) return runPlotTuiInProcess(options);
-	const attachment = await openAndAttachPlotTuiSession(options);
-	let projection = attachment.projection;
-	let resolveStopped!: () => void;
-	const stopped = new Promise<void>((resolve) => {
-		resolveStopped = resolve;
-	});
-	const terminal = new ProcessTerminal();
-	const tui = new TUI(terminal);
-	const render = () => {
-		dashboard.setProjection(projection);
-		tui.requestRender();
-	};
-	const setProjection = (next: DashboardProjection) => {
-		projection = next;
-		render();
-	};
-	const setStatus = (status: DashboardProjection["status"]) => {
-		setProjection({ ...projection, status });
-	};
-	const fail = (error: unknown) => {
-		const message = errorMessage(error);
-		if (
-			options.mode === "oneshot" &&
-			message.startsWith("session_not_found:")
-		) {
-			setProjection({ ...projection, status: "stopped", scheduledWakes: [] });
-			return;
-		}
-		setProjection({
-			...projection,
-			status: "error",
-			diagnostics: [message, ...projection.diagnostics].slice(0, 5),
-		});
-	};
-	let refreshInFlight = false;
-	let refreshQueued = false;
-	const refresh = () => {
-		if (projection.status === "stopped") return;
-		if (refreshInFlight) {
-			refreshQueued = true;
-			return;
-		}
-		refreshInFlight = true;
-		void attachment.client
-			.request("get_snapshot", { sessionId: options.sessionId })
-			.then((record) => setProjection(applySnapshot(projection, record.data)))
-			.catch(fail)
-			.finally(() => {
-				refreshInFlight = false;
-				if (refreshQueued) {
-					refreshQueued = false;
-					refresh();
-				}
-			});
-	};
-	let scheduledRefresh: ReturnType<typeof setTimeout> | undefined;
-	const scheduleRefresh = () => {
-		if (scheduledRefresh !== undefined) return;
-		scheduledRefresh = setTimeout(() => {
-			scheduledRefresh = undefined;
-			refresh();
-		}, 250);
-	};
-	const openUrl = (url: string) => {
-		if (!/^https?:\/\//.test(url)) return;
-		const command =
-			process.platform === "darwin"
-				? "open"
-				: process.platform === "win32"
-					? "start"
-					: "xdg-open";
-		try {
-			spawn(command, [url], { stdio: "ignore", detached: true }).unref();
-		} catch (error) {
-			fail(error);
-		}
-	};
-	let exitStarted = false;
-	const forceStop = () => {
-		attachment.client.close();
-		resolveStopped();
-		tui.stop();
-	};
-	const closeAndStop = () => {
-		if (exitStarted) {
-			forceStop();
-			return;
-		}
-		exitStarted = true;
-		void attachment.close().catch(fail).finally(forceStop);
-	};
-	const dashboard = new PlotDashboard(projection, {
-		tick: () => {
-			void attachment.client
-				.request("request_tick", { sessionId: options.sessionId })
-				.then(refresh)
-				.catch(fail);
-		},
-		refresh,
-		toggleDebug: render,
-		quit: closeAndStop,
-		openUrl,
-		height: () => terminal.rows,
-		requestRender: () => tui.requestRender(),
-	});
-	tui.addChild(dashboard);
-	tui.setFocus(dashboard);
-	tui.addInputListener((data) => {
-		if (matchesKey(data, "ctrl+c")) {
-			dashboard.handleInput(data);
-			return { consume: true };
-		}
-		return undefined;
-	});
-	void (async () => {
-		for await (const record of attachment.client.records()) {
-			if (
-				record.kind === "session_event" &&
-				record.sessionId === options.sessionId
-			) {
-				projection = reduceRecord(projection, record);
-				render();
-				scheduleRefresh();
-			}
-		}
-	})().catch(fail);
-	try {
-		dashboard.startLiveUpdates();
-		tui.start();
 		setStatus("running");
 		refresh();
 		await stopped;
 	} finally {
 		dashboard.stopLiveUpdates();
 		tui.stop();
-		await attachment.close().catch(async () => {
-			await attachment.client
-				.detachSession({ sessionId: attachment.sessionId })
-				.catch(() => undefined);
-		});
-		attachment.client.close();
+		await host.protocol.close();
+		await withTimeout(host.session.shutdown(), 5_000, "session shutdown");
+		await withTimeout(host.shutdown(), 5_000, "host shutdown");
 	}
 };
+
+export const runPlotTui = runPlotTuiInProcess;

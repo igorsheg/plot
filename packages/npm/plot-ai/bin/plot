@@ -16,6 +16,7 @@ const child = spawn(resolved.binaryPath, process.argv.slice(2), {
 		...process.env,
 		PLOT_VERSION: readPackageVersion(),
 		PLOT_CLI_NAME: "plot",
+		PLOT_PACKAGE_DIR: new URL("..", import.meta.url).pathname,
 		PLOT_LOCAL_SERVER_BINARY: resolved.binaryPath,
 	},
 });

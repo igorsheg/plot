@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
@@ -149,6 +149,18 @@ const positiveInteger = (value: number | undefined, fallback: number) =>
 	value === undefined || !Number.isInteger(value) || value <= 0
 		? fallback
 		: value;
+
+const safePathSegment = (value: string) =>
+	value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+
+const prWorkspacePath = (repo: string, prNumber: number) =>
+	join(
+		homedir(),
+		".plot",
+		"workspaces",
+		safePathSegment(repo),
+		`pr-${prNumber}`,
+	);
 
 const parseConfig = (input: unknown): GitHubPrReviewerConfig => {
 	if (!isRecord(input))
@@ -706,6 +718,8 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 				for (const { pr, anchor } of prsWithAnchors) {
 					const draftBlocked = pr.isDraft && !config.includeDrafts;
 					const head = pr.headRefOid ?? pr.headRefName;
+					const workspacePath = prWorkspacePath(repo, pr.number);
+					await mkdir(workspacePath, { recursive: true });
 					const headMatches =
 						anchor !== undefined && anchor.head === pr.headRefOid;
 					const doneGraceActive =
@@ -747,6 +761,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 								labels,
 							},
 							context: {
+								workspace: { path: workspacePath },
 								github: {
 									repo,
 									prNumber: pr.number,

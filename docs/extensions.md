@@ -87,7 +87,7 @@ The prompt should answer:
 
 The extension is authoritative for domain state. If work is done, `discover()` should stop returning it. If the same work should run again, `discover()` should return it again with the same `id` and appropriate `version`.
 
-Plot Session History records control-plane events, projections, active attempts, usage, and audit history. It does not make extension work permanently complete. A completed Agent Run suppresses only stale discovery from the same tick; the next tick trusts the extension again.
+Plot Event Log records session events, projections, active attempts, usage, and audit history. It does not make extension work permanently complete. A completed Agent Run suppresses only stale discovery from the same tick; the next tick trusts the extension again.
 
 ## Work items
 
@@ -154,13 +154,13 @@ Give the agent facts, not a rigid script. Plot should make agents cheaper and be
 
 ### `display`
 
-Hints for the TUI and web dashboard. Plot owns rendering.
+Hints for the TUI dashboard. Plot owns rendering.
 
 Extensions may provide titles, labels, URLs, and short version text. Extensions may not provide TUI components, keybindings, or custom renderers.
 
 ### `operatorActions`
 
-Source-declared choices a human controller may perform on the Work Item. They are semantic actions, not display hints, and they are rendered generically by TUI/web.
+Source-declared choices a human controller may perform on the Work Item. They are semantic actions, not display hints, and they are rendered generically by the TUI.
 
 ```ts
 work({
@@ -180,7 +180,7 @@ work({
 });
 ```
 
-When an operator performs an action, Plot records an Operator Observation in Session History. The web never calls Source code directly; your extension can implement `operatorAction(event)` to update its own trusted state before later discovery/reconciliation decides what changed.
+When an operator performs an action, Plot records an Operator Observation in Event Log. your extension can implement `operatorAction(event)` to update its own trusted state before later discovery/reconciliation decides what changed.
 
 ## Config
 

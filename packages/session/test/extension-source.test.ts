@@ -149,12 +149,10 @@ describe("Plot extension source adapter", () => {
 		const agent = makePlotAgentLayer({
 			sources: [bundle.source],
 			runner,
-			continuationDelayMs: 1,
 		});
 		const first = await agent.tickOnce();
 		await Promise.resolve();
 		const second = await agent.tickOnce();
-		await new Promise((resolve) => setTimeout(resolve, 5));
 		const third = await agent.tickOnce();
 
 		expect(first.started).toEqual([
@@ -163,9 +161,9 @@ describe("Plot extension source adapter", () => {
 		expect(second.completions).toEqual([
 			expect.objectContaining({ runId: "run-0", status: "succeeded" }),
 		]);
-		// Completion suppresses only the stale discovery from this same tick.
+		// Completion suppresses only stale discovery from this same tick.
 		expect(second.started).toHaveLength(0);
-		// If the source still declares the work on the next tick, it is authoritative.
+		// If the source still declares work on the next tick, it is authoritative.
 		expect(third.started).toEqual([
 			expect.objectContaining({ runId: "run-1" }),
 		]);
