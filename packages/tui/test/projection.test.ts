@@ -21,6 +21,7 @@ const eventRecord = (
 	epoch: "epoch-1",
 	sequence,
 	event: {
+		kind: "plot_event",
 		sessionId: "default",
 		epoch: "epoch-1",
 		sequence,

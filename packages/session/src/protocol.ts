@@ -68,16 +68,6 @@ export type EventLogSequence = z.infer<typeof eventLogSequenceSchema>;
 export const plotEventSchema = z.union([
 	z
 		.object({
-			sessionId: nonEmptyStringSchema,
-			epoch: nonEmptyStringSchema.optional(),
-			sequence: eventLogSequenceSchema,
-			timestamp: nonEmptyStringSchema,
-			type: nonEmptyStringSchema,
-			payload: z.unknown(),
-		})
-		.strict(),
-	z
-		.object({
 			kind: z.literal("agent_session_event"),
 			sessionId: nonEmptyStringSchema,
 			sequence: eventLogSequenceSchema,

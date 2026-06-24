@@ -211,7 +211,7 @@ export const createPlotSessionHost = async (
 	};
 };
 const completionFromEvent = (event: EventLogEvent): Completion | undefined =>
-	(!("kind" in event) || event.kind !== "agent_session_event") &&
+	event.kind !== "agent_session_event" &&
 	event.type === "attempt_completed" &&
 	isRecord(event.payload) &&
 	isRecord(event.payload["completion"])
@@ -219,7 +219,7 @@ const completionFromEvent = (event: EventLogEvent): Completion | undefined =>
 		: undefined;
 const quiescentTickFromEvent = (event: EventLogEvent): boolean => {
 	if (
-		("kind" in event && event.kind === "agent_session_event") ||
+		event.kind === "agent_session_event" ||
 		event.type !== "tick_completed" ||
 		!isRecord(event.payload)
 	)

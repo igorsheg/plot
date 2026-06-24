@@ -497,7 +497,7 @@ const reduceEvent = (
 ): DashboardProjection => {
 	let p = debug(p0, e);
 	const payload = record(e.payload) ? e.payload : {};
-	if ("kind" in e && e.kind === "agent_session_event")
+	if (e.kind === "agent_session_event")
 		return reduceAgentEvent(p, e, e as Record<string, unknown>);
 	if (e.type === "session_paused") return { ...p, status: "paused" };
 	if (e.type === "session_resumed") return { ...p, status: "running" };
