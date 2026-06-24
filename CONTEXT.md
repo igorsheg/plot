@@ -16,14 +16,6 @@ _Avoid_: Plot instance, workflow instance, session
 A live supervised run of a Workflow. It is the unit operators see and control in fleet views.
 _Avoid_: Workflow, plot instance, run
 
-**Plot Server**:
-A long-lived Plot process that owns and supervises Plot Sessions for clients to observe or control.
-_Avoid_: Hub, supervisor, session host
-
-**Local Plot Server**:
-The user's machine-local Plot Server that can host Plot Sessions from multiple projects.
-_Avoid_: Project server, embedded session host, web server
-
 **Work Item**:
 A unit of work discovered by a source and selected by Plot for possible agent execution.
 _Avoid_: Task, job, issue
@@ -48,22 +40,6 @@ _Avoid_: Source, plugin
 An operator attention signal for Work Items that require human input or approval. It is separate from the Plot Session lifecycle.
 _Avoid_: Blocked session, error, alert
 
-**Client Connection**:
-A live connection from a user interface or automation client to a Plot Server. A Client Connection may attach to zero, one, or many Plot Sessions.
-_Avoid_: Plot Session, Workflow, agent session
-
-**Session Attachment**:
-The relationship that lets a Client Connection observe a Plot Session. Ending the attachment does not end the Plot Session.
-_Avoid_: Session, subscription, ownership
-
-**Controller**:
-A client role that is allowed to send mutating commands to a Plot Session.
-_Avoid_: Lock holder, owner, admin
-
-**Observer**:
-A client role that is allowed to watch a Plot Session without mutating it.
-_Avoid_: Viewer, read-only user, passive client
-
 **Operator Observation**:
 Human input or a human decision that becomes part of what a Source can reconcile for a Work Item.
 _Avoid_: Button click, command, approval state
@@ -71,10 +47,6 @@ _Avoid_: Button click, command, approval state
 **Operator Action**:
 A Source-declared choice a human may take on a Work Item. Performing an Operator Action creates an Operator Observation.
 _Avoid_: Button, approval, command
-
-**Session Roster**:
-The Plot Server's view of open Plot Sessions. Normal Plot entrypoints should register Plot Sessions there so clients see the same fleet.
-_Avoid_: Process discovery, workflow list, web-only sessions
 
 **Session Mode**:
 Whether a Plot Session is intended to keep watching for work or run to a terminal outcome.
@@ -95,7 +67,3 @@ _Avoid_: Session History, Process Table, roster
 **Workflow Bundle**:
 The pair of `WORKFLOW.md` and `workflow.extension.ts` files that define a Workflow and its trusted TypeScript extension.
 _Avoid_: Dynamic runtime, generated pipeline
-
-**Dynamic Workflow Forge**:
-A Plot-native Workflow that creates or repairs a Workflow Bundle from a user goal. It runs through normal Plot scheduling, uses a trusted write tool for artifacts, and deterministic validation supplies repair context.
-_Avoid_: Separate orchestrator, agent spawner, codegen runtime

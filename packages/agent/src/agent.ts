@@ -11,7 +11,6 @@ import type {
 	PlotAgentEvent,
 	PlotAgentMessage,
 	ReconcileProposal,
-	RetryState,
 	RuntimeSnapshot,
 	ScheduleWakeProposal,
 	SkippedWork,
@@ -36,7 +35,6 @@ interface RuntimeState {
 	readonly work: ReadonlyMap<WorkKey, WorkRecord>;
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
 	readonly scheduledWakes: readonly Domain.ScheduledWake[];
-	readonly retries: ReadonlyMap<WorkKey, RetryState>;
 	readonly nextRunIndex: number;
 }
 interface TimedOutRun {
@@ -111,15 +109,9 @@ export interface PlotAgentLayerOptions {
 	readonly historyLimit?: number;
 	/** Scheduler poll cadence. Default: 30s. */
 	readonly tickIntervalMs?: number;
-	/** Clean successful runs re-check after this delay. Default: 1s. */
-	readonly continuationDelayMs?: number;
 	readonly maxRunDurationMs?: number;
 	/** Interrupt a run after this much time with no emitted observations. */
 	readonly stallTimeoutMs?: number;
-	/** First retry delay after a failed/timed-out run. Default 10s. */
-	readonly retryInitialDelayMs?: number;
-	/** Exponential backoff cap for retry delays. Default 5m. */
-	readonly retryMaxDelayMs?: number;
 }
 
 const initialState: RuntimeState = {
@@ -131,7 +123,6 @@ const initialState: RuntimeState = {
 	work: new Map(),
 	running: new Map(),
 	scheduledWakes: [],
-	retries: new Map(),
 	nextRunIndex: 0,
 };
 const errorMessage = (error: unknown): string =>
@@ -183,7 +174,6 @@ const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	scheduledWakes: state.scheduledWakes.filter(
 		(wake) => wake.dueAtMs > Date.now(),
 	),
-	retries: new Map(state.retries),
 });
 const sleep = (ms: number, signal?: AbortSignal) =>
 	new Promise<void>((resolve) => {
@@ -318,68 +308,10 @@ const applyWorkProposals = (
 	}
 	return next;
 };
-interface RetryBackoff {
-	readonly initialDelayMs: number;
-	readonly maxDelayMs: number;
-}
-const retryDelayMs = (attempt: number, backoff: RetryBackoff) =>
-	Math.min(backoff.initialDelayMs * 2 ** (attempt - 1), backoff.maxDelayMs);
-const applyCompletionRetries = (
-	retries: ReadonlyMap<WorkKey, RetryState>,
-	completions: readonly Completion[],
-	backoff: RetryBackoff,
-	continuationDelayMs: number,
-	now: number,
-) => {
-	const next = new Map(retries);
-	const scheduledWakes: Domain.ScheduledWake[] = [];
-	for (const completion of completions) {
-		if (completion.status === "failed" || completion.status === "timed_out") {
-			const attempt = (next.get(completion.workKey)?.attempt ?? 0) + 1;
-			const delayMs = retryDelayMs(attempt, backoff);
-			const dueAtMs = now + delayMs;
-			next.set(completion.workKey, {
-				attempt,
-				nextEligibleAtMs: dueAtMs,
-				kind: "failure",
-				...(completion.error === undefined
-					? {}
-					: { lastError: completion.error }),
-			});
-			scheduledWakes.push({
-				dueAtMs,
-				delayMs,
-				reason: "retry",
-				workKey: completion.workKey,
-				attempt,
-			});
-		} else if (completion.status === "succeeded") {
-			const dueAtMs = now + continuationDelayMs;
-			next.set(completion.workKey, {
-				attempt: 1,
-				nextEligibleAtMs: dueAtMs,
-				kind: "continuation",
-			});
-			scheduledWakes.push({
-				dueAtMs,
-				delayMs: continuationDelayMs,
-				reason: "continuation",
-				workKey: completion.workKey,
-				attempt: 1,
-			});
-		} else {
-			// Interruption is a reconciliation decision, not a failure to back off from.
-			next.delete(completion.workKey);
-		}
-	}
-	return { retries: next, scheduledWakes };
-};
 const beginTick = (
 	state: RuntimeState,
 	drained: DrainedMessages,
 	stalledRuns: readonly TimedOutRun[],
-	backoff: RetryBackoff,
-	continuationDelayMs: number,
 	historyLimit: number,
 ) => {
 	const running = new Map(state.running),
@@ -477,14 +409,6 @@ const beginTick = (
 		});
 	}
 	const now = Date.now();
-	const applied = applyCompletionRetries(
-		state.retries,
-		completions,
-		backoff,
-		continuationDelayMs,
-		now,
-	);
-	const completedKeys = new Set(completions.map((c) => c.workKey));
 	const next = boundStateHistory(
 		{
 			...state,
@@ -494,15 +418,9 @@ const beginTick = (
 			diagnostics: [...state.diagnostics, ...diagnostics],
 			work,
 			running,
-			retries: applied.retries,
 			scheduledWakes: [
-				...state.scheduledWakes.filter(
-					(wake) =>
-						wake.dueAtMs > now &&
-						(wake.workKey === undefined || !completedKeys.has(wake.workKey)),
-				),
+				...state.scheduledWakes.filter((wake) => wake.dueAtMs > now),
 				...drained.requestedWakes.filter((wake) => wake.dueAtMs > now),
-				...applied.scheduledWakes,
 			].toSorted((a, b) => a.dueAtMs - b.dueAtMs),
 		},
 		historyLimit,
@@ -512,7 +430,6 @@ const beginTick = (
 		completions,
 		diagnostics,
 		completedRuns,
-		retryWakes: applied.scheduledWakes,
 	};
 };
 const applyObserved = (
@@ -543,14 +460,6 @@ const wakeScheduledEvent = (proposal: ScheduleWakeProposal) => ({
 	...(proposal.reason === undefined ? {} : { reason: proposal.reason }),
 	...(proposal.workKey === undefined ? {} : { workKey: proposal.workKey }),
 	...(proposal.attempt === undefined ? {} : { attempt: proposal.attempt }),
-});
-
-const wakeScheduledEventFromWake = (wake: Domain.ScheduledWake) => ({
-	type: "wake_scheduled" as const,
-	delayMs: wake.delayMs,
-	...(wake.reason === undefined ? {} : { reason: wake.reason }),
-	...(wake.workKey === undefined ? {} : { workKey: wake.workKey }),
-	...(wake.attempt === undefined ? {} : { attempt: wake.attempt }),
 });
 
 const applyReconciled = (
@@ -655,22 +564,6 @@ const runningCountBySource = (running: ReadonlyMap<WorkKey, WorkRun>) => {
 		counts.set(run.sourceId, (counts.get(run.sourceId) ?? 0) + 1);
 	return counts;
 };
-const releaseDueRetriesForAbsentWork = (
-	state: RuntimeState,
-	selected: readonly WorkSelection[],
-	now: number,
-): RuntimeState => {
-	const activeKeys = new Set<WorkKey>(state.running.keys());
-	for (const selection of selected) activeKeys.add(selection.work.workKey);
-	let changed = false;
-	const retries = new Map(state.retries);
-	for (const [key, retry] of retries) {
-		if (retry.nextEligibleAtMs > now || activeKeys.has(key)) continue;
-		retries.delete(key);
-		changed = true;
-	}
-	return changed ? { ...state, retries } : state;
-};
 const noop = () => {};
 const waitForAbort = (signal: AbortSignal) => {
 	let cleanup = noop;
@@ -698,7 +591,6 @@ const startEligibleRuns = (
 		skipped: SkippedWork[] = [],
 		seen = new Set<WorkKey>();
 	let nextRunIndex = state.nextRunIndex;
-	const now = Date.now();
 	const capacity = Math.max(0, maxConcurrentRuns - running.size);
 	const skip = (
 		selection: WorkSelection,
@@ -726,15 +618,6 @@ const startEligibleRuns = (
 		}
 		if (running.has(work.workKey)) {
 			skip(selection, "already_running");
-			continue;
-		}
-		const retry = state.retries.get(work.workKey);
-		if (retry !== undefined && retry.nextEligibleAtMs > now) {
-			skip(
-				selection,
-				"retry_backoff",
-				`attempt ${retry.attempt}; eligible in ${retry.nextEligibleAtMs - now}ms`,
-			);
 			continue;
 		}
 		if (started.length >= capacity) {
@@ -823,11 +706,6 @@ export const makePlotAgentLayer = (
 		30_000,
 		"tickIntervalMs must be a positive integer",
 	);
-	const continuationDelayMs = positive(
-		options.continuationDelayMs,
-		1_000,
-		"continuationDelayMs must be a positive integer",
-	);
 	const maxRunDurationMs =
 		options.maxRunDurationMs === undefined
 			? undefined
@@ -844,18 +722,6 @@ export const makePlotAgentLayer = (
 					1,
 					"stallTimeoutMs must be a positive integer",
 				);
-	const retryBackoff: RetryBackoff = {
-		initialDelayMs: positive(
-			options.retryInitialDelayMs,
-			10_000,
-			"retryInitialDelayMs must be a positive integer",
-		),
-		maxDelayMs: positive(
-			options.retryMaxDelayMs,
-			300_000,
-			"retryMaxDelayMs must be a positive integer",
-		),
-	};
 	if (policy.maxConcurrentRuns !== undefined)
 		positive(
 			policy.maxConcurrentRuns,
@@ -945,7 +811,7 @@ export const makePlotAgentLayer = (
 	const completeRunningForShutdown = () => {
 		const completedRuns = [...state.running.values()];
 		if (completedRuns.length === 0) {
-			state = { ...state, scheduledWakes: [], retries: new Map() };
+			state = { ...state, scheduledWakes: [] };
 			publishSnapshot(state);
 			return;
 		}
@@ -989,7 +855,6 @@ export const makePlotAgentLayer = (
 				work,
 				running: new Map(),
 				scheduledWakes: [],
-				retries: new Map(),
 			},
 			historyLimit,
 		);
@@ -1196,14 +1061,7 @@ export const makePlotAgentLayer = (
 									run,
 									error: `work run stalled; no activity for ${stallTimeoutMs}ms`,
 								}));
-				const began = beginTick(
-					state,
-					drained,
-					stalledRuns,
-					retryBackoff,
-					continuationDelayMs,
-					historyLimit,
-				);
+				const began = beginTick(state, drained, stalledRuns, historyLimit);
 				state = began.state;
 				const tickId = state.tickId;
 				publishEvent({ type: "tick_started", tickId });
@@ -1213,12 +1071,6 @@ export const makePlotAgentLayer = (
 				for (const run of began.completedRuns) {
 					lastActivityAt.delete(run.runId);
 					clearStallTimer(run);
-				}
-				// Wake the loop when backed-off or continuation work becomes eligible,
-				// so retries do not wait for the next interval tick.
-				for (const wake of began.retryWakes) {
-					publishEvent(wakeScheduledEventFromWake(wake));
-					timer(wake.delayMs, { type: "wake" });
 				}
 				const observeResults = await Promise.all(
 					sources.map((source) =>
@@ -1417,11 +1269,6 @@ export const makePlotAgentLayer = (
 						}),
 					};
 				}
-				state = releaseDueRetriesForAbsentWork(
-					state,
-					selectedWithSources,
-					Date.now(),
-				);
 				const startedResult = startEligibleRuns(
 					state,
 					selectedWithSources,

@@ -1,7 +1,4 @@
-import {
-	formatDuration,
-	type WorkRowModel,
-} from "@plot/control/dashboard-model";
+import { formatDuration, type WorkRowModel } from "./dashboard-model.js";
 import {
 	asLine,
 	blank,

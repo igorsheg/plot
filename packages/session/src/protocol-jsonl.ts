@@ -1,12 +1,12 @@
-import { Result } from "better-result";
 import {
 	PlotProtocolFailure,
 	defaultPlotProtocolLimits,
-	decodePlotClientRecordResult,
+	decodePlotClientRecord,
 	type PlotClientRecord,
 	type PlotProtocolLimits,
 	type PlotServerRecord,
-} from "./protocol.js";
+} from "@plot/session/protocol";
+import { byteLength } from "./util.js";
 
 export interface JsonlDecoderState {
 	readonly pending: string;
@@ -18,7 +18,6 @@ export interface JsonlChunkResult {
 export const initialJsonlDecoderState: JsonlDecoderState = { pending: "" };
 const stripTrailingCarriageReturn = (line: string) =>
 	line.endsWith("\r") ? line.slice(0, -1) : line;
-const byteLength = (value: string) => new TextEncoder().encode(value).length;
 const checkInputLineLimit = (line: string, limit: number) => {
 	if (byteLength(line) > limit)
 		throw new PlotProtocolFailure({
@@ -77,25 +76,16 @@ export const flushJsonlDecoder = async (
 	checkInputLineLimit(line, limits.maxInputLineBytes);
 	return [line];
 };
-const parseUnknownJsonResult = (
-	line: string,
-): Result<unknown, PlotProtocolFailure> =>
-	Result.try({
-		try: () => JSON.parse(line) as unknown,
-		catch: (error) =>
-			new PlotProtocolFailure({
-				code: "parse_error",
-				message: error instanceof Error ? error.message : String(error),
-			}),
-	});
-export const parsePlotClientJsonLineResult = (
-	line: string,
-): Result<PlotClientRecord, PlotProtocolFailure> =>
-	parseUnknownJsonResult(line).andThen(decodePlotClientRecordResult);
+const parseUnknownJson = (line: string): unknown => {
+	try {
+		return JSON.parse(line) as unknown;
+	} catch (error) {
+		throw new PlotProtocolFailure({
+			code: "parse_error",
+			message: error instanceof Error ? error.message : String(error),
+		});
+	}
+};
 export const parsePlotClientJsonLine = async (
 	line: string,
-): Promise<PlotClientRecord> => {
-	const result = parsePlotClientJsonLineResult(line);
-	if (Result.isError(result)) throw result.error;
-	return result.value;
-};
+): Promise<PlotClientRecord> => decodePlotClientRecord(parseUnknownJson(line));

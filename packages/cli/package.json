@@ -15,7 +15,6 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
 		"@plot/session": "workspace:*",
 		"@plot/tui": "workspace:*",

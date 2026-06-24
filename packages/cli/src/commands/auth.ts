@@ -114,7 +114,7 @@ export const authCommand = defineCommand({
 						})
 						.then(() => provider),
 					(x) => `Logged in to ${x}.\n`,
-					"Run in an interactive terminal or use the protocol auth_login command with promptResponses.",
+					"Run in an interactive terminal and provide the provider login prompts.",
 				);
 			},
 		}),

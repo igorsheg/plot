@@ -2,7 +2,7 @@
 import {
 	fauxAssistantMessage,
 	registerPlotFauxProvider,
-} from "@plot/session/testing/faux-agent-session";
+} from "@plot/session/pi/testing";
 import { processCliIo, runPlotCli } from "./cli.js";
 
 const responseText = process.env["PLOT_FAUX_RESPONSE_TEXT"] ?? "plot faux ok";

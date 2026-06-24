@@ -1,12 +1,12 @@
 import { logWideEvent } from "@plot/common/observability";
-import type { PlotProtocolShape } from "./protocol-handler.js";
+import type { PlotProtocolShape } from "./protocol-session.js";
 import {
 	PlotProtocolFailure,
 	defaultPlotProtocolLimits,
 	makePlotErrorResponse,
 	type PlotProtocolLimits,
 	type PlotServerRecord,
-} from "./protocol.js";
+} from "@plot/session/protocol";
 import {
 	flushJsonlDecoder,
 	initialJsonlDecoderState,
@@ -15,6 +15,7 @@ import {
 	splitJsonlChunk,
 	type JsonlDecoderState,
 } from "./protocol-jsonl.js";
+import { errorMessage } from "./util.js";
 export type StdioChunk = string | Uint8Array;
 export interface PlotProtocolStdioOptions {
 	readonly stdin: AsyncIterable<StdioChunk>;
@@ -23,8 +24,6 @@ export interface PlotProtocolStdioOptions {
 	readonly emitHello?: boolean;
 	readonly protocol: PlotProtocolShape;
 }
-const errorMessage = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
 const chunkDecoder = () => {
 	const decoder = new TextDecoder();
 	return {

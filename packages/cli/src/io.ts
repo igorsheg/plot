@@ -1,4 +1,4 @@
-import type { CreateAgentSession } from "@plot/session/agent-session-types";
+import type { CreateAgentSession } from "@plot/session/pi/agent-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
 
 export interface PlotCliIo {

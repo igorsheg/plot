@@ -243,19 +243,12 @@ export interface ScheduledWake {
 	readonly workKey?: WorkKey;
 	readonly attempt?: PositiveInt;
 }
-export interface RetryState {
-	readonly attempt: PositiveInt;
-	readonly nextEligibleAtMs: number;
-	readonly kind?: "failure" | "continuation";
-	readonly lastError?: string;
-}
 export type WorkSkipReason =
 	| "already_running"
 	| "duplicate_in_tick"
 	| "interrupted_this_tick"
 	| "capacity_exhausted"
-	| "source_concurrency"
-	| "retry_backoff";
+	| "source_concurrency";
 export interface SkippedWork {
 	readonly workKey: WorkKey;
 	readonly sourceId: SourceId;
@@ -271,7 +264,6 @@ export interface RuntimeSnapshot {
 	readonly work: ReadonlyMap<WorkKey, WorkRecord>;
 	readonly running: ReadonlyMap<WorkKey, WorkRun>;
 	readonly scheduledWakes?: readonly ScheduledWake[];
-	readonly retries?: ReadonlyMap<WorkKey, RetryState>;
 }
 export interface TickResult {
 	readonly tickId: TickId;

@@ -1,6 +1,6 @@
 # Workflows
 
-A workflow is a Markdown file with front matter. A Plot Session is the live runtime created from that workflow by the Local Plot Server.
+A workflow is a Markdown file with front matter. A Plot Session is the live runtime created from that workflow.
 
 It answers three questions:
 
@@ -78,8 +78,7 @@ You can omit provider/model here and use Plot settings instead:
 {
 	"defaultProvider": "openai-codex",
 	"defaultModel": "gpt-5.5",
-	"defaultThinkingLevel": "high",
-	"dynamic": { "outDir": "workflows" }
+	"defaultThinkingLevel": "high"
 }
 ```
 
@@ -160,26 +159,13 @@ Registered tools come from the extension SDK:
 
 Keep this split clear: TypeScript owns integration correctness and idempotent mutations; the agent owns investigation, judgment, and final content. Output tools should bind or validate the current Work Item so the agent cannot accidentally write a result for the wrong target.
 
-## Dynamic workflows
-
-`plot dynamic` asks Plot to forge a normal Workflow Bundle from a goal:
-
-```bash
-plot dynamic "Audit each packages/* package and write .plot/dynamic/package-audit/report.md" --out workflows/package-audit --tui
-```
-
-This is dogfooding, not a second runtime. Plot writes an internal forge Workflow, runs it as a normal Plot Session, gives the Agent Run a trusted `write_dynamic_workflow_bundle` tool, passes the current Plot auth/model catalog as context, validates the generated `WORKFLOW.md` + `workflow.extension.ts`, and feeds validation errors back as repair Work Items up to a small bound. `--tui` opens that forge session so it is not a silent wait.
-
-The deterministic parts are the seam: artifact writes, configured-model context, validation, retry bounds, and Session History. The agent still owns the workflow design and the generated workflow's later investigation strategy.
-
 ## Running and observing
 
 ```bash
 plot run --workflow WORKFLOW.md
 plot tui --workflow WORKFLOW.md
-plot web
 ```
 
-`plot run` creates a oneshot Plot Session. `plot tui` opens a foreground terminal-owned watch session for this project/workflow; quitting it closes the session. `plot web` starts a foreground web gateway for the shared Local Plot Server fleet roster and can drill into live sessions. All three use the explicit control protocol by default.
+`plot run` creates a oneshot Plot Session. `plot tui` opens a foreground terminal-owned watch session for this project/workflow; quitting it closes the session.
 
-Plot stores project-local Session History under `.plot/sessions`. Session History records Plot control-plane events and projection state, while Agent Transcripts remain the inner agent-session record.
+Plot stores project-local Event Log under `.plot/sessions`. Event Log records Plot session events and projection state, while Agent Transcripts remain the inner agent-session record.

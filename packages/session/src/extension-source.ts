@@ -16,7 +16,6 @@ import {
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { logWideEvent } from "@plot/common/observability";
-import { TaggedError } from "better-result";
 import type { PlotPaths } from "./plot-paths.js";
 import type { WorkflowDefinition } from "./workflow.js";
 import type {
@@ -27,16 +26,24 @@ import type {
 	PlotExtensionWork,
 	PlotToolContext,
 	ToolDefinition,
-} from "./extension.js";
+} from "@plot/sdk";
 import * as plotSdk from "@plot/sdk";
+import { errorMessage, isRecord } from "./util.js";
 
-export class PlotExtensionSourceError extends TaggedError(
-	"PlotExtensionSourceError",
-)<{
+export class PlotExtensionSourceError extends Error {
+	override readonly name = "PlotExtensionSourceError";
 	readonly phase: "load" | "config" | "create" | "discover" | "hook";
-	readonly message: string;
-	readonly source?: string;
-}>() {}
+	readonly source?: string | undefined;
+	constructor(input: {
+		readonly phase: "load" | "config" | "create" | "discover" | "hook";
+		readonly message: string;
+		readonly source?: string | undefined;
+	}) {
+		super(input.message);
+		this.phase = input.phase;
+		this.source = input.source;
+	}
+}
 export interface LoadedPlotExtensionRuntime {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
@@ -55,8 +62,6 @@ export interface PlotExtensionSourceBundle {
 	readonly wrapRunner: (runner: WorkRunner) => WorkRunner;
 	readonly shutdown: () => Promise<void>;
 }
-const errorMessage = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
 const runMaybePromise = async <A>(
 	phase: PlotExtensionSourceError["phase"],
 	source: string | undefined,
@@ -126,8 +131,6 @@ const currentWorkKeys = (
 	works: readonly PlotExtensionWork[],
 ): ReadonlySet<WorkKey> =>
 	new Set(works.map((work) => workKeyForExtensionWork(extension, work)));
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 const templateContextForWork = (
 	workflow: WorkflowDefinition,
 	work: PlotExtensionWork,
@@ -145,7 +148,7 @@ const templateContextForWork = (
 	};
 	const base = { workflow: workflow.config, work: metadata };
 	if (work.context === undefined) return base;
-	if (isObjectRecord(work.context)) return { ...base, ...work.context };
+	if (isRecord(work.context)) return { ...base, ...work.context };
 	return { ...base, value: work.context };
 };
 const toSubject = (work: PlotExtensionWork) =>
@@ -297,7 +300,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				);
 			for (const observation of snapshot.observations) {
 				if (observation.type !== "operator_observation") continue;
-				if (!isObjectRecord(observation.data)) continue;
+				if (!isRecord(observation.data)) continue;
 				if (observation.data["sourceId"] !== source) continue;
 				const observedWorkKey = observation.data["workKey"];
 				if (typeof observedWorkKey !== "string") continue;
@@ -527,20 +530,8 @@ export const makePlotExtensionSourceBundle = (options: {
 		},
 	};
 };
-const dynamicForgeRuntime = {
-	validateDynamicWorkflowBundle: async (options: unknown) =>
-		(await import("./dynamic-workflow.js")).validateDynamicWorkflowBundle(
-			options as never,
-		),
-	writeDynamicWorkflowMetadata: async (input: unknown) =>
-		(await import("./dynamic-workflow.js")).writeDynamicWorkflowMetadata(
-			input as never,
-		),
-};
-
 const extensionVirtualModules: Record<string, unknown> = {
 	"plot-ai/sdk": plotSdk,
-	"plot-ai/internal/dynamic-workflow": dynamicForgeRuntime,
 };
 
 const importExtensionModule = async (source: string): Promise<unknown> => {
@@ -553,9 +544,9 @@ const importExtensionModule = async (source: string): Promise<unknown> => {
 };
 
 const getModuleExtension = (module: unknown): PlotExtension | undefined => {
-	if (!isObjectRecord(module)) return undefined;
+	if (!isRecord(module)) return undefined;
 	const candidate = module["default"] ?? module["extension"];
-	if (!isObjectRecord(candidate)) return undefined;
+	if (!isRecord(candidate)) return undefined;
 	if (typeof candidate["id"] !== "string") return undefined;
 	if (typeof candidate["create"] !== "function") return undefined;
 	return candidate as unknown as PlotExtension;

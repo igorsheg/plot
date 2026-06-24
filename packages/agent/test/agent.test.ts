@@ -376,16 +376,12 @@ describe("task-agnostic Plot agent", () => {
 			id: sourceId("rerun"),
 			selectWork: () => [{ workKey: key }],
 		};
-		const agent = makeAgent([source], succeedRunner(), {
-			continuationDelayMs: 20,
-		});
+		const agent = makeAgent([source]);
 		await agent.tickOnce();
 		await yieldNow();
 		const second = await agent.tickOnce();
-		await new Promise((resolve) => setTimeout(resolve, 25));
-		const third = await agent.tickOnce();
 		expect(second.completions).toHaveLength(1);
-		expect(third.started).toHaveLength(1);
+		expect(second.started).toHaveLength(1);
 	});
 
 	test("sources can interrupt running work without owning runner fibers", async () => {
@@ -744,20 +740,45 @@ describe("task-agnostic Plot agent", () => {
 		expect(result.snapshot.running.has(key)).toBe(false);
 	});
 
-	test("failed work backs off instead of retrying at tick cadence", async () => {
+	test("sources own retry and backoff decisions from completions", async () => {
 		const key = workKey("flaky:1");
+		const failedFact = "flaky:failed";
+		const doneFact = "flaky:done";
+		let retryAllowed = false;
+		let runs = 0;
 		const source: WorkSource = {
 			id: sourceId("flaky"),
-			selectWork: () => [{ workKey: key }],
+			reconcile: ({ snapshot }) =>
+				snapshot.completions.flatMap((completion) => {
+					if (completion.workKey !== key) return [];
+					if (completion.status === "failed")
+						return [
+							setFact(failedFact, true),
+							scheduleWake(20, {
+								reason: "source retry",
+								workKey: key,
+								attempt: 1,
+							}),
+						];
+					if (completion.status === "succeeded")
+						return [setFact(doneFact, true)];
+					return [];
+				}),
+			selectWork: ({ snapshot }) => {
+				if (snapshot.running.has(key) || snapshot.facts.get(doneFact) === true)
+					return [];
+				if (snapshot.facts.get(failedFact) === true && !retryAllowed) return [];
+				return [{ workKey: key }];
+			},
 		};
 		const runner: WorkRunner = {
 			run: () => {
-				throw new Error("boom");
+				runs += 1;
+				if (runs === 1) throw new Error("boom");
+				return {};
 			},
 		};
-		const agent = makeAgent([source], runner, {
-			retryInitialDelayMs: 60_000,
-		});
+		const agent = makeAgent([source], runner);
 		await agent.tickOnce();
 		await yieldNow();
 		const second = await agent.tickOnce();
@@ -765,36 +786,11 @@ describe("task-agnostic Plot agent", () => {
 			expect.objectContaining({ status: "failed", workKey: key }),
 		);
 		expect(second.started).toHaveLength(0);
-		expect(second.skipped).toContainEqual(
-			expect.objectContaining({ workKey: key, reason: "retry_backoff" }),
+		expect(second.snapshot.scheduledWakes).toContainEqual(
+			expect.objectContaining({ reason: "source retry", workKey: key }),
 		);
-		expect(second.snapshot.retries?.get(key)).toEqual(
-			expect.objectContaining({ attempt: 1, lastError: "boom" }),
-		);
-	});
 
-	test("backed-off work becomes eligible again and success schedules continuation", async () => {
-		const key = workKey("recovers:1");
-		let failures = 1;
-		const source: WorkSource = {
-			id: sourceId("recovers"),
-			selectWork: ({ snapshot }) =>
-				snapshot.running.has(key) ? [] : [{ workKey: key }],
-		};
-		const runner: WorkRunner = {
-			run: () => {
-				if (failures-- > 0) throw new Error("boom");
-				return {};
-			},
-		};
-		const agent = makeAgent([source], runner, {
-			retryInitialDelayMs: 20,
-			continuationDelayMs: 20,
-		});
-		await agent.tickOnce();
-		await yieldNow();
-		await agent.tickOnce(); // records the failure and backs off
-		await new Promise((resolve) => setTimeout(resolve, 25));
+		retryAllowed = true;
 		const third = await agent.tickOnce();
 		expect(third.started).toHaveLength(1);
 		await yieldNow();
@@ -802,17 +798,19 @@ describe("task-agnostic Plot agent", () => {
 		expect(fourth.completions).toContainEqual(
 			expect.objectContaining({ status: "succeeded", workKey: key }),
 		);
-		expect(fourth.snapshot.retries?.get(key)).toEqual(
-			expect.objectContaining({ attempt: 1, kind: "continuation" }),
-		);
+		expect(fourth.started).toHaveLength(0);
 	});
 
 	test("stalled runs are interrupted after the inactivity timeout", async () => {
 		const key = workKey("stalls:1");
+		let selected = false;
 		const source: WorkSource = {
 			id: sourceId("stalls"),
-			selectWork: ({ snapshot }) =>
-				snapshot.running.has(key) ? [] : [{ workKey: key }],
+			selectWork: ({ snapshot }) => {
+				if (selected || snapshot.running.has(key)) return [];
+				selected = true;
+				return [{ workKey: key }];
+			},
 		};
 		const runner: WorkRunner = { run: () => never() };
 		const agent = makeAgent([source], runner, { stallTimeoutMs: 5 });

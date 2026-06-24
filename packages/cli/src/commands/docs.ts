@@ -1,21 +1,18 @@
 import { defineCommand } from "citty";
 import { getCliIo } from "../cli-context.js";
-import { extensionPrompt, plotDocs } from "../docs-content.js";
+import { isDocName, readExtensionPrompt, readPlotDoc } from "../docs.js";
 
-const docNames = [
-	"index",
-	"quickstart",
-	"workflows",
-	"extensions",
-	"tui",
-	"web",
-] as const;
-type DocName = (typeof docNames)[number];
+const docsIndex = `Plot docs
 
-const isDocName = (value: string): value is DocName =>
-	(docNames as readonly string[]).includes(value);
+Start here:
+  plot docs quickstart
+  plot docs workflows
+  plot docs extensions
+  plot docs tui
 
-const docsIndex = `Plot docs\n\nStart here:\n  plot docs quickstart\n  plot docs workflows\n  plot docs extensions\n  plot docs tui\n  plot docs web\n\nFor LLM-assisted extension authoring:\n  plot docs extension-prompt\n`;
+For LLM-assisted extension authoring:
+  plot docs extension-prompt
+`;
 
 export const docsCommand = defineCommand({
 	meta: {
@@ -25,8 +22,7 @@ export const docsCommand = defineCommand({
 	args: {
 		topic: {
 			type: "positional",
-			description:
-				"index|quickstart|workflows|extensions|tui|web|extension-prompt",
+			description: "index|quickstart|workflows|extensions|tui|extension-prompt",
 			required: false,
 		},
 	},
@@ -38,11 +34,11 @@ export const docsCommand = defineCommand({
 			return;
 		}
 		if (topic === "extension-prompt") {
-			await io.writeStdout(extensionPrompt);
+			await io.writeStdout(await readExtensionPrompt());
 			return;
 		}
 		if (isDocName(topic)) {
-			await io.writeStdout(plotDocs[topic]);
+			await io.writeStdout(await readPlotDoc(topic));
 			return;
 		}
 		await io.writeStdout(`${docsIndex}\nUnknown docs topic: ${topic}\n`);
