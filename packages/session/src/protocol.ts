@@ -143,7 +143,7 @@ export type PlotWelcomeRecord = z.infer<typeof plotWelcomeRecordSchema>;
 export const plotEventRecordSchema = z
 	.object({
 		protocol: plotProtocolVersionSchema,
-		kind: z.enum(["event", "session_event"]),
+		kind: z.literal("event"),
 		sessionId: nonEmptyStringSchema.optional(),
 		epoch: nonEmptyStringSchema.optional(),
 		sequence: eventLogSequenceSchema.optional(),
@@ -261,7 +261,6 @@ export const makePlotEventRecord = (event: PlotEvent): PlotEventRecord => ({
 	kind: "event",
 	event,
 });
-export const makePlotSessionEventRecord = makePlotEventRecord;
 export const makePlotSuccessResponse = (options: {
 	readonly id: PlotProtocolRequestId;
 	readonly command: PlotCommand;

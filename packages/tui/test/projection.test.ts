@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	plotProtocolVersion,
-	type PlotServerRecord,
+	type PlotEventRecord,
 } from "@plot/session/protocol";
 import { dashboardModelFrom } from "../src/dashboard-model.js";
 import {
@@ -14,10 +14,9 @@ const eventRecord = (
 	sequence: number,
 	type: string,
 	payload: unknown,
-	kind: "event" | "session_event" = "session_event",
-): PlotServerRecord => ({
+): PlotEventRecord => ({
 	protocol: plotProtocolVersion,
-	kind,
+	kind: "event",
 	sessionId: "default",
 	epoch: "epoch-1",
 	sequence,
@@ -43,7 +42,7 @@ const agentEventRecord = (
 	sequence: number,
 	event: unknown,
 	timestamp = "2026-06-15T00:00:00.000Z",
-): PlotServerRecord => ({
+): PlotEventRecord => ({
 	protocol: plotProtocolVersion,
 	kind: "event",
 	event: {
@@ -71,19 +70,14 @@ describe("Plot TUI projection", () => {
 		let p = emptyProjection("default", "workflow");
 		p = reduceRecord(
 			p,
-			eventRecord(
-				1,
-				"attempt_started",
-				{
-					run: {
-						runId: "run-1",
-						workKey: "source:item:42",
-						sourceId: "extension:worker",
-						display: { primary: "#42", title: "Fix checkout" },
-					},
+			eventRecord(1, "attempt_started", {
+				run: {
+					runId: "run-1",
+					workKey: "source:item:42",
+					sourceId: "extension:worker",
+					display: { primary: "#42", title: "Fix checkout" },
 				},
-				"event",
-			),
+			}),
 		);
 		expect(p.work.get("source:item:42")?.status).toBe("running");
 	});

@@ -1,4 +1,4 @@
-import type { PlotServerRecord, EventLogEvent } from "@plot/session/protocol";
+import type { EventLogEvent, PlotEventRecord } from "@plot/session/protocol";
 import {
 	appendStreamDelta,
 	piEventDisplay,
@@ -660,11 +660,8 @@ export const reduceEventLogEvent = (
 };
 export const reduceRecord = (
 	projection: DashboardProjection,
-	input: PlotServerRecord,
-): DashboardProjection =>
-	input.kind === "event" || input.kind === "session_event"
-		? reduceEventLogEvent(projection, input.event)
-		: projection;
+	input: PlotEventRecord,
+): DashboardProjection => reduceEventLogEvent(projection, input.event);
 
 export const applySnapshot = (
 	projection: DashboardProjection,
