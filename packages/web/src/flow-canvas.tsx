@@ -12,6 +12,13 @@ import {
 } from "@xyflow/react";
 // oxlint-disable-next-line import/no-unassigned-import
 import "@xyflow/react/dist/style.css";
+import { Badge } from "./components/ui/badge.js";
+import {
+	Card,
+	CardHeader,
+	CardPanel,
+	CardTitle,
+} from "./components/ui/card.js";
 import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
 import type { PlotSessionRegistration } from "./registration.js";
 
@@ -43,42 +50,54 @@ function SessionCard({ data }: NodeProps<SessionNode>) {
 	const session = data.session;
 	const live = data.live;
 	return (
-		<article className="session-node">
-			<header className="session-node__header">
-				<div>
-					<strong>{session.workflowName}</strong>
-					<span>{session.cwdName}</span>
+		<Card className="w-[400px] overflow-hidden shadow-xl/10">
+			<CardHeader className="grid-cols-[1fr_auto] border-b bg-muted/50 p-4">
+				<div className="min-w-0">
+					<CardTitle className="truncate text-[15px]">
+						{session.workflowName}
+					</CardTitle>
+					<p className="truncate text-muted-foreground text-sm">
+						{session.cwdName}
+					</p>
 				</div>
-				<small>pid {session.pid}</small>
-			</header>
-			<dl className="session-node__body">
-				<div>
-					<dt>session</dt>
-					<dd>{session.sessionId}</dd>
-				</div>
-				<div>
-					<dt>last</dt>
-					<dd>
-						{live?.lastType ?? session.lastEventType ?? "registered"} #
-						{live?.frontier ?? session.lastSequence}
-					</dd>
-				</div>
-				<div>
-					<dt>stream</dt>
-					<dd>
-						{live === undefined ? "connecting" : `${live.eventCount} event(s)`}
-					</dd>
-				</div>
-				<div>
-					<dt>seen</dt>
-					<dd>{formatHeartbeat(session.heartbeatAt)}</dd>
-				</div>
-				<div>
-					<dt>cwd</dt>
-					<dd title={session.cwd}>{session.cwd}</dd>
-				</div>
-			</dl>
-		</article>
+				<Badge variant="outline">pid {session.pid}</Badge>
+			</CardHeader>
+			<CardPanel className="grid gap-3 p-4 text-sm">
+				<SessionFact label="session" value={session.sessionId} />
+				<SessionFact
+					label="last"
+					value={`${live?.lastType ?? session.lastEventType ?? "registered"} #${live?.frontier ?? session.lastSequence}`}
+				/>
+				<SessionFact
+					label="stream"
+					value={
+						live === undefined ? "connecting" : `${live.eventCount} event(s)`
+					}
+				/>
+				<SessionFact
+					label="seen"
+					value={formatHeartbeat(session.heartbeatAt)}
+				/>
+				<SessionFact label="cwd" value={session.cwd} title={session.cwd} />
+			</CardPanel>
+		</Card>
+	);
+}
+
+function SessionFact(props: {
+	readonly label: string;
+	readonly title?: string | undefined;
+	readonly value: string;
+}) {
+	return (
+		<div className="min-w-0">
+			<div className="font-semibold text-[11px] text-muted-foreground uppercase tracking-widest">
+				{props.label}
+			</div>
+			<div className="truncate text-foreground" title={props.title}>
+				{props.value}
+			</div>
+		</div>
 	);
 }
 
