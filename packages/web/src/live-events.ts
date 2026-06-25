@@ -67,16 +67,23 @@ export const useSessionLiveEvents = (
 	const keySignature = keys.join("\0");
 
 	useEffect(() => {
-		const keySet = new Set(keys);
 		setLive((previous) =>
 			Object.fromEntries(
-				Object.entries(previous).filter(([key]) => keySet.has(key)),
+				sessions.map((session) => [
+					session.key,
+					previous[session.key] ?? {
+						frontier: session.lastSequence,
+						eventCount: 0,
+						lastType: session.lastEventType,
+						lastAt: session.heartbeatAt,
+					},
+				]),
 			),
 		);
-		// ponytail: stream every discovered session; switch to viewport/selection when fleets get large.
+		// ponytail: stream every discovered session from the catalog frontier; replay full logs only for expanded detail views later.
 		const sources = sessions.map((session) => {
 			const source = new EventSource(
-				`/api/sessions/${session.key}/events?after=0`,
+				`/api/sessions/${session.key}/events?after=${session.lastSequence}`,
 			);
 			source.addEventListener("plot", (message) => {
 				const record = parsePlotEventRecord(
