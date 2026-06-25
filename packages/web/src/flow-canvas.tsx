@@ -194,14 +194,12 @@ const sessionNodes = (input: {
 	readonly live: SessionLiveMap;
 	readonly onFocusNode: (ids: readonly string[]) => void;
 	readonly onOpenDetail: (key: string) => void;
-	readonly selectedNodeId?: string | undefined;
 	readonly sessions: readonly PlotSessionRegistration[];
 }): SessionNode[] =>
 	input.sessions.map((session, index) => ({
 		draggable: false,
 		id: session.key,
 		position: sessionPosition(index),
-		selected: input.selectedNodeId === session.key,
 		type: "plot-session",
 		data: {
 			live: input.live[session.key],
@@ -217,7 +215,6 @@ const detailNodes = (input: {
 	readonly onCloseDetail: (key: string) => void;
 	readonly onFocusNode: (ids: readonly string[]) => void;
 	readonly openDetailKeys: readonly string[];
-	readonly selectedNodeId?: string | undefined;
 	readonly sessions: readonly PlotSessionRegistration[];
 }): DetailNode[] =>
 	input.openDetailKeys.flatMap((key) => {
@@ -232,7 +229,6 @@ const detailNodes = (input: {
 				draggable: true,
 				id,
 				position: detailPosition(index, layout),
-				selected: input.selectedNodeId === id,
 				style: {
 					height: layout?.height ?? detailHeight,
 					width: layout?.width ?? detailWidth,
@@ -263,21 +259,23 @@ const minimapColor = (node: PlotNode) =>
 
 function PlotCanvasSurface(props: PlotCanvasProps) {
 	const flow = useReactFlow<PlotNode, PlotEdge>();
+	const flowRef = useRef(flow);
 	const [detailLayout, setDetailLayout] = useState(readStoredLayout);
 	const [selectedNodeId, setSelectedNodeId] = useState<string>();
 	const lastOpenSignature = useRef("");
 
-	const focusNodes = useCallback(
-		(ids: readonly string[]) => {
-			void flow.fitView({
-				duration: 240,
-				maxZoom: 1.1,
-				nodes: ids.map((id) => ({ id })),
-				padding: 0.24,
-			});
-		},
-		[flow],
-	);
+	useEffect(() => {
+		flowRef.current = flow;
+	}, [flow]);
+
+	const focusNodes = useCallback((ids: readonly string[]) => {
+		void flowRef.current.fitView({
+			duration: 240,
+			maxZoom: 1.1,
+			nodes: ids.map((id) => ({ id })),
+			padding: 0.24,
+		});
+	}, []);
 
 	const closeAllDetails = () => {
 		for (const key of props.openDetailKeys) props.onCloseDetail(key);
@@ -293,7 +291,6 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 				live: props.live,
 				onFocusNode: focusNodes,
 				onOpenDetail: props.onOpenDetail,
-				selectedNodeId,
 				sessions: props.sessions,
 			}),
 			...detailNodes({
@@ -302,7 +299,6 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 				onCloseDetail: props.onCloseDetail,
 				onFocusNode: focusNodes,
 				openDetailKeys: props.openDetailKeys,
-				selectedNodeId,
 				sessions: props.sessions,
 			}),
 		],
@@ -315,7 +311,6 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 			props.onOpenDetail,
 			props.openDetailKeys,
 			props.sessions,
-			selectedNodeId,
 		],
 	);
 
