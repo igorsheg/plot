@@ -39,6 +39,7 @@ const openBrowser = (url: string) => {
 };
 
 const assetResponse = (pathname: string): Response => {
+	if (pathname === "/favicon.ico") return new Response(null, { status: 204 });
 	const path = pathname === "/" ? "/index.html" : pathname;
 	const asset = assets[path];
 	if (asset === undefined) return new Response("not found", { status: 404 });

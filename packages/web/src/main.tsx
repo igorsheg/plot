@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
 	Tldraw,
 	createShapeId,
+	toRichText,
 	type Editor,
 	type TLShapePartial,
 } from "tldraw";
@@ -68,9 +69,13 @@ const sessionShapes = (
 				y: y + 20,
 				meta: { plot: "session" },
 				props: {
-					text: cardText(session),
+					richText: toRichText(cardText(session)),
 					color: "black",
+					font: "sans",
 					size: "m",
+					textAlign: "start",
+					autoSize: false,
+					scale: 1,
 					w: 360,
 				},
 			},
