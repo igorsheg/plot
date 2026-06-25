@@ -1,0 +1,25 @@
+{
+	"name": "@plot/web",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite --host 127.0.0.1",
+		"build": "vite build",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint src test --tsconfig tsconfig.json",
+		"test": "bun test test"
+	},
+	"dependencies": {
+		"@vitejs/plugin-react": "latest",
+		"react": "^19.2.1",
+		"react-dom": "^19.2.1",
+		"tldraw": "^4.2.0",
+		"vite": "npm:rolldown-vite@latest"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*",
+		"@types/react": "^19.2.7",
+		"@types/react-dom": "^19.2.3",
+		"typescript": "^5.8.2"
+	}
+}

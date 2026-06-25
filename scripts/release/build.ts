@@ -26,6 +26,8 @@ import {
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
 
+await $`bun --filter @plot/web build`.cwd(repoDir);
+await $`bun run scripts/web-assets.ts`.cwd(repoDir);
 await $`bun run build`.cwd(sdkPackageDir);
 await Promise.all(releaseTargets.map((target) => buildPlatformPackage(target)));
 await buildUmbrellaPackage();

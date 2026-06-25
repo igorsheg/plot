@@ -23,6 +23,11 @@ export const cliSemantics = {
 		surface: "frontend",
 		description: "Run a workflow once without opening the dashboard.",
 	},
+	web: {
+		audience: "human",
+		surface: "frontend",
+		description: "Open the local Plot canvas for running sessions.",
+	},
 	serve: {
 		audience: "machine",
 		surface: "transport",

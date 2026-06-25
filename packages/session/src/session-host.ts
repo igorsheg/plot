@@ -21,8 +21,16 @@ import {
 	plotSessionId,
 	type PlotSessionShape,
 } from "./session.js";
+import { basename } from "node:path";
 import { createEventLogStore, type EventLogStore } from "./event-log.js";
 import { makePlotProtocolLayer } from "./protocol-session.js";
+import {
+	plotSessionRegistrationKey,
+	removePlotSessionRegistration,
+	resolvePlotSessionDiscoveryDir,
+	writePlotSessionRegistration,
+	type PlotSessionRegistration,
+} from "./session-registration.js";
 import {
 	defaultPlotProtocolLimits,
 	type PlotProtocolLimits,
@@ -90,6 +98,82 @@ const workflowSourceId = sourceId("workflow");
 const workflowSubject = subjectKey("workflow");
 const workflowWorkKey = workKey("workflow:default");
 const workflowCompletedFact = "workflow:default:completed";
+const workflowName = (workflow: WorkflowDefinition): string =>
+	workflow.runtime.name ??
+	(workflow.path === undefined ? "workflow" : basename(workflow.path));
+const registerSessionEventLog = async (input: {
+	readonly eventLog: EventLogStore;
+	readonly paths: PlotPaths;
+	readonly workflow: WorkflowDefinition;
+}): Promise<{
+	readonly eventLog: EventLogStore;
+	readonly shutdown: () => void;
+}> => {
+	const discoveryDir = resolvePlotSessionDiscoveryDir({
+		agentDir: input.paths.agentDir,
+	});
+	const key = plotSessionRegistrationKey({
+		cwd: input.paths.cwd,
+		sessionId: input.eventLog.sessionId,
+	});
+	const startedAt = new Date().toISOString();
+	const base = (): Omit<
+		PlotSessionRegistration,
+		"heartbeatAt" | "lastSequence" | "lastEventType"
+	> => ({
+		version: 1,
+		key,
+		sessionId: input.eventLog.sessionId,
+		workflowName: workflowName(input.workflow),
+		workflowPath: input.workflow.path ?? "WORKFLOW.md",
+		cwd: input.paths.cwd,
+		cwdName: basename(input.paths.cwd),
+		sessionDir: input.eventLog.sessionPath,
+		eventLogPath: input.eventLog.eventLogPath,
+		pid: process.pid,
+		startedAt,
+	});
+	let lastSequence = (await input.eventLog.frontier()).lastSequence;
+	let lastEventType: string | undefined;
+	const write = async (heartbeatAt = new Date().toISOString()) => {
+		try {
+			await writePlotSessionRegistration({
+				discoveryDir,
+				registration: {
+					...base(),
+					heartbeatAt,
+					lastSequence,
+					...(lastEventType === undefined ? {} : { lastEventType }),
+				},
+			});
+		} catch {
+			// ponytail: discovery is display metadata; never break the agent session.
+		}
+	};
+	await write(startedAt);
+	const heartbeat = setInterval(() => {
+		void write();
+	}, 2_000);
+	heartbeat.unref?.();
+	return {
+		eventLog: {
+			...input.eventLog,
+			append: async (event) => {
+				const appended = await input.eventLog.append(event);
+				if (appended.kind !== "agent_session_event") {
+					lastSequence = Number(appended.sequence);
+					lastEventType = appended.type;
+					await write(appended.timestamp);
+				}
+				return appended;
+			},
+		},
+		shutdown: () => {
+			clearInterval(heartbeat);
+			void removePlotSessionRegistration({ discoveryDir, key });
+		},
+	};
+};
 export const makeOneShotWorkflowSource = (
 	workflow: WorkflowDefinition,
 ): WorkSource => ({
@@ -162,10 +246,15 @@ export const createPlotSessionHost = async (
 				? {}
 				: { overrides: options.agentSessionOverrides }),
 		});
-	const eventLog = await createEventLogStore({
-		sessionDir: paths.sessionDir,
-		sessionId: options.sessionId,
+	const registration = await registerSessionEventLog({
+		eventLog: await createEventLogStore({
+			sessionDir: paths.sessionDir,
+			sessionId: options.sessionId,
+		}),
+		paths,
+		workflow,
 	});
+	const eventLog = registration.eventLog;
 	const extensionBundle = workflow.runtime.extension
 		? await makePlotExtensionSourceBundleFromWorkflow({ workflow, paths })
 		: undefined;
@@ -207,7 +296,10 @@ export const createPlotSessionHost = async (
 		eventBufferCapacity,
 		eventLog,
 		session,
-		shutdown: extensionBundle?.shutdown ?? (async () => {}),
+		shutdown: async () => {
+			registration.shutdown();
+			await extensionBundle?.shutdown?.();
+		},
 	};
 };
 const completionFromEvent = (event: EventLogEvent): Completion | undefined =>

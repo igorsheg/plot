@@ -121,6 +121,7 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("dynamic");
 		expect(output).toContain("run");
 		expect(output).toContain("tui");
+		expect(output).toContain("web");
 		expect(output).toContain("serve");
 		expect(output).not.toContain("stop");
 		expect(output).not.toContain("service");
@@ -137,6 +138,7 @@ describe("plot CLI", () => {
 
 		const output = stdout.join("");
 		expect(output).toContain("plot [OPTIONS]");
+		expect(output).toContain("web");
 		expect(output).toContain("serve");
 	});
 

@@ -10,6 +10,7 @@
 		"./pi/settings": "./src/pi/settings.ts",
 		"./plot-paths": "./src/plot-paths.ts",
 		"./session": "./src/session.ts",
+		"./session-registration": "./src/session-registration.ts",
 		"./protocol": "./src/protocol.ts",
 		"./protocol-session": "./src/protocol-session.ts",
 		"./protocol-jsonl": "./src/protocol-jsonl.ts",

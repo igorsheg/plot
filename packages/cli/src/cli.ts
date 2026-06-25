@@ -12,6 +12,7 @@ import { docsCommand } from "./commands/docs.js";
 import { listModelsCommand } from "./commands/list-models.js";
 import { runCommand } from "./commands/run.js";
 import { serveCommand } from "./commands/serve.js";
+import { webCommand } from "./commands/web.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 import { baseOptions } from "./options.js";
 import { cliSemantics } from "./semantics.js";
@@ -55,6 +56,7 @@ const subCommands = {
 	docs: docsCommand,
 	run: runCommand,
 	tui: tuiCommand,
+	web: webCommand,
 	serve: serveCommand,
 };
 
