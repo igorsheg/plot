@@ -16,7 +16,7 @@ import {
 	EmptyHeader,
 	EmptyTitle,
 } from "./components/ui/empty.js";
-import { Toolbar, ToolbarGroup } from "./components/ui/toolbar.js";
+import { Group } from "./components/ui/group.js";
 import { PlotCanvas } from "./flow-canvas.js";
 import { useSessionLiveEvents, type SessionLiveMap } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
@@ -197,17 +197,17 @@ function PlotToolbar() {
 	} = usePlotApp();
 	return (
 		<header className="toolbar">
-			<Toolbar className="plot-app-toolbar">
-				<ToolbarGroup>
+			<div className="plot-app-toolbar">
+				<div className="plot-app-toolbar-title">
 					<strong>Plot Canvas</strong>
 					<span>{sessions.length} running session(s)</span>
-				</ToolbarGroup>
-				<ToolbarGroup>
+				</div>
+				<Group aria-label="Fleet actions">
 					<Button size="sm" variant="outline" onClick={() => void reload()}>
 						Refresh
 					</Button>
-				</ToolbarGroup>
-			</Toolbar>
+				</Group>
+			</div>
 		</header>
 	);
 }

@@ -24,7 +24,6 @@ import "@xyflow/react/dist/style.css";
 import type { WebDashboardProjection } from "./api.js";
 import { Button } from "./components/ui/button.js";
 import { Group, GroupSeparator } from "./components/ui/group.js";
-import { Toolbar, ToolbarGroup } from "./components/ui/toolbar.js";
 import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
 import type { PlotSessionRegistration } from "./registration.js";
 import { SessionDetailWindow } from "./session-detail.js";
@@ -119,16 +118,15 @@ function SessionNodeCard({ data, id, selected }: NodeProps<SessionNode>) {
 				nodeId={id}
 				position={Position.Top}
 			>
-				<Toolbar className="plot-node-toolbar">
-					<ToolbarGroup>
-						<Button size="sm" variant="secondary" onClick={data.onOpen}>
-							Open
-						</Button>
-						<Button size="sm" variant="outline" onClick={data.onFocus}>
-							Focus
-						</Button>
-					</ToolbarGroup>
-				</Toolbar>
+				<Group className="plot-node-toolbar" aria-label="Session actions">
+					<Button size="sm" variant="secondary" onClick={data.onOpen}>
+						Open
+					</Button>
+					<GroupSeparator />
+					<Button size="sm" variant="outline" onClick={data.onFocus}>
+						Focus
+					</Button>
+				</Group>
 			</NodeToolbar>
 			<FleetSessionCard session={data.session} live={data.live} />
 		</>
@@ -156,16 +154,15 @@ function DetailNodeCard({ data, id, selected }: NodeProps<DetailNode>) {
 				nodeId={id}
 				position={Position.Top}
 			>
-				<Toolbar className="plot-node-toolbar">
-					<ToolbarGroup>
-						<Button size="sm" variant="outline" onClick={data.onFocus}>
-							Focus
-						</Button>
-						<Button size="sm" variant="outline" onClick={data.onClose}>
-							Close
-						</Button>
-					</ToolbarGroup>
-				</Toolbar>
+				<Group className="plot-node-toolbar" aria-label="Detail actions">
+					<Button size="sm" variant="outline" onClick={data.onFocus}>
+						Focus
+					</Button>
+					<GroupSeparator />
+					<Button size="sm" variant="outline" onClick={data.onClose}>
+						Close
+					</Button>
+				</Group>
 			</NodeToolbar>
 			<SessionDetailWindow
 				onClose={data.onClose}
