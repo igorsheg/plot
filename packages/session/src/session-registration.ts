@@ -168,11 +168,9 @@ export const isProcessAlive = (pid: number): boolean => {
 
 export const isLivePlotSessionRegistration = (
 	registration: PlotSessionRegistration,
-	nowMs = Date.now(),
-	maxHeartbeatAgeMs = 10_000,
-): boolean =>
-	isProcessAlive(registration.pid) &&
-	nowMs - Date.parse(registration.heartbeatAt) <= maxHeartbeatAgeMs;
+	_nowMs = Date.now(),
+	_maxHeartbeatAgeMs = 10_000,
+): boolean => isProcessAlive(registration.pid);
 
 export const readLivePlotSessionRegistrations = async (input: {
 	readonly discoveryDir: string;

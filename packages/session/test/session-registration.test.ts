@@ -57,6 +57,22 @@ describe("Plot session registration", () => {
 		).toMatchObject({ version: 1, cwd: "/repo/one" });
 	});
 
+	test("keeps pid-live sessions even when heartbeat is stale", async () => {
+		const discoveryDir = await mkdtemp(join(tmpdir(), "plot-discovery-"));
+		const cwd = "/repo/stale-heartbeat";
+		await writePlotSessionRegistration({
+			discoveryDir,
+			registration: registration(discoveryDir, cwd),
+		});
+
+		const live = await readLivePlotSessionRegistrations({
+			discoveryDir,
+			nowMs: Date.parse("2026-01-01T00:10:00.000Z"),
+		});
+
+		expect(live.map((item) => item.cwd)).toEqual([cwd]);
+	});
+
 	test("stores discovery beside the agent state", () => {
 		expect(
 			resolvePlotSessionDiscoveryDir({ agentDir: "/home/me/.plot/agent" }),
