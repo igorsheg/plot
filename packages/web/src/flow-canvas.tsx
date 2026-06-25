@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	applyNodeChanges,
 	Background,
 	BackgroundVariant,
 	Controls,
@@ -266,7 +265,7 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 	const flow = useReactFlow<PlotNode, PlotEdge>();
 	const [detailLayout, setDetailLayout] = useState(readStoredLayout);
 	const [selectedNodeId, setSelectedNodeId] = useState<string>();
-	const [lastOpenSignature, setLastOpenSignature] = useState("");
+	const lastOpenSignature = useRef("");
 
 	const focusNodes = useCallback(
 		(ids: readonly string[]) => {
@@ -325,63 +324,50 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 		[props.openDetailKeys],
 	);
 
-	const onNodesChange = useCallback<OnNodesChange<PlotNode>>(
-		(changes) => {
-			const updated = applyNodeChanges(changes, nodes) as PlotNode[];
-			setDetailLayout((previous) => {
-				let next = previous;
-				for (const node of updated) {
-					if (node.type !== "session-detail") continue;
-					const key = detailKey(node.id);
-					const width =
-						typeof node.style?.width === "number"
-							? node.style.width
-							: previous[key]?.width;
-					const height =
-						typeof node.style?.height === "number"
-							? node.style.height
-							: previous[key]?.height;
-					next = {
-						...next,
-						[key]: { height, position: node.position, width },
-					};
+	const onNodesChange = useCallback<OnNodesChange<PlotNode>>((changes) => {
+		setDetailLayout((previous) => {
+			let next = previous;
+			const update = (key: string, patch: DetailLayout) => {
+				const current = next[key];
+				const samePosition =
+					patch.position === undefined ||
+					(current?.position?.x === patch.position.x &&
+						current.position.y === patch.position.y);
+				const sameSize =
+					(patch.width === undefined || current?.width === patch.width) &&
+					(patch.height === undefined || current?.height === patch.height);
+				if (samePosition && sameSize) return;
+				next = { ...next, [key]: { ...current, ...patch } };
+			};
+			for (const change of changes) {
+				if (change.type === "add" || !change.id.startsWith("detail:")) continue;
+				const key = detailKey(change.id);
+				if (change.type === "position" && change.position !== undefined) {
+					update(key, { position: change.position });
 				}
-				for (const change of changes) {
-					if (
-						change.type !== "dimensions" ||
-						!change.id.startsWith("detail:") ||
-						change.dimensions === undefined
-					)
-						continue;
-					const key = detailKey(change.id);
-					next = {
-						...next,
-						[key]: {
-							...next[key],
-							height: change.dimensions.height,
-							width: change.dimensions.width,
-						},
-					};
+				if (change.type === "dimensions" && change.dimensions !== undefined) {
+					update(key, {
+						height: change.dimensions.height,
+						width: change.dimensions.width,
+					});
 				}
-				return next;
-			});
-		},
-		[nodes],
-	);
+			}
+			return next;
+		});
+	}, []);
 
 	useEffect(() => {
 		writeStoredLayout(detailLayout);
 	}, [detailLayout]);
 
 	useEffect(() => {
+		const previous = lastOpenSignature.current.split("\0");
 		const signature = props.openDetailKeys.join("\0");
-		const opened = props.openDetailKeys.find(
-			(key) => !lastOpenSignature.split("\0").includes(key),
-		);
-		setLastOpenSignature(signature);
+		const opened = props.openDetailKeys.find((key) => !previous.includes(key));
+		lastOpenSignature.current = signature;
 		if (opened === undefined) return;
 		focusNodes([opened, detailNodeId(opened)]);
-	}, [focusNodes, lastOpenSignature, props.openDetailKeys]);
+	}, [focusNodes, props.openDetailKeys]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
