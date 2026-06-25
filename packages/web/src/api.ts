@@ -12,6 +12,12 @@ export interface PlotEventRecord {
 	};
 }
 
+export interface WebActivityEntry {
+	readonly atMs: number;
+	readonly tone: string;
+	readonly text: string;
+}
+
 export interface WebDashboardProjection {
 	readonly sessionId: string;
 	readonly workflowName: string;
@@ -19,6 +25,7 @@ export interface WebDashboardProjection {
 	readonly frontier: number;
 	readonly work: Record<string, unknown>;
 	readonly attempts: Record<string, unknown>;
+	readonly activity: readonly WebActivityEntry[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -46,6 +53,17 @@ export const parsePlotEventRecord = (
 	};
 };
 
+const parseActivityEntry = (value: unknown): WebActivityEntry | undefined => {
+	if (!isRecord(value)) return undefined;
+	if (
+		typeof value["atMs"] !== "number" ||
+		typeof value["tone"] !== "string" ||
+		typeof value["text"] !== "string"
+	)
+		return undefined;
+	return { atMs: value["atMs"], tone: value["tone"], text: value["text"] };
+};
+
 const parseProjection = (
 	value: unknown,
 ): WebDashboardProjection | undefined => {
@@ -67,6 +85,11 @@ const parseProjection = (
 		frontier: projection["frontier"],
 		work: isRecord(projection["work"]) ? projection["work"] : {},
 		attempts: isRecord(projection["attempts"]) ? projection["attempts"] : {},
+		activity: Array.isArray(projection["activity"])
+			? projection["activity"]
+					.map(parseActivityEntry)
+					.filter((entry) => entry !== undefined)
+			: [],
 	};
 };
 

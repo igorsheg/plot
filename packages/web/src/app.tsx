@@ -1,19 +1,35 @@
 import { createContext, use, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { fetchSessions } from "./api.js";
+import {
+	fetchSessionProjection,
+	fetchSessions,
+	type WebDashboardProjection,
+} from "./api.js";
 import { PlotCanvas } from "./flow-canvas.js";
 import { useSessionLiveEvents, type SessionLiveMap } from "./live-events.js";
 import type { PlotSessionRegistration } from "./registration.js";
 
+interface PlotDetailEntry {
+	readonly error?: string | undefined;
+	readonly loading: boolean;
+	readonly projection?: WebDashboardProjection | undefined;
+}
+
 interface PlotAppState {
 	readonly sessions: readonly PlotSessionRegistration[];
 	readonly live: SessionLiveMap;
+	readonly details: Readonly<Record<string, PlotDetailEntry>>;
+	readonly openDetailKeys: readonly string[];
 	readonly error?: string | undefined;
 }
 
 interface PlotAppContextValue {
 	readonly state: PlotAppState;
-	readonly actions: { readonly reload: () => Promise<void> };
+	readonly actions: {
+		readonly closeDetail: (key: string) => void;
+		readonly openDetail: (key: string) => void;
+		readonly reload: () => Promise<void>;
+	};
 	readonly meta: { readonly pollMs: number };
 }
 
@@ -37,6 +53,10 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		[],
 	);
 	const [error, setError] = useState<string>();
+	const [openDetailKeys, setOpenDetailKeys] = useState<readonly string[]>([]);
+	const [details, setDetails] = useState<
+		Readonly<Record<string, PlotDetailEntry>>
+	>({});
 	const sortedSessions = useMemo(() => sortSessions(sessions), [sessions]);
 	const live = useSessionLiveEvents(sortedSessions);
 
@@ -47,6 +67,36 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : String(caught));
 		}
+	};
+
+	const openDetail = (key: string) => {
+		setOpenDetailKeys((keys) => (keys.includes(key) ? keys : [...keys, key]));
+		setDetails((previous) => ({
+			...previous,
+			[key]: { loading: true, projection: previous[key]?.projection },
+		}));
+		void (async () => {
+			try {
+				const projection = await fetchSessionProjection(key);
+				setDetails((previous) => ({
+					...previous,
+					[key]: { loading: false, projection },
+				}));
+			} catch (caught) {
+				setDetails((previous) => ({
+					...previous,
+					[key]: {
+						error: caught instanceof Error ? caught.message : String(caught),
+						loading: false,
+						projection: previous[key]?.projection,
+					},
+				}));
+			}
+		})();
+	};
+
+	const closeDetail = (key: string) => {
+		setOpenDetailKeys((keys) => keys.filter((item) => item !== key));
 	};
 
 	useEffect(() => {
@@ -74,8 +124,14 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 	return (
 		<PlotAppContext
 			value={{
-				state: { sessions: sortedSessions, live, error },
-				actions: { reload },
+				state: {
+					sessions: sortedSessions,
+					live,
+					details,
+					openDetailKeys,
+					error,
+				},
+				actions: { closeDetail, openDetail, reload },
 				meta: { pollMs },
 			}}
 		>
@@ -102,11 +158,19 @@ function PlotToolbar() {
 
 function PlotCanvasRegion() {
 	const {
-		state: { sessions, live },
+		actions: { closeDetail, openDetail },
+		state: { details, live, openDetailKeys, sessions },
 	} = usePlotApp();
 	return (
 		<main className="canvas">
-			<PlotCanvas sessions={sessions} live={live} />
+			<PlotCanvas
+				details={details}
+				live={live}
+				onCloseDetail={closeDetail}
+				onOpenDetail={openDetail}
+				openDetailKeys={openDetailKeys}
+				sessions={sessions}
+			/>
 		</main>
 	);
 }
