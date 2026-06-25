@@ -1,10 +1,8 @@
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-	parsePlotSessionRegistrations,
-	type PlotSessionRegistration,
-} from "./registration.js";
+import { fetchSessions } from "./api.js";
 import { PlotCanvas } from "./flow-canvas.js";
+import type { PlotSessionRegistration } from "./registration.js";
 import { useSessionLiveEvents } from "./live-events.js";
 // oxlint-disable-next-line import/no-unassigned-import
 import "./style.css";
@@ -28,9 +26,7 @@ function App() {
 		let cancelled = false;
 		const load = async () => {
 			try {
-				const response = await fetch("/api/sessions");
-				if (!response.ok) throw new Error(`HTTP ${response.status}`);
-				const next = parsePlotSessionRegistrations(await response.json());
+				const next = await fetchSessions();
 				if (!cancelled) {
 					setSessions(next);
 					setError(undefined);

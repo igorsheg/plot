@@ -16,6 +16,11 @@ import {
 	resolvePlotSessionDiscoveryDir,
 	type PlotSessionRegistration,
 } from "@plot/session/session-registration";
+import {
+	emptyProjection,
+	rebuildProjectionFromEventLog,
+	type DashboardProjection,
+} from "@plot/tui/projection";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
 const assets: Record<string, WebAsset> = webAssets;
@@ -96,10 +101,10 @@ interface EventLogTailState {
 	readonly offset: number;
 }
 
-const initialEventLogTailState = (): EventLogTailState => ({
+const initialEventLogTailState = (offset = 0): EventLogTailState => ({
 	decoder: new TextDecoder(),
 	jsonl: initialJsonlDecoderState,
-	offset: 0,
+	offset,
 });
 
 const parseEventLogLine = (line: string): EventLogEvent | undefined => {
@@ -160,6 +165,39 @@ const readEventLogTail = async (input: {
 	}
 };
 
+const readSessionEventLog = async (
+	path: string,
+): Promise<readonly EventLogEvent[]> =>
+	(
+		await readEventLogTail({
+			after: -1,
+			path,
+			state: initialEventLogTailState(),
+		})
+	).events;
+
+const serializableProjection = (projection: DashboardProjection) => ({
+	...projection,
+	work: Object.fromEntries(projection.work),
+	attempts: Object.fromEntries(projection.attempts),
+});
+
+const sessionProjectionResponse = async (
+	registration: PlotSessionRegistration,
+): Promise<Response> => {
+	const projection = rebuildProjectionFromEventLog(
+		await readSessionEventLog(registration.eventLogPath),
+		emptyProjection(registration.sessionId, registration.workflowName, {
+			cwd: registration.cwd,
+			cwdName: registration.cwdName,
+			workflowPath: registration.workflowPath,
+			skills: [],
+			skillPaths: [],
+		}),
+	);
+	return text({ projection: serializableProjection(projection) });
+};
+
 const sessionEventsResponse = (input: {
 	readonly request: Request;
 	readonly discoveryDir: string;
@@ -176,7 +214,12 @@ const sessionEventsResponse = (input: {
 		new ReadableStream<Uint8Array>({
 			async start(controller) {
 				let lastSequence = input.after;
-				let tail = initialEventLogTailState();
+				// ponytail: catalog offset avoids replay scans; older registrations safely fall back to sequence filtering from byte 0.
+				let tail = initialEventLogTailState(
+					input.after >= input.registration.lastSequence
+						? (input.registration.eventLogOffset ?? 0)
+						: 0,
+				);
 				let nextLiveCheckAt = 0;
 				const write = (chunkText: string) => {
 					if (!cancelled) controller.enqueue(encoder.encode(chunkText));
@@ -265,6 +308,18 @@ export const startPlotWebGateway = async (
 					registration,
 					after,
 				});
+			}
+			const projectionPath = /^\/api\/sessions\/([^/]+)\/projection$/.exec(
+				url.pathname,
+			);
+			if (projectionPath !== null) {
+				const registration = await liveSessionByKey({
+					discoveryDir,
+					key: decodeURIComponent(projectionPath[1] ?? ""),
+				});
+				if (registration === undefined)
+					return new Response("session not found", { status: 404 });
+				return sessionProjectionResponse(registration);
 			}
 			if (url.pathname === "/api/health")
 				return text({ ok: true, discoveryDir });

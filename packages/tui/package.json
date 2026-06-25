@@ -3,7 +3,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./plot-tui": "./src/plot-tui.ts"
+		"./plot-tui": "./src/plot-tui.ts",
+		"./projection": "./src/projection.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",

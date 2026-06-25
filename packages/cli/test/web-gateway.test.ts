@@ -121,4 +121,126 @@ describe("Plot web gateway", () => {
 			gateway.stop();
 		}
 	});
+
+	test("starts live SSE at the catalog byte frontier", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const agentDir = join(dir, ".plot/agent");
+		const discoveryDir = resolvePlotSessionDiscoveryDir({ agentDir });
+		const cwd = join(dir, "project");
+		const key = plotSessionRegistrationKey({ cwd, sessionId: "default" });
+		const eventLog = await createEventLogStore({
+			sessionDir: join(cwd, ".plot/sessions"),
+			sessionId: "default",
+		});
+		await eventLog.append({ type: "session_started", payload: {} });
+		const frontier = await eventLog.frontier();
+		await writePlotSessionRegistration({
+			discoveryDir,
+			registration: {
+				version: 1,
+				key,
+				sessionId: "default",
+				workflowName: "workflow",
+				workflowPath: join(cwd, "WORKFLOW.md"),
+				cwd,
+				cwdName: "project",
+				sessionDir: eventLog.sessionPath,
+				eventLogPath: eventLog.eventLogPath,
+				pid: process.pid,
+				startedAt: new Date().toISOString(),
+				heartbeatAt: new Date().toISOString(),
+				lastSequence: 1,
+				eventLogOffset: frontier.byteOffset,
+				lastEventType: "session_started",
+			},
+		});
+
+		const gateway = await startPlotWebGateway({
+			cwd: dir,
+			agentDir,
+			open: false,
+		});
+		const abort = new AbortController();
+		const timeout = setTimeout(() => abort.abort(), 5_000);
+		try {
+			const response = await fetch(
+				new URL(`/api/sessions/${key}/events?after=1`, gateway.url),
+				{ signal: abort.signal },
+			);
+			const reader = response.body!.getReader();
+			const decoder = new TextDecoder();
+			let text = "";
+			while (!text.includes(": connected")) {
+				const chunk = await reader.read();
+				if (chunk.done) break;
+				text += decoder.decode(chunk.value, { stream: true });
+			}
+			await eventLog.append({ type: "session_tick", payload: { tick: 1 } });
+			while (!text.includes("id: 2")) {
+				const chunk = await reader.read();
+				if (chunk.done) break;
+				text += decoder.decode(chunk.value, { stream: true });
+			}
+			expect(text).not.toContain("id: 1");
+			expect(text).toContain("id: 2");
+		} finally {
+			clearTimeout(timeout);
+			abort.abort();
+			gateway.stop();
+		}
+	});
+
+	test("serves a projected session snapshot", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const agentDir = join(dir, ".plot/agent");
+		const discoveryDir = resolvePlotSessionDiscoveryDir({ agentDir });
+		const cwd = join(dir, "project");
+		const key = plotSessionRegistrationKey({ cwd, sessionId: "default" });
+		const eventLog = await createEventLogStore({
+			sessionDir: join(cwd, ".plot/sessions"),
+			sessionId: "default",
+		});
+		await eventLog.append({ type: "session_started", payload: {} });
+		await eventLog.append({ type: "session_tick", payload: { tickId: 7 } });
+		await writePlotSessionRegistration({
+			discoveryDir,
+			registration: {
+				version: 1,
+				key,
+				sessionId: "default",
+				workflowName: "workflow",
+				workflowPath: join(cwd, "WORKFLOW.md"),
+				cwd,
+				cwdName: "project",
+				sessionDir: eventLog.sessionPath,
+				eventLogPath: eventLog.eventLogPath,
+				pid: process.pid,
+				startedAt: new Date().toISOString(),
+				heartbeatAt: new Date().toISOString(),
+				lastSequence: 2,
+				lastEventType: "session_tick",
+			},
+		});
+
+		const gateway = await startPlotWebGateway({
+			cwd: dir,
+			agentDir,
+			open: false,
+		});
+		try {
+			const response = await fetch(
+				new URL(`/api/sessions/${key}/projection`, gateway.url),
+			);
+			const body = (await response.json()) as {
+				readonly projection?: {
+					readonly frontier?: number;
+					readonly work?: unknown;
+				};
+			};
+			expect(body.projection?.frontier).toBe(2);
+			expect(body.projection?.work).toEqual({});
+		} finally {
+			gateway.stop();
+		}
+	});
 });

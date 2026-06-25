@@ -38,7 +38,9 @@ describe("Event Log", () => {
 		expect([first.sequence, second.sequence, third.sequence]).toEqual([
 			1, 2, 3,
 		]);
-		expect((await store.frontier()).lastSequence).toBe(3);
+		const frontier = await store.frontier();
+		expect(frontier.lastSequence).toBe(3);
+		expect(frontier.byteOffset).toBeGreaterThan(0);
 		expect(
 			(await store.readAll()).events.map((event) => event.sequence),
 		).toEqual([1, 2, 3]);

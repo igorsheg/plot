@@ -119,7 +119,7 @@ const registerSessionEventLog = async (input: {
 	const startedAt = new Date().toISOString();
 	const base = (): Omit<
 		PlotSessionRegistration,
-		"heartbeatAt" | "lastSequence" | "lastEventType"
+		"eventLogOffset" | "heartbeatAt" | "lastSequence" | "lastEventType"
 	> => ({
 		version: 1,
 		key,
@@ -133,7 +133,9 @@ const registerSessionEventLog = async (input: {
 		pid: process.pid,
 		startedAt,
 	});
-	let lastSequence = (await input.eventLog.frontier()).lastSequence;
+	const frontier = await input.eventLog.frontier();
+	let lastSequence = frontier.lastSequence;
+	let eventLogOffset = frontier.byteOffset;
 	let lastEventType: string | undefined;
 	const write = async (heartbeatAt = new Date().toISOString()) => {
 		try {
@@ -143,6 +145,7 @@ const registerSessionEventLog = async (input: {
 					...base(),
 					heartbeatAt,
 					lastSequence,
+					eventLogOffset,
 					...(lastEventType === undefined ? {} : { lastEventType }),
 				},
 			});
@@ -160,11 +163,12 @@ const registerSessionEventLog = async (input: {
 			...input.eventLog,
 			append: async (event) => {
 				const appended = await input.eventLog.append(event);
-				if (appended.kind !== "agent_session_event") {
-					lastSequence = Number(appended.sequence);
-					lastEventType = appended.type;
+				const nextFrontier = await input.eventLog.frontier();
+				lastSequence = nextFrontier.lastSequence;
+				eventLogOffset = nextFrontier.byteOffset;
+				lastEventType = appended.type;
+				if (appended.kind !== "agent_session_event")
 					await write(appended.timestamp);
-				}
 				return appended;
 			},
 		},

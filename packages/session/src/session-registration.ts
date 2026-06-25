@@ -23,6 +23,7 @@ export interface PlotSessionRegistration {
 	readonly startedAt: string;
 	readonly heartbeatAt: string;
 	readonly lastSequence: number;
+	readonly eventLogOffset?: number | undefined;
 	readonly lastEventType?: string | undefined;
 }
 
@@ -93,6 +94,9 @@ export const parsePlotSessionRegistration = (
 		startedAt,
 		heartbeatAt,
 		lastSequence: value["lastSequence"],
+		...(typeof value["eventLogOffset"] === "number"
+			? { eventLogOffset: value["eventLogOffset"] }
+			: {}),
 		...(stringAt(value, "lastEventType") === undefined
 			? {}
 			: { lastEventType: stringAt(value, "lastEventType") }),

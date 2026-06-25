@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+	parsePlotEventRecord,
+	sessionEventsUrl,
+	type PlotEventRecord,
+} from "./api.js";
 import type { PlotSessionRegistration } from "./registration.js";
 
 export interface SessionLiveState {
@@ -9,38 +14,6 @@ export interface SessionLiveState {
 }
 
 export type SessionLiveMap = Readonly<Record<string, SessionLiveState>>;
-
-interface PlotEventRecord {
-	readonly kind: "event";
-	readonly event: {
-		readonly sequence: number;
-		readonly timestamp: string;
-		readonly type: string;
-	};
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
-
-const parsePlotEventRecord = (value: unknown): PlotEventRecord | undefined => {
-	if (!isRecord(value) || value["kind"] !== "event") return undefined;
-	const event = value["event"];
-	if (!isRecord(event)) return undefined;
-	if (
-		typeof event["sequence"] !== "number" ||
-		typeof event["timestamp"] !== "string" ||
-		typeof event["type"] !== "string"
-	)
-		return undefined;
-	return {
-		kind: "event",
-		event: {
-			sequence: event["sequence"],
-			timestamp: event["timestamp"],
-			type: event["type"],
-		},
-	};
-};
 
 const reduceLiveState = (
 	state: SessionLiveState | undefined,
@@ -83,7 +56,7 @@ export const useSessionLiveEvents = (
 		// ponytail: stream every discovered session from the catalog frontier; replay full logs only for expanded detail views later.
 		const sources = sessions.map((session) => {
 			const source = new EventSource(
-				`/api/sessions/${session.key}/events?after=${session.lastSequence}`,
+				sessionEventsUrl(session.key, session.lastSequence),
 			);
 			source.addEventListener("plot", (message) => {
 				const record = parsePlotEventRecord(

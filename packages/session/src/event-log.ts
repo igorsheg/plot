@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, appendFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	safeParseEventLogEvent,
@@ -38,6 +38,7 @@ export interface EventLogFrontier {
 	readonly sessionId: string;
 	readonly epoch: string;
 	readonly lastSequence: number;
+	readonly byteOffset: number;
 	readonly path: string;
 }
 
@@ -102,6 +103,19 @@ const readEventLogFile = async (path: string) => {
 	}
 };
 
+const eventLogFileSize = async (path: string) => {
+	try {
+		return (await stat(path)).size;
+	} catch (error) {
+		if (isNoEntryError(error)) return 0;
+		throw new PlotEventLogError({
+			phase: "read",
+			path,
+			message: errorMessage(error),
+		});
+	}
+};
+
 const parseEventLogText = (
 	path: string,
 	text: string,
@@ -147,13 +161,15 @@ const readFromDisk = async (
 	sessionId: string,
 	epoch: string,
 ): Promise<EventLogReadResult> => {
-	const parsed = parseEventLogText(path, await readEventLogFile(path));
+	const text = await readEventLogFile(path);
+	const parsed = parseEventLogText(path, text);
 	return {
 		...parsed,
 		frontier: {
 			sessionId,
 			epoch,
 			lastSequence: lastSequenceOf(parsed.events),
+			byteOffset: Buffer.byteLength(text, "utf8"),
 			path,
 		},
 	};
@@ -175,12 +191,14 @@ export const createEventLogStore = async (
 	let cachedLastSequence = lastSequenceOf(
 		(await readFromDisk(eventLogPath, options.sessionId, epoch)).events,
 	);
+	let cachedByteOffset = await eventLogFileSize(eventLogPath);
 	let appendChain = Promise.resolve();
 
 	const frontier = async (): Promise<EventLogFrontier> => ({
 		sessionId: options.sessionId,
 		epoch,
 		lastSequence: cachedLastSequence,
+		byteOffset: cachedByteOffset,
 		path: eventLogPath,
 	});
 
@@ -230,12 +248,10 @@ export const createEventLogStore = async (
 			});
 		try {
 			await mkdir(sessionPath, { recursive: true });
-			await appendFile(
-				eventLogPath,
-				`${JSON.stringify(parsed.data, jsonEventLogReplacer)}\n`,
-				"utf8",
-			);
+			const line = `${JSON.stringify(parsed.data, jsonEventLogReplacer)}\n`;
+			await appendFile(eventLogPath, line, "utf8");
 			cachedLastSequence = Number(parsed.data.sequence);
+			cachedByteOffset += Buffer.byteLength(line, "utf8");
 			return parsed.data as EventLogEvent;
 		} catch (error) {
 			throw new PlotEventLogError({
