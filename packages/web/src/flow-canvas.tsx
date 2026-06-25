@@ -12,14 +12,17 @@ import {
 } from "@xyflow/react";
 // oxlint-disable-next-line import/no-unassigned-import
 import "@xyflow/react/dist/style.css";
+import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
 import type { PlotSessionRegistration } from "./registration.js";
 
 export interface PlotCanvasProps {
 	readonly sessions: readonly PlotSessionRegistration[];
+	readonly live: SessionLiveMap;
 }
 
 type SessionNode = Node<
 	{
+		readonly live?: SessionLiveState | undefined;
 		readonly session: PlotSessionRegistration;
 	},
 	"plot-session"
@@ -38,6 +41,7 @@ const formatHeartbeat = (value: string) => {
 
 function SessionCard({ data }: NodeProps<SessionNode>) {
 	const session = data.session;
+	const live = data.live;
 	return (
 		<article className="session-node">
 			<header className="session-node__header">
@@ -55,7 +59,14 @@ function SessionCard({ data }: NodeProps<SessionNode>) {
 				<div>
 					<dt>last</dt>
 					<dd>
-						{session.lastEventType ?? "registered"} #{session.lastSequence}
+						{live?.lastType ?? session.lastEventType ?? "registered"} #
+						{live?.frontier ?? session.lastSequence}
+					</dd>
+				</div>
+				<div>
+					<dt>stream</dt>
+					<dd>
+						{live === undefined ? "connecting" : `${live.eventCount} event(s)`}
 					</dd>
 				</div>
 				<div>
@@ -73,6 +84,7 @@ function SessionCard({ data }: NodeProps<SessionNode>) {
 
 const sessionNodes = (
 	sessions: readonly PlotSessionRegistration[],
+	live: SessionLiveMap,
 ): SessionNode[] =>
 	sessions.map((session, index) => ({
 		id: session.key,
@@ -81,11 +93,11 @@ const sessionNodes = (
 			x: (index % 3) * 460,
 			y: Math.floor(index / 3) * 260,
 		},
-		data: { session },
+		data: { session, live: live[session.key] },
 	}));
 
-export function PlotCanvas({ sessions }: PlotCanvasProps) {
-	const nodes = useMemo(() => sessionNodes(sessions), [sessions]);
+export function PlotCanvas({ sessions, live }: PlotCanvasProps) {
+	const nodes = useMemo(() => sessionNodes(sessions, live), [sessions, live]);
 
 	return (
 		<ReactFlowProvider>

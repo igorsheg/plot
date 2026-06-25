@@ -5,6 +5,7 @@ import {
 	type PlotSessionRegistration,
 } from "./registration.js";
 import { PlotCanvas } from "./flow-canvas.js";
+import { useSessionLiveEvents } from "./live-events.js";
 // oxlint-disable-next-line import/no-unassigned-import
 import "./style.css";
 
@@ -21,6 +22,7 @@ function App() {
 			),
 		[sessions],
 	);
+	const live = useSessionLiveEvents(sortedSessions);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -57,7 +59,7 @@ function App() {
 				) : null}
 			</header>
 			<main className="canvas">
-				<PlotCanvas sessions={sortedSessions} />
+				<PlotCanvas sessions={sortedSessions} live={live} />
 			</main>
 		</div>
 	);

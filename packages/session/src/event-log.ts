@@ -159,6 +159,13 @@ const readFromDisk = async (
 	};
 };
 
+export const readEventLogPath = async (input: {
+	readonly path: string;
+	readonly sessionId: string;
+	readonly epoch?: string | undefined;
+}): Promise<EventLogReadResult> =>
+	readFromDisk(input.path, input.sessionId, input.epoch ?? "web");
+
 export const createEventLogStore = async (
 	options: EventLogStoreOptions,
 ): Promise<EventLogStore> => {
