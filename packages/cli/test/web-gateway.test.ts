@@ -51,7 +51,7 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("streams session events as SSE", async () => {
+	test("tails session events as SSE", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const agentDir = join(dir, ".plot/agent");
 		const discoveryDir = resolvePlotSessionDiscoveryDir({ agentDir });
@@ -88,6 +88,7 @@ describe("Plot web gateway", () => {
 			open: false,
 		});
 		const abort = new AbortController();
+		const timeout = setTimeout(() => abort.abort(), 5_000);
 		try {
 			const response = await fetch(
 				new URL(`/api/sessions/${key}/events?after=0`, gateway.url),
@@ -97,15 +98,25 @@ describe("Plot web gateway", () => {
 				"text/event-stream",
 			);
 			const reader = response.body!.getReader();
+			const decoder = new TextDecoder();
 			let text = "";
-			while (!text.includes("event: plot")) {
+			while (!text.includes("id: 1")) {
 				const chunk = await reader.read();
 				if (chunk.done) break;
-				text += new TextDecoder().decode(chunk.value);
+				text += decoder.decode(chunk.value, { stream: true });
+			}
+			await eventLog.append({ type: "session_tick", payload: { tick: 1 } });
+			while (!text.includes("id: 2")) {
+				const chunk = await reader.read();
+				if (chunk.done) break;
+				text += decoder.decode(chunk.value, { stream: true });
 			}
 			expect(text).toContain("id: 1");
 			expect(text).toContain("session_started");
+			expect(text).toContain("id: 2");
+			expect(text).toContain("session_tick");
 		} finally {
+			clearTimeout(timeout);
 			abort.abort();
 			gateway.stop();
 		}

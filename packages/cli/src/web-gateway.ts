@@ -1,7 +1,16 @@
 import { spawn } from "node:child_process";
-import { readEventLogPath } from "@plot/session/event-log";
+import { open } from "node:fs/promises";
 import { resolvePlotPaths } from "@plot/session/plot-paths";
-import { makePlotEventRecord } from "@plot/session/protocol";
+import {
+	makePlotEventRecord,
+	safeParseEventLogEvent,
+	type EventLogEvent,
+} from "@plot/session/protocol";
+import {
+	initialJsonlDecoderState,
+	splitJsonlChunk,
+	type JsonlDecoderState,
+} from "@plot/session/protocol-jsonl";
 import {
 	readLivePlotSessionRegistrations,
 	resolvePlotSessionDiscoveryDir,
@@ -56,10 +65,21 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const sseFrame = (event: unknown, id?: number): string =>
 	`${id === undefined ? "" : `id: ${id}\n`}event: plot\ndata: ${JSON.stringify(event)}\n\n`;
 
-const parseAfterSequence = (value: string | null): number | undefined => {
-	if (value === null) return 0;
+const parseSequence = (value: string | null): number | undefined => {
+	if (value === null) return undefined;
 	const parsed = Number(value);
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+};
+
+const parseAfterSequence = (input: {
+	readonly header: string | null;
+	readonly query: string | null;
+}): number | undefined => {
+	const header = parseSequence(input.header);
+	const query = parseSequence(input.query);
+	if (input.header !== null && header === undefined) return undefined;
+	if (input.query !== null && query === undefined) return undefined;
+	return Math.max(header ?? 0, query ?? 0);
 };
 
 const liveSessionByKey = async (input: {
@@ -69,6 +89,76 @@ const liveSessionByKey = async (input: {
 	(
 		await readLivePlotSessionRegistrations({ discoveryDir: input.discoveryDir })
 	).find((session) => session.key === input.key);
+
+interface EventLogTailState {
+	readonly decoder: TextDecoder;
+	readonly jsonl: JsonlDecoderState;
+	readonly offset: number;
+}
+
+const initialEventLogTailState = (): EventLogTailState => ({
+	decoder: new TextDecoder(),
+	jsonl: initialJsonlDecoderState,
+	offset: 0,
+});
+
+const parseEventLogLine = (line: string): EventLogEvent | undefined => {
+	try {
+		const parsed = safeParseEventLogEvent(JSON.parse(line) as unknown);
+		return parsed.success ? (parsed.data as EventLogEvent) : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+const readEventLogTail = async (input: {
+	readonly after: number;
+	readonly path: string;
+	readonly state: EventLogTailState;
+}): Promise<{
+	readonly events: readonly EventLogEvent[];
+	readonly state: EventLogTailState;
+}> => {
+	let file;
+	try {
+		file = await open(input.path, "r");
+	} catch {
+		return { events: [], state: input.state };
+	}
+	try {
+		const stats = await file.stat();
+		let state =
+			stats.size < input.state.offset
+				? initialEventLogTailState()
+				: input.state;
+		const events: EventLogEvent[] = [];
+		const buffer = Buffer.alloc(64 * 1024);
+		while (state.offset < stats.size) {
+			const { bytesRead } = await file.read(
+				buffer,
+				0,
+				Math.min(buffer.length, stats.size - state.offset),
+				state.offset,
+			);
+			if (bytesRead <= 0) break;
+			const nextOffset = state.offset + bytesRead;
+			const chunk = state.decoder.decode(buffer.subarray(0, bytesRead), {
+				stream: true,
+			});
+			const split = await splitJsonlChunk(state.jsonl, chunk);
+			state = { ...state, jsonl: split.state, offset: nextOffset };
+			for (const line of split.lines) {
+				const event = parseEventLogLine(line);
+				if (event === undefined || Number(event.sequence) <= input.after)
+					continue;
+				events.push(event);
+			}
+		}
+		return { events, state };
+	} finally {
+		await file.close();
+	}
+};
 
 const sessionEventsResponse = (input: {
 	readonly request: Request;
@@ -86,6 +176,7 @@ const sessionEventsResponse = (input: {
 		new ReadableStream<Uint8Array>({
 			async start(controller) {
 				let lastSequence = input.after;
+				let tail = initialEventLogTailState();
 				let nextLiveCheckAt = 0;
 				const write = (chunkText: string) => {
 					if (!cancelled) controller.enqueue(encoder.encode(chunkText));
@@ -103,14 +194,14 @@ const sessionEventsResponse = (input: {
 							});
 							if (live === undefined) break;
 						}
-						// ponytail: reread the JSONL file; switch to byte tailing when logs get huge.
-						const { events } = await readEventLogPath({
+						const next = await readEventLogTail({
+							after: lastSequence,
 							path: input.registration.eventLogPath,
-							sessionId: input.registration.sessionId,
+							state: tail,
 						});
-						for (const event of events) {
+						tail = next.state;
+						for (const event of next.events) {
 							const sequence = Number(event.sequence);
-							if (sequence <= lastSequence) continue;
 							lastSequence = sequence;
 							write(sseFrame(makePlotEventRecord(event), sequence));
 						}
@@ -156,7 +247,10 @@ export const startPlotWebGateway = async (
 			}
 			const eventPath = /^\/api\/sessions\/([^/]+)\/events$/.exec(url.pathname);
 			if (eventPath !== null) {
-				const after = parseAfterSequence(url.searchParams.get("after"));
+				const after = parseAfterSequence({
+					header: request.headers.get("last-event-id"),
+					query: url.searchParams.get("after"),
+				});
 				if (after === undefined)
 					return text({ error: "invalid after sequence" });
 				const registration = await liveSessionByKey({
