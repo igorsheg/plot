@@ -2,6 +2,7 @@ import { createContext, use } from "react";
 import type { ReactNode } from "react";
 import type { WebActivityEntry, WebDashboardProjection } from "./api.js";
 import { Badge } from "./components/ui/badge.js";
+import { Button } from "./components/ui/button.js";
 import {
 	Card,
 	CardHeader,
@@ -92,13 +93,14 @@ function Header() {
 			</div>
 			<div className="plot-detail-actions">
 				<Badge variant="outline">{projection?.status ?? "loading"}</Badge>
-				<button
-					className="plot-detail-close"
+				<Button
+					variant="outline"
+					size="sm"
 					type="button"
 					onClick={actions.close}
 				>
 					Close
-				</button>
+				</Button>
 			</div>
 		</CardHeader>
 	);

@@ -3,10 +3,13 @@ import type { ReactNode } from "react";
 import {
 	fetchSessionProjection,
 	fetchSessions,
+	parsePlotEventRecord,
+	sessionEventsUrl,
 	type WebDashboardProjection,
 } from "./api.js";
 import { PlotCanvas } from "./flow-canvas.js";
 import { useSessionLiveEvents, type SessionLiveMap } from "./live-events.js";
+import { applyProjectionEvent } from "./projection-live.js";
 import type { PlotSessionRegistration } from "./registration.js";
 
 interface PlotDetailEntry {
@@ -99,6 +102,11 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		setOpenDetailKeys((keys) => keys.filter((item) => item !== key));
 	};
 
+	const detailStreamSignature = openDetailKeys
+		.filter((key) => details[key]?.projection !== undefined)
+		.toSorted()
+		.join("\0");
+
 	useEffect(() => {
 		let cancelled = false;
 		const load = async () => {
@@ -120,6 +128,38 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 			clearInterval(interval);
 		};
 	}, []);
+
+	useEffect(() => {
+		const sources = openDetailKeys.flatMap((key) => {
+			const projection = details[key]?.projection;
+			if (projection === undefined) return [];
+			const source = new EventSource(
+				sessionEventsUrl(key, projection.frontier),
+			);
+			source.addEventListener("plot", (message) => {
+				const record = parsePlotEventRecord(
+					JSON.parse(message.data) as unknown,
+				);
+				if (record === undefined) return;
+				setDetails((previous) => {
+					const current = previous[key];
+					if (current?.projection === undefined) return previous;
+					return {
+						...previous,
+						[key]: {
+							...current,
+							projection: applyProjectionEvent(current.projection, record),
+						},
+					};
+				});
+			});
+			return [source];
+		});
+		return () => {
+			for (const source of sources) source.close();
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- one stream per opened detail; reducer owns frontier movement.
+	}, [detailStreamSignature]);
 
 	return (
 		<PlotAppContext

@@ -5,7 +5,7 @@ import {
 
 export interface PlotEventRecord {
 	readonly kind: "event";
-	readonly event: {
+	readonly event: Record<string, unknown> & {
 		readonly sequence: number;
 		readonly timestamp: string;
 		readonly type: string;
@@ -46,6 +46,7 @@ export const parsePlotEventRecord = (
 	return {
 		kind: "event",
 		event: {
+			...event,
 			sequence: event["sequence"],
 			timestamp: event["timestamp"],
 			type: event["type"],
