@@ -182,7 +182,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 				pending.get(record.id)?.(record);
 			if (record.kind === "response" && record.id !== undefined)
 				pending.delete(record.id);
-			if (record.kind === "session_event") {
+			if (record.kind === "event") {
 				projection = reduceRecord(projection, record);
 				render();
 				scheduleRefresh();

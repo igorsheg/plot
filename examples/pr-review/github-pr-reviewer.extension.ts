@@ -82,6 +82,17 @@ interface GitHubTarget {
 	readonly head: string;
 }
 
+interface ChangedLineRange {
+	readonly start: number;
+	readonly end: number;
+	readonly deletion?: true;
+}
+
+interface DiffContextFile {
+	readonly path: string;
+	readonly changedLines: readonly ChangedLineRange[];
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 const stringField = (record: Record<string, unknown>, field: string) =>
@@ -530,6 +541,30 @@ const parseToolTier = (params: Record<string, unknown>) => {
 	return parsed;
 };
 
+const parseDiffContext = (diff: string): DiffContextFile[] => {
+	const files: DiffContextFile[] = [];
+	let current: { path: string; changedLines: ChangedLineRange[] } | undefined;
+	for (const line of diff.split("\n")) {
+		const header = line.match(/^diff --git a\/.+ b\/(.+)$/);
+		if (header?.[1] !== undefined) {
+			current = { path: header[1], changedLines: [] };
+			files.push(current);
+			continue;
+		}
+		if (current === undefined) continue;
+		const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+		if (hunk === null) continue;
+		const start = Number.parseInt(hunk[3] ?? "0", 10);
+		const count = hunk[4] === undefined ? 1 : Number.parseInt(hunk[4], 10);
+		current.changedLines.push(
+			count > 0
+				? { start, end: start + count - 1 }
+				: { start, end: start, deletion: true },
+		);
+	}
+	return files;
+};
+
 const parseReviewComments = (value: unknown) => {
 	if (value === undefined) return [];
 	if (!Array.isArray(value)) throw new Error("comments must be an array");
@@ -537,15 +572,31 @@ const parseReviewComments = (value: unknown) => {
 		if (!isRecord(item)) throw new Error("comment must be an object");
 		const path = stringField(item, "path");
 		const line = numberField(item, "line");
+		const startLine = numberField(item, "startLine");
 		const body = stringField(item, "body");
 		const side = stringField(item, "side") ?? "RIGHT";
 		if (path === undefined || line === undefined || body === undefined)
 			throw new Error("comment requires path, line, and body");
 		if (!Number.isInteger(line) || line <= 0)
 			throw new Error("comment line must be a positive integer");
+		if (
+			startLine !== undefined &&
+			(!Number.isInteger(startLine) || startLine <= 0 || startLine > line)
+		)
+			throw new Error(
+				"comment startLine must be a positive integer no greater than line",
+			);
 		if (side !== "LEFT" && side !== "RIGHT")
 			throw new Error("comment side must be LEFT or RIGHT");
-		return { path, line, side, body };
+		return {
+			path,
+			line,
+			side,
+			body,
+			...(startLine === undefined || startLine === line
+				? {}
+				: { start_line: startLine, start_side: side }),
+		};
 	});
 };
 
@@ -566,6 +617,32 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 				]);
 			return pinnedRepo;
 		};
+
+		registerTool(({ paths: toolPaths, work: toolWork }) => {
+			const target = targetFromWork(toolWork);
+			return defineTool({
+				name: "load_pr_diff_context",
+				label: "Load PR Diff Context",
+				description:
+					"Load the current PR diff changed-line map for accurate inline review coordinates.",
+				parameters: { type: "object", properties: {} },
+				execute: async () => {
+					await assertCurrentHead(toolPaths.cwd, target);
+					const diff = await command(toolPaths.cwd, "gh", [
+						"pr",
+						"diff",
+						String(target.prNumber),
+						"--repo",
+						target.repo,
+						"--patch",
+					]);
+					const files = parseDiffContext(diff);
+					return toolText(JSON.stringify({ ...target, files }, null, 2), {
+						files: files.length,
+					});
+				},
+			});
+		});
 
 		registerTool(({ paths: toolPaths, work: toolWork }) => {
 			const target = targetFromWork(toolWork);
@@ -658,6 +735,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 								properties: {
 									path: { type: "string" },
 									line: { type: "number" },
+									startLine: { type: "number" },
 									side: { type: "string", enum: ["LEFT", "RIGHT"] },
 									body: { type: "string" },
 								},

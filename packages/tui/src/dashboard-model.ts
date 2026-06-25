@@ -92,15 +92,38 @@ const tokenMeta = (tokens: AgentAttemptProjection["tokens"] | undefined) => {
 	if (total === 0) return undefined;
 	return `${formatTokens(total)} tok${tokens?.cost === undefined || tokens.cost === 0 ? "" : ` · ${formatCost(tokens.cost)}`}`;
 };
+const sparkChars = "▁▂▃▄▅▆▇█";
+const throughputWindowMs = 60 * 1000;
+const throughputBuckets = 8;
+const emptyThroughput = () => ({
+	rate: 0,
+	graph: sparkChars[0]?.repeat(throughputBuckets) ?? "",
+});
 const throughput = (projection: DashboardProjection, nowMs: number) => {
-	const recent = projection.tokenSamples.filter(
-		(s) => s.atMs >= nowMs - 60_000,
-	);
-	if (recent.length < 2) return 0;
+	const windowStart = nowMs - throughputWindowMs;
+	const recent = projection.tokenSamples.filter((s) => s.atMs >= windowStart);
+	if (recent.length < 2) return emptyThroughput();
 	const first = recent[0],
 		last = recent.at(-1);
-	if (!first || !last || last.atMs <= first.atMs) return 0;
-	return ((last.tokens - first.tokens) * 1000) / (last.atMs - first.atMs);
+	if (!first || !last || last.atMs <= first.atMs) return emptyThroughput();
+	const rate = ((last.tokens - first.tokens) * 1000) / (last.atMs - first.atMs);
+	const bucketMs = throughputWindowMs / throughputBuckets;
+	const tokensAtOrBefore = (atMs: number) =>
+		recent.findLast((sample) => sample.atMs <= atMs)?.tokens ?? first.tokens;
+	const buckets = Array.from({ length: throughputBuckets }, (_, index) => {
+		const start = windowStart + index * bucketMs;
+		const end = start + bucketMs;
+		return Math.max(0, tokensAtOrBefore(end) - tokensAtOrBefore(start));
+	});
+	const max = Math.max(...buckets, 1);
+	const graph = buckets
+		.map(
+			(value) =>
+				sparkChars[Math.ceil((value / max) * (sparkChars.length - 1))] ??
+				sparkChars[0],
+		)
+		.join("");
+	return { rate, graph };
 };
 const displayActivity = (
 	work: WorkItemProjection,
@@ -114,7 +137,7 @@ const displayActivity = (
 		attempt.streams.message ??
 		attempt.streams.thinking ??
 		attempt.activity ??
-		attempt.lastMeaningful
+		attempt.lastDisplay
 	).trim();
 };
 const workRow = (
@@ -180,6 +203,7 @@ export const dashboardModelFrom = (
 		);
 	const tickIntervalMs = projection.runtime.tickIntervalMs;
 	const nextWake = projection.scheduledWakes[0];
+	const tokenThroughput = throughput(projection, nowMs);
 	const duplicateLabels = new Set(
 		projection.completed
 			.map((c) => c.label)
@@ -229,8 +253,8 @@ export const dashboardModelFrom = (
 			...(projection.usageTotals.cost === undefined
 				? {}
 				: { totalCost: formatCost(projection.usageTotals.cost) }),
-			throughput: `${formatTokens(Math.round(throughput(projection, nowMs)))} tok/s`,
-			throughputGraph: "▁▁▁▁▁▁▁▁",
+			throughput: `${formatTokens(Math.round(tokenThroughput.rate))} tok/s`,
+			throughputGraph: tokenThroughput.graph,
 		},
 		attention: [
 			...work

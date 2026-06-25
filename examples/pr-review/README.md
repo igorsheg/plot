@@ -5,7 +5,7 @@ A standalone GitHub PR review workflow for Plot.
 This example keeps Cloudflare-style review discipline but removes Cloudflare-style nested orchestration:
 
 - `github-pr-reviewer.extension.ts` is a generic GitHub Source. It discovers open PRs, parses the one Plot anchor comment, and returns one Work Item per PR head that still needs review.
-- The extension exposes only two write tools: `upsert_review_anchor` and `post_pr_review`. They check the head SHA and perform idempotent GitHub mutations.
+- The extension exposes one read tool (`load_pr_diff_context`) and two write tools (`upsert_review_anchor`, `post_pr_review`). They check the head SHA, support inline review ranges, and perform idempotent GitHub mutations.
 - The Agent Run owns the review: clone/fetch, read code, run searches/tests, apply review lenses, synthesize findings, and post one review.
 - Durable state lives on the PR in one anchor comment. A crashed run leaves `status=reviewing`; the next Plot tick reconciles GitHub truth and the source can select it again.
 - There are no source-launched subagents and no prompt-owned phase machine.

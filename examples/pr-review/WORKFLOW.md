@@ -57,19 +57,20 @@ You are one bounded Agent Run for this PR head. Do the whole review if you can d
 
 Registered tools:
 
+- `load_pr_diff_context` — load the current changed-line map after checking the PR head SHA.
 - `upsert_review_anchor` — create/update the single Plot anchor comment after checking the PR head SHA.
 - `post_pr_review` — post exactly one GitHub PR review for the current head SHA.
 
-Use those tools for GitHub writes. Use normal `bash`, `git`, `gh`, `rg`, and tests for investigation.
+Use those tools for diff coordinates and GitHub writes. Use normal `bash`, `git`, `gh`, `rg`, and tests for investigation. Inline review comments accept `path`, `line`, optional `startLine`, `side`, and `body`; line numbers are from the new file in the PR diff.
 
 ## Run contract
 
 1. Re-fetch PR truth yourself: `gh pr view`, `gh pr diff`, current reviews/comments, and the anchor comment. Treat extension facts as a starting snapshot.
 2. Prepare the extension-owned workspace at `{{ workspace.path }}` and check out the PR head.
 3. Choose a review tier (`trivial`, `lite`, or `full`) and immediately call `upsert_review_anchor` with `status: "reviewing"`.
-4. Review the PR using the relevant lenses below. Do not spawn subagents. Do not run a phase machine.
+4. Call `load_pr_diff_context`, then review the PR using the relevant lenses below. Do not spawn subagents. Do not run a phase machine.
 5. Sweep existing feedback before posting.
-6. Synthesize high-signal findings only.
+6. Synthesize high-signal findings only. Put line-specific findings in inline comments on changed lines; combine nearby lines with `startLine`/`line`.
 7. Call `post_pr_review` once.
 8. Call `upsert_review_anchor` with `status: "done"`, the same tier, a compact summary, and the posted review URL if available.
 9. End with one status line.
@@ -110,7 +111,7 @@ Prune aggressively. A TUI-only change does not need protocol review. Docs-only c
 
 Use only the lenses that match the tier and files. The “Do NOT flag” lines are part of the contract.
 
-- **Code quality** — concrete correctness and maintainability: API boundaries, caller breakage, real error paths, simpler local patterns the codebase already uses. Do NOT flag style opinions, speculative refactors, or “consider adding error handling” without the failing path.
+- **Code quality** — concrete correctness and maintainability: API boundaries, caller breakage, real error paths, simpler local patterns the codebase already uses. Review changed lines and their consequences; unchanged context is evidence, not a place to park findings. Do NOT flag style opinions, speculative refactors, or “consider adding error handling” without the failing path.
 - **Security** — exploitable or concretely dangerous issues: injection, auth bypass, secrets, crypto misuse, unsafe trust boundaries, path traversal. Do NOT flag theoretical risks, defense-in-depth when primary defenses are adequate, or unchanged-code issues.
 - **Runtime/lifecycle** — async correctness: ownership, cancellation, timeout, shutdown, retries, queue bounds, stale state, race-prone orderings. Trace a concrete interleaving before flagging a race.
 - **Protocol** — machine-protocol compatibility: JSONL framing, stdout/stderr split, schema changes, replay/order semantics, malformed-input behavior. Verify producer and consumer sides.
