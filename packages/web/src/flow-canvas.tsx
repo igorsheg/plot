@@ -4,6 +4,7 @@ import {
 	Background,
 	BackgroundVariant,
 	Controls,
+	MarkerType,
 	MiniMap,
 	NodeResizer,
 	NodeToolbar,
@@ -88,6 +89,12 @@ const canvasExtent: [[number, number], [number, number]] = [
 ];
 const fitViewOptions = { padding: 0.2, maxZoom: 1 };
 const proOptions = { hideAttribution: true };
+const detailEdgeMarker = {
+	type: MarkerType.ArrowClosed,
+	color: "var(--plot-detail-edge)",
+	width: 18,
+	height: 18,
+};
 
 const nodeTypes = {
 	"plot-session": SessionNodeCard,
@@ -202,8 +209,10 @@ const detailSize = (layout: DetailLayout | undefined) => ({
 const detailEdges = (keys: readonly string[]): PlotEdge[] =>
 	keys.map((key) => ({
 		animated: true,
+		className: "plot-detail-edge",
 		data: {},
 		id: `edge:${key}`,
+		markerEnd: detailEdgeMarker,
 		source: key,
 		target: detailNodeId(key),
 		type: "smoothstep",
@@ -265,6 +274,8 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 					draggable: false,
 					id: session.key,
 					position: sessionPosition(index),
+					sourcePosition: Position.Right,
+					targetPosition: Position.Left,
 					type: "plot-session",
 					data: {
 						live: propsRef.current.live[session.key],
@@ -294,7 +305,9 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 					height,
 					id,
 					position: existing?.position ?? detailPosition(index, saved),
+					sourcePosition: Position.Right,
 					style: { height, width },
+					targetPosition: Position.Left,
 					type: "session-detail",
 					width,
 					data: {

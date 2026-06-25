@@ -96,6 +96,7 @@
 	--sidebar-border: --alpha(var(--color-black) / 6%);
 	--sidebar-ring: var(--color-neutral-400);
 	--plot-canvas-grid: rgba(99, 114, 142, 0.35);
+	--plot-detail-edge: var(--color-neutral-500);
 	--plot-session-card-width: 25rem;
 }
 
@@ -154,6 +155,7 @@
 	--sidebar-border: --alpha(var(--color-white) / 5%);
 	--sidebar-ring: var(--color-neutral-400);
 	--plot-canvas-grid: rgba(148, 163, 184, 0.28);
+	--plot-detail-edge: var(--color-neutral-400);
 }
 
 @layer base {
@@ -308,8 +310,12 @@
 		0 24px 64px --alpha(var(--color-black) / 16%);
 }
 
-.react-flow__edge.animated path {
-	stroke: var(--ring);
+.react-flow__edge.plot-detail-edge path {
+	stroke: var(--plot-detail-edge);
+	stroke-width: 2;
+}
+
+.react-flow__edge.plot-detail-edge.animated path {
 	stroke-dasharray: 6 4;
 }
 
