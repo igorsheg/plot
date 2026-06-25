@@ -1,6 +1,7 @@
 import { createContext, use } from "react";
 import type { ReactNode } from "react";
 import type { WebActivityEntry, WebDashboardProjection } from "./api.js";
+import { Alert, AlertDescription, AlertTitle } from "./components/ui/alert.js";
 import { Badge } from "./components/ui/badge.js";
 import { Button } from "./components/ui/button.js";
 import {
@@ -9,6 +10,11 @@ import {
 	CardPanel,
 	CardTitle,
 } from "./components/ui/card.js";
+import { Empty, EmptyDescription, EmptyHeader } from "./components/ui/empty.js";
+import { Kbd } from "./components/ui/kbd.js";
+import { ScrollArea } from "./components/ui/scroll-area.js";
+import { Separator } from "./components/ui/separator.js";
+import { Skeleton } from "./components/ui/skeleton.js";
 import type { PlotSessionRegistration } from "./registration.js";
 
 export interface SessionDetailState {
@@ -93,6 +99,9 @@ function Header() {
 			</div>
 			<div className="plot-detail-actions">
 				<Badge variant="outline">{projection?.status ?? "loading"}</Badge>
+				<span className="plot-detail-close-hint">
+					<Kbd>Esc</Kbd>
+				</span>
 				<Button
 					variant="outline"
 					size="sm"
@@ -108,18 +117,23 @@ function Header() {
 
 function Body() {
 	return (
-		<CardPanel className="plot-detail-body">
-			<Summary />
-			<WorkList />
-			<AttemptList />
-			<ActivityList />
+		<CardPanel className="plot-detail-body-shell">
+			<ScrollArea className="plot-detail-scroll" fill scrollFade>
+				<div className="plot-detail-body">
+					<Summary />
+					<DetailError />
+					<WorkList />
+					<AttemptList />
+					<ActivityList />
+				</div>
+			</ScrollArea>
 		</CardPanel>
 	);
 }
 
 function Summary() {
 	const {
-		state: { error, loading, projection, session },
+		state: { loading, projection, session },
 	} = useSessionDetail();
 	const workCount = Object.keys(projection?.work ?? {}).length;
 	const attemptCount = Object.keys(projection?.attempts ?? {}).length;
@@ -129,14 +143,33 @@ function Summary() {
 				label="frontier"
 				value={String(projection?.frontier ?? session.lastSequence)}
 			/>
-			<Metric label="work" value={loading ? "…" : String(workCount)} />
-			<Metric label="attempts" value={loading ? "…" : String(attemptCount)} />
-			{error ? <Metric label="error" value={error} /> : null}
+			<Metric label="work" value={loading ? <LoadingValue /> : workCount} />
+			<Metric
+				label="attempts"
+				value={loading ? <LoadingValue /> : attemptCount}
+			/>
 		</section>
 	);
 }
 
-function Metric(props: { readonly label: string; readonly value: string }) {
+function LoadingValue() {
+	return <Skeleton className="plot-detail-skeleton" />;
+}
+
+function DetailError() {
+	const {
+		state: { error },
+	} = useSessionDetail();
+	if (!error) return null;
+	return (
+		<Alert variant="error">
+			<AlertTitle>Projection failed</AlertTitle>
+			<AlertDescription>{error}</AlertDescription>
+		</Alert>
+	);
+}
+
+function Metric(props: { readonly label: string; readonly value: ReactNode }) {
 	return (
 		<div className="plot-detail-metric">
 			<div className="plot-detail-metric-label">{props.label}</div>
@@ -155,13 +188,20 @@ function Section({
 	return (
 		<section className="plot-detail-section">
 			<h3 className="plot-detail-section-title">{title}</h3>
+			<Separator />
 			{children}
 		</section>
 	);
 }
 
-function Empty({ children }: { readonly children: ReactNode }) {
-	return <p className="plot-detail-empty">{children}</p>;
+function EmptyState({ children }: { readonly children: ReactNode }) {
+	return (
+		<Empty className="plot-detail-empty-state">
+			<EmptyHeader>
+				<EmptyDescription>{children}</EmptyDescription>
+			</EmptyHeader>
+		</Empty>
+	);
 }
 
 function WorkList() {
@@ -171,7 +211,7 @@ function WorkList() {
 	const work = Object.values(projection?.work ?? {}).slice(0, 5);
 	return (
 		<Section title="Active work">
-			{work.length === 0 ? <Empty>No active work.</Empty> : null}
+			{work.length === 0 ? <EmptyState>No active work.</EmptyState> : null}
 			{work.map((item, index) => (
 				<div className="plot-detail-row" key={index}>
 					<span className="plot-detail-row-primary">{workTitle(item)}</span>
@@ -188,7 +228,9 @@ function AttemptList() {
 	const attempts = Object.values(projection?.attempts ?? {}).slice(0, 5);
 	return (
 		<Section title="Active attempts">
-			{attempts.length === 0 ? <Empty>No active attempts.</Empty> : null}
+			{attempts.length === 0 ? (
+				<EmptyState>No active attempts.</EmptyState>
+			) : null}
 			{attempts.map((item, index) => (
 				<div className="plot-detail-row" key={index}>
 					<span className="plot-detail-row-primary">{attemptLabel(item)}</span>
@@ -205,7 +247,9 @@ function ActivityList() {
 	const activity = latestActivity(projection?.activity);
 	return (
 		<Section title="Activity">
-			{activity.length === 0 ? <Empty>No recent activity.</Empty> : null}
+			{activity.length === 0 ? (
+				<EmptyState>No recent activity.</EmptyState>
+			) : null}
 			{activity.map((item, index) => (
 				<div className="plot-detail-row" key={index}>
 					<span className="plot-detail-row-primary">{item.text}</span>

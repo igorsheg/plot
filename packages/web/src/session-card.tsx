@@ -7,6 +7,12 @@ import {
 	CardPanel,
 	CardTitle,
 } from "./components/ui/card.js";
+import {
+	Tooltip,
+	TooltipPopup,
+	TooltipProvider,
+	TooltipTrigger,
+} from "./components/ui/tooltip.js";
 import type { SessionLiveState } from "./live-events.js";
 import type { PlotSessionRegistration } from "./registration.js";
 
@@ -94,12 +100,20 @@ function Fact(props: {
 	readonly title?: string | undefined;
 	readonly value: string;
 }) {
+	const value = <div className="plot-fact-value">{props.value}</div>;
 	return (
 		<div className="plot-fact">
 			<div className="plot-fact-label">{props.label}</div>
-			<div className="plot-fact-value" title={props.title}>
-				{props.value}
-			</div>
+			{props.title === undefined ? (
+				value
+			) : (
+				<Tooltip>
+					<TooltipTrigger render={<div className="plot-fact-value" />}>
+						{props.value}
+					</TooltipTrigger>
+					<TooltipPopup>{props.title}</TooltipPopup>
+				</Tooltip>
+			)}
 		</div>
 	);
 }
@@ -108,7 +122,9 @@ function SessionIdFact() {
 	const {
 		state: { session },
 	} = useSessionCard();
-	return <Fact label="session" value={session.sessionId} />;
+	return (
+		<Fact label="session" value={session.sessionId} title={session.sessionId} />
+	);
 }
 
 function LastEventFact() {
@@ -168,20 +184,22 @@ export function FleetSessionCard(props: {
 	readonly session: PlotSessionRegistration;
 }) {
 	return (
-		<SessionCard.Provider session={props.session} live={props.live}>
-			<SessionCard.Frame>
-				<SessionCard.Header>
-					<SessionCard.Identity />
-					<SessionCard.PidBadge />
-				</SessionCard.Header>
-				<SessionCard.Facts>
-					<SessionCard.SessionIdFact />
-					<SessionCard.LastEventFact />
-					<SessionCard.StreamFact />
-					<SessionCard.SeenFact />
-					<SessionCard.CwdFact />
-				</SessionCard.Facts>
-			</SessionCard.Frame>
-		</SessionCard.Provider>
+		<TooltipProvider>
+			<SessionCard.Provider session={props.session} live={props.live}>
+				<SessionCard.Frame>
+					<SessionCard.Header>
+						<SessionCard.Identity />
+						<SessionCard.PidBadge />
+					</SessionCard.Header>
+					<SessionCard.Facts>
+						<SessionCard.SessionIdFact />
+						<SessionCard.LastEventFact />
+						<SessionCard.StreamFact />
+						<SessionCard.SeenFact />
+						<SessionCard.CwdFact />
+					</SessionCard.Facts>
+				</SessionCard.Frame>
+			</SessionCard.Provider>
+		</TooltipProvider>
 	);
 }

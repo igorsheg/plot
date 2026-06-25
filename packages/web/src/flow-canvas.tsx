@@ -23,6 +23,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { WebDashboardProjection } from "./api.js";
 import { Button } from "./components/ui/button.js";
+import { Group, GroupSeparator } from "./components/ui/group.js";
+import { Toolbar, ToolbarGroup } from "./components/ui/toolbar.js";
 import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
 import type { PlotSessionRegistration } from "./registration.js";
 import { SessionDetailWindow } from "./session-detail.js";
@@ -112,17 +114,21 @@ function SessionNodeCard({ data, id, selected }: NodeProps<SessionNode>) {
 	return (
 		<>
 			<NodeToolbar
-				className="plot-node-toolbar"
+				className="plot-node-toolbar-shell"
 				isVisible={selected}
 				nodeId={id}
 				position={Position.Top}
 			>
-				<Button size="sm" variant="secondary" onClick={data.onOpen}>
-					Open
-				</Button>
-				<Button size="sm" variant="outline" onClick={data.onFocus}>
-					Focus
-				</Button>
+				<Toolbar className="plot-node-toolbar">
+					<ToolbarGroup>
+						<Button size="sm" variant="secondary" onClick={data.onOpen}>
+							Open
+						</Button>
+						<Button size="sm" variant="outline" onClick={data.onFocus}>
+							Focus
+						</Button>
+					</ToolbarGroup>
+				</Toolbar>
 			</NodeToolbar>
 			<FleetSessionCard session={data.session} live={data.live} />
 		</>
@@ -145,17 +151,21 @@ function DetailNodeCard({ data, id, selected }: NodeProps<DetailNode>) {
 				nodeId={id}
 			/>
 			<NodeToolbar
-				className="plot-node-toolbar"
+				className="plot-node-toolbar-shell"
 				isVisible={selected}
 				nodeId={id}
 				position={Position.Top}
 			>
-				<Button size="sm" variant="outline" onClick={data.onFocus}>
-					Focus
-				</Button>
-				<Button size="sm" variant="outline" onClick={data.onClose}>
-					Close
-				</Button>
+				<Toolbar className="plot-node-toolbar">
+					<ToolbarGroup>
+						<Button size="sm" variant="outline" onClick={data.onFocus}>
+							Focus
+						</Button>
+						<Button size="sm" variant="outline" onClick={data.onClose}>
+							Close
+						</Button>
+					</ToolbarGroup>
+				</Toolbar>
 			</NodeToolbar>
 			<SessionDetailWindow
 				onClose={data.onClose}
@@ -439,12 +449,15 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 				variant={BackgroundVariant.Dots}
 			/>
 			<Panel className="plot-canvas-panel" position="top-right">
-				<Button size="sm" variant="secondary" onClick={focusFleet}>
-					Fit fleet
-				</Button>
-				<Button size="sm" variant="outline" onClick={closeAllDetails}>
-					Close details
-				</Button>
+				<Group aria-label="Canvas actions">
+					<Button size="sm" variant="secondary" onClick={focusFleet}>
+						Fit fleet
+					</Button>
+					<GroupSeparator />
+					<Button size="sm" variant="outline" onClick={closeAllDetails}>
+						Close details
+					</Button>
+				</Group>
 			</Panel>
 			<MiniMap nodeColor={minimapColor} pannable zoomable nodeStrokeWidth={2} />
 			<Controls showInteractive={false} />

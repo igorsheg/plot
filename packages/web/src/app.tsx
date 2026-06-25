@@ -7,6 +7,16 @@ import {
 	sessionEventsUrl,
 	type WebDashboardProjection,
 } from "./api.js";
+import { Alert, AlertDescription } from "./components/ui/alert.js";
+import { Button } from "./components/ui/button.js";
+import {
+	Empty,
+	EmptyContent,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "./components/ui/empty.js";
+import { Toolbar, ToolbarGroup } from "./components/ui/toolbar.js";
 import { PlotCanvas } from "./flow-canvas.js";
 import { useSessionLiveEvents, type SessionLiveMap } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
@@ -182,27 +192,62 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 
 function PlotToolbar() {
 	const {
-		state: { sessions, error },
+		actions: { reload },
+		state: { sessions },
 	} = usePlotApp();
 	return (
 		<header className="toolbar">
-			<strong>Plot Canvas</strong>
-			<span>{sessions.length} running session(s)</span>
-			{error ? <span className="error">{error}</span> : null}
-			{sessions.length === 0 && !error ? (
-				<span>Start another terminal with plot tui/run.</span>
-			) : null}
+			<Toolbar className="plot-app-toolbar">
+				<ToolbarGroup>
+					<strong>Plot Canvas</strong>
+					<span>{sessions.length} running session(s)</span>
+				</ToolbarGroup>
+				<ToolbarGroup>
+					<Button size="sm" variant="outline" onClick={() => void reload()}>
+						Refresh
+					</Button>
+				</ToolbarGroup>
+			</Toolbar>
 		</header>
 	);
 }
 
 function PlotCanvasRegion() {
 	const {
-		actions: { closeDetail, openDetail },
-		state: { details, live, openDetailKeys, sessions },
+		actions: { closeDetail, openDetail, reload },
+		state: { details, error, live, openDetailKeys, sessions },
 	} = usePlotApp();
+	if (sessions.length === 0) {
+		return (
+			<main className="canvas canvas-empty">
+				<Empty>
+					<EmptyHeader>
+						<EmptyTitle>No running Plot sessions</EmptyTitle>
+						<EmptyDescription>
+							Start another terminal with plot tui/run.
+						</EmptyDescription>
+					</EmptyHeader>
+					<EmptyContent>
+						{error ? (
+							<Alert variant="error">
+								<AlertDescription>{error}</AlertDescription>
+							</Alert>
+						) : null}
+						<Button variant="outline" onClick={() => void reload()}>
+							Refresh
+						</Button>
+					</EmptyContent>
+				</Empty>
+			</main>
+		);
+	}
 	return (
 		<main className="canvas">
+			{error ? (
+				<Alert className="plot-canvas-alert" variant="error">
+					<AlertDescription>{error}</AlertDescription>
+				</Alert>
+			) : null}
 			<PlotCanvas
 				details={details}
 				live={live}
