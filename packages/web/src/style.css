@@ -55,3 +55,89 @@ body {
 .canvas {
 	min-height: 0;
 }
+
+.session-node {
+	width: 400px;
+	min-height: 188px;
+	overflow: hidden;
+	border: 1px solid rgba(102, 124, 160, 0.34);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.92);
+	box-shadow: 0 18px 42px rgba(25, 35, 55, 0.18);
+	backdrop-filter: blur(10px);
+}
+
+.session-node__header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 14px 16px;
+	border-bottom: 1px solid rgba(102, 124, 160, 0.18);
+	background: linear-gradient(
+		135deg,
+		rgba(228, 238, 255, 0.96),
+		rgba(245, 248, 255, 0.72)
+	);
+}
+
+.session-node__header div {
+	min-width: 0;
+}
+
+.session-node__header strong,
+.session-node__header span {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.session-node__header strong {
+	font-size: 15px;
+	color: #172033;
+}
+
+.session-node__header span,
+.session-node__header small,
+.session-node__body dt {
+	color: #68758d;
+}
+
+.session-node__body {
+	display: grid;
+	gap: 10px;
+	margin: 0;
+	padding: 14px 16px 16px;
+}
+
+.session-node__body div {
+	min-width: 0;
+}
+
+.session-node__body dt {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.session-node__body dd {
+	margin: 2px 0 0;
+	overflow: hidden;
+	color: #1f2a3f;
+	font-size: 13px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.react-flow__minimap {
+	border: 1px solid rgba(102, 124, 160, 0.24);
+	border-radius: 14px;
+	background: rgba(255, 255, 255, 0.78);
+	box-shadow: 0 14px 34px rgba(25, 35, 55, 0.16);
+}
+
+.react-flow__controls {
+	box-shadow: 0 14px 34px rgba(25, 35, 55, 0.16);
+}

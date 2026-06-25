@@ -11,9 +11,9 @@
 	},
 	"dependencies": {
 		"@vitejs/plugin-react": "latest",
+		"@xyflow/react": "^12.10.1",
 		"react": "^19.2.1",
 		"react-dom": "^19.2.1",
-		"tldraw": "^4.2.0",
 		"vite": "npm:rolldown-vite@latest"
 	},
 	"devDependencies": {

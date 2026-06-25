@@ -4,7 +4,7 @@ import {
 	parsePlotSessionRegistrations,
 	type PlotSessionRegistration,
 } from "./registration.js";
-import { PlotCanvas } from "./tldraw-canvas.js";
+import { PlotCanvas } from "./flow-canvas.js";
 // oxlint-disable-next-line import/no-unassigned-import
 import "./style.css";
 
