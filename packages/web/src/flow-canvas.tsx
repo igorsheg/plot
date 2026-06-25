@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	applyNodeChanges,
 	Background,
 	BackgroundVariant,
 	Controls,
@@ -11,7 +12,6 @@ import {
 	ReactFlow,
 	ReactFlowProvider,
 	useReactFlow,
-	useUpdateNodeInternals,
 	type Edge,
 	type Node,
 	type NodeProps,
@@ -64,6 +64,9 @@ type DetailNode = Node<
 		readonly detail: DetailEntry;
 		readonly onClose: () => void;
 		readonly onFocus: () => void;
+		readonly onResizeEnd: (
+			layout: Required<Pick<DetailLayout, "height" | "width">>,
+		) => void;
 		readonly session: PlotSessionRegistration;
 	},
 	"session-detail"
@@ -83,13 +86,15 @@ const canvasExtent: [[number, number], [number, number]] = [
 	[-8_000, -8_000],
 	[12_000, 12_000],
 ];
+const fitViewOptions = { padding: 0.2, maxZoom: 1 };
+const proOptions = { hideAttribution: true };
 
 const nodeTypes = {
 	"plot-session": SessionNodeCard,
 	"session-detail": DetailNodeCard,
 } satisfies NodeTypes;
 
-const readStoredLayout = (): Readonly<Record<string, DetailLayout>> => {
+const readStoredLayout = (): Record<string, DetailLayout> => {
 	try {
 		const value = localStorage.getItem(layoutStorageKey);
 		return value === null
@@ -133,10 +138,6 @@ function SessionNodeCard({ data, id, selected }: NodeProps<SessionNode>) {
 }
 
 function DetailNodeCard({ data, id, selected }: NodeProps<DetailNode>) {
-	const updateNodeInternals = useUpdateNodeInternals();
-	useEffect(() => {
-		updateNodeInternals(id);
-	}, [data.detail.projection, id, updateNodeInternals]);
 	return (
 		<>
 			<NodeResizer
@@ -146,6 +147,9 @@ function DetailNodeCard({ data, id, selected }: NodeProps<DetailNode>) {
 				minHeight={360}
 				minWidth={420}
 				nodeId={id}
+				onResizeEnd={(_event, params) =>
+					data.onResizeEnd({ height: params.height, width: params.width })
+				}
 			/>
 			<NodeToolbar
 				className="plot-node-toolbar-shell"
@@ -190,59 +194,10 @@ const detailPosition = (index: number, layout: DetailLayout | undefined) => {
 	return { x: origin.x + detailOffsetX, y: origin.y + detailOffsetY };
 };
 
-const sessionNodes = (input: {
-	readonly live: SessionLiveMap;
-	readonly onFocusNode: (ids: readonly string[]) => void;
-	readonly onOpenDetail: (key: string) => void;
-	readonly sessions: readonly PlotSessionRegistration[];
-}): SessionNode[] =>
-	input.sessions.map((session, index) => ({
-		draggable: false,
-		id: session.key,
-		position: sessionPosition(index),
-		type: "plot-session",
-		data: {
-			live: input.live[session.key],
-			onFocus: () => input.onFocusNode([session.key]),
-			onOpen: () => input.onOpenDetail(session.key),
-			session,
-		},
-	}));
-
-const detailNodes = (input: {
-	readonly details: Readonly<Record<string, DetailEntry>>;
-	readonly layout: Readonly<Record<string, DetailLayout>>;
-	readonly onCloseDetail: (key: string) => void;
-	readonly onFocusNode: (ids: readonly string[]) => void;
-	readonly openDetailKeys: readonly string[];
-	readonly sessions: readonly PlotSessionRegistration[];
-}): DetailNode[] =>
-	input.openDetailKeys.flatMap((key) => {
-		const index = input.sessions.findIndex((session) => session.key === key);
-		const session = input.sessions[index];
-		if (session === undefined || index < 0) return [];
-		const id = detailNodeId(key);
-		const layout = input.layout[key];
-		return [
-			{
-				className: "plot-detail-node",
-				draggable: true,
-				id,
-				position: detailPosition(index, layout),
-				style: {
-					height: layout?.height ?? detailHeight,
-					width: layout?.width ?? detailWidth,
-				},
-				type: "session-detail",
-				data: {
-					detail: input.details[key] ?? { loading: true },
-					onClose: () => input.onCloseDetail(key),
-					onFocus: () => input.onFocusNode([id]),
-					session,
-				},
-			},
-		];
-	});
+const detailSize = (layout: DetailLayout | undefined) => ({
+	height: layout?.height ?? detailHeight,
+	width: layout?.width ?? detailWidth,
+});
 
 const detailEdges = (keys: readonly string[]): PlotEdge[] =>
 	keys.map((key) => ({
@@ -260,59 +215,111 @@ const minimapColor = (node: PlotNode) =>
 function PlotCanvasSurface(props: PlotCanvasProps) {
 	const flow = useReactFlow<PlotNode, PlotEdge>();
 	const flowRef = useRef(flow);
-	const [detailLayout, setDetailLayout] = useState(readStoredLayout);
+	const layoutRef = useRef(readStoredLayout());
+	const [nodes, setNodes] = useState<PlotNode[]>([]);
 	const [selectedNodeId, setSelectedNodeId] = useState<string>();
 	const lastOpenSignature = useRef("");
+	const propsRef = useRef(props);
 
 	useEffect(() => {
 		flowRef.current = flow;
 	}, [flow]);
 
+	useEffect(() => {
+		propsRef.current = props;
+	}, [props]);
+
 	const focusNodes = useCallback((ids: readonly string[]) => {
-		void flowRef.current.fitView({
-			duration: 240,
-			maxZoom: 1.1,
-			nodes: ids.map((id) => ({ id })),
-			padding: 0.24,
+		requestAnimationFrame(() => {
+			void flowRef.current.fitView({
+				duration: 240,
+				maxZoom: 1.1,
+				nodes: ids.map((id) => ({ id })),
+				padding: 0.24,
+			});
 		});
 	}, []);
 
-	const closeAllDetails = () => {
-		for (const key of props.openDetailKeys) props.onCloseDetail(key);
-	};
-
-	const focusFleet = () => {
-		focusNodes(props.sessions.map((session) => session.key));
-	};
-
-	const nodes = useMemo<PlotNode[]>(
-		() => [
-			...sessionNodes({
-				live: props.live,
-				onFocusNode: focusNodes,
-				onOpenDetail: props.onOpenDetail,
-				sessions: props.sessions,
-			}),
-			...detailNodes({
-				details: props.details,
-				layout: detailLayout,
-				onCloseDetail: props.onCloseDetail,
-				onFocusNode: focusNodes,
-				openDetailKeys: props.openDetailKeys,
-				sessions: props.sessions,
-			}),
-		],
-		[
-			detailLayout,
-			focusNodes,
-			props.details,
-			props.live,
-			props.onCloseDetail,
-			props.onOpenDetail,
-			props.openDetailKeys,
-			props.sessions,
-		],
+	const persistDetailLayout = useCallback(
+		(key: string, patch: DetailLayout) => {
+			layoutRef.current = {
+				...layoutRef.current,
+				[key]: { ...layoutRef.current[key], ...patch },
+			};
+			writeStoredLayout(layoutRef.current);
+		},
+		[],
 	);
+
+	const reconcileNodes = useCallback(() => {
+		setNodes((previous) => {
+			const previousById = new Map(previous.map((node) => [node.id, node]));
+			const next: PlotNode[] = [];
+
+			for (const [index, session] of propsRef.current.sessions.entries()) {
+				const existing = previousById.get(session.key) as
+					| SessionNode
+					| undefined;
+				next.push({
+					...existing,
+					draggable: false,
+					id: session.key,
+					position: sessionPosition(index),
+					type: "plot-session",
+					data: {
+						live: propsRef.current.live[session.key],
+						onFocus: () => focusNodes([session.key]),
+						onOpen: () => propsRef.current.onOpenDetail(session.key),
+						session,
+					},
+				});
+			}
+
+			for (const key of propsRef.current.openDetailKeys) {
+				const index = propsRef.current.sessions.findIndex(
+					(session) => session.key === key,
+				);
+				const session = propsRef.current.sessions[index];
+				if (session === undefined || index < 0) continue;
+				const id = detailNodeId(key);
+				const existing = previousById.get(id) as DetailNode | undefined;
+				const saved = layoutRef.current[key];
+				const savedSize = detailSize(saved);
+				const width = existing?.width ?? savedSize.width;
+				const height = existing?.height ?? savedSize.height;
+				next.push({
+					...existing,
+					className: "plot-detail-node",
+					draggable: true,
+					height,
+					id,
+					position: existing?.position ?? detailPosition(index, saved),
+					style: { height, width },
+					type: "session-detail",
+					width,
+					data: {
+						detail: propsRef.current.details[key] ?? { loading: true },
+						onClose: () => propsRef.current.onCloseDetail(key),
+						onFocus: () => focusNodes([id]),
+						onResizeEnd: (layout) => persistDetailLayout(key, layout),
+						session,
+					},
+				});
+			}
+
+			return next;
+		});
+	}, [focusNodes, persistDetailLayout]);
+
+	useEffect(() => {
+		reconcileNodes();
+	}, [
+		props.details,
+		props.live,
+		props.openDetailKeys,
+		props.sessions,
+		reconcileNodes,
+	]);
 
 	const edges = useMemo<PlotEdge[]>(
 		() => detailEdges(props.openDetailKeys),
@@ -320,40 +327,8 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 	);
 
 	const onNodesChange = useCallback<OnNodesChange<PlotNode>>((changes) => {
-		setDetailLayout((previous) => {
-			let next = previous;
-			const update = (key: string, patch: DetailLayout) => {
-				const current = next[key];
-				const samePosition =
-					patch.position === undefined ||
-					(current?.position?.x === patch.position.x &&
-						current.position.y === patch.position.y);
-				const sameSize =
-					(patch.width === undefined || current?.width === patch.width) &&
-					(patch.height === undefined || current?.height === patch.height);
-				if (samePosition && sameSize) return;
-				next = { ...next, [key]: { ...current, ...patch } };
-			};
-			for (const change of changes) {
-				if (change.type === "add" || !change.id.startsWith("detail:")) continue;
-				const key = detailKey(change.id);
-				if (change.type === "position" && change.position !== undefined) {
-					update(key, { position: change.position });
-				}
-				if (change.type === "dimensions" && change.dimensions !== undefined) {
-					update(key, {
-						height: change.dimensions.height,
-						width: change.dimensions.width,
-					});
-				}
-			}
-			return next;
-		});
+		setNodes((current) => applyNodeChanges(changes, current) as PlotNode[]);
 	}, []);
-
-	useEffect(() => {
-		writeStoredLayout(detailLayout);
-	}, [detailLayout]);
 
 	useEffect(() => {
 		const previous = lastOpenSignature.current.split("\0");
@@ -372,18 +347,26 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 				!selectedNodeId.startsWith("detail:")
 			)
 				return;
-			props.onCloseDetail(detailKey(selectedNodeId));
+			propsRef.current.onCloseDetail(detailKey(selectedNodeId));
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [props, selectedNodeId]);
+	}, [selectedNodeId]);
+
+	const closeAllDetails = () => {
+		for (const key of props.openDetailKeys) props.onCloseDetail(key);
+	};
+
+	const focusFleet = () => {
+		focusNodes(props.sessions.map((session) => session.key));
+	};
 
 	return (
 		<ReactFlow<PlotNode, PlotEdge>
 			edges={edges}
 			elementsSelectable
 			fitView
-			fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+			fitViewOptions={fitViewOptions}
 			maxZoom={1.5}
 			minZoom={0.2}
 			nodeExtent={canvasExtent}
@@ -403,20 +386,20 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 						: [node.id],
 				);
 			}}
+			onNodeDragStop={(_event, node) => {
+				setSelectedNodeId(node.id);
+				if (node.type === "session-detail") {
+					persistDetailLayout(detailKey(node.id), { position: node.position });
+				}
+			}}
 			onNodesChange={onNodesChange}
+			onPaneClick={() => setSelectedNodeId(undefined)}
 			onSelectionChange={(selection) =>
 				setSelectedNodeId(selection.nodes[0]?.id)
 			}
-			onPaneClick={() => setSelectedNodeId(undefined)}
-			onError={(_id, message) => {
-				void message;
-			}}
-			onNodeDragStop={(_event, node) => {
-				if (node.type === "session-detail") setSelectedNodeId(node.id);
-			}}
 			onlyRenderVisibleElements
 			panOnScroll
-			proOptions={{ hideAttribution: true }}
+			proOptions={proOptions}
 			selectionOnDrag={false}
 			translateExtent={canvasExtent}
 		>
