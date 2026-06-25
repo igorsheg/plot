@@ -28,6 +28,15 @@ components/ui/*    copied coss primitives only when used
 - Do not add global state libraries until prop flow is actually painful.
 - Do not copy more coss components than are rendered.
 
+## Theme and primitives
+
+- Call sites should use semantic classes or composed primitives, not long Tailwind strings.
+- No arbitrary colors, typography, shadows, or spacing in JSX. Put them in `src/style.css` under a named Plot class.
+- Tailwind utilities are acceptable inside primitive/component definitions, not scattered across feature call sites.
+- Prefer coss primitives first. If a repeated Plot pattern appears, create a small composed component before adding more call-site classes.
+- Extend `style.css` only for surfaced patterns. Do not create a token dump "for later".
+- Use CSS variables for substrate values that third-party components need, e.g. React Flow grid colors.
+
 ## Product data flow
 
 ```text

@@ -75,7 +75,7 @@ export function PlotCanvas({ sessions, live }: PlotCanvasProps) {
 					variant={BackgroundVariant.Dots}
 					gap={24}
 					size={1}
-					color="rgba(99, 114, 142, 0.35)"
+					color="var(--plot-canvas-grid)"
 				/>
 				<MiniMap pannable zoomable nodeStrokeWidth={2} />
 				<Controls showInteractive={false} />

@@ -95,6 +95,8 @@
 	--sidebar-accent-foreground: var(--color-neutral-800);
 	--sidebar-border: --alpha(var(--color-black) / 6%);
 	--sidebar-ring: var(--color-neutral-400);
+	--plot-canvas-grid: rgba(99, 114, 142, 0.35);
+	--plot-session-card-width: 25rem;
 }
 
 .dark {
@@ -151,6 +153,7 @@
 	--sidebar-accent-foreground: var(--color-neutral-100);
 	--sidebar-border: --alpha(var(--color-white) / 5%);
 	--sidebar-ring: var(--color-neutral-400);
+	--plot-canvas-grid: rgba(148, 163, 184, 0.28);
 }
 
 @layer base {
@@ -196,6 +199,64 @@
 
 .canvas {
 	min-height: 0;
+}
+
+.plot-session-card {
+	width: var(--plot-session-card-width);
+	overflow: hidden;
+	box-shadow: 0 18px 44px --alpha(var(--color-black) / 10%);
+}
+
+.plot-session-card-header {
+	grid-template-columns: 1fr auto;
+	padding: 1rem;
+	border-bottom: 1px solid var(--border);
+	background: color-mix(in srgb, var(--muted) 64%, transparent);
+}
+
+.plot-session-card-identity {
+	min-width: 0;
+}
+
+.plot-session-card-title {
+	overflow: hidden;
+	font-size: 0.9375rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plot-session-card-subtitle {
+	overflow: hidden;
+	color: var(--muted-foreground);
+	font-size: 0.875rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plot-session-card-facts {
+	display: grid;
+	gap: 0.75rem;
+	padding: 1rem;
+	font-size: 0.875rem;
+}
+
+.plot-fact {
+	min-width: 0;
+}
+
+.plot-fact-label {
+	color: var(--muted-foreground);
+	font-size: 0.6875rem;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+.plot-fact-value {
+	overflow: hidden;
+	color: var(--foreground);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .react-flow__minimap {

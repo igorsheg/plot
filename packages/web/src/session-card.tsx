@@ -55,16 +55,12 @@ function Provider({
 }
 
 function Frame({ children }: { readonly children: ReactNode }) {
-	return (
-		<Card className="w-[400px] overflow-hidden shadow-xl/10">{children}</Card>
-	);
+	return <Card className="plot-session-card">{children}</Card>;
 }
 
 function Header({ children }: { readonly children: ReactNode }) {
 	return (
-		<CardHeader className="grid-cols-[1fr_auto] border-b bg-muted/50 p-4">
-			{children}
-		</CardHeader>
+		<CardHeader className="plot-session-card-header">{children}</CardHeader>
 	);
 }
 
@@ -73,13 +69,11 @@ function Identity() {
 		state: { session },
 	} = useSessionCard();
 	return (
-		<div className="min-w-0">
-			<CardTitle className="truncate text-[15px]">
+		<div className="plot-session-card-identity">
+			<CardTitle className="plot-session-card-title">
 				{session.workflowName}
 			</CardTitle>
-			<p className="truncate text-muted-foreground text-sm">
-				{session.cwdName}
-			</p>
+			<p className="plot-session-card-subtitle">{session.cwdName}</p>
 		</div>
 	);
 }
@@ -92,7 +86,7 @@ function PidBadge() {
 }
 
 function Facts({ children }: { readonly children: ReactNode }) {
-	return <CardPanel className="grid gap-3 p-4 text-sm">{children}</CardPanel>;
+	return <CardPanel className="plot-session-card-facts">{children}</CardPanel>;
 }
 
 function Fact(props: {
@@ -101,11 +95,9 @@ function Fact(props: {
 	readonly value: string;
 }) {
 	return (
-		<div className="min-w-0">
-			<div className="font-semibold text-[11px] text-muted-foreground uppercase tracking-widest">
-				{props.label}
-			</div>
-			<div className="truncate text-foreground" title={props.title}>
+		<div className="plot-fact">
+			<div className="plot-fact-label">{props.label}</div>
+			<div className="plot-fact-value" title={props.title}>
 				{props.value}
 			</div>
 		</div>
