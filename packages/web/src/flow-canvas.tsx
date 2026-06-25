@@ -12,15 +12,9 @@ import {
 } from "@xyflow/react";
 // oxlint-disable-next-line import/no-unassigned-import
 import "@xyflow/react/dist/style.css";
-import { Badge } from "./components/ui/badge.js";
-import {
-	Card,
-	CardHeader,
-	CardPanel,
-	CardTitle,
-} from "./components/ui/card.js";
 import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
 import type { PlotSessionRegistration } from "./registration.js";
+import { FleetSessionCard } from "./session-card.js";
 
 export interface PlotCanvasProps {
 	readonly sessions: readonly PlotSessionRegistration[];
@@ -36,69 +30,11 @@ type SessionNode = Node<
 >;
 
 const nodeTypes = {
-	"plot-session": SessionCard,
+	"plot-session": SessionNodeCard,
 } satisfies NodeTypes;
 
-const formatHeartbeat = (value: string) => {
-	const ms = Date.parse(value);
-	if (!Number.isFinite(ms)) return value;
-	const seconds = Math.max(0, Math.round((Date.now() - ms) / 1000));
-	return seconds < 2 ? "now" : `${seconds}s ago`;
-};
-
-function SessionCard({ data }: NodeProps<SessionNode>) {
-	const session = data.session;
-	const live = data.live;
-	return (
-		<Card className="w-[400px] overflow-hidden shadow-xl/10">
-			<CardHeader className="grid-cols-[1fr_auto] border-b bg-muted/50 p-4">
-				<div className="min-w-0">
-					<CardTitle className="truncate text-[15px]">
-						{session.workflowName}
-					</CardTitle>
-					<p className="truncate text-muted-foreground text-sm">
-						{session.cwdName}
-					</p>
-				</div>
-				<Badge variant="outline">pid {session.pid}</Badge>
-			</CardHeader>
-			<CardPanel className="grid gap-3 p-4 text-sm">
-				<SessionFact label="session" value={session.sessionId} />
-				<SessionFact
-					label="last"
-					value={`${live?.lastType ?? session.lastEventType ?? "registered"} #${live?.frontier ?? session.lastSequence}`}
-				/>
-				<SessionFact
-					label="stream"
-					value={
-						live === undefined ? "connecting" : `${live.eventCount} event(s)`
-					}
-				/>
-				<SessionFact
-					label="seen"
-					value={formatHeartbeat(session.heartbeatAt)}
-				/>
-				<SessionFact label="cwd" value={session.cwd} title={session.cwd} />
-			</CardPanel>
-		</Card>
-	);
-}
-
-function SessionFact(props: {
-	readonly label: string;
-	readonly title?: string | undefined;
-	readonly value: string;
-}) {
-	return (
-		<div className="min-w-0">
-			<div className="font-semibold text-[11px] text-muted-foreground uppercase tracking-widest">
-				{props.label}
-			</div>
-			<div className="truncate text-foreground" title={props.title}>
-				{props.value}
-			</div>
-		</div>
-	);
+function SessionNodeCard({ data }: NodeProps<SessionNode>) {
+	return <FleetSessionCard session={data.session} live={data.live} />;
 }
 
 const sessionNodes = (
