@@ -1,6 +1,7 @@
 import { createContext, use, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import {
+	createInstance,
 	fetchInstanceProjection,
 	fetchInstances,
 	parsePlotEventRecord,
@@ -29,7 +30,7 @@ interface PlotDetailEntry {
 }
 
 interface PlotAppState {
-	readonly sessions: readonly PlotInstance[];
+	readonly instances: readonly PlotInstance[];
 	readonly live: SessionLiveMap;
 	readonly details: Readonly<Record<string, PlotDetailEntry>>;
 	readonly openDetailKeys: readonly string[];
@@ -42,6 +43,10 @@ interface PlotAppContextValue {
 		readonly closeDetail: (key: string) => void;
 		readonly openDetail: (key: string) => void;
 		readonly reload: () => Promise<void>;
+		readonly spawn: (input: {
+			readonly cwd?: string;
+			readonly workflowPath?: string;
+		}) => Promise<void>;
 	};
 	readonly meta: { readonly pollMs: number };
 }
@@ -54,27 +59,43 @@ const usePlotApp = (): PlotAppContextValue => {
 	return value;
 };
 
-const sortSessions = (sessions: readonly PlotInstance[]) =>
-	sessions.toSorted(
-		(left, right) =>
+const sortInstances = (instances: readonly PlotInstance[]) =>
+	instances.toSorted((left, right) => {
+		const project = left.cwd.localeCompare(right.cwd);
+		if (project !== 0) return project;
+		return (
 			Date.parse(right.lastSeenAt ?? right.createdAt) -
-			Date.parse(left.lastSeenAt ?? left.createdAt),
-	);
+			Date.parse(left.lastSeenAt ?? left.createdAt)
+		);
+	});
 
 function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 	const pollMs = 1_000;
-	const [sessions, setSessions] = useState<readonly PlotInstance[]>([]);
+	const [instances, setInstances] = useState<readonly PlotInstance[]>([]);
 	const [error, setError] = useState<string>();
 	const [openDetailKeys, setOpenDetailKeys] = useState<readonly string[]>([]);
 	const [details, setDetails] = useState<
 		Readonly<Record<string, PlotDetailEntry>>
 	>({});
-	const sortedSessions = useMemo(() => sortSessions(sessions), [sessions]);
-	const live = useSessionLiveEvents(sortedSessions);
+	const sortedInstances = useMemo(() => sortInstances(instances), [instances]);
+	const live = useSessionLiveEvents(sortedInstances);
 
 	const reload = async () => {
 		try {
-			setSessions(await fetchInstances());
+			setInstances(await fetchInstances());
+			setError(undefined);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : String(caught));
+		}
+	};
+
+	const spawn = async (input: {
+		readonly cwd?: string;
+		readonly workflowPath?: string;
+	}) => {
+		try {
+			const instance = await createInstance(input);
+			setInstances((current) => sortInstances([instance, ...current]));
 			setError(undefined);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : String(caught));
@@ -122,7 +143,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 			try {
 				const next = await fetchInstances();
 				if (!cancelled) {
-					setSessions(next);
+					setInstances(next);
 					setError(undefined);
 				}
 			} catch (caught) {
@@ -174,13 +195,13 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		<PlotAppContext
 			value={{
 				state: {
-					sessions: sortedSessions,
+					instances: sortedInstances,
 					live,
 					details,
 					openDetailKeys,
 					error,
 				},
-				actions: { closeDetail, openDetail, reload },
+				actions: { closeDetail, openDetail, reload, spawn },
 				meta: { pollMs },
 			}}
 		>
@@ -190,22 +211,52 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 }
 
 function PlotToolbar() {
+	const [cwd, setCwd] = useState("");
+	const [workflowPath, setWorkflowPath] = useState("");
 	const {
-		actions: { reload },
-		state: { sessions },
+		actions: { reload, spawn },
+		state: { instances },
 	} = usePlotApp();
+	const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		void spawn({
+			...(cwd.trim() === "" ? {} : { cwd: cwd.trim() }),
+			...(workflowPath.trim() === ""
+				? {}
+				: { workflowPath: workflowPath.trim() }),
+		});
+	};
 	return (
 		<header className="toolbar">
 			<div className="plot-app-toolbar">
 				<div className="plot-app-toolbar-title">
 					<strong>Plot Canvas</strong>
-					<span>{sessions.length} running session(s)</span>
+					<span>{instances.length} supervised instance(s)</span>
 				</div>
-				<Group aria-label="Fleet actions">
-					<Button size="sm" variant="outline" onClick={() => void reload()}>
-						Refresh
-					</Button>
-				</Group>
+				<div className="plot-app-toolbar-actions">
+					<form className="plot-instance-spawn-form" onSubmit={onSubmit}>
+						<input
+							aria-label="Project cwd"
+							placeholder="cwd (blank = gateway cwd)"
+							value={cwd}
+							onChange={(event) => setCwd(event.currentTarget.value)}
+						/>
+						<input
+							aria-label="Workflow path"
+							placeholder="workflow (optional)"
+							value={workflowPath}
+							onChange={(event) => setWorkflowPath(event.currentTarget.value)}
+						/>
+						<Button size="sm" type="submit">
+							Spawn
+						</Button>
+					</form>
+					<Group aria-label="Fleet actions">
+						<Button size="sm" variant="outline" onClick={() => void reload()}>
+							Refresh
+						</Button>
+					</Group>
+				</div>
 			</div>
 		</header>
 	);
@@ -214,16 +265,16 @@ function PlotToolbar() {
 function PlotCanvasRegion() {
 	const {
 		actions: { closeDetail, openDetail, reload },
-		state: { details, error, live, openDetailKeys, sessions },
+		state: { details, error, instances, live, openDetailKeys },
 	} = usePlotApp();
-	if (sessions.length === 0) {
+	if (instances.length === 0) {
 		return (
 			<main className="canvas canvas-empty">
 				<Empty>
 					<EmptyHeader>
-						<EmptyTitle>No running Plot sessions</EmptyTitle>
+						<EmptyTitle>No supervised Plot instances</EmptyTitle>
 						<EmptyDescription>
-							Start another terminal with plot tui/run.
+							Spawn one with `plot instances spawn --cwd /path/to/project`.
 						</EmptyDescription>
 					</EmptyHeader>
 					<EmptyContent>
@@ -253,7 +304,7 @@ function PlotCanvasRegion() {
 				onCloseDetail={closeDetail}
 				onOpenDetail={openDetail}
 				openDetailKeys={openDetailKeys}
-				sessions={sessions}
+				instances={instances}
 			/>
 		</main>
 	);

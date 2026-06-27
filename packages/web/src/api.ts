@@ -97,6 +97,24 @@ export const fetchInstances = async (): Promise<readonly PlotInstance[]> => {
 	return parsePlotInstances(await response.json());
 };
 
+export const createInstance = async (input: {
+	readonly cwd?: string;
+	readonly workflowPath?: string;
+}): Promise<PlotInstance> => {
+	const response = await fetch("/api/instances", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	const instances = parsePlotInstances({
+		instances: [(await response.json()).instance],
+	});
+	const instance = instances[0];
+	if (instance === undefined) throw new Error("invalid instance response");
+	return instance;
+};
+
 export const fetchInstanceProjection = async (
 	key: string,
 ): Promise<WebDashboardProjection> => {

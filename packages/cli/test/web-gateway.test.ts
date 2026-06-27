@@ -7,23 +7,30 @@ import type { PlotInstanceRecord } from "@plot/session/supervisor";
 import { startPlotWebGateway } from "../src/web-gateway.js";
 
 const writeInstances = async (
-	cwd: string,
+	supervisorDir: string,
 	instances: readonly PlotInstanceRecord[],
 ) => {
-	const dir = join(cwd, ".plot/supervisor");
-	await mkdir(dir, { recursive: true });
+	await mkdir(supervisorDir, { recursive: true });
 	await writeFile(
-		join(dir, "instances.json"),
+		join(supervisorDir, "instances.json"),
 		`${JSON.stringify(instances, null, 2)}\n`,
 	);
+};
+
+const startTestGateway = async (cwd: string) => {
+	const supervisorDir = await mkdtemp(join(tmpdir(), "plot-supervisor-"));
+	return {
+		supervisorDir,
+		gateway: await startPlotWebGateway({ cwd, supervisorDir, open: false }),
+	};
 };
 
 describe("Plot web gateway", () => {
 	test("serves supervised sessions", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const gateway = await startPlotWebGateway({ cwd: dir, open: false });
+		const { gateway, supervisorDir } = await startTestGateway(dir);
 		try {
-			await writeInstances(dir, [
+			await writeInstances(supervisorDir, [
 				{
 					id: "instance-1",
 					status: "online",
@@ -57,8 +64,8 @@ describe("Plot web gateway", () => {
 			sessionId: "default",
 		});
 		await eventLog.append({ type: "session_started", payload: { ok: true } });
-		const gateway = await startPlotWebGateway({ cwd: dir, open: false });
-		await writeInstances(dir, [
+		const { gateway, supervisorDir } = await startTestGateway(dir);
+		await writeInstances(supervisorDir, [
 			{
 				id: "instance-1",
 				status: "online",
@@ -107,9 +114,9 @@ describe("Plot web gateway", () => {
 		});
 		await eventLog.append({ type: "session_started", payload: {} });
 		await eventLog.append({ type: "session_tick", payload: { tickId: 7 } });
-		const gateway = await startPlotWebGateway({ cwd: dir, open: false });
+		const { gateway, supervisorDir } = await startTestGateway(dir);
 		try {
-			await writeInstances(dir, [
+			await writeInstances(supervisorDir, [
 				{
 					id: "instance-1",
 					status: "online",

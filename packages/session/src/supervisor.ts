@@ -21,7 +21,14 @@ import {
 	splitJsonlChunk,
 	type JsonlDecoderState,
 } from "./protocol-jsonl.js";
-import { resolvePlotPaths } from "./plot-paths.js";
+import {
+	resolvePlotSupervisorInstancesPath,
+	resolvePlotSupervisorPaths,
+} from "./plot-paths.js";
+export {
+	resolvePlotSupervisorDir,
+	resolvePlotSupervisorSocketPath,
+} from "./plot-paths.js";
 
 export type PlotInstanceStatus =
 	| "starting"
@@ -51,6 +58,7 @@ export interface PlotSupervisorOptions {
 	readonly cwd: string;
 	readonly plotDir?: string;
 	readonly agentDir?: string;
+	readonly supervisorDir?: string;
 	readonly cli?: { readonly command: string; readonly args: readonly string[] };
 	readonly eventCapacity?: number;
 }
@@ -229,25 +237,13 @@ const instanceArgs = (
 	return args;
 };
 
-const supervisorDir = (options: PlotSupervisorOptions): string =>
-	join(
-		resolvePlotPaths({
-			cwd: options.cwd,
-			...(options.plotDir === undefined ? {} : { plotDir: options.plotDir }),
-			...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
-		}).plotDir,
-		"supervisor",
-	);
-
-export const resolvePlotSupervisorSocketPath = (
-	options: PlotSupervisorOptions,
-): string => join(supervisorDir(options), "supervisor.sock");
-
-const instancesPath = (options: PlotSupervisorOptions): string =>
-	join(supervisorDir(options), "instances.json");
+const instancesPath = resolvePlotSupervisorInstancesPath;
 
 const ensureDir = (options: PlotSupervisorOptions): void => {
-	mkdirSync(supervisorDir(options), { recursive: true, mode: 0o700 });
+	mkdirSync(resolvePlotSupervisorPaths(options).supervisorDir, {
+		recursive: true,
+		mode: 0o700,
+	});
 };
 
 const readInstances = (

@@ -9,9 +9,9 @@ import {
 	decodePlotClientRecord,
 	type PlotServerRecord,
 } from "@plot/session/protocol";
+import { resolvePlotSupervisorSocketPath } from "./plot-paths.js";
 import {
 	PlotSupervisor,
-	resolvePlotSupervisorSocketPath,
 	type PlotInstanceRecord,
 	type PlotSupervisorOptions,
 	type PlotSupervisorSpawnOptions,

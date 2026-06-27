@@ -26,8 +26,8 @@ import { Button } from "./components/ui/button.js";
 import { Group, GroupSeparator } from "./components/ui/group.js";
 import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
 import type { PlotInstance } from "./instance.js";
-import { SessionDetailWindow } from "./session-detail.js";
-import { FleetSessionCard } from "./session-card.js";
+import { InstanceDetailWindow } from "./instance-detail.js";
+import { FleetInstanceCard } from "./instance-card.js";
 
 interface DetailEntry {
 	readonly error?: string | undefined;
@@ -47,17 +47,17 @@ export interface PlotCanvasProps {
 	readonly onCloseDetail: (key: string) => void;
 	readonly onOpenDetail: (key: string) => void;
 	readonly openDetailKeys: readonly string[];
-	readonly sessions: readonly PlotInstance[];
+	readonly instances: readonly PlotInstance[];
 }
 
-type SessionNode = Node<
+type InstanceNode = Node<
 	{
 		readonly live?: SessionLiveState | undefined;
 		readonly onFocus: () => void;
 		readonly onOpen: () => void;
-		readonly session: PlotInstance;
+		readonly instance: PlotInstance;
 	},
-	"plot-session"
+	"plot-instance"
 >;
 
 type DetailNode = Node<
@@ -68,12 +68,12 @@ type DetailNode = Node<
 		readonly onResizeEnd: (
 			layout: Required<Pick<DetailLayout, "height" | "width">>,
 		) => void;
-		readonly session: PlotInstance;
+		readonly instance: PlotInstance;
 	},
-	"session-detail"
+	"instance-detail"
 >;
 
-type PlotNode = DetailNode | SessionNode;
+type PlotNode = DetailNode | InstanceNode;
 type PlotEdge = Edge<Record<string, never>, "smoothstep">;
 
 const cardGapX = 460;
@@ -97,8 +97,8 @@ const detailEdgeMarker = {
 };
 
 const nodeTypes = {
-	"plot-session": SessionNodeCard,
-	"session-detail": DetailNodeCard,
+	"plot-instance": InstanceNodeCard,
+	"instance-detail": DetailNodeCard,
 } satisfies NodeTypes;
 
 const readStoredLayout = (): Record<string, DetailLayout> => {
@@ -120,7 +120,7 @@ const writeStoredLayout = (layout: Readonly<Record<string, DetailLayout>>) => {
 	}
 };
 
-function SessionNodeCard({ data, id, selected }: NodeProps<SessionNode>) {
+function InstanceNodeCard({ data, id, selected }: NodeProps<InstanceNode>) {
 	return (
 		<>
 			<NodeToolbar
@@ -129,7 +129,7 @@ function SessionNodeCard({ data, id, selected }: NodeProps<SessionNode>) {
 				nodeId={id}
 				position={Position.Top}
 			>
-				<Group className="plot-node-toolbar" aria-label="Session actions">
+				<Group className="plot-node-toolbar" aria-label="Instance actions">
 					<Button size="sm" variant="secondary" onClick={data.onOpen}>
 						Open
 					</Button>
@@ -139,7 +139,7 @@ function SessionNodeCard({ data, id, selected }: NodeProps<SessionNode>) {
 					</Button>
 				</Group>
 			</NodeToolbar>
-			<FleetSessionCard session={data.session} live={data.live} />
+			<FleetInstanceCard instance={data.instance} live={data.live} />
 		</>
 	);
 }
@@ -174,20 +174,20 @@ function DetailNodeCard({ data, id, selected }: NodeProps<DetailNode>) {
 					</Button>
 				</Group>
 			</NodeToolbar>
-			<SessionDetailWindow
+			<InstanceDetailWindow
 				onClose={data.onClose}
 				state={{
 					error: data.detail.error,
 					loading: data.detail.loading,
 					projection: data.detail.projection,
-					session: data.session,
+					instance: data.instance,
 				}}
 			/>
 		</>
 	);
 }
 
-const sessionPosition = (index: number) => ({
+const instancePosition = (index: number) => ({
 	x: (index % 3) * cardGapX,
 	y: Math.floor(index / 3) * cardGapY,
 });
@@ -197,7 +197,7 @@ const detailKey = (id: string) => id.slice("detail:".length);
 
 const detailPosition = (index: number, layout: DetailLayout | undefined) => {
 	if (layout?.position !== undefined) return layout.position;
-	const origin = sessionPosition(index);
+	const origin = instancePosition(index);
 	return { x: origin.x + detailOffsetX, y: origin.y + detailOffsetY };
 };
 
@@ -219,7 +219,7 @@ const detailEdges = (keys: readonly string[]): PlotEdge[] =>
 	}));
 
 const minimapColor = (node: PlotNode) =>
-	node.type === "session-detail" ? "var(--info)" : "var(--primary)";
+	node.type === "instance-detail" ? "var(--info)" : "var(--primary)";
 
 function PlotCanvasSurface(props: PlotCanvasProps) {
 	const flow = useReactFlow<PlotNode, PlotEdge>();
@@ -265,33 +265,33 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 			const previousById = new Map(previous.map((node) => [node.id, node]));
 			const next: PlotNode[] = [];
 
-			for (const [index, session] of propsRef.current.sessions.entries()) {
-				const existing = previousById.get(session.id) as
-					| SessionNode
+			for (const [index, instance] of propsRef.current.instances.entries()) {
+				const existing = previousById.get(instance.id) as
+					| InstanceNode
 					| undefined;
 				next.push({
 					...existing,
 					draggable: false,
-					id: session.id,
-					position: sessionPosition(index),
+					id: instance.id,
+					position: instancePosition(index),
 					sourcePosition: Position.Right,
 					targetPosition: Position.Left,
-					type: "plot-session",
+					type: "plot-instance",
 					data: {
-						live: propsRef.current.live[session.id],
-						onFocus: () => focusNodes([session.id]),
-						onOpen: () => propsRef.current.onOpenDetail(session.id),
-						session,
+						live: propsRef.current.live[instance.id],
+						onFocus: () => focusNodes([instance.id]),
+						onOpen: () => propsRef.current.onOpenDetail(instance.id),
+						instance,
 					},
 				});
 			}
 
 			for (const key of propsRef.current.openDetailKeys) {
-				const index = propsRef.current.sessions.findIndex(
-					(session) => session.id === key,
+				const index = propsRef.current.instances.findIndex(
+					(instance) => instance.id === key,
 				);
-				const session = propsRef.current.sessions[index];
-				if (session === undefined || index < 0) continue;
+				const instance = propsRef.current.instances[index];
+				if (instance === undefined || index < 0) continue;
 				const id = detailNodeId(key);
 				const existing = previousById.get(id) as DetailNode | undefined;
 				const saved = layoutRef.current[key];
@@ -308,14 +308,14 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 					sourcePosition: Position.Right,
 					style: { height, width },
 					targetPosition: Position.Left,
-					type: "session-detail",
+					type: "instance-detail",
 					width,
 					data: {
 						detail: propsRef.current.details[key] ?? { loading: true },
 						onClose: () => propsRef.current.onCloseDetail(key),
 						onFocus: () => focusNodes([id]),
 						onResizeEnd: (layout) => persistDetailLayout(key, layout),
-						session,
+						instance,
 					},
 				});
 			}
@@ -330,7 +330,7 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 		props.details,
 		props.live,
 		props.openDetailKeys,
-		props.sessions,
+		props.instances,
 		reconcileNodes,
 	]);
 
@@ -371,7 +371,7 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 	};
 
 	const focusFleet = () => {
-		focusNodes(props.sessions.map((session) => session.id));
+		focusNodes(props.instances.map((session) => session.id));
 	};
 
 	return (
@@ -389,19 +389,19 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 			nodesDraggable
 			onNodeClick={(_event, node) => {
 				setSelectedNodeId(node.id);
-				if (node.type === "plot-session") props.onOpenDetail(node.id);
+				if (node.type === "plot-instance") props.onOpenDetail(node.id);
 			}}
 			onNodeDoubleClick={(_event, node) => {
-				if (node.type === "plot-session") props.onOpenDetail(node.id);
+				if (node.type === "plot-instance") props.onOpenDetail(node.id);
 				focusNodes(
-					node.type === "plot-session"
+					node.type === "plot-instance"
 						? [node.id, detailNodeId(node.id)]
 						: [node.id],
 				);
 			}}
 			onNodeDragStop={(_event, node) => {
 				setSelectedNodeId(node.id);
-				if (node.type === "session-detail") {
+				if (node.type === "instance-detail") {
 					persistDetailLayout(detailKey(node.id), { position: node.position });
 				}
 			}}

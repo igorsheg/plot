@@ -4,25 +4,16 @@ import { pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
 import { str } from "../options.js";
-import {
-	resolvePlotSupervisorSocketPath,
-	type PlotSupervisorOptions,
-} from "@plot/session/supervisor";
+import { resolvePlotSupervisorSocketPath } from "@plot/session/plot-paths";
+import type { PlotSupervisorOptions } from "@plot/session/supervisor";
 import {
 	sendPlotSupervisorIpcRequest,
 	type PlotSupervisorRequest,
 } from "@plot/session/supervisor-ipc";
 
-const supervisorOptions = (args: ParsedArgs): PlotSupervisorOptions => {
-	const cwd = str(args, "cwd") ?? process.cwd();
-	const plotDir = str(args, "plot-dir");
-	const agentDir = str(args, "agent-dir");
-	return {
-		cwd,
-		...(plotDir === undefined ? {} : { plotDir }),
-		...(agentDir === undefined ? {} : { agentDir }),
-	};
-};
+const supervisorOptions = (_args: ParsedArgs): PlotSupervisorOptions => ({
+	cwd: process.cwd(),
+});
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
@@ -35,7 +26,7 @@ const request = async (args: ParsedArgs, value: PlotSupervisorRequest) => {
 	} catch (error) {
 		await writeCliStderr(
 			io,
-			`Error: ${errorMessage(error)}\nFix: run \`plot serve supervisor\` or \`plot web\` for this --cwd.\n`,
+			`Error: ${errorMessage(error)}\nFix: run \`plot serve supervisor\` or \`plot web\`.\n`,
 		);
 		throw error;
 	}
@@ -79,12 +70,6 @@ const streamEvents = async (args: ParsedArgs) => {
 	});
 };
 
-const socketArgs = {
-	cwd: pathArgs.cwd,
-	"plot-dir": pathArgs["plot-dir"],
-	"agent-dir": pathArgs["agent-dir"],
-} as const;
-
 export const instancesCommand = defineCommand({
 	meta: {
 		name: "instances",
@@ -93,13 +78,12 @@ export const instancesCommand = defineCommand({
 	subCommands: {
 		list: defineCommand({
 			meta: { name: "list", description: "List supervised instances." },
-			args: socketArgs,
 			run: ({ args }) => request(args, { type: "list" }),
 		}),
 		spawn: defineCommand({
 			meta: { name: "spawn", description: "Spawn a supervised instance." },
 			args: {
-				...socketArgs,
+				cwd: pathArgs.cwd,
 				workflow: {
 					type: "string",
 					description: "Workflow file for the new instance.",
@@ -132,7 +116,6 @@ export const instancesCommand = defineCommand({
 					description: "Instance id.",
 					required: true,
 				},
-				...socketArgs,
 			},
 			run: ({ args }) =>
 				request(args, { type: "status", instanceId: str(args, "instanceId")! }),
@@ -145,7 +128,6 @@ export const instancesCommand = defineCommand({
 					description: "Instance id.",
 					required: true,
 				},
-				...socketArgs,
 			},
 			run: ({ args }) =>
 				request(args, { type: "stop", instanceId: str(args, "instanceId")! }),
@@ -166,7 +148,6 @@ export const instancesCommand = defineCommand({
 					description: "Only stream records after this event sequence.",
 					valueHint: "sequence",
 				},
-				...socketArgs,
 			},
 			run: ({ args }) => streamEvents(args),
 		}),

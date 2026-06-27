@@ -16,22 +16,24 @@ import {
 import type { SessionLiveState } from "./live-events.js";
 import type { PlotInstance } from "./instance.js";
 
-interface SessionCardState {
-	readonly session: PlotInstance;
+interface InstanceCardState {
+	readonly instance: PlotInstance;
 	readonly live?: SessionLiveState | undefined;
 }
 
-interface SessionCardContextValue {
-	readonly state: SessionCardState;
+interface InstanceCardContextValue {
+	readonly state: InstanceCardState;
 	readonly actions: Record<string, never>;
 	readonly meta: Record<string, never>;
 }
 
-const SessionCardContext = createContext<SessionCardContextValue | null>(null);
+const InstanceCardContext = createContext<InstanceCardContextValue | null>(
+	null,
+);
 
-const useSessionCard = (): SessionCardContextValue => {
-	const value = use(SessionCardContext);
-	if (value === null) throw new Error("SessionCardContext missing");
+const useInstanceCard = (): InstanceCardContextValue => {
+	const value = use(InstanceCardContext);
+	if (value === null) throw new Error("InstanceCardContext missing");
 	return value;
 };
 
@@ -45,18 +47,18 @@ const formatHeartbeat = (value: string) => {
 function Provider({
 	children,
 	live,
-	session,
+	instance,
 }: {
 	readonly children: ReactNode;
 	readonly live?: SessionLiveState | undefined;
-	readonly session: PlotInstance;
+	readonly instance: PlotInstance;
 }) {
 	return (
-		<SessionCardContext
-			value={{ state: { session, live }, actions: {}, meta: {} }}
+		<InstanceCardContext
+			value={{ state: { instance, live }, actions: {}, meta: {} }}
 		>
 			{children}
-		</SessionCardContext>
+		</InstanceCardContext>
 	);
 }
 
@@ -72,15 +74,15 @@ function Header({ children }: { readonly children: ReactNode }) {
 
 function Identity() {
 	const {
-		state: { session },
-	} = useSessionCard();
+		state: { instance },
+	} = useInstanceCard();
 	return (
 		<div className="plot-session-card-identity">
 			<CardTitle className="plot-session-card-title">
-				{session.workflowName ?? session.sessionId ?? session.id}
+				{instance.workflowName ?? instance.sessionId ?? instance.id}
 			</CardTitle>
 			<p className="plot-session-card-subtitle">
-				{session.cwdName ?? session.cwd}
+				{instance.cwdName ?? instance.cwd}
 			</p>
 		</div>
 	);
@@ -88,9 +90,9 @@ function Identity() {
 
 function StatusBadge() {
 	const {
-		state: { session },
-	} = useSessionCard();
-	return <Badge variant="outline">{session.status}</Badge>;
+		state: { instance },
+	} = useInstanceCard();
+	return <Badge variant="outline">{instance.status}</Badge>;
 }
 
 function Facts({ children }: { readonly children: ReactNode }) {
@@ -122,25 +124,25 @@ function Fact(props: {
 
 function SessionIdFact() {
 	const {
-		state: { session },
-	} = useSessionCard();
+		state: { instance },
+	} = useInstanceCard();
 	return (
 		<Fact
 			label="session"
-			value={session.sessionId ?? session.id}
-			title={session.sessionId ?? session.id}
+			value={instance.sessionId ?? instance.id}
+			title={instance.sessionId ?? instance.id}
 		/>
 	);
 }
 
 function LastEventFact() {
 	const {
-		state: { live, session },
-	} = useSessionCard();
+		state: { live, instance },
+	} = useInstanceCard();
 	return (
 		<Fact
 			label="last"
-			value={`${live?.lastType ?? session.lastEventType ?? "started"} #${live?.frontier ?? session.lastSequence ?? 0}`}
+			value={`${live?.lastType ?? instance.lastEventType ?? "started"} #${live?.frontier ?? instance.lastSequence ?? 0}`}
 		/>
 	);
 }
@@ -148,7 +150,7 @@ function LastEventFact() {
 function StreamFact() {
 	const {
 		state: { live },
-	} = useSessionCard();
+	} = useInstanceCard();
 	return (
 		<Fact
 			label="stream"
@@ -159,24 +161,24 @@ function StreamFact() {
 
 function SeenFact() {
 	const {
-		state: { session },
-	} = useSessionCard();
+		state: { instance },
+	} = useInstanceCard();
 	return (
 		<Fact
 			label="seen"
-			value={formatHeartbeat(session.lastSeenAt ?? session.createdAt)}
+			value={formatHeartbeat(instance.lastSeenAt ?? instance.createdAt)}
 		/>
 	);
 }
 
 function CwdFact() {
 	const {
-		state: { session },
-	} = useSessionCard();
-	return <Fact label="cwd" value={session.cwd} title={session.cwd} />;
+		state: { instance },
+	} = useInstanceCard();
+	return <Fact label="cwd" value={instance.cwd} title={instance.cwd} />;
 }
 
-const SessionCard = {
+const InstanceCard = {
 	Provider,
 	Frame,
 	Header,
@@ -190,27 +192,27 @@ const SessionCard = {
 	CwdFact,
 };
 
-export function FleetSessionCard(props: {
+export function FleetInstanceCard(props: {
 	readonly live?: SessionLiveState | undefined;
-	readonly session: PlotInstance;
+	readonly instance: PlotInstance;
 }) {
 	return (
 		<TooltipProvider>
-			<SessionCard.Provider session={props.session} live={props.live}>
-				<SessionCard.Frame>
-					<SessionCard.Header>
-						<SessionCard.Identity />
-						<SessionCard.StatusBadge />
-					</SessionCard.Header>
-					<SessionCard.Facts>
-						<SessionCard.SessionIdFact />
-						<SessionCard.LastEventFact />
-						<SessionCard.StreamFact />
-						<SessionCard.SeenFact />
-						<SessionCard.CwdFact />
-					</SessionCard.Facts>
-				</SessionCard.Frame>
-			</SessionCard.Provider>
+			<InstanceCard.Provider instance={props.instance} live={props.live}>
+				<InstanceCard.Frame>
+					<InstanceCard.Header>
+						<InstanceCard.Identity />
+						<InstanceCard.StatusBadge />
+					</InstanceCard.Header>
+					<InstanceCard.Facts>
+						<InstanceCard.SessionIdFact />
+						<InstanceCard.LastEventFact />
+						<InstanceCard.StreamFact />
+						<InstanceCard.SeenFact />
+						<InstanceCard.CwdFact />
+					</InstanceCard.Facts>
+				</InstanceCard.Frame>
+			</InstanceCard.Provider>
 		</TooltipProvider>
 	);
 }

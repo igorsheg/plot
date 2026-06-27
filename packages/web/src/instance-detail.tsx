@@ -17,26 +17,26 @@ import { Separator } from "./components/ui/separator.js";
 import { Skeleton } from "./components/ui/skeleton.js";
 import type { PlotInstance } from "./instance.js";
 
-export interface SessionDetailState {
+export interface InstanceDetailState {
 	readonly error?: string | undefined;
 	readonly loading: boolean;
 	readonly projection?: WebDashboardProjection | undefined;
-	readonly session: PlotInstance;
+	readonly instance: PlotInstance;
 }
 
-interface SessionDetailContextValue {
-	readonly state: SessionDetailState;
+interface InstanceDetailContextValue {
+	readonly state: InstanceDetailState;
 	readonly actions: { readonly close: () => void };
 	readonly meta: Record<string, never>;
 }
 
-const SessionDetailContext = createContext<SessionDetailContextValue | null>(
+const InstanceDetailContext = createContext<InstanceDetailContextValue | null>(
 	null,
 );
 
-const useSessionDetail = (): SessionDetailContextValue => {
-	const value = use(SessionDetailContext);
-	if (value === null) throw new Error("SessionDetailContext missing");
+const useInstanceDetail = (): InstanceDetailContextValue => {
+	const value = use(InstanceDetailContext);
+	if (value === null) throw new Error("InstanceDetailContext missing");
 	return value;
 };
 
@@ -69,14 +69,14 @@ function Provider({
 }: {
 	readonly children: ReactNode;
 	readonly onClose: () => void;
-	readonly state: SessionDetailState;
+	readonly state: InstanceDetailState;
 }) {
 	return (
-		<SessionDetailContext
+		<InstanceDetailContext
 			value={{ state, actions: { close: onClose }, meta: {} }}
 		>
 			{children}
-		</SessionDetailContext>
+		</InstanceDetailContext>
 	);
 }
 
@@ -87,15 +87,15 @@ function Frame({ children }: { readonly children: ReactNode }) {
 function Header() {
 	const {
 		actions,
-		state: { projection, session },
-	} = useSessionDetail();
+		state: { projection, instance },
+	} = useInstanceDetail();
 	return (
 		<CardHeader className="plot-detail-header">
 			<div className="plot-detail-title-group">
 				<CardTitle className="plot-detail-title">
-					{session.workflowName ?? session.sessionId ?? session.id}
+					{instance.workflowName ?? instance.sessionId ?? instance.id}
 				</CardTitle>
-				<p className="plot-detail-subtitle">{session.cwd}</p>
+				<p className="plot-detail-subtitle">{instance.cwd}</p>
 			</div>
 			<div className="plot-detail-actions">
 				<Badge variant="outline">{projection?.status ?? "loading"}</Badge>
@@ -133,15 +133,15 @@ function Body() {
 
 function Summary() {
 	const {
-		state: { loading, projection, session },
-	} = useSessionDetail();
+		state: { loading, projection, instance },
+	} = useInstanceDetail();
 	const workCount = Object.keys(projection?.work ?? {}).length;
 	const attemptCount = Object.keys(projection?.attempts ?? {}).length;
 	return (
 		<section className="plot-detail-summary">
 			<Metric
 				label="frontier"
-				value={String(projection?.frontier ?? session.lastSequence ?? 0)}
+				value={String(projection?.frontier ?? instance.lastSequence ?? 0)}
 			/>
 			<Metric label="work" value={loading ? <LoadingValue /> : workCount} />
 			<Metric
@@ -159,7 +159,7 @@ function LoadingValue() {
 function DetailError() {
 	const {
 		state: { error },
-	} = useSessionDetail();
+	} = useInstanceDetail();
 	if (!error) return null;
 	return (
 		<Alert variant="error">
@@ -207,7 +207,7 @@ function EmptyState({ children }: { readonly children: ReactNode }) {
 function WorkList() {
 	const {
 		state: { projection },
-	} = useSessionDetail();
+	} = useInstanceDetail();
 	const work = Object.values(projection?.work ?? {}).slice(0, 5);
 	return (
 		<Section title="Active work">
@@ -224,7 +224,7 @@ function WorkList() {
 function AttemptList() {
 	const {
 		state: { projection },
-	} = useSessionDetail();
+	} = useInstanceDetail();
 	const attempts = Object.values(projection?.attempts ?? {}).slice(0, 5);
 	return (
 		<Section title="Active attempts">
@@ -243,7 +243,7 @@ function AttemptList() {
 function ActivityList() {
 	const {
 		state: { projection },
-	} = useSessionDetail();
+	} = useInstanceDetail();
 	const activity = latestActivity(projection?.activity);
 	return (
 		<Section title="Activity">
@@ -259,23 +259,23 @@ function ActivityList() {
 	);
 }
 
-const SessionDetail = {
+const InstanceDetail = {
 	Provider,
 	Frame,
 	Header,
 	Body,
 };
 
-export function SessionDetailWindow(props: {
+export function InstanceDetailWindow(props: {
 	readonly onClose: () => void;
-	readonly state: SessionDetailState;
+	readonly state: InstanceDetailState;
 }) {
 	return (
-		<SessionDetail.Provider state={props.state} onClose={props.onClose}>
-			<SessionDetail.Frame>
-				<SessionDetail.Header />
-				<SessionDetail.Body />
-			</SessionDetail.Frame>
-		</SessionDetail.Provider>
+		<InstanceDetail.Provider state={props.state} onClose={props.onClose}>
+			<InstanceDetail.Frame>
+				<InstanceDetail.Header />
+				<InstanceDetail.Body />
+			</InstanceDetail.Frame>
+		</InstanceDetail.Provider>
 	);
 }

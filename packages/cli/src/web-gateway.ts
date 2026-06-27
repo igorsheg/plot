@@ -26,6 +26,7 @@ const assets: Record<string, WebAsset> = webAssets;
 export interface PlotWebGatewayOptions {
 	readonly cwd: string;
 	readonly agentDir?: string | undefined;
+	readonly supervisorDir?: string | undefined;
 	readonly workflowPath?: string | undefined;
 	readonly host?: string | undefined;
 	readonly port?: number | undefined;
@@ -71,6 +72,33 @@ const parseSequence = (value: string | null): number | undefined => {
 	if (value === null) return undefined;
 	const parsed = Number(value);
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+};
+
+const parseCreateInstanceBody = async (
+	request: Request,
+): Promise<{
+	readonly cwd?: string;
+	readonly workflowPath?: string;
+	readonly label?: string;
+}> => {
+	if (!request.headers.get("content-type")?.includes("application/json"))
+		return {};
+	const body = (await request.json().catch(() => ({}))) as Record<
+		string,
+		unknown
+	>;
+	return {
+		...(typeof body["cwd"] === "string" && body["cwd"].trim() !== ""
+			? { cwd: body["cwd"] }
+			: {}),
+		...(typeof body["workflowPath"] === "string" &&
+		body["workflowPath"].trim() !== ""
+			? { workflowPath: body["workflowPath"] }
+			: {}),
+		...(typeof body["label"] === "string" && body["label"].trim() !== ""
+			? { label: body["label"] }
+			: {}),
+	};
 };
 
 const parseAfterSequence = (input: {
@@ -242,6 +270,9 @@ export const startPlotWebGateway = async (
 		options: {
 			cwd: options.cwd,
 			...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
+			...(options.supervisorDir === undefined
+				? {}
+				: { supervisorDir: options.supervisorDir }),
 			cli: resolvePlotCliSpawnCommand(),
 		},
 	});
@@ -251,11 +282,15 @@ export const startPlotWebGateway = async (
 		async fetch(request) {
 			const url = new URL(request.url);
 			if (url.pathname === "/api/instances" && request.method === "POST") {
+				const body = await parseCreateInstanceBody(request);
 				const instance = await supervisor.supervisor.spawnInstance({
-					cwd: options.cwd,
-					...(options.workflowPath === undefined
-						? {}
-						: { workflowPath: options.workflowPath }),
+					cwd: body.cwd ?? options.cwd,
+					...(body.workflowPath !== undefined
+						? { workflowPath: body.workflowPath }
+						: options.workflowPath === undefined
+							? {}
+							: { workflowPath: options.workflowPath }),
+					...(body.label === undefined ? {} : { label: body.label }),
 					...(options.agentDir === undefined
 						? {}
 						: { agentDir: options.agentDir }),
