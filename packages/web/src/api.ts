@@ -1,7 +1,4 @@
-import {
-	parsePlotSessionRegistrations,
-	type PlotSessionRegistration,
-} from "./registration.js";
+import { parsePlotInstances, type PlotInstance } from "./instance.js";
 
 export interface PlotEventRecord {
 	readonly kind: "event";
@@ -94,19 +91,17 @@ const parseProjection = (
 	};
 };
 
-export const fetchSessions = async (): Promise<
-	readonly PlotSessionRegistration[]
-> => {
-	const response = await fetch("/api/sessions");
+export const fetchInstances = async (): Promise<readonly PlotInstance[]> => {
+	const response = await fetch("/api/instances");
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	return parsePlotSessionRegistrations(await response.json());
+	return parsePlotInstances(await response.json());
 };
 
-export const fetchSessionProjection = async (
+export const fetchInstanceProjection = async (
 	key: string,
 ): Promise<WebDashboardProjection> => {
 	const response = await fetch(
-		`/api/sessions/${encodeURIComponent(key)}/projection`,
+		`/api/instances/${encodeURIComponent(key)}/projection`,
 	);
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
 	const projection = parseProjection(await response.json());
@@ -114,5 +109,5 @@ export const fetchSessionProjection = async (
 	return projection;
 };
 
-export const sessionEventsUrl = (key: string, after: number): string =>
-	`/api/sessions/${encodeURIComponent(key)}/events?after=${after}`;
+export const instanceEventsUrl = (key: string, after: number): string =>
+	`/api/instances/${encodeURIComponent(key)}/events?after=${after}`;

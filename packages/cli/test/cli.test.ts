@@ -8,6 +8,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runPlotCli } from "../src/cli.js";
+import {
+	flushRawStdout,
+	restoreStdout,
+	takeOverStdout,
+	writeRawStdout,
+} from "../src/stdout-guard.js";
 
 const tempDirs: string[] = [];
 
@@ -53,6 +59,16 @@ const captureConsole = async (run: () => Promise<string[]>) => {
 		process.stderr.write = originalWrite;
 	}
 };
+
+const fakeWrite = (append: (text: string) => void) =>
+	((chunk: unknown, ...args: unknown[]) => {
+		append(String(chunk));
+		const callback = args.find(
+			(arg): arg is (error?: Error | null) => void => typeof arg === "function",
+		);
+		callback?.();
+		return true;
+	}) as typeof process.stdout.write;
 
 const decodeLines = (lines: readonly string[]) =>
 	Promise.all(
@@ -269,6 +285,47 @@ describe("plot CLI", () => {
 		);
 		expect(output).toContain("--workflow");
 		expect(output).toContain("--tick-interval-ms");
+	});
+
+	test("prints supervised instances help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["instances", "events", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("Stream instance protocol records.");
+		expect(output).toContain("INSTANCEID");
+		expect(output).toContain("--after");
+	});
+
+	test("stdout guard keeps protocol output on raw stdout", async () => {
+		const originalStdout = process.stdout.write;
+		const originalStderr = process.stderr.write;
+		let stdout = "";
+		let stderr = "";
+		process.stdout.write = fakeWrite((text) => {
+			stdout += text;
+		});
+		process.stderr.write = fakeWrite((text) => {
+			stderr += text;
+		}) as typeof process.stderr.write;
+		try {
+			takeOverStdout();
+			await writeRawStdout("protocol\n");
+			process.stdout.write("noise\n");
+			await flushRawStdout();
+		} finally {
+			restoreStdout();
+			process.stdout.write = originalStdout;
+			process.stderr.write = originalStderr;
+		}
+
+		expect(stdout).toBe("protocol\n");
+		expect(stderr).toBe("noise\n");
 	});
 
 	test("list-models help only exposes auth path options", async () => {

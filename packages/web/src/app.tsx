@@ -1,10 +1,10 @@
 import { createContext, use, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
-	fetchSessionProjection,
-	fetchSessions,
+	fetchInstanceProjection,
+	fetchInstances,
 	parsePlotEventRecord,
-	sessionEventsUrl,
+	instanceEventsUrl,
 	type WebDashboardProjection,
 } from "./api.js";
 import { Alert, AlertDescription } from "./components/ui/alert.js";
@@ -20,7 +20,7 @@ import { Group } from "./components/ui/group.js";
 import { PlotCanvas } from "./flow-canvas.js";
 import { useSessionLiveEvents, type SessionLiveMap } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
-import type { PlotSessionRegistration } from "./registration.js";
+import type { PlotInstance } from "./instance.js";
 
 interface PlotDetailEntry {
 	readonly error?: string | undefined;
@@ -29,7 +29,7 @@ interface PlotDetailEntry {
 }
 
 interface PlotAppState {
-	readonly sessions: readonly PlotSessionRegistration[];
+	readonly sessions: readonly PlotInstance[];
 	readonly live: SessionLiveMap;
 	readonly details: Readonly<Record<string, PlotDetailEntry>>;
 	readonly openDetailKeys: readonly string[];
@@ -54,17 +54,16 @@ const usePlotApp = (): PlotAppContextValue => {
 	return value;
 };
 
-const sortSessions = (sessions: readonly PlotSessionRegistration[]) =>
+const sortSessions = (sessions: readonly PlotInstance[]) =>
 	sessions.toSorted(
 		(left, right) =>
-			Date.parse(right.heartbeatAt) - Date.parse(left.heartbeatAt),
+			Date.parse(right.lastSeenAt ?? right.createdAt) -
+			Date.parse(left.lastSeenAt ?? left.createdAt),
 	);
 
 function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 	const pollMs = 1_000;
-	const [sessions, setSessions] = useState<readonly PlotSessionRegistration[]>(
-		[],
-	);
+	const [sessions, setSessions] = useState<readonly PlotInstance[]>([]);
 	const [error, setError] = useState<string>();
 	const [openDetailKeys, setOpenDetailKeys] = useState<readonly string[]>([]);
 	const [details, setDetails] = useState<
@@ -75,7 +74,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 
 	const reload = async () => {
 		try {
-			setSessions(await fetchSessions());
+			setSessions(await fetchInstances());
 			setError(undefined);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : String(caught));
@@ -90,7 +89,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		}));
 		void (async () => {
 			try {
-				const projection = await fetchSessionProjection(key);
+				const projection = await fetchInstanceProjection(key);
 				setDetails((previous) => ({
 					...previous,
 					[key]: { loading: false, projection },
@@ -121,7 +120,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		let cancelled = false;
 		const load = async () => {
 			try {
-				const next = await fetchSessions();
+				const next = await fetchInstances();
 				if (!cancelled) {
 					setSessions(next);
 					setError(undefined);
@@ -144,7 +143,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 			const projection = details[key]?.projection;
 			if (projection === undefined) return [];
 			const source = new EventSource(
-				sessionEventsUrl(key, projection.frontier),
+				instanceEventsUrl(key, projection.frontier),
 			);
 			source.addEventListener("plot", (message) => {
 				const record = parsePlotEventRecord(

@@ -9,12 +9,16 @@ import {
 	makePlotWelcomeRecord,
 	plotProtocolRequestId,
 	plotProtocolSequence,
+	safeParseEmptyParams,
 	safeParseGetSnapshotParams,
+	safeParseGetStateParams,
+	safeParseInterruptAgentRunParams,
 	safeParseRequestTickParams,
 	type PlotClientRecord,
 	type PlotCommand,
 	type PlotProtocolLimits,
 	type PlotServerRecord,
+	type PlotSessionMetadata,
 	type PlotWelcomeRecord,
 } from "@plot/session/protocol";
 import type { PlotSessionShape } from "./session.js";
@@ -22,6 +26,7 @@ import { errorMessage } from "./util.js";
 
 export interface PlotProtocolLayerOptions {
 	readonly limits?: PlotProtocolLimits;
+	readonly metadata?: PlotSessionMetadata;
 	readonly outputCapacity?: number;
 	readonly session: PlotSessionShape;
 }
@@ -99,18 +104,64 @@ export const makePlotProtocolLayer = (
 			output.publish(makePlotEventRecord(event));
 	})();
 
+	const ok = async (
+		request: PlotClientRecord,
+		data?: unknown,
+	): Promise<readonly PlotServerRecord[]> => {
+		const lastSequence = await options.session.lastEventSequence();
+		return [
+			makePlotSuccessResponse({
+				id: request.id,
+				command: request.command,
+				lastSequence: plotProtocolSequence(lastSequence),
+				...(data === undefined ? {} : { data }),
+			}),
+		];
+	};
 	const handleRequest = async (
 		request: PlotClientRecord,
 	): Promise<readonly PlotServerRecord[]> => {
 		switch (request.command as PlotCommand) {
 			case "ping":
-				return [
-					makePlotSuccessResponse({
-						id: request.id,
-						command: request.command,
-						data: { pong: true },
+				decodeWith(safeParseEmptyParams, request.params);
+				return ok(request, { pong: true });
+			case "start":
+				decodeWith(safeParseEmptyParams, request.params);
+				await options.session.start();
+				return ok(request, { started: true });
+			case "shutdown":
+				decodeWith(safeParseEmptyParams, request.params);
+				return ok(request, { accepted: await options.session.shutdown() });
+			case "get_state":
+				decodeWith(safeParseGetStateParams, request.params);
+				return ok(request, {
+					sessionId: options.session.id,
+					...(options.metadata === undefined
+						? {}
+						: { metadata: options.metadata }),
+				});
+			case "pause_dispatch":
+				decodeWith(safeParseEmptyParams, request.params);
+				await options.session.pauseDispatch();
+				return ok(request, { paused: true });
+			case "resume_dispatch":
+				decodeWith(safeParseEmptyParams, request.params);
+				await options.session.resumeDispatch();
+				return ok(request, { resumed: true });
+			case "interrupt_agent_run": {
+				const params = decodeWith(
+					safeParseInterruptAgentRunParams,
+					request.params,
+				);
+				return ok(request, {
+					accepted: await options.session.interruptAgentRun({
+						runId: params.runId,
+						...(params.workKey === undefined
+							? {}
+							: { workKey: params.workKey }),
 					}),
-				];
+				});
+			}
 			case "get_snapshot": {
 				decodeWith(safeParseGetSnapshotParams, request.params);
 				const lastSequence = await options.session.lastEventSequence();
@@ -129,15 +180,7 @@ export const makePlotProtocolLayer = (
 			case "request_tick": {
 				decodeWith(safeParseRequestTickParams, request.params);
 				const result = await options.session.tickOnce();
-				const lastSequence = await options.session.lastEventSequence();
-				return [
-					makePlotSuccessResponse({
-						id: request.id,
-						command: request.command,
-						lastSequence: plotProtocolSequence(lastSequence),
-						data: { result },
-					}),
-				];
+				return ok(request, { result });
 			}
 		}
 	};
@@ -173,7 +216,10 @@ export const makePlotProtocolLayer = (
 
 	return {
 		welcome: async () =>
-			makePlotWelcomeRecord({ sessionId: options.session.id, limits }),
+			makePlotWelcomeRecord({
+				sessionId: options.session.id,
+				limits,
+			}),
 		submit: async (request) => {
 			if (closed) return false;
 			return new Promise((resolve) =>

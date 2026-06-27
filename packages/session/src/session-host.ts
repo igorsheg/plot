@@ -25,13 +25,6 @@ import { basename } from "node:path";
 import { createEventLogStore, type EventLogStore } from "./event-log.js";
 import { makePlotProtocolLayer } from "./protocol-session.js";
 import {
-	plotSessionRegistrationKey,
-	removePlotSessionRegistration,
-	resolvePlotSessionDiscoveryDir,
-	writePlotSessionRegistration,
-	type PlotSessionRegistration,
-} from "./session-registration.js";
-import {
 	defaultPlotProtocolLimits,
 	type PlotProtocolLimits,
 	type EventLogEvent,
@@ -101,83 +94,6 @@ const workflowCompletedFact = "workflow:default:completed";
 const workflowName = (workflow: WorkflowDefinition): string =>
 	workflow.runtime.name ??
 	(workflow.path === undefined ? "workflow" : basename(workflow.path));
-const registerSessionEventLog = async (input: {
-	readonly eventLog: EventLogStore;
-	readonly paths: PlotPaths;
-	readonly workflow: WorkflowDefinition;
-}): Promise<{
-	readonly eventLog: EventLogStore;
-	readonly shutdown: () => void;
-}> => {
-	const discoveryDir = resolvePlotSessionDiscoveryDir({
-		agentDir: input.paths.agentDir,
-	});
-	const key = plotSessionRegistrationKey({
-		cwd: input.paths.cwd,
-		sessionId: input.eventLog.sessionId,
-	});
-	const startedAt = new Date().toISOString();
-	const base = (): Omit<
-		PlotSessionRegistration,
-		"eventLogOffset" | "heartbeatAt" | "lastSequence" | "lastEventType"
-	> => ({
-		version: 1,
-		key,
-		sessionId: input.eventLog.sessionId,
-		workflowName: workflowName(input.workflow),
-		workflowPath: input.workflow.path ?? "WORKFLOW.md",
-		cwd: input.paths.cwd,
-		cwdName: basename(input.paths.cwd),
-		sessionDir: input.eventLog.sessionPath,
-		eventLogPath: input.eventLog.eventLogPath,
-		pid: process.pid,
-		startedAt,
-	});
-	const frontier = await input.eventLog.frontier();
-	let lastSequence = frontier.lastSequence;
-	let eventLogOffset = frontier.byteOffset;
-	let lastEventType: string | undefined;
-	const write = async (heartbeatAt = new Date().toISOString()) => {
-		try {
-			await writePlotSessionRegistration({
-				discoveryDir,
-				registration: {
-					...base(),
-					heartbeatAt,
-					lastSequence,
-					eventLogOffset,
-					...(lastEventType === undefined ? {} : { lastEventType }),
-				},
-			});
-		} catch {
-			// ponytail: discovery is display metadata; never break the agent session.
-		}
-	};
-	await write(startedAt);
-	const heartbeat = setInterval(() => {
-		void write();
-	}, 2_000);
-	heartbeat.unref?.();
-	return {
-		eventLog: {
-			...input.eventLog,
-			append: async (event) => {
-				const appended = await input.eventLog.append(event);
-				const nextFrontier = await input.eventLog.frontier();
-				lastSequence = nextFrontier.lastSequence;
-				eventLogOffset = nextFrontier.byteOffset;
-				lastEventType = appended.type;
-				if (appended.kind !== "agent_session_event")
-					await write(appended.timestamp);
-				return appended;
-			},
-		},
-		shutdown: () => {
-			clearInterval(heartbeat);
-			void removePlotSessionRegistration({ discoveryDir, key });
-		},
-	};
-};
 export const makeOneShotWorkflowSource = (
 	workflow: WorkflowDefinition,
 ): WorkSource => ({
@@ -250,15 +166,10 @@ export const createPlotSessionHost = async (
 				? {}
 				: { overrides: options.agentSessionOverrides }),
 		});
-	const registration = await registerSessionEventLog({
-		eventLog: await createEventLogStore({
-			sessionDir: paths.sessionDir,
-			sessionId: options.sessionId,
-		}),
-		paths,
-		workflow,
+	const eventLog = await createEventLogStore({
+		sessionDir: paths.sessionDir,
+		sessionId: options.sessionId,
 	});
-	const eventLog = registration.eventLog;
 	const extensionBundle = workflow.runtime.extension
 		? await makePlotExtensionSourceBundleFromWorkflow({ workflow, paths })
 		: undefined;
@@ -301,7 +212,6 @@ export const createPlotSessionHost = async (
 		eventLog,
 		session,
 		shutdown: async () => {
-			registration.shutdown();
 			await extensionBundle?.shutdown?.();
 		},
 	};
@@ -342,6 +252,14 @@ export const createPlotProtocolSessionHost = async (
 		limits,
 		protocol: makePlotProtocolLayer({
 			limits,
+			metadata: {
+				workflowName: workflowName(host.workflow),
+				workflowPath: host.workflow.path ?? "WORKFLOW.md",
+				cwd: host.paths.cwd,
+				cwdName: basename(host.paths.cwd),
+				sessionDir: host.eventLog.sessionPath,
+				eventLogPath: host.eventLog.eventLogPath,
+			},
 			outputCapacity: host.requestQueueCapacity,
 			session: host.session,
 		}),

@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
 import { open } from "node:fs/promises";
-import { resolvePlotPaths } from "@plot/session/plot-paths";
 import {
-	makePlotEventRecord,
 	safeParseEventLogEvent,
 	type EventLogEvent,
 } from "@plot/session/protocol";
@@ -11,11 +9,11 @@ import {
 	splitJsonlChunk,
 	type JsonlDecoderState,
 } from "@plot/session/protocol-jsonl";
+import { startPlotSupervisorIpcServer } from "@plot/session/supervisor-ipc";
 import {
-	readLivePlotSessionRegistrations,
-	resolvePlotSessionDiscoveryDir,
-	type PlotSessionRegistration,
-} from "@plot/session/session-registration";
+	resolvePlotCliSpawnCommand,
+	type PlotInstanceRecord,
+} from "@plot/session/supervisor";
 import {
 	emptyProjection,
 	rebuildProjectionFromEventLog,
@@ -28,6 +26,7 @@ const assets: Record<string, WebAsset> = webAssets;
 export interface PlotWebGatewayOptions {
 	readonly cwd: string;
 	readonly agentDir?: string | undefined;
+	readonly workflowPath?: string | undefined;
 	readonly host?: string | undefined;
 	readonly port?: number | undefined;
 	readonly open?: boolean | undefined;
@@ -65,8 +64,6 @@ const assetResponse = (pathname: string): Response => {
 	});
 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const sseFrame = (event: unknown, id?: number): string =>
 	`${id === undefined ? "" : `id: ${id}\n`}event: plot\ndata: ${JSON.stringify(event)}\n\n`;
 
@@ -86,14 +83,6 @@ const parseAfterSequence = (input: {
 	if (input.query !== null && query === undefined) return undefined;
 	return Math.max(header ?? 0, query ?? 0);
 };
-
-const liveSessionByKey = async (input: {
-	readonly discoveryDir: string;
-	readonly key: string;
-}): Promise<PlotSessionRegistration | undefined> =>
-	(
-		await readLivePlotSessionRegistrations({ discoveryDir: input.discoveryDir })
-	).find((session) => session.key === input.key);
 
 interface EventLogTailState {
 	readonly decoder: TextDecoder;
@@ -183,14 +172,16 @@ const serializableProjection = (projection: DashboardProjection) => ({
 });
 
 const sessionProjectionResponse = async (
-	registration: PlotSessionRegistration,
+	instance: PlotInstanceRecord,
 ): Promise<Response> => {
+	if (instance.eventLogPath === undefined || instance.sessionId === undefined)
+		return new Response("session not ready", { status: 409 });
 	const projection = rebuildProjectionFromEventLog(
-		await readSessionEventLog(registration.eventLogPath),
-		emptyProjection(registration.sessionId, registration.workflowName, {
-			cwd: registration.cwd,
-			cwdName: registration.cwdName,
-			workflowPath: registration.workflowPath,
+		await readSessionEventLog(instance.eventLogPath),
+		emptyProjection(instance.sessionId, instance.workflowName ?? "workflow", {
+			cwd: instance.cwd,
+			cwdName: instance.cwdName ?? instance.cwd,
+			workflowPath: instance.workflowPath ?? "WORKFLOW.md",
 			skills: [],
 			skillPaths: [],
 		}),
@@ -200,9 +191,7 @@ const sessionProjectionResponse = async (
 
 const sessionEventsResponse = (input: {
 	readonly request: Request;
-	readonly discoveryDir: string;
-	readonly registration: PlotSessionRegistration;
-	readonly after: number;
+	readonly records: AsyncIterable<unknown>;
 }): Response => {
 	const encoder = new TextEncoder();
 	let cancelled = false;
@@ -213,42 +202,21 @@ const sessionEventsResponse = (input: {
 	return new Response(
 		new ReadableStream<Uint8Array>({
 			async start(controller) {
-				let lastSequence = input.after;
-				// ponytail: catalog offset avoids replay scans; older registrations safely fall back to sequence filtering from byte 0.
-				let tail = initialEventLogTailState(
-					input.after >= input.registration.lastSequence
-						? (input.registration.eventLogOffset ?? 0)
-						: 0,
-				);
-				let nextLiveCheckAt = 0;
 				const write = (chunkText: string) => {
 					if (!cancelled) controller.enqueue(encoder.encode(chunkText));
 				};
 				write(": connected\n\n");
 				try {
-					while (true) {
+					for await (const record of input.records) {
 						if (cancelled) break;
-						const now = Date.now();
-						if (now >= nextLiveCheckAt) {
-							nextLiveCheckAt = now + 2_000;
-							const live = await liveSessionByKey({
-								discoveryDir: input.discoveryDir,
-								key: input.registration.key,
-							});
-							if (live === undefined) break;
-						}
-						const next = await readEventLogTail({
-							after: lastSequence,
-							path: input.registration.eventLogPath,
-							state: tail,
-						});
-						tail = next.state;
-						for (const event of next.events) {
-							const sequence = Number(event.sequence);
-							lastSequence = sequence;
-							write(sseFrame(makePlotEventRecord(event), sequence));
-						}
-						await sleep(500);
+						const event =
+							typeof record === "object" && record !== null && "kind" in record
+								? (record as {
+										readonly kind?: string;
+										readonly event?: { readonly sequence?: number };
+									})
+								: undefined;
+						write(sseFrame(record, event?.event?.sequence));
 					}
 				} finally {
 					input.request.signal.removeEventListener("abort", cancel);
@@ -270,25 +238,45 @@ const sessionEventsResponse = (input: {
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const paths = resolvePlotPaths({
-		cwd: options.cwd,
-		...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
-	});
-	const discoveryDir = resolvePlotSessionDiscoveryDir({
-		agentDir: paths.agentDir,
+	const supervisor = await startPlotSupervisorIpcServer({
+		options: {
+			cwd: options.cwd,
+			...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
+			cli: resolvePlotCliSpawnCommand(),
+		},
 	});
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
 		port: options.port ?? 0,
 		async fetch(request) {
 			const url = new URL(request.url);
-			if (url.pathname === "/api/sessions") {
-				const sessions = await readLivePlotSessionRegistrations({
-					discoveryDir,
+			if (url.pathname === "/api/instances" && request.method === "POST") {
+				const instance = await supervisor.supervisor.spawnInstance({
+					cwd: options.cwd,
+					...(options.workflowPath === undefined
+						? {}
+						: { workflowPath: options.workflowPath }),
+					...(options.agentDir === undefined
+						? {}
+						: { agentDir: options.agentDir }),
 				});
-				return text({ sessions });
+				return text({ instance });
 			}
-			const eventPath = /^\/api\/sessions\/([^/]+)\/events$/.exec(url.pathname);
+			const stopPath = /^\/api\/instances\/([^/]+)$/.exec(url.pathname);
+			if (stopPath !== null && request.method === "DELETE") {
+				const instance = await supervisor.supervisor.stopInstance(
+					decodeURIComponent(stopPath[1] ?? ""),
+				);
+				return instance === undefined
+					? new Response("instance not found", { status: 404 })
+					: text({ instance });
+			}
+			if (url.pathname === "/api/instances") {
+				return text({ instances: supervisor.supervisor.listInstances() });
+			}
+			const eventPath = /^\/api\/instances\/([^/]+)\/events$/.exec(
+				url.pathname,
+			);
 			if (eventPath !== null) {
 				const after = parseAfterSequence({
 					header: request.headers.get("last-event-id"),
@@ -296,40 +284,45 @@ export const startPlotWebGateway = async (
 				});
 				if (after === undefined)
 					return text({ error: "invalid after sequence" });
-				const registration = await liveSessionByKey({
-					discoveryDir,
-					key: decodeURIComponent(eventPath[1] ?? ""),
-				});
-				if (registration === undefined)
+				const id = decodeURIComponent(eventPath[1] ?? "");
+				const instance = supervisor.supervisor.getInstance(id);
+				if (instance === undefined)
 					return new Response("session not found", { status: 404 });
+				if (instance.eventLogPath === undefined)
+					return new Response("session not ready", { status: 409 });
+				void instance;
 				return sessionEventsResponse({
 					request,
-					discoveryDir,
-					registration,
-					after,
+					records: supervisor.supervisor.attachRecords(id, after),
 				});
 			}
-			const projectionPath = /^\/api\/sessions\/([^/]+)\/projection$/.exec(
+			const projectionPath = /^\/api\/instances\/([^/]+)\/projection$/.exec(
 				url.pathname,
 			);
 			if (projectionPath !== null) {
-				const registration = await liveSessionByKey({
-					discoveryDir,
-					key: decodeURIComponent(projectionPath[1] ?? ""),
-				});
-				if (registration === undefined)
+				const instance = supervisor.supervisor.getInstance(
+					decodeURIComponent(projectionPath[1] ?? ""),
+				);
+				if (instance === undefined)
 					return new Response("session not found", { status: 404 });
-				return sessionProjectionResponse(registration);
+				return sessionProjectionResponse(instance);
 			}
 			if (url.pathname === "/api/health")
-				return text({ ok: true, discoveryDir });
+				return text({ ok: true, socketPath: supervisor.socketPath });
 			return assetResponse(url.pathname);
 		},
 	});
 	const url = `http://${server.hostname}:${server.port}/`;
 	await options.writeStderr?.(`Plot web: ${url}\n`);
 	if (options.open !== false) await (options.openUrl ?? openBrowser)(url);
-	return { url, stop: () => server.stop(true) };
+	return {
+		url,
+		stop: () => {
+			server.stop(true);
+			supervisor.server.close();
+			void supervisor.supervisor.shutdown();
+		},
+	};
 };
 
 export const runPlotWebGateway = async (

@@ -25,7 +25,7 @@ import type { WebDashboardProjection } from "./api.js";
 import { Button } from "./components/ui/button.js";
 import { Group, GroupSeparator } from "./components/ui/group.js";
 import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
-import type { PlotSessionRegistration } from "./registration.js";
+import type { PlotInstance } from "./instance.js";
 import { SessionDetailWindow } from "./session-detail.js";
 import { FleetSessionCard } from "./session-card.js";
 
@@ -47,7 +47,7 @@ export interface PlotCanvasProps {
 	readonly onCloseDetail: (key: string) => void;
 	readonly onOpenDetail: (key: string) => void;
 	readonly openDetailKeys: readonly string[];
-	readonly sessions: readonly PlotSessionRegistration[];
+	readonly sessions: readonly PlotInstance[];
 }
 
 type SessionNode = Node<
@@ -55,7 +55,7 @@ type SessionNode = Node<
 		readonly live?: SessionLiveState | undefined;
 		readonly onFocus: () => void;
 		readonly onOpen: () => void;
-		readonly session: PlotSessionRegistration;
+		readonly session: PlotInstance;
 	},
 	"plot-session"
 >;
@@ -68,7 +68,7 @@ type DetailNode = Node<
 		readonly onResizeEnd: (
 			layout: Required<Pick<DetailLayout, "height" | "width">>,
 		) => void;
-		readonly session: PlotSessionRegistration;
+		readonly session: PlotInstance;
 	},
 	"session-detail"
 >;
@@ -266,21 +266,21 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 			const next: PlotNode[] = [];
 
 			for (const [index, session] of propsRef.current.sessions.entries()) {
-				const existing = previousById.get(session.key) as
+				const existing = previousById.get(session.id) as
 					| SessionNode
 					| undefined;
 				next.push({
 					...existing,
 					draggable: false,
-					id: session.key,
+					id: session.id,
 					position: sessionPosition(index),
 					sourcePosition: Position.Right,
 					targetPosition: Position.Left,
 					type: "plot-session",
 					data: {
-						live: propsRef.current.live[session.key],
-						onFocus: () => focusNodes([session.key]),
-						onOpen: () => propsRef.current.onOpenDetail(session.key),
+						live: propsRef.current.live[session.id],
+						onFocus: () => focusNodes([session.id]),
+						onOpen: () => propsRef.current.onOpenDetail(session.id),
 						session,
 					},
 				});
@@ -288,7 +288,7 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 
 			for (const key of propsRef.current.openDetailKeys) {
 				const index = propsRef.current.sessions.findIndex(
-					(session) => session.key === key,
+					(session) => session.id === key,
 				);
 				const session = propsRef.current.sessions[index];
 				if (session === undefined || index < 0) continue;
@@ -371,7 +371,7 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 	};
 
 	const focusFleet = () => {
-		focusNodes(props.sessions.map((session) => session.key));
+		focusNodes(props.sessions.map((session) => session.id));
 	};
 
 	return (

@@ -14,10 +14,10 @@ import {
 	TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import type { SessionLiveState } from "./live-events.js";
-import type { PlotSessionRegistration } from "./registration.js";
+import type { PlotInstance } from "./instance.js";
 
 interface SessionCardState {
-	readonly session: PlotSessionRegistration;
+	readonly session: PlotInstance;
 	readonly live?: SessionLiveState | undefined;
 }
 
@@ -49,7 +49,7 @@ function Provider({
 }: {
 	readonly children: ReactNode;
 	readonly live?: SessionLiveState | undefined;
-	readonly session: PlotSessionRegistration;
+	readonly session: PlotInstance;
 }) {
 	return (
 		<SessionCardContext
@@ -77,18 +77,20 @@ function Identity() {
 	return (
 		<div className="plot-session-card-identity">
 			<CardTitle className="plot-session-card-title">
-				{session.workflowName}
+				{session.workflowName ?? session.sessionId ?? session.id}
 			</CardTitle>
-			<p className="plot-session-card-subtitle">{session.cwdName}</p>
+			<p className="plot-session-card-subtitle">
+				{session.cwdName ?? session.cwd}
+			</p>
 		</div>
 	);
 }
 
-function PidBadge() {
+function StatusBadge() {
 	const {
 		state: { session },
 	} = useSessionCard();
-	return <Badge variant="outline">pid {session.pid}</Badge>;
+	return <Badge variant="outline">{session.status}</Badge>;
 }
 
 function Facts({ children }: { readonly children: ReactNode }) {
@@ -123,7 +125,11 @@ function SessionIdFact() {
 		state: { session },
 	} = useSessionCard();
 	return (
-		<Fact label="session" value={session.sessionId} title={session.sessionId} />
+		<Fact
+			label="session"
+			value={session.sessionId ?? session.id}
+			title={session.sessionId ?? session.id}
+		/>
 	);
 }
 
@@ -134,7 +140,7 @@ function LastEventFact() {
 	return (
 		<Fact
 			label="last"
-			value={`${live?.lastType ?? session.lastEventType ?? "registered"} #${live?.frontier ?? session.lastSequence}`}
+			value={`${live?.lastType ?? session.lastEventType ?? "started"} #${live?.frontier ?? session.lastSequence ?? 0}`}
 		/>
 	);
 }
@@ -155,7 +161,12 @@ function SeenFact() {
 	const {
 		state: { session },
 	} = useSessionCard();
-	return <Fact label="seen" value={formatHeartbeat(session.heartbeatAt)} />;
+	return (
+		<Fact
+			label="seen"
+			value={formatHeartbeat(session.lastSeenAt ?? session.createdAt)}
+		/>
+	);
 }
 
 function CwdFact() {
@@ -170,7 +181,7 @@ const SessionCard = {
 	Frame,
 	Header,
 	Identity,
-	PidBadge,
+	StatusBadge,
 	Facts,
 	SessionIdFact,
 	LastEventFact,
@@ -181,7 +192,7 @@ const SessionCard = {
 
 export function FleetSessionCard(props: {
 	readonly live?: SessionLiveState | undefined;
-	readonly session: PlotSessionRegistration;
+	readonly session: PlotInstance;
 }) {
 	return (
 		<TooltipProvider>
@@ -189,7 +200,7 @@ export function FleetSessionCard(props: {
 				<SessionCard.Frame>
 					<SessionCard.Header>
 						<SessionCard.Identity />
-						<SessionCard.PidBadge />
+						<SessionCard.StatusBadge />
 					</SessionCard.Header>
 					<SessionCard.Facts>
 						<SessionCard.SessionIdFact />

@@ -1,5 +1,6 @@
 import type { CreateAgentSession } from "@plot/session/pi/agent-session";
 import type { StdioChunk } from "@plot/session/protocol-stdio";
+import { takeOverStdout, writeRawStdout } from "./stdout-guard.js";
 
 export interface PlotCliIo {
 	readonly stdin: AsyncIterable<StdioChunk>;
@@ -7,6 +8,7 @@ export interface PlotCliIo {
 	readonly writeStderr?: (text: string) => Promise<void> | void;
 	readonly createAgentSession?: CreateAgentSession;
 	readonly runTui?: (options: unknown) => Promise<void> | void;
+	readonly protectStdout?: () => void;
 }
 
 class PlotCliIoError extends Error {
@@ -43,8 +45,9 @@ export const writeProcessStderr = (text: string) =>
 
 export const processCliIo = (): PlotCliIo => ({
 	stdin: process.stdin as AsyncIterable<StdioChunk>,
-	writeStdout: writeProcessStdout,
+	writeStdout: writeRawStdout,
 	writeStderr: writeProcessStderr,
+	protectStdout: takeOverStdout,
 });
 
 export const writeCliStderr = (io: PlotCliIo, text: string) =>

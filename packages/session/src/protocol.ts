@@ -22,8 +22,14 @@ export const plotProtocolSequence = (value: number): PlotProtocolSequence =>
 
 export const plotCommandSchema = z.enum([
 	"ping",
+	"start",
+	"shutdown",
+	"get_state",
 	"get_snapshot",
 	"request_tick",
+	"pause_dispatch",
+	"resume_dispatch",
+	"interrupt_agent_run",
 ]);
 export type PlotCommand = z.infer<typeof plotCommandSchema>;
 
@@ -65,6 +71,25 @@ export const defaultPlotProtocolLimits: PlotProtocolLimits = {
 export const eventLogSequenceSchema = positiveIntegerSchema;
 export type EventLogSequence = z.infer<typeof eventLogSequenceSchema>;
 
+export const plotSessionMetadataSchema = z
+	.object({
+		workflowName: nonEmptyStringSchema,
+		workflowPath: nonEmptyStringSchema,
+		cwd: nonEmptyStringSchema,
+		cwdName: nonEmptyStringSchema,
+		sessionDir: nonEmptyStringSchema,
+		eventLogPath: nonEmptyStringSchema,
+	})
+	.strict();
+export type PlotSessionMetadata = z.infer<typeof plotSessionMetadataSchema>;
+export const plotStateSchema = z
+	.object({
+		sessionId: nonEmptyStringSchema,
+		metadata: plotSessionMetadataSchema.optional(),
+	})
+	.strict();
+export type PlotState = z.infer<typeof plotStateSchema>;
+
 export const plotEventSchema = z.union([
 	z
 		.object({
@@ -100,10 +125,23 @@ export const eventLogEventSchema = plotEventSchema;
 export const safeParseEventLogEvent = (value: unknown) =>
 	eventLogEventSchema.safeParse(value);
 
-export const getSnapshotParamsSchema = z.object({}).strict();
+export const emptyParamsSchema = z.object({}).strict();
+export type EmptyParams = z.infer<typeof emptyParamsSchema>;
+export const getStateParamsSchema = emptyParamsSchema;
+export type GetStateParams = z.infer<typeof getStateParamsSchema>;
+export const getSnapshotParamsSchema = emptyParamsSchema;
 export type GetSnapshotParams = z.infer<typeof getSnapshotParamsSchema>;
-export const requestTickParamsSchema = z.object({}).strict();
+export const requestTickParamsSchema = emptyParamsSchema;
 export type RequestTickParams = z.infer<typeof requestTickParamsSchema>;
+export const interruptAgentRunParamsSchema = z
+	.object({
+		runId: nonEmptyStringSchema,
+		workKey: nonEmptyStringSchema.optional(),
+	})
+	.strict();
+export type InterruptAgentRunParams = z.infer<
+	typeof interruptAgentRunParamsSchema
+>;
 
 export const plotClientRequestRecordSchema = z
 	.object({
@@ -292,7 +330,13 @@ export const makePlotErrorResponse = (options: {
 
 const safeParseParams = <S extends z.ZodType>(schema: S, value: unknown) =>
 	schema.safeParse(value ?? {});
+export const safeParseEmptyParams = (value: unknown) =>
+	safeParseParams(emptyParamsSchema, value);
+export const safeParseGetStateParams = (value: unknown) =>
+	safeParseParams(getStateParamsSchema, value);
 export const safeParseGetSnapshotParams = (value: unknown) =>
 	safeParseParams(getSnapshotParamsSchema, value);
 export const safeParseRequestTickParams = (value: unknown) =>
 	safeParseParams(requestTickParamsSchema, value);
+export const safeParseInterruptAgentRunParams = (value: unknown) =>
+	safeParseParams(interruptAgentRunParamsSchema, value);

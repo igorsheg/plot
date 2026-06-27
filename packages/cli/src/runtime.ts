@@ -1,3 +1,4 @@
+import { existsSync, unlinkSync } from "node:fs";
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
 import type { EventLogEvent } from "@plot/session/protocol";
 import type {
@@ -9,7 +10,10 @@ import {
 	runPlotSessionHostOnce,
 	runPlotSessionHostStdio,
 } from "@plot/session/session-host";
+import { resolvePlotCliSpawnCommand } from "@plot/session/supervisor";
+import { startPlotSupervisorIpcServer } from "@plot/session/supervisor-ipc";
 import { resolveWorkflowPath } from "@plot/session/workflow";
+import { errorMessage } from "./io.js";
 
 export type LogLevelFlag =
 	| "trace"
@@ -38,6 +42,9 @@ interface BaseRunOptions {
 export interface ServeStdioOptions extends BaseRunOptions {
 	readonly stdin: AsyncIterable<StdioChunk>;
 	readonly writeStdout: (line: string) => Promise<void> | void;
+}
+export interface ServeSupervisorOptions extends BaseRunOptions {
+	readonly writeStderr?: (line: string) => Promise<void> | void;
 }
 export interface RunInProcessOnceOptions extends BaseRunOptions {
 	readonly onEvent?: (event: EventLogEvent) => Promise<void> | void;
@@ -93,5 +100,51 @@ export const serveStdio = (options: ServeStdioOptions): Promise<void> =>
 				session_id: options.sessionId,
 			},
 			() => runPlotSessionHostStdio(options),
+		),
+	);
+
+export const serveSupervisor = (
+	options: ServeSupervisorOptions,
+): Promise<void> =>
+	provideCliLogger(options, () =>
+		withWideEvent(
+			"plot_cli.serve_supervisor",
+			{ cwd: options.cwd },
+			async () => {
+				const { socketPath, server, supervisor } =
+					await startPlotSupervisorIpcServer({
+						options: {
+							cwd: options.cwd,
+							...(options.plotDir === undefined
+								? {}
+								: { plotDir: options.plotDir }),
+							...(options.agentDir === undefined
+								? {}
+								: { agentDir: options.agentDir }),
+							cli: resolvePlotCliSpawnCommand(),
+						},
+					});
+				let shuttingDown: Promise<void> | undefined;
+				const shutdown = (exitCode: number) => {
+					shuttingDown ??= (async () => {
+						server.close();
+						await supervisor.shutdown();
+						if (existsSync(socketPath)) unlinkSync(socketPath);
+					})();
+					void shuttingDown.finally(() => process.exit(exitCode));
+				};
+				process.once("SIGINT", () => shutdown(0));
+				process.once("SIGTERM", () => shutdown(0));
+				process.once("uncaughtException", (error) => {
+					void options.writeStderr?.(`${errorMessage(error)}\n`);
+					shutdown(1);
+				});
+				process.once("unhandledRejection", (reason) => {
+					void options.writeStderr?.(`${errorMessage(reason)}\n`);
+					shutdown(1);
+				});
+				await options.writeStderr?.(`Plot supervisor: ${socketPath}\n`);
+				await new Promise<void>(() => {});
+			},
 		),
 	);

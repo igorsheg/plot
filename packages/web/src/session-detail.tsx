@@ -15,13 +15,13 @@ import { Kbd } from "./components/ui/kbd.js";
 import { ScrollArea } from "./components/ui/scroll-area.js";
 import { Separator } from "./components/ui/separator.js";
 import { Skeleton } from "./components/ui/skeleton.js";
-import type { PlotSessionRegistration } from "./registration.js";
+import type { PlotInstance } from "./instance.js";
 
 export interface SessionDetailState {
 	readonly error?: string | undefined;
 	readonly loading: boolean;
 	readonly projection?: WebDashboardProjection | undefined;
-	readonly session: PlotSessionRegistration;
+	readonly session: PlotInstance;
 }
 
 interface SessionDetailContextValue {
@@ -93,7 +93,7 @@ function Header() {
 		<CardHeader className="plot-detail-header">
 			<div className="plot-detail-title-group">
 				<CardTitle className="plot-detail-title">
-					{session.workflowName}
+					{session.workflowName ?? session.sessionId ?? session.id}
 				</CardTitle>
 				<p className="plot-detail-subtitle">{session.cwd}</p>
 			</div>
@@ -141,7 +141,7 @@ function Summary() {
 		<section className="plot-detail-summary">
 			<Metric
 				label="frontier"
-				value={String(projection?.frontier ?? session.lastSequence)}
+				value={String(projection?.frontier ?? session.lastSequence ?? 0)}
 			/>
 			<Metric label="work" value={loading ? <LoadingValue /> : workCount} />
 			<Metric

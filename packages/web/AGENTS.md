@@ -13,7 +13,7 @@ api.ts              HTTP/SSE contract parsing, URLs, fetch helpers
 main.tsx           app wiring only
 flow-canvas.tsx    canvas substrate + composed node UI
 live-events.ts     live fleet delta hook
-registration.ts    registration DTO parsing
+instance.ts        supervisor instance DTO parsing
 components/ui/*    copied coss primitives only when used
 ```
 
@@ -40,9 +40,9 @@ components/ui/*    copied coss primitives only when used
 ## Product data flow
 
 ```text
-fleet canvas: /api/sessions + SSE after registration.lastSequence
-session detail: /api/sessions/:key/projection + SSE after projection.frontier
+fleet canvas: /api/instances + SSE after instance.lastSequence
+session detail: /api/instances/:id/projection + SSE after projection.frontier
 raw events: durable source of truth, not a default browser replay path
 ```
 
-Keep fleet O(number of sessions), not O(total event log size).
+Keep fleet O(number of instances), not O(total event log size).

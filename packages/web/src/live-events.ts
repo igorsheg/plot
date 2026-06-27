@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
 	parsePlotEventRecord,
-	sessionEventsUrl,
+	instanceEventsUrl,
 	type PlotEventRecord,
 } from "./api.js";
-import type { PlotSessionRegistration } from "./registration.js";
+import type { PlotInstance } from "./instance.js";
 
 export interface SessionLiveState {
 	readonly frontier: number;
@@ -30,11 +30,11 @@ const reduceLiveState = (
 };
 
 export const useSessionLiveEvents = (
-	sessions: readonly PlotSessionRegistration[],
+	sessions: readonly PlotInstance[],
 ): SessionLiveMap => {
 	const [live, setLive] = useState<SessionLiveMap>({});
 	const keys = useMemo(
-		() => sessions.map((session) => session.key).toSorted(),
+		() => sessions.map((session) => session.id).toSorted(),
 		[sessions],
 	);
 	const keySignature = keys.join("\0");
@@ -43,12 +43,12 @@ export const useSessionLiveEvents = (
 		setLive((previous) =>
 			Object.fromEntries(
 				sessions.map((session) => [
-					session.key,
-					previous[session.key] ?? {
-						frontier: session.lastSequence,
+					session.id,
+					previous[session.id] ?? {
+						frontier: session.lastSequence ?? 0,
 						eventCount: 0,
 						lastType: session.lastEventType,
-						lastAt: session.heartbeatAt,
+						lastAt: session.lastSeenAt ?? session.createdAt,
 					},
 				]),
 			),
@@ -56,7 +56,7 @@ export const useSessionLiveEvents = (
 		// ponytail: stream every discovered session from the catalog frontier; replay full logs only for expanded detail views later.
 		const sources = sessions.map((session) => {
 			const source = new EventSource(
-				sessionEventsUrl(session.key, session.lastSequence),
+				instanceEventsUrl(session.id, session.lastSequence ?? 0),
 			);
 			source.addEventListener("plot", (message) => {
 				const record = parsePlotEventRecord(
@@ -65,7 +65,7 @@ export const useSessionLiveEvents = (
 				if (record === undefined) return;
 				setLive((previous) => ({
 					...previous,
-					[session.key]: reduceLiveState(previous[session.key], record),
+					[session.id]: reduceLiveState(previous[session.id], record),
 				}));
 			});
 			return source;
