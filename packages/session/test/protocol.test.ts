@@ -38,6 +38,13 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 	resumeDispatch: async () => {},
 	interruptAgentRun: async () => true,
 	events: async function* () {},
+	appendAgentEvent: async (input) => ({
+		kind: "agent_event",
+		sessionId: "session-1",
+		sequence: 1,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		event: input.event,
+	}),
 	lastEventSequence: async () => 0,
 	shutdown: async () => true,
 	...overrides,

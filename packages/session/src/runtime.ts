@@ -1,4 +1,4 @@
-import type { EventLogRecord } from "./event-log.js";
+import type { AgentEventAppendInput, EventLogRecord } from "./event-log.js";
 
 export interface SessionSnapshot {
 	readonly sessionId: string;
@@ -33,6 +33,9 @@ export interface SessionRuntime {
 		input: InterruptAgentRunInput,
 	) => Promise<boolean>;
 	readonly events: () => AsyncIterable<EventLogRecord>;
+	readonly appendAgentEvent: (
+		input: AgentEventAppendInput,
+	) => Promise<EventLogRecord>;
 	readonly lastEventSequence: () => Promise<number>;
 	readonly shutdown: () => Promise<boolean>;
 }

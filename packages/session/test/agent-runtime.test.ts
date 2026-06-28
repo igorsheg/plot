@@ -83,6 +83,40 @@ test("runtime projects agent events into the event log", async () => {
 	await runtime.shutdown();
 });
 
+test("runtime publishes appended inner agent events", async () => {
+	const eventLog = await createFileEventLogStore({
+		sessionDir: await tempSessionDir(),
+		sessionId: "session-1",
+	});
+	const runtime = makeAgentSessionRuntime({
+		id: "session-1",
+		eventLog,
+		sources: [],
+		runner,
+	});
+
+	const events = runtime.events();
+	await runtime.appendAgentEvent({
+		sourceId: "runtime-test",
+		runId: "run-1",
+		workKey: "work-1",
+		event: { type: "message_update" },
+	});
+
+	const agentEvent = await waitForEvent(
+		events,
+		(record) => record.kind === "agent_event",
+	);
+	expect(agentEvent).toMatchObject({
+		kind: "agent_event",
+		runId: "run-1",
+		workKey: "work-1",
+		event: { type: "message_update" },
+	});
+
+	await runtime.shutdown();
+});
+
 test("runtime shutdown appends shutdown after agent event pump drains", async () => {
 	const eventLog = await createFileEventLogStore({
 		sessionDir: await tempSessionDir(),

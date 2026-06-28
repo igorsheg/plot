@@ -244,6 +244,7 @@ export const createSessionHost = async (
 				? {}
 				: { overrides: options.agentSessionOverrides }),
 		});
+	let runtime: SessionRuntime;
 	const runner = makePiWorkRunner({
 		createAgentSession,
 		prompt: workflow.prompt,
@@ -255,7 +256,7 @@ export const createSessionHost = async (
 			}),
 		maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
 		onEvent: async ({ context, event }) => {
-			await eventLog.appendAgentEvent({
+			await runtime.appendAgentEvent({
 				sourceId: String(context.sourceId),
 				runId: String(context.run.runId),
 				workKey: String(context.work.workKey),
@@ -282,7 +283,7 @@ export const createSessionHost = async (
 		eventCapacity,
 		agent: agentOptions,
 	};
-	const runtime = makeAgentSessionRuntime(runtimeOptions);
+	runtime = makeAgentSessionRuntime(runtimeOptions);
 	const parts: SessionHostPart[] = [];
 	if (extensionBundle !== undefined)
 		parts.push({ shutdown: () => extensionBundle.shutdown() });

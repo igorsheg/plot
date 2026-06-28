@@ -11,7 +11,11 @@ import type {
 } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import type { EventLogRecord, EventLogStore } from "./event-log.js";
+import type {
+	AgentEventAppendInput,
+	EventLogRecord,
+	EventLogStore,
+} from "./event-log.js";
 import {
 	startOwnedTask,
 	type SessionRuntime,
@@ -128,6 +132,8 @@ export const makeAgentSessionRuntime = (
 		resumeDispatch: () => agent.resumeDispatch(),
 		interruptAgentRun: (input) => agent.interruptAgentRun(input),
 		events: () => events.subscribe(),
+		appendAgentEvent: (input: AgentEventAppendInput) =>
+			appendAndPublish(() => options.eventLog.appendAgentEvent(input)),
 		lastEventSequence: async () =>
 			(await options.eventLog.frontier()).lastSequence,
 		shutdown: async () => {
