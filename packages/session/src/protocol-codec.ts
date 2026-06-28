@@ -5,7 +5,7 @@ import {
 	stringifyJsonl,
 	type JsonlLimits,
 } from "./jsonl.js";
-import { byteLength } from "./primitives.js";
+import { byteLength } from "@plot/common/primitives";
 import {
 	ProtocolBoundaryError,
 	clientRequestSchema,

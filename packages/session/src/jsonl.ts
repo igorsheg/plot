@@ -1,4 +1,4 @@
-import { byteLength, errorMessage } from "./primitives.js";
+import { byteLength, errorMessage } from "@plot/common/primitives";
 
 export interface JsonlLimits {
 	readonly maxLineBytes: number;

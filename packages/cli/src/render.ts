@@ -1,3 +1,4 @@
+import { isRecord } from "@plot/common/primitives";
 import type { AuthStatusInfo, ModelInfo } from "@plot/session/auth";
 import type { EventLogRecord } from "@plot/session/event-log";
 
@@ -58,9 +59,6 @@ export const renderAuthStatus = (statuses: readonly AuthStatusInfo[]) =>
 				})),
 				["provider", "configured", "source", "label"],
 			)}\n`;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const textFromContent = (content: unknown): string =>
 	typeof content === "string"

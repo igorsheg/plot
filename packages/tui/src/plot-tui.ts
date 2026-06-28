@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
+import { errorMessage } from "@plot/common/primitives";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 import type { CreateSessionHostOptions } from "@plot/session/host";
 import { openRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
@@ -21,9 +22,6 @@ export interface PlotTuiOptions extends CreateSessionHostOptions {
 	readonly mode?: "watch" | "oneshot";
 	readonly cli?: RunIpcOptions["cli"];
 }
-
-const errorMessage = (error: unknown) =>
-	error instanceof Error ? error.message : String(error);
 
 const withTimeout = async <A>(
 	work: Promise<A>,

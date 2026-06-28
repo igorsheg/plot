@@ -15,7 +15,7 @@ import {
 	type RunSpawnOptions,
 } from "./run-registry.js";
 import { jsonlLines, stringifyJsonl } from "./jsonl.js";
-import { errorMessage } from "./primitives.js";
+import { errorMessage } from "@plot/common/primitives";
 import {
 	defaultProtocolLimits,
 	serverRecordSchema,

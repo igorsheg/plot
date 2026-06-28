@@ -1,3 +1,4 @@
+import { errorMessage } from "@plot/common/primitives";
 import type { CreatePiAgentSession } from "@plot/session/pi-runner";
 import { takeOverStdout, writeRawStdout } from "./stdout-guard.js";
 
@@ -17,8 +18,7 @@ class PlotCliIoError extends Error {
 	}
 }
 
-export const errorMessage = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
+export { errorMessage };
 
 const writeStream = (stream: NodeJS.WritableStream, text: string) =>
 	new Promise<void>((resolve, reject) => {

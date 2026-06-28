@@ -1,0 +1,243 @@
+import { isRecord } from "@plot/common/primitives";
+import {
+	appendStreamDelta,
+	piEventDisplay,
+	type PiUsageDelta,
+} from "../pi-event-display.js";
+import { at, cap, str } from "./helpers.js";
+import type {
+	ActiveTool,
+	ActivityKind,
+	AgentAttemptProjection,
+	DashboardProjection,
+	ProjectableEvent,
+} from "./types.js";
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+const mergeAttempt = (
+	a: AgentAttemptProjection,
+	patch: Partial<AgentAttemptProjection>,
+	e: ProjectableEvent,
+): AgentAttemptProjection => ({
+	...a,
+	lastEventSeq: Number(e.sequence),
+	lastEventAtMs: at(e),
+	eventCount: a.eventCount + 1,
+	...patch,
+});
+
+const timeline = (
+	a: AgentAttemptProjection,
+	text: string,
+	kind: ActivityKind,
+	when: number,
+) => cap([...a.timeline, { atMs: when, text, kind }], 30);
+
+const activeTool = (tool: {
+	readonly kind: ActivityKind;
+	readonly check: string;
+	readonly target?: string | undefined;
+	readonly toolCallId?: string | undefined;
+}) => {
+	const active: Mutable<ActiveTool> = {
+		kind: tool.kind,
+		isCheck: tool.check === "running",
+	};
+	if (tool.target !== undefined) active.target = tool.target;
+	if (tool.toolCallId !== undefined) active.toolCallId = tool.toolCallId;
+	return active;
+};
+
+const lifecycleActivity = (
+	prev: AgentAttemptProjection,
+	summary: string,
+): Partial<AgentAttemptProjection> =>
+	prev.meaningfulCount === 0 ? { activity: summary, lastDisplay: summary } : {};
+
+const addUsage = (
+	previous: AgentAttemptProjection["tokens"],
+	usage: PiUsageDelta,
+): NonNullable<AgentAttemptProjection["tokens"]> => ({
+	input: (previous?.input ?? 0) + (usage.input ?? 0),
+	output: (previous?.output ?? 0) + (usage.output ?? 0),
+	total: (previous?.total ?? 0) + usage.total,
+	cost: (previous?.cost ?? 0) + (usage.cost ?? 0),
+});
+
+export const reduceAgentEvent = (
+	p: DashboardProjection,
+	e: ProjectableEvent,
+	payload: Record<string, unknown>,
+): DashboardProjection => {
+	const runId = str(payload["runId"]);
+	if (runId === undefined) return p;
+	const rawEvent = isRecord(payload["event"]) ? payload["event"] : {};
+	const activity = piEventDisplay(rawEvent);
+	if (activity === undefined) return p;
+	const prev = p.attempts.get(runId);
+	if (prev === undefined) return p;
+	const when = at(e);
+	const handlers = {
+		turn_start: () => {
+			if (activity.type !== "turn_start") return prev;
+			return mergeAttempt(
+				prev,
+				{
+					turnCount: prev.turnCount + 1,
+					activityKind: "think",
+					streaming: true,
+					...lifecycleActivity(prev, activity.summary),
+				},
+				e,
+			);
+		},
+		turn_end: () => {
+			if (activity.type !== "turn_end") return prev;
+			return mergeAttempt(
+				prev,
+				{
+					streaming: false,
+					streams: {},
+					...lifecycleActivity(prev, activity.summary),
+					...(activity.usage === undefined
+						? {}
+						: { tokens: addUsage(prev.tokens, activity.usage) }),
+				},
+				e,
+			);
+		},
+		thinking: () => {
+			if (activity.type !== "thinking") return prev;
+			const text = appendStreamDelta(prev.streams.thinking, activity.delta);
+			return mergeAttempt(
+				prev,
+				{
+					activity: activity.summary,
+					activityKind: "think",
+					streaming: true,
+					lastDisplay: activity.summary,
+					meaningfulCount: prev.meaningfulCount + 1,
+					streams: { ...prev.streams, thinking: text },
+				},
+				e,
+			);
+		},
+		message: () => {
+			if (activity.type !== "message") return prev;
+			const text = appendStreamDelta(prev.streams.message, activity.delta);
+			return mergeAttempt(
+				prev,
+				{
+					messageCount: prev.messageCount + 1,
+					activity: activity.summary,
+					activityKind: "message",
+					streaming: true,
+					lastDisplay: activity.summary,
+					meaningfulCount: prev.meaningfulCount + 1,
+					streams: { ...prev.streams, message: text },
+				},
+				e,
+			);
+		},
+		tool_start: () => {
+			if (activity.type !== "tool_start") return prev;
+			const tool = activity.tool;
+			const nextActiveTool = activeTool(tool);
+			const activeTools = new Map(prev.activeTools ?? []);
+			if (tool.toolCallId) activeTools.set(tool.toolCallId, nextActiveTool);
+			return mergeAttempt(
+				prev,
+				{
+					stage: tool.stage,
+					activity: tool.text,
+					activityKind: tool.kind,
+					streaming: true,
+					lastDisplay: tool.text,
+					meaningfulCount: prev.meaningfulCount + 1,
+					check: tool.check === "running" ? "running" : prev.check,
+					commands:
+						tool.kind === "run" ||
+						tool.kind === "test" ||
+						tool.kind === "finish"
+							? [...prev.commands, tool.text]
+							: prev.commands,
+					activeTool: nextActiveTool,
+					activeTools,
+					streams: { ...prev.streams, tool: tool.text },
+					timeline: timeline(prev, tool.text, tool.kind, when),
+				},
+				e,
+			);
+		},
+		tool_update: () => {
+			if (activity.type !== "tool_update") return prev;
+			const tool = activity.tool;
+			const nextActiveTool = activeTool(tool);
+			const activeTools = new Map(prev.activeTools ?? []);
+			if (tool.toolCallId) activeTools.set(tool.toolCallId, nextActiveTool);
+			return mergeAttempt(
+				prev,
+				{
+					stage: tool.stage,
+					activity: tool.text,
+					activityKind: tool.kind,
+					streaming: true,
+					lastDisplay: tool.text,
+					meaningfulCount: prev.meaningfulCount + 1,
+					check: tool.check === "running" ? "running" : prev.check,
+					toolUpdateCount: prev.toolUpdateCount + 1,
+					activeTool: nextActiveTool,
+					activeTools,
+					streams: { ...prev.streams, tool: tool.text },
+				},
+				e,
+			);
+		},
+		tool_end: () => {
+			if (activity.type !== "tool_end") return prev;
+			const activeTools = new Map(prev.activeTools ?? []);
+			const active = activity.toolCallId
+				? activeTools.get(activity.toolCallId)
+				: prev.activeTool;
+			if (activity.toolCallId) activeTools.delete(activity.toolCallId);
+			return mergeAttempt(
+				prev,
+				{
+					stage: activity.failed ? "failed" : prev.stage,
+					check: active?.isCheck
+						? activity.failed
+							? "failed"
+							: "passed"
+						: prev.check,
+					streaming: activeTools.size > 0,
+					activeTools,
+					activeTool: activeTools.values().next().value,
+					streams: { ...prev.streams, tool: undefined },
+				},
+				e,
+			);
+		},
+	} satisfies Record<typeof activity.type, () => AgentAttemptProjection>;
+	const next = handlers[activity.type]();
+	const attempts = new Map(p.attempts).set(runId, next);
+	const usage = activity.type === "turn_end" ? activity.usage : undefined;
+	const usageTotals =
+		usage === undefined
+			? p.usageTotals
+			: {
+					tokens: p.usageTotals.tokens + usage.total,
+					...(usage.cost === undefined && p.usageTotals.cost === undefined
+						? {}
+						: { cost: (p.usageTotals.cost ?? 0) + (usage.cost ?? 0) }),
+				};
+	return {
+		...p,
+		attempts,
+		usageTotals,
+		tokenSamples:
+			usageTotals === p.usageTotals
+				? p.tokenSamples
+				: [...p.tokenSamples, { atMs: when, tokens: usageTotals.tokens }],
+	};
+};

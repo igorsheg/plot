@@ -1,4 +1,9 @@
-import type { ActivityKind, AttemptStage, WorkCheck } from "./projection.js";
+import { isRecord } from "@plot/common/primitives";
+import type {
+	ActivityKind,
+	AttemptStage,
+	WorkCheck,
+} from "./projection-parts/types.js";
 
 export interface PiUsageDelta {
 	readonly input?: number | undefined;
@@ -43,8 +48,6 @@ export interface PiToolDisplay {
 	readonly toolCallId?: string | undefined;
 }
 
-const record = (v: unknown): v is Record<string, unknown> =>
-	typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
 const numberAt = (
 	input: Record<string, unknown>,
@@ -59,10 +62,10 @@ const numberAt = (
 const usageDelta = (
 	event: Record<string, unknown>,
 ): PiUsageDelta | undefined => {
-	const message = record(event["message"]) ? event["message"] : undefined;
-	const usage = record(message?.["usage"])
+	const message = isRecord(event["message"]) ? event["message"] : undefined;
+	const usage = isRecord(message?.["usage"])
 		? message["usage"]
-		: record(event["usage"])
+		: isRecord(event["usage"])
 			? event["usage"]
 			: undefined;
 	if (usage === undefined) return undefined;
@@ -74,7 +77,7 @@ const usageDelta = (
 			? (input ?? 0) + (output ?? 0)
 			: undefined);
 	if (total === undefined) return undefined;
-	const cost = record(usage["cost"])
+	const cost = isRecord(usage["cost"])
 		? numberAt(usage["cost"], "total")
 		: undefined;
 	return {
@@ -98,11 +101,11 @@ const oneLine = (value: string) =>
 const truncate = (value: string, max = 96) =>
 	value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`;
 const contentText = (value: unknown, kind: "thinking" | "text") => {
-	const partial = record(value) ? value : undefined;
+	const partial = isRecord(value) ? value : undefined;
 	const content = Array.isArray(partial?.["content"]) ? partial["content"] : [];
 	const match = content.find(
 		(item): item is Record<string, unknown> =>
-			record(item) && item["type"] === kind,
+			isRecord(item) && item["type"] === kind,
 	);
 	return kind === "thinking" ? str(match?.["thinking"]) : str(match?.["text"]);
 };
@@ -117,17 +120,17 @@ const proseSummary = (
 	return text.length === 0 ? prefix : `${prefix}: ${truncate(text)}`;
 };
 const partialToolCall = (update: Record<string, unknown> | undefined) => {
-	const partial = record(update?.["partial"]) ? update["partial"] : undefined;
+	const partial = isRecord(update?.["partial"]) ? update["partial"] : undefined;
 	const content = Array.isArray(partial?.["content"]) ? partial["content"] : [];
 	const index = numberAt(update ?? {}, "contentIndex");
 	const item =
 		index === undefined
-			? content.find((value) => record(value) && value["type"] === "toolCall")
+			? content.find((value) => isRecord(value) && value["type"] === "toolCall")
 			: content[index];
-	if (!record(item) || item["type"] !== "toolCall") return undefined;
+	if (!isRecord(item) || item["type"] !== "toolCall") return undefined;
 	return {
 		name: str(item["name"]),
-		args: record(item["arguments"]) ? item["arguments"] : {},
+		args: isRecord(item["arguments"]) ? item["arguments"] : {},
 		toolCallId: str(item["id"]),
 	};
 };
@@ -209,7 +212,7 @@ const toolActivity = (
 export const piEventDisplay = (
 	event: Record<string, unknown>,
 ): PiDisplayEvent | undefined => {
-	const update = record(event["assistantMessageEvent"])
+	const update = isRecord(event["assistantMessageEvent"])
 		? event["assistantMessageEvent"]
 		: undefined;
 	const type = str(update?.["type"]) ?? str(event["type"]);
@@ -258,7 +261,7 @@ export const piEventDisplay = (
 		};
 	}
 	if (type === "tool_execution_start" || type === "tool_execution_update") {
-		const args = record(event["args"]) ? event["args"] : {};
+		const args = isRecord(event["args"]) ? event["args"] : {};
 		return {
 			type: type === "tool_execution_start" ? "tool_start" : "tool_update",
 			tool: toolActivity(

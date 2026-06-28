@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { errorMessage } from "./primitives.js";
+import { errorMessage } from "@plot/common/primitives";
 import {
 	decodeWorkflowRuntimeConfig,
 	type WorkflowRuntimeConfig,

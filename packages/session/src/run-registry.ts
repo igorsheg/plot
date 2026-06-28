@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
+import { errorMessage, hasErrnoCode, isRecord } from "@plot/common/primitives";
 import { z } from "zod";
 import {
 	clientRequestSchema,
@@ -9,7 +10,6 @@ import {
 	type ClientRequest,
 	type ServerRecord,
 } from "./protocol.js";
-import { errorMessage } from "./primitives.js";
 import { createFileEventLogStore } from "./event-log.js";
 import {
 	createRunChildProcess,
@@ -191,14 +191,7 @@ const clone = (record: RunRecord): RunRecord => ({
 	...record,
 });
 
-const isErrno = (error: unknown, code: string): boolean =>
-	typeof error === "object" &&
-	error !== null &&
-	"code" in error &&
-	(error as { readonly code?: unknown }).code === code;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
+const noop = () => {};
 
 const trimTail = (value: string, maxBytes: number): string => {
 	const bytes = new TextEncoder().encode(value);
@@ -273,7 +266,7 @@ const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 	try {
 		text = await readFile(path, "utf8");
 	} catch (error) {
-		if (isErrno(error, "ENOENT")) return [];
+		if (hasErrnoCode(error, "ENOENT")) return [];
 		throw error;
 	}
 	try {
@@ -473,13 +466,14 @@ export class RunRegistry implements RunRegistryRuntime {
 				: { workflowPath: input.workflowPath }),
 		});
 		const events = new EventHub<ServerRecord>(this.options.eventCapacity);
+		let cleanup: () => void = noop;
 		const live: LiveRun = {
 			record,
 			process,
 			events,
-			cleanup: () => {},
+			cleanup: () => cleanup(),
 		};
-		const cleanup = [
+		const unsubscribes = [
 			process.onRecord((serverRecord) =>
 				this.handleProcessRecord(live, serverRecord),
 			),
@@ -492,9 +486,7 @@ export class RunRegistry implements RunRegistryRuntime {
 				void this.handleExit(live, error);
 			}),
 		];
-		Object.assign(live, {
-			cleanup: () => cleanup.forEach((unsubscribe) => unsubscribe()),
-		});
+		cleanup = () => unsubscribes.forEach((unsubscribe) => unsubscribe());
 		this.live.set(record.id, live);
 		await this.options.store.upsert(record);
 		try {

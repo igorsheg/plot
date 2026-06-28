@@ -1,6 +1,6 @@
 import { AsyncQueue } from "@plot/common/async-queue";
 import { z } from "zod";
-import { errorMessage } from "./primitives.js";
+import { errorMessage } from "@plot/common/primitives";
 import {
 	ProtocolBoundaryError,
 	defaultProtocolLimits,

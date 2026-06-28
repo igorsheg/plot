@@ -5,10 +5,10 @@ import {
 	type PromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import { AsyncQueue } from "@plot/common/async-queue";
+import { errorMessage, isRecord } from "@plot/common/primitives";
 import type { WorkResult } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import { Eta } from "eta";
-import { errorMessage } from "./primitives.js";
 
 export interface PiAgentSessionPort {
 	readonly subscribe: (
@@ -60,9 +60,6 @@ const eta = new Eta({
 	useWith: true,
 	autoEscape: false,
 });
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const resolveValue = async <A>(
 	value: PiRunnerValue<A>,

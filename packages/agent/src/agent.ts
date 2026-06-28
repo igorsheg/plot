@@ -1,6 +1,7 @@
 import { AsyncQueue } from "@plot/common/async-queue";
 import { EventHub } from "@plot/common/event-stream";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
+import { errorMessage } from "@plot/common/primitives";
 import * as Domain from "./model.js";
 import type {
 	Completion,
@@ -125,8 +126,6 @@ const initialState: RuntimeState = {
 	scheduledWakes: [],
 	nextRunIndex: 0,
 };
-const errorMessage = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
 const optionalSubject = (subject: SubjectKey | undefined) =>
 	subject === undefined ? {} : { subject };
 const optionalOutput = (output: unknown) =>

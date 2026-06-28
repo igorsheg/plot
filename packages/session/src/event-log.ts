@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { hasErrnoCode, errorMessage, isRecord } from "@plot/common/primitives";
 import { parseJsonl, stringifyJsonl, type JsonlLimits } from "./jsonl.js";
-import { errorMessage } from "./primitives.js";
 
 const nonEmptyString = z.string().min(1);
 const positiveInteger = z.number().int().positive();
@@ -118,12 +118,6 @@ export interface FileEventLogStoreOptions {
 
 const defaultJsonlLimits: JsonlLimits = { maxLineBytes: 2 * 1024 * 1024 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
-
-const isErrnoCode = (error: unknown, code: string): boolean =>
-	isRecord(error) && error["code"] === code;
-
 const optionalString = (key: string, value: string | undefined) =>
 	value === undefined ? {} : { [key]: value };
 
@@ -134,7 +128,7 @@ const readText = async (path: string): Promise<string> => {
 	try {
 		return await readFile(path, "utf8");
 	} catch (error) {
-		if (isErrnoCode(error, "ENOENT")) return "";
+		if (hasErrnoCode(error, "ENOENT")) return "";
 		throw new EventLogError({
 			phase: "read",
 			path,
@@ -147,7 +141,7 @@ const fileSize = async (path: string): Promise<number> => {
 	try {
 		return (await stat(path)).size;
 	} catch (error) {
-		if (isErrnoCode(error, "ENOENT")) return 0;
+		if (hasErrnoCode(error, "ENOENT")) return 0;
 		throw new EventLogError({
 			phase: "read",
 			path,

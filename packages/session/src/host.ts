@@ -15,7 +15,7 @@ import {
 import {
 	makePlotExtensionSourceBundleFromWorkflow,
 	type PlotExtensionSourceBundle,
-} from "./extension-source.js";
+} from "./extensions/source.js";
 import { resolveSessionPaths, type SessionPaths } from "./paths.js";
 import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
 import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";
@@ -55,7 +55,6 @@ export interface ProtocolSessionHost extends SessionHost {
 }
 
 export interface SessionHostPart {
-	readonly name: string;
 	readonly shutdown?: () => Promise<void> | void;
 }
 
@@ -77,6 +76,7 @@ export interface CreateSessionHostOptions {
 }
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+type AgentConfig = NonNullable<WorkflowRuntimeConfig["agent"]>;
 
 export class SessionHostError extends Error {
 	override readonly name = "SessionHostError";
@@ -128,16 +128,10 @@ const makeOneShotWorkflowSource = (
 const shutdownHostParts = async (
 	parts: readonly SessionHostPart[],
 ): Promise<void> => {
-	const shutdowns = parts
-		.toReversed()
-		.map((part) => part.shutdown)
-		.filter((shutdown): shutdown is NonNullable<typeof shutdown> =>
-			Boolean(shutdown),
-		);
-	await shutdowns.reduce(
-		(previous, shutdown) => previous.then(() => shutdown()),
-		Promise.resolve(),
-	);
+	for (const part of parts.toReversed()) {
+		// eslint-disable-next-line no-await-in-loop -- shutdown order is reverse construction order.
+		await part.shutdown?.();
+	}
 };
 
 const makeProtocolLimits = (input: {
@@ -156,11 +150,7 @@ const makeProtocolLimits = (input: {
 });
 
 const noToolsForPi = (
-	value: WorkflowRuntimeConfig["agent"] extends infer Agent
-		? Agent extends { readonly noTools?: infer NoTools }
-			? NoTools
-			: never
-		: never,
+	value: AgentConfig["noTools"],
 ): CreateAgentSessionOptions["noTools"] => {
 	if (value === undefined || value === false) return undefined;
 	if (value === true) return "all";
@@ -215,12 +205,12 @@ export const createSessionHost = async (
 	options: CreateSessionHostOptions,
 ): Promise<SessionHost> => {
 	const paths = resolveSessionPaths(options);
-	const workflowOptions = { cwd: paths.cwd };
-	if (options.workflowPath !== undefined)
-		Object.assign(workflowOptions, {
-			workflowPath: resolve(paths.cwd, options.workflowPath),
-		});
-	const workflow = await loadDiscoveredWorkflow(workflowOptions);
+	const workflow = await loadDiscoveredWorkflow({
+		cwd: paths.cwd,
+		...(options.workflowPath === undefined
+			? {}
+			: { workflowPath: resolve(paths.cwd, options.workflowPath) }),
+	});
 	const plot = workflow.runtime.plot;
 	const requestQueueCapacity = positiveInteger(
 		options.requestQueueCapacity ?? plot?.queueCapacity ?? 64,
@@ -245,23 +235,24 @@ export const createSessionHost = async (
 		? [extensionBundle.source]
 		: [makeOneShotWorkflowSource(workflow)];
 	const base = baseCreateOptions({ paths, workflow });
-	const agentSessionFactoryOptions = { workflow, paths };
-	if (options.agentSessionOverrides !== undefined)
-		Object.assign(agentSessionFactoryOptions, {
-			overrides: options.agentSessionOverrides,
-		});
 	const createAgentSession =
 		options.createAgentSession ??
-		makeCreatePiAgentSession(agentSessionFactoryOptions);
+		makeCreatePiAgentSession({
+			workflow,
+			paths,
+			...(options.agentSessionOverrides === undefined
+				? {}
+				: { overrides: options.agentSessionOverrides }),
+		});
 	const runner = makePiWorkRunner({
 		createAgentSession,
 		prompt: workflow.prompt,
-		create: (context) => {
-			const input = { base, context };
-			if (extensionBundle !== undefined)
-				Object.assign(input, { extensionBundle });
-			return runnerCreateOptions(input);
-		},
+		create: (context) =>
+			runnerCreateOptions({
+				base,
+				context,
+				...(extensionBundle === undefined ? {} : { extensionBundle }),
+			}),
 		maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
 		onEvent: async ({ context, event }) => {
 			await eventLog.appendAgentEvent({
@@ -294,12 +285,8 @@ export const createSessionHost = async (
 	const runtime = makeAgentSessionRuntime(runtimeOptions);
 	const parts: SessionHostPart[] = [];
 	if (extensionBundle !== undefined)
-		parts.push({
-			name: "extension",
-			shutdown: () => extensionBundle.shutdown(),
-		});
+		parts.push({ shutdown: () => extensionBundle.shutdown() });
 	parts.push({
-		name: "runtime",
 		shutdown: async () => {
 			await runtime.shutdown();
 		},

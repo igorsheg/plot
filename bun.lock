@@ -65,6 +65,7 @@
     "packages/tui": {
       "name": "@plot/tui",
       "dependencies": {
+        "@plot/common": "workspace:*",
         "@plot/session": "workspace:*",
         "get-east-asian-width": "1.6.0",
       },
@@ -77,6 +78,7 @@
       "dependencies": {
         "@base-ui/react": "^1.6.0",
         "@fontsource-variable/inter": "^5.2.8",
+        "@plot/common": "workspace:*",
         "@tailwindcss/vite": "^4.3.1",
         "@vitejs/plugin-react": "latest",
         "@xyflow/react": "^12.10.1",

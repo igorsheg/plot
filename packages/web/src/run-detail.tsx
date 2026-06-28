@@ -1,3 +1,4 @@
+import { isRecord } from "@plot/common/primitives";
 import { createContext, use } from "react";
 import type { ReactNode } from "react";
 import type { WebActivityEntry, WebDashboardProjection } from "./api.js";
@@ -37,9 +38,6 @@ const useRunDetail = (): RunDetailContextValue => {
 	if (value === null) throw new Error("RunDetailContext missing");
 	return value;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
 
 const workTitle = (value: unknown): string => {
 	if (!isRecord(value)) return "work";

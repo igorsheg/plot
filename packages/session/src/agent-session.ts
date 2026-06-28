@@ -9,6 +9,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import { hasErrnoCode } from "@plot/common/primitives";
 import { z } from "zod";
 import type { CreatePiAgentSession } from "./pi-runner.js";
 import type { SessionPaths } from "./paths.js";
@@ -59,13 +60,7 @@ const readJson = async (path: string): Promise<unknown> => {
 	try {
 		return JSON.parse(await readFile(path, "utf8")) as unknown;
 	} catch (error) {
-		if (
-			typeof error === "object" &&
-			error !== null &&
-			"code" in error &&
-			error.code === "ENOENT"
-		)
-			return {};
+		if (hasErrnoCode(error, "ENOENT")) return {};
 		throw error;
 	}
 };
@@ -118,10 +113,10 @@ const withDefaultResourcePath = (
 
 const splitModelSelector = (model: string | undefined) => {
 	const slashIndex = model?.indexOf("/") ?? -1;
-	return slashIndex > 0
+	return slashIndex > 0 && model !== undefined
 		? {
-				provider: model?.slice(0, slashIndex),
-				model: model?.slice(slashIndex + 1),
+				provider: model.slice(0, slashIndex),
+				model: model.slice(slashIndex + 1),
 			}
 		: { model };
 };
@@ -176,7 +171,7 @@ const resourceOptions = (
 	resources: ResourcesConfig,
 	overrides: AgentSessionOverrides | undefined,
 ) => {
-	const options = {
+	return {
 		additionalSkillPaths: withDefaultResourcePath(
 			paths.skillsDir,
 			paths,
@@ -192,14 +187,13 @@ const resourceOptions = (
 		noSkills: overrides?.noSkills ?? false,
 		noPromptTemplates: overrides?.noPromptTemplates ?? false,
 		noContextFiles: resources.contextFiles === false,
+		...(resources.systemPrompt === undefined
+			? {}
+			: { systemPrompt: resources.systemPrompt }),
+		...(resources.appendSystemPrompt === undefined
+			? {}
+			: { appendSystemPrompt: [...resources.appendSystemPrompt] }),
 	};
-	if (resources.systemPrompt !== undefined)
-		Object.assign(options, { systemPrompt: resources.systemPrompt });
-	if (resources.appendSystemPrompt !== undefined)
-		Object.assign(options, {
-			appendSystemPrompt: [...resources.appendSystemPrompt],
-		});
-	return options;
 };
 
 export const makeCreatePiAgentSession = (
