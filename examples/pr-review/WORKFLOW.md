@@ -41,7 +41,7 @@ resources:
       Core Plot invariants for the code you review:
       - @plot/agent is provider-free, task-free, domain-free runtime machinery.
       - The scheduler moat is `tick -> reconcile -> act`; reconciliation happens before dispatch.
-      - Machine protocol transport (`plot serve stdio`) prints only explicit Plot JSONL protocol records on stdout; logs and telemetry go to stderr.
+      - Machine API transport (`plot api --stdio`) prints only explicit Plot JSONL protocol records on stdout; logs and telemetry go to stderr.
       - pi-mono integration belongs under @plot/session agent-session/pi-runner seams, never in @plot/agent.
       - Auth/provider/model state is pi-native. Secrets never live in WORKFLOW.md.
       - Avoid generic workflow engines, capability DSLs, barrels, and abstractions that are not earned.

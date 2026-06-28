@@ -9,8 +9,8 @@ import {
 	splitJsonl,
 	type JsonlDecodeState,
 } from "@plot/session/jsonl";
-import { startFleetIpcServer } from "@plot/session/fleet-ipc";
-import type { FleetInstanceRecord } from "@plot/session/fleet";
+import { openRunIpc } from "@plot/session/run-ipc";
+import type { RunRecord } from "@plot/session/run-registry";
 import {
 	emptyProjection,
 	rebuildProjectionFromEventLog,
@@ -23,7 +23,7 @@ const assets: Record<string, WebAsset> = webAssets;
 export interface PlotWebGatewayOptions {
 	readonly cwd: string;
 	readonly agentDir?: string | undefined;
-	readonly fleetDir?: string | undefined;
+	readonly registryDir?: string | undefined;
 	readonly workflowPath?: string | undefined;
 	readonly host?: string | undefined;
 	readonly port?: number | undefined;
@@ -71,7 +71,7 @@ const parseSequence = (value: string | null): number | undefined => {
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
-const parseCreateInstanceBody = async (
+const parseCreateRunBody = async (
 	request: Request,
 ): Promise<{
 	readonly cwd?: string;
@@ -181,7 +181,7 @@ const readEventLogTail = async (input: {
 	}
 };
 
-const readSessionEventLog = async (
+const readRunEventLog = async (
 	path: string,
 ): Promise<readonly EventLogRecord[]> =>
 	(
@@ -198,17 +198,15 @@ const serializableProjection = (projection: DashboardProjection) => ({
 	attempts: Object.fromEntries(projection.attempts),
 });
 
-const sessionProjectionResponse = async (
-	instance: FleetInstanceRecord,
-): Promise<Response> => {
-	if (instance.eventLogPath === undefined || instance.sessionId === undefined)
-		return new Response("session not ready", { status: 409 });
+const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
+	if (run.eventLogPath === undefined || run.sessionId === undefined)
+		return new Response("run not ready", { status: 409 });
 	const projection = rebuildProjectionFromEventLog(
-		await readSessionEventLog(instance.eventLogPath),
-		emptyProjection(instance.sessionId, instance.workflowName ?? "workflow", {
-			cwd: instance.cwd,
-			cwdName: instance.cwdName ?? instance.cwd,
-			workflowPath: instance.workflowPath ?? "WORKFLOW.md",
+		await readRunEventLog(run.eventLogPath),
+		emptyProjection(run.sessionId, run.workflowName ?? "workflow", {
+			cwd: run.cwd,
+			cwdName: run.cwdName ?? run.cwd,
+			workflowPath: run.workflowPath ?? "WORKFLOW.md",
 			skills: [],
 			skillPaths: [],
 		}),
@@ -265,14 +263,14 @@ const sessionEventsResponse = (input: {
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const fleetServer = await startFleetIpcServer({
-		options: {
-			cwd: options.cwd,
-			...(options.fleetDir === undefined ? {} : { fleetDir: options.fleetDir }),
-			cli: {
-				command: process.execPath,
-				args: process.argv[1] === undefined ? [] : [process.argv[1]],
-			},
+	const runIpc = await openRunIpc({
+		cwd: options.cwd,
+		...(options.registryDir === undefined
+			? {}
+			: { runRegistryDir: options.registryDir }),
+		cli: {
+			command: process.execPath,
+			args: process.argv[1] === undefined ? [] : [process.argv[1]],
 		},
 	});
 	const server = Bun.serve({
@@ -280,9 +278,9 @@ export const startPlotWebGateway = async (
 		port: options.port ?? 0,
 		async fetch(request) {
 			const url = new URL(request.url);
-			if (url.pathname === "/api/instances" && request.method === "POST") {
-				const body = await parseCreateInstanceBody(request);
-				const instance = await fleetServer.fleet.spawn({
+			if (url.pathname === "/api/runs" && request.method === "POST") {
+				const body = await parseCreateRunBody(request);
+				const run = await runIpc.runRegistry.spawn({
 					cwd: body.cwd ?? options.cwd,
 					...(body.workflowPath !== undefined
 						? { workflowPath: body.workflowPath }
@@ -291,23 +289,21 @@ export const startPlotWebGateway = async (
 							: { workflowPath: options.workflowPath }),
 					...(body.label === undefined ? {} : { label: body.label }),
 				});
-				return text({ instance });
+				return text({ run });
 			}
-			const stopPath = /^\/api\/instances\/([^/]+)$/.exec(url.pathname);
+			const stopPath = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
 			if (stopPath !== null && request.method === "DELETE") {
-				const instance = await fleetServer.fleet.stop(
+				const run = await runIpc.runRegistry.stop(
 					decodeURIComponent(stopPath[1] ?? ""),
 				);
-				return instance === undefined
-					? new Response("instance not found", { status: 404 })
-					: text({ instance });
+				return run === undefined
+					? new Response("run not found", { status: 404 })
+					: text({ run });
 			}
-			if (url.pathname === "/api/instances") {
-				return text({ instances: await fleetServer.fleet.list() });
+			if (url.pathname === "/api/runs") {
+				return text({ runs: await runIpc.runRegistry.list() });
 			}
-			const eventPath = /^\/api\/instances\/([^/]+)\/events$/.exec(
-				url.pathname,
-			);
+			const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
 			if (eventPath !== null) {
 				const after = parseAfterSequence({
 					header: request.headers.get("last-event-id"),
@@ -316,30 +312,30 @@ export const startPlotWebGateway = async (
 				if (after === undefined)
 					return text({ error: "invalid after sequence" });
 				const id = decodeURIComponent(eventPath[1] ?? "");
-				const instance = await fleetServer.fleet.status(id);
-				if (instance === undefined)
-					return new Response("session not found", { status: 404 });
-				if (instance.eventLogPath === undefined)
-					return new Response("session not ready", { status: 409 });
-				void instance;
+				const run = await runIpc.runRegistry.status(id);
+				if (run === undefined)
+					return new Response("run not found", { status: 404 });
+				if (run.eventLogPath === undefined)
+					return new Response("run not ready", { status: 409 });
+				void run;
 				return sessionEventsResponse({
 					request,
-					records: fleetServer.fleet.attachRecords(id, after),
+					records: runIpc.runRegistry.attachRecords(id, after),
 				});
 			}
-			const projectionPath = /^\/api\/instances\/([^/]+)\/projection$/.exec(
+			const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
 				url.pathname,
 			);
 			if (projectionPath !== null) {
-				const instance = await fleetServer.fleet.status(
+				const run = await runIpc.runRegistry.status(
 					decodeURIComponent(projectionPath[1] ?? ""),
 				);
-				if (instance === undefined)
-					return new Response("session not found", { status: 404 });
-				return sessionProjectionResponse(instance);
+				if (run === undefined)
+					return new Response("run not found", { status: 404 });
+				return runProjectionResponse(run);
 			}
 			if (url.pathname === "/api/health")
-				return text({ ok: true, socketPath: fleetServer.socketPath });
+				return text({ ok: true, socketPath: runIpc.socketPath });
 			return assetResponse(url.pathname);
 		},
 	});
@@ -350,8 +346,7 @@ export const startPlotWebGateway = async (
 		url,
 		stop: () => {
 			server.stop(true);
-			fleetServer.server.close();
-			void fleetServer.fleet.shutdown();
+			void runIpc.close();
 		},
 	};
 };

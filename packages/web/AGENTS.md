@@ -12,8 +12,8 @@ Keep the web app a clean React/TypeScript client over Plot's local file-backed g
 api.ts              HTTP/SSE contract parsing, URLs, fetch helpers
 main.tsx           app wiring only
 flow-canvas.tsx    canvas substrate + composed node UI
-live-events.ts     live fleet delta hook
-instance.ts        fleet instance DTO parsing
+live-events.ts     live runRegistry delta hook
+run.ts        runRegistry run DTO parsing
 components/ui/*    copied coss primitives only when used
 ```
 
@@ -40,9 +40,9 @@ components/ui/*    copied coss primitives only when used
 ## Product data flow
 
 ```text
-fleet canvas: /api/instances + SSE after instance.lastSequence
-session detail: /api/instances/:id/projection + SSE after projection.frontier
+runRegistry canvas: /api/runs + SSE after run.lastSequence
+session detail: /api/runs/:id/projection + SSE after projection.frontier
 raw events: durable source of truth, not a default browser replay path
 ```
 
-Keep fleet O(number of instances), not O(total event log size).
+Keep runRegistry O(number of runs), not O(total event log size).

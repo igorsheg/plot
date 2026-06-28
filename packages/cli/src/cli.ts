@@ -8,11 +8,16 @@ import {
 import { sessionCommandArgs } from "./args.js";
 import { getCliIo, setCliIo } from "./cli-context.js";
 import { authCommand } from "./commands/auth.js";
+import { apiCommand } from "./commands/api.js";
 import { docsCommand } from "./commands/docs.js";
-import { instancesCommand } from "./commands/instances.js";
 import { listModelsCommand } from "./commands/list-models.js";
 import { runCommand } from "./commands/run.js";
-import { serveCommand } from "./commands/serve.js";
+import {
+	listRunsCommand,
+	logsRunCommand,
+	statusRunCommand,
+	stopRunCommand,
+} from "./commands/runs.js";
 import { webCommand } from "./commands/web.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 import { baseOptions } from "./options.js";
@@ -55,12 +60,15 @@ const tuiCommand = defineCommand({
 const subCommands = {
 	"list-models": listModelsCommand,
 	auth: authCommand,
-	instances: instancesCommand,
 	docs: docsCommand,
 	run: runCommand,
 	tui: tuiCommand,
 	web: webCommand,
-	serve: serveCommand,
+	api: apiCommand,
+	ls: listRunsCommand,
+	status: statusRunCommand,
+	stop: stopRunCommand,
+	logs: logsRunCommand,
 };
 
 const rootMeta = {

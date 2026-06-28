@@ -12,8 +12,8 @@ Plot's current CLI exposes implementation seams as product concepts:
 - `plot run`
 - `plot web`
 - `plot serve stdio`
-- `plot serve fleet`
-- `plot instances ...`
+- `plot serve runRegistry`
+- `plot runs ...`
 
 This makes Plot feel like a bag of transports and process managers instead of one product. It also prevents the expected dogfooding flow:
 
@@ -21,7 +21,7 @@ This makes Plot feel like a bag of transports and process managers instead of on
 2. Open the web dashboard.
 3. See those running TUI-backed Plot runs appear automatically.
 
-Today `plot web` starts its own fleet server and only sees runs owned by that web process. A TUI run is in-process and invisible to the web dashboard.
+Today `plot web` starts its own runRegistry server and only sees runs owned by that web process. A TUI run is in-process and invisible to the web dashboard.
 
 ## Product goal
 
@@ -37,7 +37,7 @@ The product nouns should be:
 - **API** — a machine transport over runs in a workspace.
 - **Workflow** — the user-authored `WORKFLOW.md` plus optional extension.
 
-Do not expose `fleet`, `instance`, `supervisor`, `stdio server`, or `protocol stream` as primary user-facing nouns.
+Do not expose `runRegistry`, `run`, `supervisor`, `stdio server`, or `protocol stream` as primary user-facing nouns.
 
 ## Reference: pi orchestrator
 
@@ -46,17 +46,17 @@ Use `.references/pi/packages/orchestrator` as an implementation reference, not a
 Relevant pi files:
 
 - `.references/pi/packages/orchestrator/src/types.ts`
-  - Defines `InstanceRecord` with `id`, `status`, `cwd`, `label`, `sessionId`, `sessionFile`.
+  - Defines `RunRecord` with `id`, `status`, `cwd`, `label`, `sessionId`, `sessionFile`.
 - `.references/pi/packages/orchestrator/src/supervisor.ts`
-  - Owns live child processes in `liveInstances`.
-  - Persists instance records through `storage.ts`.
-  - `spawnInstance()` creates a record, starts an RPC process, syncs session metadata, marks online.
+  - Owns live child processes in `liveRuns`.
+  - Persists run records through `storage.ts`.
+  - `spawnRun()` creates a record, starts an RPC process, syncs session metadata, marks online.
   - `recoverAfterRestart()` marks stale `online` / `starting` records stopped.
-  - `openRpcStream()` lets clients attach to one live instance.
+  - `openRpcStream()` lets clients attach to one live run.
 - `.references/pi/packages/orchestrator/src/ipc/server.ts`
   - Serves a Unix socket.
   - Handles list/spawn/status/stop.
-  - Has a long-lived stream mode for one instance.
+  - Has a long-lived stream mode for one run.
 - `.references/pi/packages/orchestrator/src/cli.ts`
   - Exposes `serve`, `list`, `spawn`, `status`, `stop`, `rpc`, `rpc-stream`.
 
@@ -79,22 +79,22 @@ Important current files:
 - `packages/session/src/host.ts`
   - Owns one in-process Plot session host.
   - Composes workflow, event log, runtime, pi runner, protocol adapter.
-- `packages/session/src/fleet.ts`
+- `packages/session/src/run-registry.ts`
   - Current process registry / child owner.
-  - Public names still say `Fleet`, `FleetInstanceRecord`, `FleetRuntime`.
-- `packages/session/src/fleet-ipc.ts`
+  - Public names still say `RunRegistry`, `RunRecord`, `RunRegistryRuntime`.
+- `packages/session/src/run-ipc.ts`
   - Current Unix socket boundary for list/spawn/status/stop/stream.
 - `packages/cli/src/runtime.ts`
   - `serveStdio()` starts one in-process protocol host over stdio.
-  - `serveFleet()` starts the fleet socket daemon.
+  - `serveRunRegistry()` starts the runRegistry socket daemon.
 - `packages/tui/src/plot-tui.ts`
   - Currently starts an in-process `createProtocolSessionHost()` and renders directly over its protocol.
   - This is why TUI runs are invisible to web.
 - `packages/cli/src/web-gateway.ts`
-  - Currently starts its own `startFleetIpcServer()` and serves web assets + HTTP/SSE API.
+  - Currently starts its own `startRunIpcServer()` and serves web assets + HTTP/SSE API.
   - This creates an isolated run universe per `plot web` process.
-- `packages/cli/src/commands/instances.ts`
-  - Debug surface for fleet internals.
+- `packages/cli/src/commands/runs.ts`
+  - Debug surface for runRegistry internals.
 - `packages/cli/src/commands/serve.ts`
   - Exposes implementation transports.
 
@@ -151,8 +151,8 @@ plot logs <run-id>
 
 Behavior:
 
-- Use `run`, not `instance`, in help, docs, JSON fields where feasible.
-- `plot ls` should be the friendly replacement for `plot instances list`.
+- Use `run`, not `run`, in help, docs, JSON fields where feasible.
+- `plot ls` should be the friendly replacement for `plot runs list`.
 
 ### Building-block API
 
@@ -165,7 +165,7 @@ Behavior:
 
 - `plot api --http` serves the workspace API without necessarily opening the web UI. The web UI can be assets on top of the same server, but the API must be usable independently.
 - `plot api --stdio` exposes the same workspace run API over JSONL stdio for custom frontend processes.
-- The API owns run list/spawn/status/stop/stream/submit. A custom frontend should not need to understand internal `fleet` names.
+- The API owns run list/spawn/status/stop/stream/submit. A custom frontend should not need to understand internal `runRegistry` names.
 
 ## Architecture target
 
@@ -222,15 +222,15 @@ Nuclear but controlled rename:
 
 | Current internal/public term | Target product term                     |
 | ---------------------------- | --------------------------------------- |
-| fleet                        | run registry                            |
-| instance                     | run                                     |
+| runRegistry                  | run registry                            |
+| run                          | run                                     |
 | supervisor                   | do not reintroduce                      |
-| `serve fleet`                | internal registry daemon / hidden debug |
-| `instances`                  | `ls`, `status`, `stop`, `logs`          |
+| `serve runRegistry`          | internal registry daemon / hidden debug |
+| `runs`                       | `ls`, `status`, `stop`, `logs`          |
 | `serve stdio`                | `api --stdio`                           |
 | protocol stream              | event stream / run stream               |
 
-Implementation may keep a private `Fleet` class briefly during the refactor, but primary exported modules, CLI help, docs, and tests should converge on run terminology.
+Implementation may keep a private `RunRegistry` class briefly during the refactor, but primary exported modules, CLI help, docs, and tests should converge on run terminology.
 
 Do not add compatibility aliases unless the user explicitly asks for a compatibility release. This repo has already chosen clean breaking changes over shims.
 
@@ -240,7 +240,7 @@ Prefer direct owners, no barrels.
 
 ### `packages/session/src/run-registry.ts`
 
-Replacement for `fleet.ts`.
+Replacement for `run-registry.ts`.
 
 Owns:
 
@@ -251,11 +251,11 @@ Owns:
 - spawn/list/status/stop/attachRecords/submit
 - stale recovery
 
-It may initially be a rename/refactor of `Fleet`, but API names should be run-shaped.
+It may initially be a rename/refactor of `RunRegistry`, but API names should be run-shaped.
 
 ### `packages/session/src/run-ipc.ts`
 
-Replacement for `fleet-ipc.ts`.
+Replacement for `run-ipc.ts`.
 
 Owns:
 
@@ -313,23 +313,23 @@ Commit or revert current unrelated changes before starting this refactor. In par
 
 ### Phase 1 — rename registry owner in `@plot/session`
 
-- Rename `fleet.ts` -> `run-registry.ts`.
-- Rename `fleet-ipc.ts` -> `run-ipc.ts`.
+- Rename `run-registry.ts` -> `run-registry.ts`.
+- Rename `run-ipc.ts` -> `run-ipc.ts`.
 - Rename exported types/functions:
-  - `Fleet` -> `RunRegistry`
-  - `FleetInstanceRecord` -> `RunRecord`
-  - `FleetRuntime` -> `RunRegistryRuntime`
-  - `FleetRequest` -> `RunIpcRequest` or `RunRequest`
-  - `FleetResponse` -> `RunIpcResponse` or `RunResponse`
-  - `startFleetIpcServer` -> `startRunIpcServer`
-  - `sendFleetIpcRequest` -> `sendRunIpcRequest`
-  - `resolveFleetIpcSocketPath` -> `resolveRunIpcSocketPath`
+  - `RunRegistry` -> `RunRegistry`
+  - `RunRecord` -> `RunRecord`
+  - `RunRegistryRuntime` -> `RunRegistryRuntime`
+  - `RunRequest` -> `RunIpcRequest` or `RunRequest`
+  - `RunResponse` -> `RunIpcResponse` or `RunResponse`
+  - `startRunIpcServer` -> `startRunIpcServer`
+  - `sendRunIpcRequest` -> `sendRunIpcRequest`
+  - `resolveRunIpcSocketPath` -> `resolveRunIpcSocketPath`
 - Update `packages/session/package.json` exports and `public-api.test.ts`.
 - Keep tests behavior-focused: spawn, early exit, recovery, replay/tail, disconnect.
 
 ### Phase 2 — make registry a workspace service
 
-Current `FleetIpcOptions` defaults to `~/.plot/fleet`, which makes runs global and terminology stale.
+Current `RunIpcOptions` defaults to `~/.plot/runRegistry`, which makes runs global and terminology stale.
 
 Define the desired storage explicitly:
 
@@ -378,7 +378,7 @@ Refactor `web-gateway.ts`:
 - Serve HTTP API from the shared registry.
 - Keep browser assets separate from API handlers.
 
-HTTP endpoints should migrate from `/api/instances` to `/api/runs`.
+HTTP endpoints should migrate from `/api/runs` to `/api/runs`.
 
 Preferred endpoints:
 
@@ -390,7 +390,7 @@ Preferred endpoints:
 - `GET /api/runs/:id/projection`
 - `POST /api/runs/:id/requests` for protocol commands if needed by custom clients
 
-Do not keep `/api/instances` unless tests/docs require a temporary compatibility path. If compatibility is kept, mark it explicitly as temporary and remove before release if possible.
+Do not keep `/api/runs` unless tests/docs require a temporary compatibility path. If compatibility is kept, mark it explicitly as temporary and remove before release if possible.
 
 ### Phase 5 — product CLI
 
@@ -407,8 +407,8 @@ Replace primary CLI surface:
   - `plot api --stdio`
   - `plot api --http`
 - Remove or hide:
-  - `plot instances`
-  - `plot serve fleet`
+  - `plot runs`
+  - `plot serve runRegistry`
   - `plot serve stdio`
 
 If old commands remain during transition, they must not appear in root help. Prefer no aliases.
@@ -430,7 +430,7 @@ Update:
 Grep must be clean for product surfaces:
 
 ```sh
-rg "fleet|instance|serve stdio|serve fleet|supervisor|supervised" README.md docs packages examples
+rg "runRegistry|run|serve stdio|serve runRegistry|supervisor|supervised" README.md docs packages examples
 ```
 
 Allowed leftovers:
@@ -467,7 +467,7 @@ Add/update behavior tests, not name-only churn.
 
 6. **CLI help exposes product nouns only**
    - Root help contains `web`, `run`, `ls`, `status`, `stop`, `logs`, `api`.
-   - Root help does not contain `fleet`, `instances`, `serve stdio`, `serve fleet`, `supervisor`.
+   - Root help does not contain `runRegistry`, `runs`, `serve stdio`, `serve runRegistry`, `supervisor`.
 
 ## Acceptance criteria
 

@@ -15,28 +15,26 @@ import { Kbd } from "./components/ui/kbd.js";
 import { ScrollArea } from "./components/ui/scroll-area.js";
 import { Separator } from "./components/ui/separator.js";
 import { Skeleton } from "./components/ui/skeleton.js";
-import type { PlotInstance } from "./instance.js";
+import type { PlotRun } from "./run.js";
 
-export interface InstanceDetailState {
+export interface RunDetailState {
 	readonly error?: string | undefined;
 	readonly loading: boolean;
 	readonly projection?: WebDashboardProjection | undefined;
-	readonly instance: PlotInstance;
+	readonly run: PlotRun;
 }
 
-interface InstanceDetailContextValue {
-	readonly state: InstanceDetailState;
+interface RunDetailContextValue {
+	readonly state: RunDetailState;
 	readonly actions: { readonly close: () => void };
 	readonly meta: Record<string, never>;
 }
 
-const InstanceDetailContext = createContext<InstanceDetailContextValue | null>(
-	null,
-);
+const RunDetailContext = createContext<RunDetailContextValue | null>(null);
 
-const useInstanceDetail = (): InstanceDetailContextValue => {
-	const value = use(InstanceDetailContext);
-	if (value === null) throw new Error("InstanceDetailContext missing");
+const useRunDetail = (): RunDetailContextValue => {
+	const value = use(RunDetailContext);
+	if (value === null) throw new Error("RunDetailContext missing");
 	return value;
 };
 
@@ -69,14 +67,12 @@ function Provider({
 }: {
 	readonly children: ReactNode;
 	readonly onClose: () => void;
-	readonly state: InstanceDetailState;
+	readonly state: RunDetailState;
 }) {
 	return (
-		<InstanceDetailContext
-			value={{ state, actions: { close: onClose }, meta: {} }}
-		>
+		<RunDetailContext value={{ state, actions: { close: onClose }, meta: {} }}>
 			{children}
-		</InstanceDetailContext>
+		</RunDetailContext>
 	);
 }
 
@@ -87,15 +83,15 @@ function Frame({ children }: { readonly children: ReactNode }) {
 function Header() {
 	const {
 		actions,
-		state: { projection, instance },
-	} = useInstanceDetail();
+		state: { projection, run },
+	} = useRunDetail();
 	return (
 		<CardHeader className="plot-detail-header">
 			<div className="plot-detail-title-group">
 				<CardTitle className="plot-detail-title">
-					{instance.workflowName ?? instance.sessionId ?? instance.id}
+					{run.workflowName ?? run.sessionId ?? run.id}
 				</CardTitle>
-				<p className="plot-detail-subtitle">{instance.cwd}</p>
+				<p className="plot-detail-subtitle">{run.cwd}</p>
 			</div>
 			<div className="plot-detail-actions">
 				<Badge variant="outline">{projection?.status ?? "loading"}</Badge>
@@ -133,15 +129,15 @@ function Body() {
 
 function Summary() {
 	const {
-		state: { loading, projection, instance },
-	} = useInstanceDetail();
+		state: { loading, projection, run },
+	} = useRunDetail();
 	const workCount = Object.keys(projection?.work ?? {}).length;
 	const attemptCount = Object.keys(projection?.attempts ?? {}).length;
 	return (
 		<section className="plot-detail-summary">
 			<Metric
 				label="frontier"
-				value={String(projection?.frontier ?? instance.lastSequence ?? 0)}
+				value={String(projection?.frontier ?? run.lastSequence ?? 0)}
 			/>
 			<Metric label="work" value={loading ? <LoadingValue /> : workCount} />
 			<Metric
@@ -159,7 +155,7 @@ function LoadingValue() {
 function DetailError() {
 	const {
 		state: { error },
-	} = useInstanceDetail();
+	} = useRunDetail();
 	if (!error) return null;
 	return (
 		<Alert variant="error">
@@ -207,7 +203,7 @@ function EmptyState({ children }: { readonly children: ReactNode }) {
 function WorkList() {
 	const {
 		state: { projection },
-	} = useInstanceDetail();
+	} = useRunDetail();
 	const work = Object.values(projection?.work ?? {}).slice(0, 5);
 	return (
 		<Section title="Active work">
@@ -224,7 +220,7 @@ function WorkList() {
 function AttemptList() {
 	const {
 		state: { projection },
-	} = useInstanceDetail();
+	} = useRunDetail();
 	const attempts = Object.values(projection?.attempts ?? {}).slice(0, 5);
 	return (
 		<Section title="Active attempts">
@@ -243,7 +239,7 @@ function AttemptList() {
 function ActivityList() {
 	const {
 		state: { projection },
-	} = useInstanceDetail();
+	} = useRunDetail();
 	const activity = latestActivity(projection?.activity);
 	return (
 		<Section title="Activity">
@@ -259,23 +255,23 @@ function ActivityList() {
 	);
 }
 
-const InstanceDetail = {
+const RunDetail = {
 	Provider,
 	Frame,
 	Header,
 	Body,
 };
 
-export function InstanceDetailWindow(props: {
+export function RunDetailWindow(props: {
 	readonly onClose: () => void;
-	readonly state: InstanceDetailState;
+	readonly state: RunDetailState;
 }) {
 	return (
-		<InstanceDetail.Provider state={props.state} onClose={props.onClose}>
-			<InstanceDetail.Frame>
-				<InstanceDetail.Header />
-				<InstanceDetail.Body />
-			</InstanceDetail.Frame>
-		</InstanceDetail.Provider>
+		<RunDetail.Provider state={props.state} onClose={props.onClose}>
+			<RunDetail.Frame>
+				<RunDetail.Header />
+				<RunDetail.Body />
+			</RunDetail.Frame>
+		</RunDetail.Provider>
 	);
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export interface PlotInstance {
+export interface PlotRun {
 	readonly id: string;
 	readonly status: string;
 	readonly cwd: string;
@@ -17,7 +17,7 @@ export interface PlotInstance {
 	readonly lastEventType?: string | undefined;
 }
 
-const plotInstanceSchema: z.ZodType<PlotInstance> = z.object({
+const plotRunSchema: z.ZodType<PlotRun> = z.object({
 	id: z.string(),
 	status: z.string(),
 	cwd: z.string(),
@@ -34,20 +34,18 @@ const plotInstanceSchema: z.ZodType<PlotInstance> = z.object({
 	lastEventType: z.string().optional(),
 });
 
-const instanceListSchema = z.union([
+const runListSchema = z.union([
 	z.array(z.unknown()),
-	z
-		.object({ instances: z.array(z.unknown()) })
-		.transform((value) => value.instances),
+	z.object({ runs: z.array(z.unknown()) }).transform((value) => value.runs),
 ]);
 
-const parseInstance = (value: unknown): PlotInstance | undefined => {
-	const parsed = plotInstanceSchema.safeParse(value);
+const parseRun = (value: unknown): PlotRun | undefined => {
+	const parsed = plotRunSchema.safeParse(value);
 	return parsed.success ? parsed.data : undefined;
 };
 
-export const parsePlotInstances = (value: unknown): readonly PlotInstance[] => {
-	const parsed = instanceListSchema.safeParse(value);
+export const parsePlotRuns = (value: unknown): readonly PlotRun[] => {
+	const parsed = runListSchema.safeParse(value);
 	if (!parsed.success) return [];
-	return parsed.data.map(parseInstance).filter((entry) => entry !== undefined);
+	return parsed.data.map(parseRun).filter((entry) => entry !== undefined);
 };

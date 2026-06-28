@@ -206,13 +206,13 @@
 }
 
 .plot-app-toolbar-actions,
-.plot-instance-spawn-form {
+.plot-run-spawn-form {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
 }
 
-.plot-instance-spawn-form input {
+.plot-run-spawn-form input {
 	width: 13rem;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-md);

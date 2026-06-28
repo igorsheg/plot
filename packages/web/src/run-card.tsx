@@ -13,27 +13,25 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "./components/ui/tooltip.js";
-import type { SessionLiveState } from "./live-events.js";
-import type { PlotInstance } from "./instance.js";
+import type { RunLiveState } from "./live-events.js";
+import type { PlotRun } from "./run.js";
 
-interface InstanceCardState {
-	readonly instance: PlotInstance;
-	readonly live?: SessionLiveState | undefined;
+interface RunCardState {
+	readonly run: PlotRun;
+	readonly live?: RunLiveState | undefined;
 }
 
-interface InstanceCardContextValue {
-	readonly state: InstanceCardState;
+interface RunCardContextValue {
+	readonly state: RunCardState;
 	readonly actions: Record<string, never>;
 	readonly meta: Record<string, never>;
 }
 
-const InstanceCardContext = createContext<InstanceCardContextValue | null>(
-	null,
-);
+const RunCardContext = createContext<RunCardContextValue | null>(null);
 
-const useInstanceCard = (): InstanceCardContextValue => {
-	const value = use(InstanceCardContext);
-	if (value === null) throw new Error("InstanceCardContext missing");
+const useRunCard = (): RunCardContextValue => {
+	const value = use(RunCardContext);
+	if (value === null) throw new Error("RunCardContext missing");
 	return value;
 };
 
@@ -47,18 +45,16 @@ const formatHeartbeat = (value: string) => {
 function Provider({
 	children,
 	live,
-	instance,
+	run,
 }: {
 	readonly children: ReactNode;
-	readonly live?: SessionLiveState | undefined;
-	readonly instance: PlotInstance;
+	readonly live?: RunLiveState | undefined;
+	readonly run: PlotRun;
 }) {
 	return (
-		<InstanceCardContext
-			value={{ state: { instance, live }, actions: {}, meta: {} }}
-		>
+		<RunCardContext value={{ state: { run, live }, actions: {}, meta: {} }}>
 			{children}
-		</InstanceCardContext>
+		</RunCardContext>
 	);
 }
 
@@ -74,25 +70,23 @@ function Header({ children }: { readonly children: ReactNode }) {
 
 function Identity() {
 	const {
-		state: { instance },
-	} = useInstanceCard();
+		state: { run },
+	} = useRunCard();
 	return (
 		<div className="plot-session-card-identity">
 			<CardTitle className="plot-session-card-title">
-				{instance.workflowName ?? instance.sessionId ?? instance.id}
+				{run.workflowName ?? run.sessionId ?? run.id}
 			</CardTitle>
-			<p className="plot-session-card-subtitle">
-				{instance.cwdName ?? instance.cwd}
-			</p>
+			<p className="plot-session-card-subtitle">{run.cwdName ?? run.cwd}</p>
 		</div>
 	);
 }
 
 function StatusBadge() {
 	const {
-		state: { instance },
-	} = useInstanceCard();
-	return <Badge variant="outline">{instance.status}</Badge>;
+		state: { run },
+	} = useRunCard();
+	return <Badge variant="outline">{run.status}</Badge>;
 }
 
 function Facts({ children }: { readonly children: ReactNode }) {
@@ -122,27 +116,21 @@ function Fact(props: {
 	);
 }
 
-function SessionIdFact() {
+function RunIdFact() {
 	const {
-		state: { instance },
-	} = useInstanceCard();
-	return (
-		<Fact
-			label="session"
-			value={instance.sessionId ?? instance.id}
-			title={instance.sessionId ?? instance.id}
-		/>
-	);
+		state: { run },
+	} = useRunCard();
+	return <Fact label="run" value={run.id} title={run.sessionId ?? run.id} />;
 }
 
 function LastEventFact() {
 	const {
-		state: { live, instance },
-	} = useInstanceCard();
+		state: { live, run },
+	} = useRunCard();
 	return (
 		<Fact
 			label="last"
-			value={`${live?.lastType ?? instance.lastEventType ?? "started"} #${live?.frontier ?? instance.lastSequence ?? 0}`}
+			value={`${live?.lastType ?? run.lastEventType ?? "started"} #${live?.frontier ?? run.lastSequence ?? 0}`}
 		/>
 	);
 }
@@ -150,7 +138,7 @@ function LastEventFact() {
 function StreamFact() {
 	const {
 		state: { live },
-	} = useInstanceCard();
+	} = useRunCard();
 	return (
 		<Fact
 			label="stream"
@@ -161,58 +149,58 @@ function StreamFact() {
 
 function SeenFact() {
 	const {
-		state: { instance },
-	} = useInstanceCard();
+		state: { run },
+	} = useRunCard();
 	return (
 		<Fact
 			label="seen"
-			value={formatHeartbeat(instance.lastSeenAt ?? instance.createdAt)}
+			value={formatHeartbeat(run.lastSeenAt ?? run.createdAt)}
 		/>
 	);
 }
 
 function CwdFact() {
 	const {
-		state: { instance },
-	} = useInstanceCard();
-	return <Fact label="cwd" value={instance.cwd} title={instance.cwd} />;
+		state: { run },
+	} = useRunCard();
+	return <Fact label="cwd" value={run.cwd} title={run.cwd} />;
 }
 
-const InstanceCard = {
+const RunCard = {
 	Provider,
 	Frame,
 	Header,
 	Identity,
 	StatusBadge,
 	Facts,
-	SessionIdFact,
+	RunIdFact,
 	LastEventFact,
 	StreamFact,
 	SeenFact,
 	CwdFact,
 };
 
-export function FleetInstanceCard(props: {
-	readonly live?: SessionLiveState | undefined;
-	readonly instance: PlotInstance;
+export function RunCardView(props: {
+	readonly live?: RunLiveState | undefined;
+	readonly run: PlotRun;
 }) {
 	return (
 		<TooltipProvider>
-			<InstanceCard.Provider instance={props.instance} live={props.live}>
-				<InstanceCard.Frame>
-					<InstanceCard.Header>
-						<InstanceCard.Identity />
-						<InstanceCard.StatusBadge />
-					</InstanceCard.Header>
-					<InstanceCard.Facts>
-						<InstanceCard.SessionIdFact />
-						<InstanceCard.LastEventFact />
-						<InstanceCard.StreamFact />
-						<InstanceCard.SeenFact />
-						<InstanceCard.CwdFact />
-					</InstanceCard.Facts>
-				</InstanceCard.Frame>
-			</InstanceCard.Provider>
+			<RunCard.Provider run={props.run} live={props.live}>
+				<RunCard.Frame>
+					<RunCard.Header>
+						<RunCard.Identity />
+						<RunCard.StatusBadge />
+					</RunCard.Header>
+					<RunCard.Facts>
+						<RunCard.RunIdFact />
+						<RunCard.LastEventFact />
+						<RunCard.StreamFact />
+						<RunCard.SeenFact />
+						<RunCard.CwdFact />
+					</RunCard.Facts>
+				</RunCard.Frame>
+			</RunCard.Provider>
 		</TooltipProvider>
 	);
 }

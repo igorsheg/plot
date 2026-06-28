@@ -136,8 +136,9 @@ describe("plot CLI", () => {
 		expect(output).toContain("run");
 		expect(output).toContain("tui");
 		expect(output).toContain("web");
-		expect(output).toContain("serve");
-		expect(output).not.toContain("stop");
+		expect(output).toContain("api");
+		expect(output).toContain("ls");
+		expect(output).toContain("stop");
 		expect(output).not.toContain("service");
 	});
 
@@ -153,7 +154,7 @@ describe("plot CLI", () => {
 		const output = stdout.join("");
 		expect(output).toContain("plot [OPTIONS]");
 		expect(output).toContain("web");
-		expect(output).toContain("serve");
+		expect(output).toContain("api");
 	});
 
 	test("runs the root TUI entrypoint when no subcommand is provided", async () => {
@@ -267,9 +268,9 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("--tick-interval-ms");
 	});
 
-	test("prints nested serve stdio help", async () => {
+	test("prints API stdio help", async () => {
 		const stdout: string[] = [];
-		await runPlotCli(["serve", "stdio", "--help"], {
+		await runPlotCli(["api", "--help"], {
 			stdin: chunks([]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -277,16 +278,14 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain(
-			"Serve the Plot session protocol over newline-delimited JSON on stdio.",
-		);
+		expect(output).toContain("Serve the Plot API");
+		expect(output).toContain("--stdio");
 		expect(output).toContain("--workflow");
-		expect(output).toContain("--tick-interval-ms");
 	});
 
-	test("prints fleet instances help", async () => {
+	test("prints run logs help", async () => {
 		const stdout: string[] = [];
-		await runPlotCli(["instances", "events", "--help"], {
+		await runPlotCli(["logs", "--help"], {
 			stdin: chunks([]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -294,8 +293,8 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain("Stream instance protocol records.");
-		expect(output).toContain("INSTANCEID");
+		expect(output).toContain("Stream run protocol records.");
+		expect(output).toContain("RUNID");
 		expect(output).toContain("--after");
 	});
 
@@ -356,12 +355,12 @@ describe("plot CLI", () => {
 		expect(output).toContain("Do not import Plot internals");
 	});
 
-	test("serves session protocol over stdio with telemetry on stderr", async () => {
+	test("serves session protocol over API stdio with telemetry on stderr", async () => {
 		const workflowPath = await makeWorkflowFile();
 		const captured = await captureConsole(async () => {
 			const stdout: string[] = [];
 			await runPlotCli(
-				["serve", "stdio", "--workflow", workflowPath, "--log-level", "info"],
+				["api", "--stdio", "--workflow", workflowPath, "--log-level", "info"],
 				{
 					stdin: chunks([
 						`{"protocol":"${sessionProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
@@ -391,7 +390,7 @@ describe("plot CLI", () => {
 				ok: true,
 			}),
 		);
-		expect(captured.stdout.join("")).not.toContain("plot_cli.serve_stdio");
-		expect(captured.stderr).toContain("plot_cli.serve_stdio");
+		expect(captured.stdout.join("")).not.toContain("plot_cli.api_stdio");
+		expect(captured.stderr).toContain("plot_cli.api_stdio");
 	});
 });

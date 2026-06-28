@@ -24,10 +24,10 @@ import "@xyflow/react/dist/style.css";
 import type { WebDashboardProjection } from "./api.js";
 import { Button } from "./components/ui/button.js";
 import { Group, GroupSeparator } from "./components/ui/group.js";
-import type { SessionLiveMap, SessionLiveState } from "./live-events.js";
-import type { PlotInstance } from "./instance.js";
-import { InstanceDetailWindow } from "./instance-detail.js";
-import { FleetInstanceCard } from "./instance-card.js";
+import type { RunLiveMap, RunLiveState } from "./live-events.js";
+import type { PlotRun } from "./run.js";
+import { RunDetailWindow } from "./run-detail.js";
+import { RunCardView } from "./run-card.js";
 
 interface DetailEntry {
 	readonly error?: string | undefined;
@@ -43,21 +43,21 @@ interface DetailLayout {
 
 export interface PlotCanvasProps {
 	readonly details: Readonly<Record<string, DetailEntry>>;
-	readonly live: SessionLiveMap;
+	readonly live: RunLiveMap;
 	readonly onCloseDetail: (key: string) => void;
 	readonly onOpenDetail: (key: string) => void;
 	readonly openDetailKeys: readonly string[];
-	readonly instances: readonly PlotInstance[];
+	readonly runs: readonly PlotRun[];
 }
 
-type InstanceNode = Node<
+type RunNode = Node<
 	{
-		readonly live?: SessionLiveState | undefined;
+		readonly live?: RunLiveState | undefined;
 		readonly onFocus: () => void;
 		readonly onOpen: () => void;
-		readonly instance: PlotInstance;
+		readonly run: PlotRun;
 	},
-	"plot-instance"
+	"plot-run"
 >;
 
 type DetailNode = Node<
@@ -68,12 +68,12 @@ type DetailNode = Node<
 		readonly onResizeEnd: (
 			layout: Required<Pick<DetailLayout, "height" | "width">>,
 		) => void;
-		readonly instance: PlotInstance;
+		readonly run: PlotRun;
 	},
-	"instance-detail"
+	"run-detail"
 >;
 
-type PlotNode = DetailNode | InstanceNode;
+type PlotNode = DetailNode | RunNode;
 type PlotEdge = Edge<Record<string, never>, "smoothstep">;
 
 const cardGapX = 460;
@@ -97,8 +97,8 @@ const detailEdgeMarker = {
 };
 
 const nodeTypes = {
-	"plot-instance": InstanceNodeCard,
-	"instance-detail": DetailNodeCard,
+	"plot-run": RunNodeCard,
+	"run-detail": DetailNodeCard,
 } satisfies NodeTypes;
 
 const readStoredLayout = (): Record<string, DetailLayout> => {
@@ -120,7 +120,7 @@ const writeStoredLayout = (layout: Readonly<Record<string, DetailLayout>>) => {
 	}
 };
 
-function InstanceNodeCard({ data, id, selected }: NodeProps<InstanceNode>) {
+function RunNodeCard({ data, id, selected }: NodeProps<RunNode>) {
 	return (
 		<>
 			<NodeToolbar
@@ -129,7 +129,7 @@ function InstanceNodeCard({ data, id, selected }: NodeProps<InstanceNode>) {
 				nodeId={id}
 				position={Position.Top}
 			>
-				<Group className="plot-node-toolbar" aria-label="Instance actions">
+				<Group className="plot-node-toolbar" aria-label="Run actions">
 					<Button size="sm" variant="secondary" onClick={data.onOpen}>
 						Open
 					</Button>
@@ -139,7 +139,7 @@ function InstanceNodeCard({ data, id, selected }: NodeProps<InstanceNode>) {
 					</Button>
 				</Group>
 			</NodeToolbar>
-			<FleetInstanceCard instance={data.instance} live={data.live} />
+			<RunCardView run={data.run} live={data.live} />
 		</>
 	);
 }
@@ -174,20 +174,20 @@ function DetailNodeCard({ data, id, selected }: NodeProps<DetailNode>) {
 					</Button>
 				</Group>
 			</NodeToolbar>
-			<InstanceDetailWindow
+			<RunDetailWindow
 				onClose={data.onClose}
 				state={{
 					error: data.detail.error,
 					loading: data.detail.loading,
 					projection: data.detail.projection,
-					instance: data.instance,
+					run: data.run,
 				}}
 			/>
 		</>
 	);
 }
 
-const instancePosition = (index: number) => ({
+const runPosition = (index: number) => ({
 	x: (index % 3) * cardGapX,
 	y: Math.floor(index / 3) * cardGapY,
 });
@@ -197,7 +197,7 @@ const detailKey = (id: string) => id.slice("detail:".length);
 
 const detailPosition = (index: number, layout: DetailLayout | undefined) => {
 	if (layout?.position !== undefined) return layout.position;
-	const origin = instancePosition(index);
+	const origin = runPosition(index);
 	return { x: origin.x + detailOffsetX, y: origin.y + detailOffsetY };
 };
 
@@ -219,7 +219,7 @@ const detailEdges = (keys: readonly string[]): PlotEdge[] =>
 	}));
 
 const minimapColor = (node: PlotNode) =>
-	node.type === "instance-detail" ? "var(--info)" : "var(--primary)";
+	node.type === "run-detail" ? "var(--info)" : "var(--primary)";
 
 function PlotCanvasSurface(props: PlotCanvasProps) {
 	const flow = useReactFlow<PlotNode, PlotEdge>();
@@ -265,33 +265,29 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 			const previousById = new Map(previous.map((node) => [node.id, node]));
 			const next: PlotNode[] = [];
 
-			for (const [index, instance] of propsRef.current.instances.entries()) {
-				const existing = previousById.get(instance.id) as
-					| InstanceNode
-					| undefined;
+			for (const [index, run] of propsRef.current.runs.entries()) {
+				const existing = previousById.get(run.id) as RunNode | undefined;
 				next.push({
 					...existing,
 					draggable: false,
-					id: instance.id,
-					position: instancePosition(index),
+					id: run.id,
+					position: runPosition(index),
 					sourcePosition: Position.Right,
 					targetPosition: Position.Left,
-					type: "plot-instance",
+					type: "plot-run",
 					data: {
-						live: propsRef.current.live[instance.id],
-						onFocus: () => focusNodes([instance.id]),
-						onOpen: () => propsRef.current.onOpenDetail(instance.id),
-						instance,
+						live: propsRef.current.live[run.id],
+						onFocus: () => focusNodes([run.id]),
+						onOpen: () => propsRef.current.onOpenDetail(run.id),
+						run,
 					},
 				});
 			}
 
 			for (const key of propsRef.current.openDetailKeys) {
-				const index = propsRef.current.instances.findIndex(
-					(instance) => instance.id === key,
-				);
-				const instance = propsRef.current.instances[index];
-				if (instance === undefined || index < 0) continue;
+				const index = propsRef.current.runs.findIndex((run) => run.id === key);
+				const run = propsRef.current.runs[index];
+				if (run === undefined || index < 0) continue;
 				const id = detailNodeId(key);
 				const existing = previousById.get(id) as DetailNode | undefined;
 				const saved = layoutRef.current[key];
@@ -308,14 +304,14 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 					sourcePosition: Position.Right,
 					style: { height, width },
 					targetPosition: Position.Left,
-					type: "instance-detail",
+					type: "run-detail",
 					width,
 					data: {
 						detail: propsRef.current.details[key] ?? { loading: true },
 						onClose: () => propsRef.current.onCloseDetail(key),
 						onFocus: () => focusNodes([id]),
 						onResizeEnd: (layout) => persistDetailLayout(key, layout),
-						instance,
+						run,
 					},
 				});
 			}
@@ -330,7 +326,7 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 		props.details,
 		props.live,
 		props.openDetailKeys,
-		props.instances,
+		props.runs,
 		reconcileNodes,
 	]);
 
@@ -370,8 +366,8 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 		for (const key of props.openDetailKeys) props.onCloseDetail(key);
 	};
 
-	const focusFleet = () => {
-		focusNodes(props.instances.map((session) => session.id));
+	const focusRunRegistry = () => {
+		focusNodes(props.runs.map((session) => session.id));
 	};
 
 	return (
@@ -389,19 +385,19 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 			nodesDraggable
 			onNodeClick={(_event, node) => {
 				setSelectedNodeId(node.id);
-				if (node.type === "plot-instance") props.onOpenDetail(node.id);
+				if (node.type === "plot-run") props.onOpenDetail(node.id);
 			}}
 			onNodeDoubleClick={(_event, node) => {
-				if (node.type === "plot-instance") props.onOpenDetail(node.id);
+				if (node.type === "plot-run") props.onOpenDetail(node.id);
 				focusNodes(
-					node.type === "plot-instance"
+					node.type === "plot-run"
 						? [node.id, detailNodeId(node.id)]
 						: [node.id],
 				);
 			}}
 			onNodeDragStop={(_event, node) => {
 				setSelectedNodeId(node.id);
-				if (node.type === "instance-detail") {
+				if (node.type === "run-detail") {
 					persistDetailLayout(detailKey(node.id), { position: node.position });
 				}
 			}}
@@ -424,8 +420,8 @@ function PlotCanvasSurface(props: PlotCanvasProps) {
 			/>
 			<Panel className="plot-canvas-panel" position="top-right">
 				<Group aria-label="Canvas actions">
-					<Button size="sm" variant="secondary" onClick={focusFleet}>
-						Fit fleet
+					<Button size="sm" variant="secondary" onClick={focusRunRegistry}>
+						Fit runs
 					</Button>
 					<GroupSeparator />
 					<Button size="sm" variant="outline" onClick={closeAllDetails}>

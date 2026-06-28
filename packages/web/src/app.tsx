@@ -1,11 +1,11 @@
 import { createContext, use, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
-	createInstance,
-	fetchInstanceProjection,
-	fetchInstances,
+	createRun,
+	fetchRunProjection,
+	fetchRuns,
 	parsePlotEventRecord,
-	instanceEventsUrl,
+	runEventsUrl,
 	type WebDashboardProjection,
 } from "./api.js";
 import { Alert, AlertDescription } from "./components/ui/alert.js";
@@ -19,9 +19,9 @@ import {
 } from "./components/ui/empty.js";
 import { Group } from "./components/ui/group.js";
 import { PlotCanvas } from "./flow-canvas.js";
-import { useSessionLiveEvents, type SessionLiveMap } from "./live-events.js";
+import { useRunLiveEvents, type RunLiveMap } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
-import type { PlotInstance } from "./instance.js";
+import type { PlotRun } from "./run.js";
 
 interface PlotDetailEntry {
 	readonly error?: string | undefined;
@@ -30,8 +30,8 @@ interface PlotDetailEntry {
 }
 
 interface PlotAppState {
-	readonly instances: readonly PlotInstance[];
-	readonly live: SessionLiveMap;
+	readonly runs: readonly PlotRun[];
+	readonly live: RunLiveMap;
 	readonly details: Readonly<Record<string, PlotDetailEntry>>;
 	readonly openDetailKeys: readonly string[];
 	readonly error?: string | undefined;
@@ -59,8 +59,8 @@ const usePlotApp = (): PlotAppContextValue => {
 	return value;
 };
 
-const sortInstances = (instances: readonly PlotInstance[]) =>
-	instances.toSorted((left, right) => {
+const sortRuns = (runs: readonly PlotRun[]) =>
+	runs.toSorted((left, right) => {
 		const project = left.cwd.localeCompare(right.cwd);
 		if (project !== 0) return project;
 		return (
@@ -71,18 +71,18 @@ const sortInstances = (instances: readonly PlotInstance[]) =>
 
 function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 	const pollMs = 1_000;
-	const [instances, setInstances] = useState<readonly PlotInstance[]>([]);
+	const [runs, setRuns] = useState<readonly PlotRun[]>([]);
 	const [error, setError] = useState<string>();
 	const [openDetailKeys, setOpenDetailKeys] = useState<readonly string[]>([]);
 	const [details, setDetails] = useState<
 		Readonly<Record<string, PlotDetailEntry>>
 	>({});
-	const sortedInstances = useMemo(() => sortInstances(instances), [instances]);
-	const live = useSessionLiveEvents(sortedInstances);
+	const sortedRuns = useMemo(() => sortRuns(runs), [runs]);
+	const live = useRunLiveEvents(sortedRuns);
 
 	const reload = async () => {
 		try {
-			setInstances(await fetchInstances());
+			setRuns(await fetchRuns());
 			setError(undefined);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : String(caught));
@@ -94,8 +94,8 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		readonly workflowPath?: string;
 	}) => {
 		try {
-			const instance = await createInstance(input);
-			setInstances((current) => sortInstances([instance, ...current]));
+			const run = await createRun(input);
+			setRuns((current) => sortRuns([run, ...current]));
 			setError(undefined);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : String(caught));
@@ -110,7 +110,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		}));
 		void (async () => {
 			try {
-				const projection = await fetchInstanceProjection(key);
+				const projection = await fetchRunProjection(key);
 				setDetails((previous) => ({
 					...previous,
 					[key]: { loading: false, projection },
@@ -141,9 +141,9 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		let cancelled = false;
 		const load = async () => {
 			try {
-				const next = await fetchInstances();
+				const next = await fetchRuns();
 				if (!cancelled) {
-					setInstances(next);
+					setRuns(next);
 					setError(undefined);
 				}
 			} catch (caught) {
@@ -163,9 +163,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		const sources = openDetailKeys.flatMap((key) => {
 			const projection = details[key]?.projection;
 			if (projection === undefined) return [];
-			const source = new EventSource(
-				instanceEventsUrl(key, projection.frontier),
-			);
+			const source = new EventSource(runEventsUrl(key, projection.frontier));
 			source.addEventListener("plot", (message) => {
 				const record = parsePlotEventRecord(
 					JSON.parse(message.data) as unknown,
@@ -195,7 +193,7 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		<PlotAppContext
 			value={{
 				state: {
-					instances: sortedInstances,
+					runs: sortedRuns,
 					live,
 					details,
 					openDetailKeys,
@@ -215,7 +213,7 @@ function PlotToolbar() {
 	const [workflowPath, setWorkflowPath] = useState("");
 	const {
 		actions: { reload, spawn },
-		state: { instances },
+		state: { runs },
 	} = usePlotApp();
 	const onSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -230,11 +228,11 @@ function PlotToolbar() {
 		<header className="toolbar">
 			<div className="plot-app-toolbar">
 				<div className="plot-app-toolbar-title">
-					<strong>Plot Canvas</strong>
-					<span>{instances.length} fleet instance(s)</span>
+					<strong>Plot Dashboard</strong>
+					<span>{runs.length} run(s)</span>
 				</div>
 				<div className="plot-app-toolbar-actions">
-					<form className="plot-instance-spawn-form" onSubmit={onSubmit}>
+					<form className="plot-run-spawn-form" onSubmit={onSubmit}>
 						<input
 							aria-label="Project cwd"
 							placeholder="cwd (blank = gateway cwd)"
@@ -251,7 +249,7 @@ function PlotToolbar() {
 							Spawn
 						</Button>
 					</form>
-					<Group aria-label="Fleet actions">
+					<Group aria-label="Run actions">
 						<Button size="sm" variant="outline" onClick={() => void reload()}>
 							Refresh
 						</Button>
@@ -265,16 +263,17 @@ function PlotToolbar() {
 function PlotCanvasRegion() {
 	const {
 		actions: { closeDetail, openDetail, reload },
-		state: { details, error, instances, live, openDetailKeys },
+		state: { details, error, runs, live, openDetailKeys },
 	} = usePlotApp();
-	if (instances.length === 0) {
+	if (runs.length === 0) {
 		return (
 			<main className="canvas canvas-empty">
 				<Empty>
 					<EmptyHeader>
-						<EmptyTitle>No Plot fleet instances</EmptyTitle>
+						<EmptyTitle>No Plot runs</EmptyTitle>
 						<EmptyDescription>
-							Spawn one with `plot instances spawn --cwd /path/to/project`.
+							Start one from this dashboard or run `plot tui --workflow
+							WORKFLOW.md`.
 						</EmptyDescription>
 					</EmptyHeader>
 					<EmptyContent>
@@ -304,7 +303,7 @@ function PlotCanvasRegion() {
 				onCloseDetail={closeDetail}
 				onOpenDetail={openDetail}
 				openDetailKeys={openDetailKeys}
-				instances={instances}
+				runs={runs}
 			/>
 		</main>
 	);

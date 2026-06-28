@@ -113,7 +113,7 @@ const clampWorkViewport = (
 	];
 };
 
-export const fleetViewLines = (input: {
+export const runsViewLines = (input: {
 	readonly header: readonly DashboardLine[];
 	readonly model: DashboardModel;
 	readonly selectedIndex: number;

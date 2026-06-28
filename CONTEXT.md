@@ -1,6 +1,6 @@
 # Plot
 
-Plot is a control plane for long-running coding-agent work. Its language distinguishes durable work definitions from live fleet-managed sessions so operators can reason about a fleet clearly.
+Plot is a control plane for long-running coding-agent work. Its language distinguishes durable work definitions from live runRegistry-managed sessions so operators can reason about a runRegistry clearly.
 
 ## Product principle
 
@@ -10,11 +10,11 @@ Plot should make agents cheaper and better by shaping context and ownership, not
 
 **Workflow**:
 A durable definition of what work to look for and how an agent should handle it. Running a Workflow creates a Plot Session.
-_Avoid_: Plot instance, workflow instance, session
+_Avoid_: Plot run, workflow run, session
 
 **Plot Session**:
-A live fleet-managed run of a Workflow. It is the unit operators see and control in fleet views.
-_Avoid_: Workflow, plot instance, run
+A live runRegistry-managed run of a Workflow. It is the unit operators see and control in runRegistry views.
+_Avoid_: Workflow, plot run, run
 
 **Work Item**:
 A unit of work discovered by a source and selected by Plot for possible agent execution.

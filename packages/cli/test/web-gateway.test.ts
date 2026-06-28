@@ -3,36 +3,37 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createFileEventLogStore } from "@plot/session/event-log";
-import type { FleetInstanceRecord } from "@plot/session/fleet";
+import type { RunRecord } from "@plot/session/run-registry";
 import { startPlotWebGateway } from "../src/web-gateway.js";
 
-const writeInstances = async (
-	fleetDir: string,
-	instances: readonly FleetInstanceRecord[],
-) => {
-	await mkdir(fleetDir, { recursive: true });
+const writeRuns = async (registryDir: string, runs: readonly RunRecord[]) => {
+	await mkdir(registryDir, { recursive: true });
 	await writeFile(
-		join(fleetDir, "instances.json"),
-		`${JSON.stringify(instances, null, 2)}\n`,
+		join(registryDir, "runs.json"),
+		`${JSON.stringify(runs, null, 2)}\n`,
 	);
 };
 
 const startTestGateway = async (cwd: string) => {
-	const fleetDir = await mkdtemp(join(tmpdir(), "plot-fleet-"));
+	const registryDir = await mkdtemp(join(tmpdir(), "plot-runs-"));
 	return {
-		fleetDir,
-		gateway: await startPlotWebGateway({ cwd, fleetDir, open: false }),
+		registryDir,
+		gateway: await startPlotWebGateway({
+			cwd,
+			registryDir,
+			open: false,
+		}),
 	};
 };
 
 describe("Plot web gateway", () => {
-	test("serves fleet sessions", async () => {
+	test("serves runs", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const { gateway, fleetDir } = await startTestGateway(dir);
+		const { gateway, registryDir } = await startTestGateway(dir);
 		try {
-			await writeInstances(fleetDir, [
+			await writeRuns(registryDir, [
 				{
-					id: "instance-1",
+					id: "run-1",
 					status: "online",
 					cwd: dir,
 					createdAt: new Date().toISOString(),
@@ -43,13 +44,13 @@ describe("Plot web gateway", () => {
 					lastSequence: 3,
 				},
 			]);
-			const response = await fetch(new URL("/api/instances", gateway.url));
+			const response = await fetch(new URL("/api/runs", gateway.url));
 			const body = (await response.json()) as {
-				readonly instances?: unknown[];
+				readonly runs?: unknown[];
 			};
-			expect(body.instances).toHaveLength(1);
-			expect(body.instances?.[0]).toMatchObject({
-				id: "instance-1",
+			expect(body.runs).toHaveLength(1);
+			expect(body.runs?.[0]).toMatchObject({
+				id: "run-1",
 				lastSequence: 3,
 			});
 		} finally {
@@ -57,7 +58,7 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("tails fleet session events as SSE", async () => {
+	test("tails run events as SSE", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const sessionDir = join(dir, ".plot/sessions");
 		const eventLog = await createFileEventLogStore({
@@ -68,10 +69,10 @@ describe("Plot web gateway", () => {
 			type: "session_started",
 			payload: { ok: true },
 		});
-		const { gateway, fleetDir } = await startTestGateway(dir);
-		await writeInstances(fleetDir, [
+		const { gateway, registryDir } = await startTestGateway(dir);
+		await writeRuns(registryDir, [
 			{
-				id: "instance-1",
+				id: "run-1",
 				status: "online",
 				cwd: dir,
 				createdAt: new Date().toISOString(),
@@ -88,7 +89,7 @@ describe("Plot web gateway", () => {
 		const timeout = setTimeout(() => abort.abort(), 5_000);
 		try {
 			const response = await fetch(
-				new URL("/api/instances/instance-1/events?after=0", gateway.url),
+				new URL("/api/runs/run-1/events?after=0", gateway.url),
 				{ signal: abort.signal },
 			);
 			expect(response.headers.get("content-type")).toContain(
@@ -111,7 +112,7 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("serves a projected fleet session snapshot", async () => {
+	test("serves a projected run snapshot", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const sessionDir = join(dir, ".plot/sessions");
 		const eventLog = await createFileEventLogStore({
@@ -123,11 +124,11 @@ describe("Plot web gateway", () => {
 			type: "session_tick",
 			payload: { tickId: 7 },
 		});
-		const { gateway, fleetDir } = await startTestGateway(dir);
+		const { gateway, registryDir } = await startTestGateway(dir);
 		try {
-			await writeInstances(fleetDir, [
+			await writeRuns(registryDir, [
 				{
-					id: "instance-1",
+					id: "run-1",
 					status: "online",
 					cwd: dir,
 					createdAt: new Date().toISOString(),
@@ -141,7 +142,7 @@ describe("Plot web gateway", () => {
 				},
 			]);
 			const response = await fetch(
-				new URL("/api/instances/instance-1/projection", gateway.url),
+				new URL("/api/runs/run-1/projection", gateway.url),
 			);
 			const body = (await response.json()) as {
 				readonly projection?: {

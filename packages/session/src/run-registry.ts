@@ -6,6 +6,7 @@ import { EventHub } from "@plot/common/event-stream";
 import { z } from "zod";
 import { decodeServerRecordLine } from "./protocol-codec.js";
 import {
+	clientRequestSchema,
 	defaultProtocolLimits,
 	sessionProtocolVersion,
 	type ClientRequest,
@@ -17,7 +18,7 @@ import { createFileEventLogStore } from "./event-log.js";
 
 type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
 
-export const fleetInstanceStatusSchema = z.enum([
+export const runStatusSchema = z.enum([
 	"starting",
 	"online",
 	"stopping",
@@ -25,10 +26,10 @@ export const fleetInstanceStatusSchema = z.enum([
 	"error",
 ]);
 
-export const fleetInstanceRecordSchema = z
+export const runRecordSchema = z
 	.object({
 		id: z.string().min(1),
-		status: fleetInstanceStatusSchema,
+		status: runStatusSchema,
 		cwd: z.string().min(1),
 		cwdName: z.string().min(1).optional(),
 		createdAt: z.string().min(1),
@@ -46,7 +47,7 @@ export const fleetInstanceRecordSchema = z
 	})
 	.strict();
 
-export const fleetSpawnOptionsSchema = z
+export const runSpawnOptionsSchema = z
 	.object({
 		cwd: z.string().min(1).optional(),
 		label: z.string().min(1).optional(),
@@ -55,11 +56,11 @@ export const fleetSpawnOptionsSchema = z
 	})
 	.strict();
 
-export const fleetRequestSchema = z.discriminatedUnion("type", [
+export const runRequestSchema = z.discriminatedUnion("type", [
 	z
 		.object({
 			type: z.literal("spawn"),
-			options: fleetSpawnOptionsSchema.optional(),
+			options: runSpawnOptionsSchema.optional(),
 		})
 		.strict(),
 	z.object({ type: z.literal("list") }).strict(),
@@ -72,28 +73,35 @@ export const fleetRequestSchema = z.discriminatedUnion("type", [
 			afterSequence: z.number().int().nonnegative().optional(),
 		})
 		.strict(),
+	z
+		.object({
+			type: z.literal("protocol_request"),
+			id: z.string().min(1),
+			request: clientRequestSchema,
+		})
+		.strict(),
 ]);
 
-export const fleetResponseSchema = z.discriminatedUnion("type", [
+export const runResponseSchema = z.discriminatedUnion("type", [
 	z
 		.object({
 			type: z.literal("spawn_result"),
 			ok: z.literal(true),
-			instance: fleetInstanceRecordSchema,
+			run: runRecordSchema,
 		})
 		.strict(),
 	z
 		.object({
 			type: z.literal("list_result"),
 			ok: z.literal(true),
-			instances: z.array(fleetInstanceRecordSchema),
+			runs: z.array(runRecordSchema),
 		})
 		.strict(),
 	z
 		.object({
 			type: z.literal("status_result"),
 			ok: z.literal(true),
-			instance: fleetInstanceRecordSchema,
+			run: runRecordSchema.optional(),
 		})
 		.strict(),
 	z
@@ -101,13 +109,14 @@ export const fleetResponseSchema = z.discriminatedUnion("type", [
 			type: z.literal("stop_result"),
 			ok: z.literal(true),
 			id: z.string(),
+			run: runRecordSchema.optional(),
 		})
 		.strict(),
 	z
 		.object({
 			type: z.literal("protocol_ready"),
 			ok: z.literal(true),
-			instance: fleetInstanceRecordSchema,
+			run: runRecordSchema.optional(),
 		})
 		.strict(),
 	z
@@ -122,25 +131,25 @@ export const fleetResponseSchema = z.discriminatedUnion("type", [
 		.strict(),
 ]);
 
-export type FleetInstanceStatus = z.infer<typeof fleetInstanceStatusSchema>;
-export type FleetInstanceRecord = z.infer<typeof fleetInstanceRecordSchema>;
-export type FleetSpawnOptions = z.infer<typeof fleetSpawnOptionsSchema>;
-export type FleetRequest = z.infer<typeof fleetRequestSchema>;
-export type FleetResponse = z.infer<typeof fleetResponseSchema>;
+export type RunStatus = z.infer<typeof runStatusSchema>;
+export type RunRecord = z.infer<typeof runRecordSchema>;
+export type RunSpawnOptions = z.infer<typeof runSpawnOptionsSchema>;
+export type RunRequest = z.infer<typeof runRequestSchema>;
+export type RunResponse = z.infer<typeof runResponseSchema>;
 
-export interface FleetStore {
-	readonly list: () => Promise<readonly FleetInstanceRecord[]>;
-	readonly get: (id: string) => Promise<FleetInstanceRecord | undefined>;
-	readonly upsert: (record: FleetInstanceRecord) => Promise<void>;
+export interface RunStore {
+	readonly list: () => Promise<readonly RunRecord[]>;
+	readonly get: (id: string) => Promise<RunRecord | undefined>;
+	readonly upsert: (record: RunRecord) => Promise<void>;
 	readonly remove: (id: string) => Promise<void>;
 	readonly recoverAfterRestart: () => Promise<void>;
 }
 
-export interface FleetRuntime {
-	readonly spawn: (input?: FleetSpawnOptions) => Promise<FleetInstanceRecord>;
-	readonly stop: (id: string) => Promise<FleetInstanceRecord | undefined>;
-	readonly list: () => Promise<readonly FleetInstanceRecord[]>;
-	readonly status: (id: string) => Promise<FleetInstanceRecord | undefined>;
+export interface RunRegistryRuntime {
+	readonly spawn: (input?: RunSpawnOptions) => Promise<RunRecord>;
+	readonly stop: (id: string) => Promise<RunRecord | undefined>;
+	readonly list: () => Promise<readonly RunRecord[]>;
+	readonly status: (id: string) => Promise<RunRecord | undefined>;
 	readonly attachRecords: (
 		id: string,
 		afterSequence?: number,
@@ -152,7 +161,7 @@ export interface FleetRuntime {
 	readonly shutdown: () => Promise<void>;
 }
 
-export interface FleetChildProcess {
+export interface RunChildProcess {
 	readonly pid?: number;
 	readonly stdout: AsyncIterable<string | Uint8Array>;
 	readonly stderr: AsyncIterable<string | Uint8Array>;
@@ -161,15 +170,15 @@ export interface FleetChildProcess {
 	readonly exited: Promise<void>;
 }
 
-export interface FleetOptions {
+export interface RunRegistryOptions {
 	readonly cwd: string;
-	readonly store: FleetStore;
+	readonly store: RunStore;
 	readonly cli?: { readonly command: string; readonly args: readonly string[] };
 	readonly spawnChild?: (input: {
 		readonly command: string;
 		readonly args: readonly string[];
 		readonly cwd: string;
-	}) => FleetChildProcess;
+	}) => RunChildProcess;
 	readonly now?: () => string;
 	readonly id?: () => string;
 	readonly spawnDeadlineMs?: number;
@@ -177,9 +186,9 @@ export interface FleetOptions {
 	readonly stderrLimitBytes?: number;
 }
 
-interface LiveInstance {
-	record: FleetInstanceRecord;
-	readonly child: FleetChildProcess;
+interface LiveRun {
+	record: RunRecord;
+	readonly child: RunChildProcess;
 	readonly events: EventHub<ServerRecord>;
 	readonly pending: Map<
 		string,
@@ -190,10 +199,10 @@ interface LiveInstance {
 	>;
 }
 
-const instanceArraySchema = z.array(fleetInstanceRecordSchema);
+const runArraySchema = z.array(runRecordSchema);
 const textDecoder = () => new TextDecoder();
 
-const clone = (record: FleetInstanceRecord): FleetInstanceRecord => ({
+const clone = (record: RunRecord): RunRecord => ({
 	...record,
 });
 
@@ -231,21 +240,20 @@ const trimTail = (value: string, maxBytes: number): string => {
 const makeRequest = (command: ClientRequest["command"]): ClientRequest => ({
 	protocol: sessionProtocolVersion,
 	kind: "request",
-	id: `fleet_${command}_${randomUUID()}`,
+	id: `runRegistry_${command}_${randomUUID()}`,
 	command,
 	params: {},
 });
 
 async function* replayEventLogRecords(
-	instance: FleetInstanceRecord,
+	run: RunRecord,
 	afterSequence: number,
 ): AsyncIterable<EventServerRecord> {
-	if (instance.sessionId === undefined || instance.eventLogPath === undefined)
-		return;
+	if (run.sessionId === undefined || run.eventLogPath === undefined) return;
 	const log = await createFileEventLogStore({
-		sessionId: instance.sessionId,
-		sessionDir: dirname(dirname(instance.eventLogPath)),
-		path: instance.eventLogPath,
+		sessionId: run.sessionId,
+		sessionDir: dirname(dirname(run.eventLogPath)),
+		path: run.eventLogPath,
 	});
 	let frontier = afterSequence;
 	const read = await log.readAll();
@@ -262,7 +270,7 @@ async function* replayEventLogRecords(
 }
 
 async function* liveEventRecords(
-	live: LiveInstance,
+	live: LiveRun,
 	afterSequence: number,
 ): AsyncIterable<EventServerRecord> {
 	let frontier = afterSequence;
@@ -273,8 +281,8 @@ async function* liveEventRecords(
 	}
 }
 
-const childArgs = (options: FleetSpawnOptions): readonly string[] => {
-	const args = ["serve", "stdio", "--cwd", options.cwd ?? process.cwd()];
+const childArgs = (options: RunSpawnOptions): readonly string[] => {
+	const args = ["api", "--stdio", "--cwd", options.cwd ?? process.cwd()];
 	if (options.sessionId !== undefined)
 		args.push("--session-id", options.sessionId);
 	if (options.workflowPath !== undefined)
@@ -291,7 +299,7 @@ const nodeChild = (input: {
 	readonly command: string;
 	readonly args: readonly string[];
 	readonly cwd: string;
-}): FleetChildProcess => {
+}): RunChildProcess => {
 	const child: ChildProcess = spawn(input.command, [...input.args], {
 		cwd: input.cwd,
 		stdio: ["pipe", "pipe", "pipe"],
@@ -320,9 +328,7 @@ const nodeChild = (input: {
 const encodeClientRequestLine = (request: ClientRequest): string =>
 	stringifyJsonl(request, { maxLineBytes: 1024 * 1024 });
 
-const readJson = async (
-	path: string,
-): Promise<readonly FleetInstanceRecord[]> => {
+const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 	let text: string;
 	try {
 		text = await readFile(path, "utf8");
@@ -330,11 +336,11 @@ const readJson = async (
 		if (isErrno(error, "ENOENT")) return [];
 		throw error;
 	}
-	return instanceArraySchema.parse(JSON.parse(text) as unknown);
+	return runArraySchema.parse(JSON.parse(text) as unknown);
 };
 
-export const createFileFleetStore = (path: string): FleetStore => {
-	const writeRecords = async (records: readonly FleetInstanceRecord[]) => {
+export const createFileRunStore = (path: string): RunStore => {
+	const writeRecords = async (records: readonly RunRecord[]) => {
 		await mkdir(dirname(path), { recursive: true });
 		await writeFile(path, `${JSON.stringify(records, null, 2)}\n`);
 	};
@@ -370,9 +376,9 @@ export const createFileFleetStore = (path: string): FleetStore => {
 	};
 };
 
-export const createMemoryFleetStore = (
-	initial: readonly FleetInstanceRecord[] = [],
-): FleetStore => {
+export const createMemoryRunStore = (
+	initial: readonly RunRecord[] = [],
+): RunStore => {
 	const records = new Map(initial.map((record) => [record.id, clone(record)]));
 	return {
 		list: async () => [...records.values()].map(clone),
@@ -401,24 +407,23 @@ export const createMemoryFleetStore = (
 	};
 };
 
-export const decodeFleetInstanceRecord = (
-	value: unknown,
-): FleetInstanceRecord => fleetInstanceRecordSchema.parse(value);
-export const decodeFleetRequest = (value: unknown): FleetRequest =>
-	fleetRequestSchema.parse(value);
-export const decodeFleetResponse = (value: unknown): FleetResponse =>
-	fleetResponseSchema.parse(value);
-export class Fleet implements FleetRuntime {
-	private readonly live = new Map<string, LiveInstance>();
+export const decodeRunRecord = (value: unknown): RunRecord =>
+	runRecordSchema.parse(value);
+export const decodeRunRequest = (value: unknown): RunRequest =>
+	runRequestSchema.parse(value);
+export const decodeRunResponse = (value: unknown): RunResponse =>
+	runResponseSchema.parse(value);
+export class RunRegistry implements RunRegistryRuntime {
+	private readonly live = new Map<string, LiveRun>();
 	private readonly options: Required<
 		Pick<
-			FleetOptions,
+			RunRegistryOptions,
 			"now" | "id" | "spawnDeadlineMs" | "eventCapacity" | "stderrLimitBytes"
 		>
 	> &
-		FleetOptions;
+		RunRegistryOptions;
 
-	constructor(options: FleetOptions) {
+	constructor(options: RunRegistryOptions) {
 		this.options = {
 			...options,
 			now: options.now ?? (() => new Date().toISOString()),
@@ -429,10 +434,7 @@ export class Fleet implements FleetRuntime {
 		};
 	}
 
-	private async update(
-		live: LiveInstance,
-		updates: Partial<FleetInstanceRecord>,
-	) {
+	private async update(live: LiveRun, updates: Partial<RunRecord>) {
 		live.record = {
 			...live.record,
 			...updates,
@@ -441,14 +443,11 @@ export class Fleet implements FleetRuntime {
 		await this.options.store.upsert(live.record);
 	}
 
-	private async setStatus(live: LiveInstance, status: FleetInstanceStatus) {
+	private async setStatus(live: LiveRun, status: RunStatus) {
 		await this.update(live, { status });
 	}
 
-	private send(
-		live: LiveInstance,
-		request: ClientRequest,
-	): Promise<ServerRecord> {
+	private send(live: LiveRun, request: ClientRequest): Promise<ServerRecord> {
 		return new Promise((resolve, reject) => {
 			live.pending.set(request.id, { resolve, reject });
 			Promise.resolve(live.child.write(encodeClientRequestLine(request))).catch(
@@ -460,14 +459,14 @@ export class Fleet implements FleetRuntime {
 		});
 	}
 
-	private async consumeStdout(live: LiveInstance): Promise<void> {
+	private async consumeStdout(live: LiveRun): Promise<void> {
 		for await (const record of childServerRecords(live.child.stdout)) {
-			// eslint-disable-next-line no-await-in-loop -- child protocol records must update fleet state in order.
+			// eslint-disable-next-line no-await-in-loop -- child protocol records must update runRegistry state in order.
 			await this.handleServerRecord(live, record);
 		}
 	}
 
-	private async consumeStderr(live: LiveInstance): Promise<void> {
+	private async consumeStderr(live: LiveRun): Promise<void> {
 		const decoder = textDecoder();
 		let stderrTail = live.record.stderrTail ?? "";
 		for await (const chunk of live.child.stderr) {
@@ -480,7 +479,7 @@ export class Fleet implements FleetRuntime {
 	}
 
 	private async handleServerRecord(
-		live: LiveInstance,
+		live: LiveRun,
 		record: ServerRecord,
 	): Promise<void> {
 		if (record.kind === "welcome")
@@ -508,7 +507,7 @@ export class Fleet implements FleetRuntime {
 		live.events.publish(record);
 	}
 
-	private async waitForWelcome(live: LiveInstance): Promise<void> {
+	private async waitForWelcome(live: LiveRun): Promise<void> {
 		const records = live.events.subscribe();
 		let timeout: ReturnType<typeof setTimeout> | undefined;
 		try {
@@ -518,11 +517,11 @@ export class Fleet implements FleetRuntime {
 						if (record.kind !== "welcome") continue;
 						return;
 					}
-					throw new Error("instance closed before welcome");
+					throw new Error("run closed before welcome");
 				})(),
 				new Promise<never>((_, reject) => {
 					timeout = setTimeout(
-						() => reject(new Error("instance did not send welcome")),
+						() => reject(new Error("run did not send welcome")),
 						this.options.spawnDeadlineMs,
 					);
 				}),
@@ -536,7 +535,7 @@ export class Fleet implements FleetRuntime {
 		await this.options.store.recoverAfterRestart();
 	}
 
-	async spawn(input: FleetSpawnOptions = {}): Promise<FleetInstanceRecord> {
+	async spawn(input: RunSpawnOptions = {}): Promise<RunRecord> {
 		const now = this.options.now();
 		const cwd = input.cwd ?? this.options.cwd;
 		const cli = this.options.cli ?? defaultCli();
@@ -546,7 +545,7 @@ export class Fleet implements FleetRuntime {
 			args,
 			cwd,
 		});
-		const record = fleetInstanceRecordSchema.parse({
+		const record = runRecordSchema.parse({
 			id: this.options.id(),
 			status: "starting",
 			cwd,
@@ -560,7 +559,7 @@ export class Fleet implements FleetRuntime {
 				? {}
 				: { workflowPath: input.workflowPath }),
 		});
-		const live: LiveInstance = {
+		const live: LiveRun = {
 			record,
 			child,
 			events: new EventHub<ServerRecord>(this.options.eventCapacity),
@@ -582,7 +581,7 @@ export class Fleet implements FleetRuntime {
 		}
 	}
 
-	private async markError(live: LiveInstance, error: unknown): Promise<void> {
+	private async markError(live: LiveRun, error: unknown): Promise<void> {
 		if (this.live.get(live.record.id) !== live) return;
 		await this.update(live, {
 			status: "error",
@@ -598,14 +597,14 @@ export class Fleet implements FleetRuntime {
 		this.live.delete(live.record.id);
 	}
 
-	private async handleExit(live: LiveInstance): Promise<void> {
+	private async handleExit(live: LiveRun): Promise<void> {
 		if (this.live.get(live.record.id) !== live) return;
 		if (live.record.status === "stopping" || live.record.status === "stopped")
 			return;
-		await this.markError(live, "instance exited");
+		await this.markError(live, "run exited");
 	}
 
-	async stop(id: string): Promise<FleetInstanceRecord | undefined> {
+	async stop(id: string): Promise<RunRecord | undefined> {
 		const live = this.live.get(id);
 		if (live === undefined) return this.options.store.get(id);
 		await this.setStatus(live, "stopping");
@@ -617,7 +616,7 @@ export class Fleet implements FleetRuntime {
 		return clone(live.record);
 	}
 
-	async list(): Promise<readonly FleetInstanceRecord[]> {
+	async list(): Promise<readonly RunRecord[]> {
 		const records = new Map(
 			(await this.options.store.list()).map((item) => [item.id, item]),
 		);
@@ -626,7 +625,7 @@ export class Fleet implements FleetRuntime {
 		return [...records.values()].map(clone);
 	}
 
-	async status(id: string): Promise<FleetInstanceRecord | undefined> {
+	async status(id: string): Promise<RunRecord | undefined> {
 		const live = this.live.get(id);
 		return live === undefined ? this.options.store.get(id) : clone(live.record);
 	}
@@ -636,10 +635,10 @@ export class Fleet implements FleetRuntime {
 		afterSequence = 0,
 	): AsyncIterable<ServerRecord> {
 		const live = this.live.get(id);
-		const instance = live?.record ?? (await this.options.store.get(id));
-		if (instance === undefined) return;
+		const run = live?.record ?? (await this.options.store.get(id));
+		if (run === undefined) return;
 		let frontier = afterSequence;
-		for await (const record of replayEventLogRecords(instance, frontier)) {
+		for await (const record of replayEventLogRecords(run, frontier)) {
 			frontier = record.sequence;
 			yield record;
 		}
@@ -648,7 +647,7 @@ export class Fleet implements FleetRuntime {
 
 	submit(id: string, request: ClientRequest): Promise<ServerRecord> {
 		const live = this.live.get(id);
-		if (live === undefined) throw new Error(`unknown instance: ${id}`);
+		if (live === undefined) throw new Error(`unknown run: ${id}`);
 		return this.send(live, request);
 	}
 

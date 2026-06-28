@@ -16,13 +16,13 @@
 			"types": "./src/event-log.ts",
 			"import": "./src/event-log.ts"
 		},
-		"./fleet": {
-			"types": "./src/fleet.ts",
-			"import": "./src/fleet.ts"
+		"./run-registry": {
+			"types": "./src/run-registry.ts",
+			"import": "./src/run-registry.ts"
 		},
-		"./fleet-ipc": {
-			"types": "./src/fleet-ipc.ts",
-			"import": "./src/fleet-ipc.ts"
+		"./run-ipc": {
+			"types": "./src/run-ipc.ts",
+			"import": "./src/run-ipc.ts"
 		},
 		"./host": {
 			"types": "./src/host.ts",

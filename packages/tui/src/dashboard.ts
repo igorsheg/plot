@@ -9,7 +9,7 @@ import {
 } from "./dashboard-render.js";
 import { debugViewLines } from "./debug-view.js";
 import { detailBodyLines, detailViewLines } from "./detail-view.js";
-import { fleetViewLines } from "./fleet-view.js";
+import { runsViewLines } from "./runs-view.js";
 import type {
 	DashboardProjection,
 	DashboardStatus,
@@ -26,7 +26,7 @@ export interface DashboardActions {
 	readonly requestRender?: () => void;
 }
 
-type ViewMode = "fleet" | "debug" | "config" | "detail";
+type ViewMode = "runs" | "debug" | "config" | "detail";
 
 const statusGlyph = (status: DashboardStatus) => {
 	switch (status) {
@@ -62,7 +62,7 @@ const statusStyle = (status: DashboardStatus) => {
 
 export class PlotDashboard implements Component {
 	private projection: DashboardProjection;
-	private mode: ViewMode = "fleet";
+	private mode: ViewMode = "runs";
 	private selectedIndex = 0;
 	private scrollOffset = 0;
 	private showHelp = false;
@@ -112,11 +112,11 @@ export class PlotDashboard implements Component {
 		else if (key === "o") this.openSelectedUrl();
 		else if (key === "d") {
 			this.actions.toggleDebug();
-			this.changeMode(this.mode === "debug" ? "fleet" : "debug");
+			this.changeMode(this.mode === "debug" ? "runs" : "debug");
 		} else if (key === "c")
-			this.changeMode(this.mode === "config" ? "fleet" : "config");
+			this.changeMode(this.mode === "config" ? "runs" : "config");
 		else if (key === "enter" || key === "return") this.changeMode("detail");
-		else if (key === "escape" || key === "esc") this.changeMode("fleet");
+		else if (key === "escape" || key === "esc") this.changeMode("runs");
 		else if (key === "j" || key === "down") this.moveDown();
 		else if (key === "k" || key === "up") this.moveUp();
 	}
@@ -154,18 +154,18 @@ export class PlotDashboard implements Component {
 								),
 								viewportRows,
 							})
-						: fleetViewLines({
+						: runsViewLines({
 								header,
 								model,
 								selectedIndex: this.selectedIndex,
 								width,
 								maxRows: Math.max(1, (this.actions.height?.() ?? 24) - 1),
-								...this.fleetFooter(),
+								...this.runsFooter(),
 							});
 		return ["", ...renderLines(lines, width, style.row.selected)];
 	}
 
-	private fleetFooter(): {
+	private runsFooter(): {
 		readonly footerText: string;
 		readonly footerStyle?: (value: string) => string;
 	} {
@@ -185,7 +185,7 @@ export class PlotDashboard implements Component {
 			if (url !== undefined) this.actions.openUrl?.(url);
 			return;
 		}
-		const url = this.mode === "fleet" ? model.completed[0]?.url : undefined;
+		const url = this.mode === "runs" ? model.completed[0]?.url : undefined;
 		if (url !== undefined) this.actions.openUrl?.(url);
 	}
 
@@ -229,12 +229,12 @@ export class PlotDashboard implements Component {
 	}
 
 	private moveDown(): void {
-		if (this.mode === "fleet") this.selectedIndex++;
+		if (this.mode === "runs") this.selectedIndex++;
 		else this.scrollOffset++;
 	}
 
 	private moveUp(): void {
-		if (this.mode === "fleet")
+		if (this.mode === "runs")
 			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
 		else this.scrollOffset = Math.max(0, this.scrollOffset - 1);
 	}

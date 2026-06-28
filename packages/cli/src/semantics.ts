@@ -16,7 +16,7 @@ export const cliSemantics = {
 	tui: {
 		audience: "human",
 		surface: "frontend",
-		description: "Open the terminal dashboard for one Plot Session.",
+		description: "Open the terminal dashboard for one Plot run.",
 	},
 	run: {
 		audience: "human",
@@ -28,15 +28,9 @@ export const cliSemantics = {
 		surface: "frontend",
 		description: "Open the local Plot canvas for running sessions.",
 	},
-	serve: {
+	api: {
 		audience: "machine",
 		surface: "transport",
-		description: "Serve Plot session transports for external clients.",
-	},
-	stdio: {
-		audience: "machine",
-		surface: "transport",
-		description:
-			"Serve the Plot session protocol over newline-delimited JSON on stdio.",
+		description: "Serve the Plot API for external clients.",
 	},
 } as const satisfies Record<string, CliCommandSemantics>;

@@ -1,24 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import {
 	parsePlotEventRecord,
-	instanceEventsUrl,
+	runEventsUrl,
 	type PlotEventRecord,
 } from "./api.js";
-import type { PlotInstance } from "./instance.js";
+import type { PlotRun } from "./run.js";
 
-export interface SessionLiveState {
+export interface RunLiveState {
 	readonly frontier: number;
 	readonly eventCount: number;
 	readonly lastType?: string | undefined;
 	readonly lastAt?: string | undefined;
 }
 
-export type SessionLiveMap = Readonly<Record<string, SessionLiveState>>;
+export type RunLiveMap = Readonly<Record<string, RunLiveState>>;
 
 const reduceLiveState = (
-	state: SessionLiveState | undefined,
+	state: RunLiveState | undefined,
 	record: PlotEventRecord,
-): SessionLiveState => {
+): RunLiveState => {
 	if (state !== undefined && record.event.sequence <= state.frontier)
 		return state;
 	return {
@@ -29,34 +29,29 @@ const reduceLiveState = (
 	};
 };
 
-export const useSessionLiveEvents = (
-	sessions: readonly PlotInstance[],
-): SessionLiveMap => {
-	const [live, setLive] = useState<SessionLiveMap>({});
-	const keys = useMemo(
-		() => sessions.map((session) => session.id).toSorted(),
-		[sessions],
-	);
+export const useRunLiveEvents = (runs: readonly PlotRun[]): RunLiveMap => {
+	const [live, setLive] = useState<RunLiveMap>({});
+	const keys = useMemo(() => runs.map((run) => run.id).toSorted(), [runs]);
 	const keySignature = keys.join("\0");
 
 	useEffect(() => {
 		setLive((previous) =>
 			Object.fromEntries(
-				sessions.map((session) => [
-					session.id,
-					previous[session.id] ?? {
-						frontier: session.lastSequence ?? 0,
+				runs.map((run) => [
+					run.id,
+					previous[run.id] ?? {
+						frontier: run.lastSequence ?? 0,
 						eventCount: 0,
-						lastType: session.lastEventType,
-						lastAt: session.lastSeenAt ?? session.createdAt,
+						lastType: run.lastEventType,
+						lastAt: run.lastSeenAt ?? run.createdAt,
 					},
 				]),
 			),
 		);
-		// ponytail: stream every discovered session from the catalog frontier; replay full logs only for expanded detail views later.
-		const sources = sessions.map((session) => {
+		// ponytail: stream every discovered run from the catalog frontier; replay full logs only for expanded detail views later.
+		const sources = runs.map((run) => {
 			const source = new EventSource(
-				instanceEventsUrl(session.id, session.lastSequence ?? 0),
+				runEventsUrl(run.id, run.lastSequence ?? 0),
 			);
 			source.addEventListener("plot", (message) => {
 				const record = parsePlotEventRecord(
@@ -65,7 +60,7 @@ export const useSessionLiveEvents = (
 				if (record === undefined) return;
 				setLive((previous) => ({
 					...previous,
-					[session.id]: reduceLiveState(previous[session.id], record),
+					[run.id]: reduceLiveState(previous[run.id], record),
 				}));
 			});
 			return source;
@@ -73,7 +68,7 @@ export const useSessionLiveEvents = (
 		return () => {
 			for (const source of sources) source.close();
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- keySignature is the stable session identity list.
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- keySignature is the stable run identity list.
 	}, [keySignature]);
 
 	return live;

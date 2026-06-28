@@ -6,20 +6,24 @@ import { expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
 import { createFileEventLogStore } from "../src/event-log.js";
 import {
-	Fleet,
-	createFileFleetStore,
-	createMemoryFleetStore,
-	decodeFleetRequest,
-	type FleetChildProcess,
-} from "../src/fleet.js";
-import { sendFleetIpcRequest, startFleetIpcServer } from "../src/fleet-ipc.js";
+	RunRegistry,
+	createFileRunStore,
+	createMemoryRunStore,
+	decodeRunRequest,
+	type RunChildProcess,
+} from "../src/run-registry.js";
+import {
+	openRunIpc,
+	sendRunIpcRequest,
+	startRunIpcServer,
+} from "../src/run-ipc.js";
 import {
 	decodeClientRequestLine,
 	encodeServerRecordLine,
 } from "../src/protocol-codec.js";
 import type { ServerRecord } from "../src/protocol.js";
 
-class FakeChild implements FleetChildProcess {
+class FakeChild implements RunChildProcess {
 	readonly pid = 123;
 	readonly stdoutQueue = new AsyncQueue<string | Uint8Array>({ capacity: 32 });
 	readonly stderrQueue = new AsyncQueue<string | Uint8Array>({ capacity: 32 });
@@ -32,7 +36,7 @@ class FakeChild implements FleetChildProcess {
 		this.resolveExited = resolve;
 	});
 
-	constructor(readonly sessionId = "session-fleet") {}
+	constructor(readonly sessionId = "session-runRegistry") {}
 
 	write(line: string): void {
 		this.writes.push(line);
@@ -68,21 +72,19 @@ class FakeChild implements FleetChildProcess {
 	}
 }
 
-test("fleet rejects invalid IPC shapes at the boundary", () => {
-	expect(() => decodeFleetRequest({ type: "status" })).toThrow();
-	expect(() =>
-		decodeFleetRequest({ type: "status", id: "instance-1" }),
-	).not.toThrow();
+test("runRegistry rejects invalid IPC shapes at the boundary", () => {
+	expect(() => decodeRunRequest({ type: "status" })).toThrow();
+	expect(() => decodeRunRequest({ type: "status", id: "run-1" })).not.toThrow();
 });
 
-test("fleet spawns, bounds stderr, and stops child lifecycle", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-fleet-"));
-	const store = createMemoryFleetStore();
+test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-"));
+	const store = createMemoryRunStore();
 	let child: FakeChild | undefined;
-	const fleet = new Fleet({
+	const runRegistry = new RunRegistry({
 		cwd,
 		store,
-		id: () => "instance-1",
+		id: () => "run-1",
 		now: () => "2026-01-01T00:00:00.000Z",
 		stderrLimitBytes: 8,
 		spawnChild: () => {
@@ -91,7 +93,7 @@ test("fleet spawns, bounds stderr, and stops child lifecycle", async () => {
 				child?.emit({
 					protocol: "plot.session.v2",
 					kind: "welcome",
-					sessionId: "session-fleet",
+					sessionId: "session-runRegistry",
 					limits: {
 						maxInputLineBytes: 1_000,
 						maxOutputLineBytes: 1_000,
@@ -104,15 +106,15 @@ test("fleet spawns, bounds stderr, and stops child lifecycle", async () => {
 		},
 	});
 
-	const spawned = await fleet.spawn({ label: "test" });
+	const spawned = await runRegistry.spawn({ label: "test" });
 	child?.emitStderr("abcdefghijklmnopqrstuvwxyz");
 	await new Promise((resolve) => setTimeout(resolve, 0));
-	const stopped = await fleet.stop(spawned.id);
+	const stopped = await runRegistry.stop(spawned.id);
 
 	expect(spawned).toMatchObject({
-		id: "instance-1",
+		id: "run-1",
 		status: "online",
-		sessionId: "session-fleet",
+		sessionId: "session-runRegistry",
 	});
 	expect(
 		child?.writes.map((line) => decodeClientRequestLine(line).command),
@@ -121,14 +123,14 @@ test("fleet spawns, bounds stderr, and stops child lifecycle", async () => {
 	expect(stopped).toMatchObject({ status: "stopped", stderrTail: "stuvwxyz" });
 });
 
-test("fleet marks a child that exits before welcome as error", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-fleet-exit-"));
-	const store = createMemoryFleetStore();
+test("runRegistry marks a child that exits before welcome as error", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-exit-"));
+	const store = createMemoryRunStore();
 	let child: FakeChild | undefined;
-	const fleet = new Fleet({
+	const runRegistry = new RunRegistry({
 		cwd,
 		store,
-		id: () => "instance-exit",
+		id: () => "run-exit",
 		spawnDeadlineMs: 50,
 		spawnChild: () => {
 			child = new FakeChild();
@@ -140,17 +142,17 @@ test("fleet marks a child that exits before welcome as error", async () => {
 		},
 	});
 
-	await expect(fleet.spawn()).rejects.toThrow("closed before welcome");
-	expect(await store.get("instance-exit")).toMatchObject({
+	await expect(runRegistry.spawn()).rejects.toThrow("closed before welcome");
+	expect(await store.get("run-exit")).toMatchObject({
 		status: "error",
 		stderrTail: expect.stringContaining("boot failed"),
 	});
 });
 
-test("fleet recovery does not leave stale instances online", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-fleet-recover-"));
-	const store = createFileFleetStore(
-		join(cwd, ".plot", "fleet", "instances.json"),
+test("runRegistry recovery does not leave stale runs online", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-recover-"));
+	const store = createFileRunStore(
+		join(cwd, ".plot", "runRegistry", "runs.json"),
 	);
 	await store.upsert({
 		id: "stale-online",
@@ -165,19 +167,19 @@ test("fleet recovery does not leave stale instances online", async () => {
 		createdAt: "2026-01-01T00:00:00.000Z",
 	});
 
-	const fleet = new Fleet({ cwd, store });
-	await fleet.recoverAfterRestart();
+	const runRegistry = new RunRegistry({ cwd, store });
+	await runRegistry.recoverAfterRestart();
 
-	expect(await fleet.status("stale-online")).toMatchObject({
+	expect(await runRegistry.status("stale-online")).toMatchObject({
 		status: "stopped",
 	});
-	expect(await fleet.status("stale-starting")).toMatchObject({
+	expect(await runRegistry.status("stale-starting")).toMatchObject({
 		status: "stopped",
 	});
 });
 
-test("fleet attach replays only durable event log records after a sequence", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-fleet-replay-"));
+test("runRegistry attach replays only durable event log records after a sequence", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-replay-"));
 	const eventLog = await createFileEventLogStore({
 		sessionId: "session-replay",
 		sessionDir: join(cwd, ".plot", "sessions"),
@@ -189,11 +191,11 @@ test("fleet attach replays only durable event log records after a sequence", asy
 			payload: { tickId },
 		});
 	}
-	const fleet = new Fleet({
+	const runRegistry = new RunRegistry({
 		cwd,
-		store: createMemoryFleetStore([
+		store: createMemoryRunStore([
 			{
-				id: "instance-replay",
+				id: "run-replay",
 				status: "stopped",
 				cwd,
 				createdAt: "2026-01-01T00:00:00.000Z",
@@ -203,7 +205,7 @@ test("fleet attach replays only durable event log records after a sequence", asy
 		]),
 	});
 	const records = [];
-	for await (const record of fleet.attachRecords("instance-replay", 20))
+	for await (const record of runRegistry.attachRecords("run-replay", 20))
 		records.push(record);
 
 	expect(
@@ -213,12 +215,69 @@ test("fleet attach replays only durable event log records after a sequence", asy
 	).toEqual([21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
 });
 
-test("fleet IPC survives a client disconnecting from a protocol stream", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-fleet-ipc-"));
-	const fleet = new Fleet({
+test("runRegistry IPC opens the existing shared run registry", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-run-ipc-shared-"));
+	const child = new FakeChild("session-shared");
+	const runRegistry = new RunRegistry({
 		cwd,
-		store: createMemoryFleetStore(),
-		id: () => "instance-stream",
+		store: createMemoryRunStore(),
+		id: () => "run-shared",
+		spawnChild: () => {
+			queueMicrotask(() =>
+				child.emit({
+					protocol: "plot.session.v2",
+					kind: "welcome",
+					sessionId: "session-shared",
+					limits: {
+						maxInputLineBytes: 1_000,
+						maxOutputLineBytes: 1_000,
+						maxPendingRequests: 4,
+						maxBufferedEvents: 4,
+					},
+				}),
+			);
+			return child;
+		},
+	});
+	await runRegistry.spawn();
+	const server = await startRunIpcServer({
+		options: { cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") },
+		runRegistry,
+	});
+	try {
+		const opened = await openRunIpc({
+			cwd,
+			runRegistryDir: join(cwd, ".plot", "runRegistry"),
+		});
+		expect(opened.owned).toBe(false);
+		expect(await opened.runRegistry.status("run-shared")).toMatchObject({
+			id: "run-shared",
+			status: "online",
+		});
+		expect(
+			await opened.runRegistry.submit("run-shared", {
+				protocol: "plot.session.v2",
+				kind: "request",
+				id: "client-1",
+				command: "ping",
+			}),
+		).toMatchObject({ id: "client-1", command: "ping", ok: true });
+		await opened.close();
+		expect(await runRegistry.status("run-shared")).toMatchObject({
+			status: "online",
+		});
+	} finally {
+		server.server.close();
+		await runRegistry.shutdown();
+	}
+});
+
+test("runRegistry IPC survives a client disconnecting from a protocol stream", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-run-ipc-"));
+	const runRegistry = new RunRegistry({
+		cwd,
+		store: createMemoryRunStore(),
+		id: () => "run-stream",
 		spawnChild: () => {
 			const child = new FakeChild("session-stream");
 			queueMicrotask(() =>
@@ -237,10 +296,10 @@ test("fleet IPC survives a client disconnecting from a protocol stream", async (
 			return child;
 		},
 	});
-	await fleet.spawn();
-	const server = await startFleetIpcServer({
-		options: { cwd, fleetDir: join(cwd, ".plot", "fleet") },
-		fleet,
+	await runRegistry.spawn();
+	const server = await startRunIpcServer({
+		options: { cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") },
+		runRegistry,
 	});
 	try {
 		const socket = createConnection(server.socketPath);
@@ -249,19 +308,19 @@ test("fleet IPC survives a client disconnecting from a protocol stream", async (
 			socket.once("error", reject);
 		});
 		socket.write(
-			`${JSON.stringify({ type: "protocol_stream", id: "instance-stream" })}\n`,
+			`${JSON.stringify({ type: "protocol_stream", id: "run-stream" })}\n`,
 		);
 		await new Promise<void>((resolve) => socket.once("data", () => resolve()));
 		socket.destroy();
 
 		expect(
-			await sendFleetIpcRequest(
-				{ cwd, fleetDir: join(cwd, ".plot", "fleet") },
+			await sendRunIpcRequest(
+				{ cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") },
 				{ type: "list" },
 			),
 		).toMatchObject({ type: "list_result", ok: true });
 	} finally {
 		server.server.close();
-		await fleet.shutdown();
+		await runRegistry.shutdown();
 	}
 });

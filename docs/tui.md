@@ -1,12 +1,12 @@
 # TUI
 
-The TUI is the foreground terminal owner for one live Plot Session.
+The TUI is a terminal dashboard for one live Plot run.
 
 ```bash
 plot tui --workflow WORKFLOW.md
 ```
 
-It runs in-process with the Plot runtime. Quitting or pressing Ctrl-C closes that session.
+It attaches to the shared run registry. A run started by `plot tui` is visible to `plot web` while the TUI is active.
 
 It is built as a Process Table, not a single log stream.
 
@@ -17,7 +17,7 @@ You should be able to answer:
 - What is waiting for a source-scheduled wake?
 - What looks stale?
 - What just happened?
-- How much token usage and cost has this fleet consumed?
+- How much token usage and cost has this run consumed?
 
 ## Display hints
 

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parsePlotInstances } from "../src/instance.js";
+import { parsePlotRuns } from "../src/run.js";
 
-describe("web instance parser", () => {
-	test("drops invalid rows but keeps fleet sessions", () => {
-		const sessions = parsePlotInstances({
-			instances: [
+describe("web run parser", () => {
+	test("drops invalid rows but keeps runs", () => {
+		const runs = parsePlotRuns({
+			runs: [
 				{
 					id: "one",
 					status: "online",
@@ -33,6 +33,6 @@ describe("web instance parser", () => {
 			],
 		});
 
-		expect(sessions.map((entry) => entry.cwd)).toEqual(["/one", "/two"]);
+		expect(runs.map((entry) => entry.cwd)).toEqual(["/one", "/two"]);
 	});
 });

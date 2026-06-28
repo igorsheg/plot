@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parsePlotInstances, type PlotInstance } from "./instance.js";
+import { parsePlotRuns, type PlotRun } from "./run.js";
 
 const recordSchema = z.record(z.string(), z.unknown());
 const eventSchema = z
@@ -84,35 +84,35 @@ const parseProjection = (
 	return parsed.success ? parsed.data : undefined;
 };
 
-export const fetchInstances = async (): Promise<readonly PlotInstance[]> => {
-	const response = await fetch("/api/instances");
+export const fetchRuns = async (): Promise<readonly PlotRun[]> => {
+	const response = await fetch("/api/runs");
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	return parsePlotInstances(await response.json());
+	return parsePlotRuns(await response.json());
 };
 
-export const createInstance = async (input: {
+export const createRun = async (input: {
 	readonly cwd?: string;
 	readonly workflowPath?: string;
-}): Promise<PlotInstance> => {
-	const response = await fetch("/api/instances", {
+}): Promise<PlotRun> => {
+	const response = await fetch("/api/runs", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(input),
 	});
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	const instances = parsePlotInstances({
-		instances: [(await response.json()).instance],
+	const runs = parsePlotRuns({
+		runs: [(await response.json()).run],
 	});
-	const instance = instances[0];
-	if (instance === undefined) throw new Error("invalid instance response");
-	return instance;
+	const run = runs[0];
+	if (run === undefined) throw new Error("invalid run response");
+	return run;
 };
 
-export const fetchInstanceProjection = async (
+export const fetchRunProjection = async (
 	key: string,
 ): Promise<WebDashboardProjection> => {
 	const response = await fetch(
-		`/api/instances/${encodeURIComponent(key)}/projection`,
+		`/api/runs/${encodeURIComponent(key)}/projection`,
 	);
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
 	const projection = parseProjection(await response.json());
@@ -120,5 +120,5 @@ export const fetchInstanceProjection = async (
 	return projection;
 };
 
-export const instanceEventsUrl = (key: string, after: number): string =>
-	`/api/instances/${encodeURIComponent(key)}/events?after=${after}`;
+export const runEventsUrl = (key: string, after: number): string =>
+	`/api/runs/${encodeURIComponent(key)}/events?after=${after}`;

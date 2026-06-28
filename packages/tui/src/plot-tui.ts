@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
+import { basename } from "node:path";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
-import {
-	createProtocolSessionHost,
-	type CreateSessionHostOptions,
-} from "@plot/session/host";
+import type { CreateSessionHostOptions } from "@plot/session/host";
+import { openRunIpc } from "@plot/session/run-ipc";
 import {
 	sessionProtocolVersion,
 	type ClientRequest,
@@ -17,7 +16,6 @@ import {
 	reduceRecord,
 	type DashboardProjection,
 } from "@plot/session/projection";
-import { runtimeIdentityFrom } from "./runtime-identity.js";
 
 export interface PlotTuiOptions extends CreateSessionHostOptions {
 	readonly mode?: "watch" | "oneshot";
@@ -29,7 +27,6 @@ const errorMessage = (error: unknown) =>
 const withTimeout = async <A>(
 	work: Promise<A>,
 	ms: number,
-	label: string,
 ): Promise<A | undefined> => {
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	try {
@@ -42,25 +39,66 @@ const withTimeout = async <A>(
 		]);
 	} finally {
 		if (timeout !== undefined) clearTimeout(timeout);
-		void label;
 	}
 };
 
-const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
-	const host = await createProtocolSessionHost(options);
-	let projection: DashboardProjection = emptyProjection(
-		options.sessionId ?? "session",
-		String(
-			host.workflow.runtime.name ?? host.workflow.config["name"] ?? "workflow",
-		),
-		runtimeIdentityFrom({ workflow: host.workflow, cwd: options.cwd }),
+const cli = () => ({
+	command: process.execPath,
+	args: process.argv[1] === undefined ? [] : [process.argv[1]],
+});
+
+const initialProjection = (input: {
+	readonly id: string;
+	readonly sessionId?: string;
+	readonly cwd: string;
+	readonly cwdName?: string;
+	readonly workflowName?: string;
+	readonly workflowPath?: string;
+}): DashboardProjection =>
+	emptyProjection(
+		input.sessionId ?? input.id,
+		input.workflowName ??
+			(input.workflowPath === undefined
+				? "workflow"
+				: basename(input.workflowPath)),
+		{
+			cwd: input.cwd,
+			cwdName: input.cwdName ?? basename(input.cwd),
+			skills: [],
+			skillPaths: [],
+		},
 	);
+
+export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
+	const runIpc = await openRunIpc({ cwd: options.cwd, cli: cli() });
+	const run = await runIpc.runRegistry.spawn({
+		cwd: options.cwd,
+		...(options.sessionId === undefined
+			? {}
+			: { sessionId: options.sessionId }),
+		...(options.workflowPath === undefined
+			? {}
+			: { workflowPath: options.workflowPath }),
+	});
+	let projection = initialProjection({
+		id: run.id,
+		...(run.sessionId === undefined ? {} : { sessionId: run.sessionId }),
+		cwd: run.cwd,
+		...(run.cwdName === undefined ? {} : { cwdName: run.cwdName }),
+		...(run.workflowName === undefined
+			? {}
+			: { workflowName: run.workflowName }),
+		...(run.workflowPath === undefined
+			? options.workflowPath === undefined
+				? {}
+				: { workflowPath: options.workflowPath }
+			: { workflowPath: run.workflowPath }),
+	});
 	let requestIndex = 0;
 	let resolveStopped!: () => void;
 	const stopped = new Promise<void>((resolve) => {
 		resolveStopped = resolve;
 	});
-	const pending = new Map<string, (record: ServerRecord) => void>();
 	const terminal = new ProcessTerminal();
 	const tui = new TUI(terminal);
 	const render = () => {
@@ -93,14 +131,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 			command,
 			...(params === undefined ? {} : { params }),
 		};
-		const response = new Promise<ServerRecord>((resolve) =>
-			pending.set(id, resolve),
-		);
-		if (!(await host.protocol.submit(record))) {
-			pending.delete(id);
-			throw new Error(`protocol request failed: ${command}`);
-		}
-		return response;
+		return runIpc.runRegistry.submit(run.id, record);
 	};
 	let refreshInFlight = false;
 	let refreshQueued = false;
@@ -172,11 +203,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 		return undefined;
 	});
 	void (async () => {
-		for await (const record of host.protocol.output()) {
-			if (record.kind === "response" && record.id !== undefined)
-				pending.get(record.id)?.(record);
-			if (record.kind === "response" && record.id !== undefined)
-				pending.delete(record.id);
+		for await (const record of runIpc.runRegistry.attachRecords(run.id, 0)) {
 			if (record.kind === "event") {
 				projection = reduceRecord(projection, record);
 				render();
@@ -187,24 +214,13 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 	try {
 		dashboard.startLiveUpdates();
 		tui.start();
-		const welcome = await host.protocol.welcome();
-		setProjection({
-			...projection,
-			status: "starting",
-			frontier: 0,
-		});
-		void welcome;
-		await host.runtime.start();
 		setStatus("running");
 		refresh();
 		await stopped;
 	} finally {
 		dashboard.stopLiveUpdates();
 		tui.stop();
-		await host.protocol.close();
-		await withTimeout(host.runtime.shutdown(), 5_000, "session shutdown");
-		await withTimeout(host.shutdown(), 5_000, "host shutdown");
+		await withTimeout(runIpc.runRegistry.stop(run.id), 5_000);
+		await withTimeout(runIpc.close(), 5_000);
 	}
 };
-
-export const runPlotTui = runPlotTuiInProcess;
