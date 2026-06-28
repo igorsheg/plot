@@ -59,7 +59,7 @@ export const createRunChildProcess = (input: {
 		write: (line) =>
 			new Promise<void>((resolveWrite, rejectWrite) => {
 				child.stdin?.write(line, (error) => {
-					if (error === undefined) resolveWrite();
+					if (error == null) resolveWrite();
 					else rejectWrite(error);
 				});
 			}),

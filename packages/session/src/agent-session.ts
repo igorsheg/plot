@@ -44,15 +44,13 @@ export interface AgentSessionFactoryOptions {
 	readonly overrides?: AgentSessionOverrides;
 }
 
-const settingsSchema = z
-	.object({
-		defaultProvider: z.string().min(1).optional(),
-		defaultModel: z.string().min(1).optional(),
-		defaultThinkingLevel: z
-			.enum(["off", "minimal", "low", "medium", "high", "xhigh"])
-			.optional(),
-	})
-	.strict();
+const settingsSchema = z.object({
+	defaultProvider: z.string().min(1).optional(),
+	defaultModel: z.string().min(1).optional(),
+	defaultThinkingLevel: z
+		.enum(["off", "minimal", "low", "medium", "high", "xhigh"])
+		.optional(),
+});
 
 type AgentSettings = z.infer<typeof settingsSchema>;
 
