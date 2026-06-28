@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { defineCommand } from "citty";
 import { authPathArgs } from "../args.js";
@@ -19,6 +20,12 @@ const readPrompt = (message: string): Promise<string> => {
 	return readline.question(`${message} `).finally(() => readline.close());
 };
 
+const comparableLabel = (value: string) =>
+	value
+		.toLowerCase()
+		.replace(/\s*\([^)]*\)\s*$/, "")
+		.trim();
+
 export const selectOptionId = (
 	prompt: SelectPrompt,
 	input: string,
@@ -29,11 +36,25 @@ export const selectOptionId = (
 	if (Number.isInteger(numbered) && numbered >= 1)
 		return prompt.options[numbered - 1]?.id;
 	const normalized = value.toLowerCase();
+	const normalizedLabel = comparableLabel(value);
 	return prompt.options.find(
 		(option) =>
 			option.id.toLowerCase() === normalized ||
-			option.label.toLowerCase() === normalized,
+			option.label.toLowerCase() === normalized ||
+			comparableLabel(option.label) === normalizedLabel,
 	)?.id;
+};
+
+const openBrowser = (url: string): void => {
+	const [command, args]: [string, string[]] =
+		process.platform === "darwin"
+			? ["open", [url]]
+			: process.platform === "win32"
+				? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+				: ["xdg-open", [url]];
+	spawn(command, args, { stdio: "ignore", detached: true })
+		.on("error", () => {})
+		.unref();
 };
 
 const readSelect = async (
@@ -124,8 +145,9 @@ export const authCommand = defineCommand({
 							provider,
 							events: {
 								auth: (info) => {
+									openBrowser(info.url);
 									void writeProcessStderr(
-										`Open URL: ${info.url}\n${info.instructions ?? ""}\n`,
+										`Opening browser: ${info.url}\n${info.instructions ?? "If it did not open, copy the URL above."}\n`,
 									);
 								},
 								deviceCode: (info) => {

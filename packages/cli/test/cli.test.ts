@@ -257,8 +257,8 @@ describe("plot CLI", () => {
 		const prompt = {
 			message: "Select OpenAI Codex login method:",
 			options: [
-				{ id: "browser", label: "Browser login" },
-				{ id: "device", label: "Device code login" },
+				{ id: "browser", label: "Browser login (default)" },
+				{ id: "device", label: "Device code login (headless)" },
 			],
 		};
 
