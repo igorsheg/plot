@@ -1,9 +1,19 @@
 import { defineCommand } from "citty";
+import { basename } from "node:path";
 import { sessionCommandArgs, pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { baseOptions, int, str } from "../options.js";
 import { runApiStdio } from "../runtime.js";
 import { runPlotWebGateway } from "../web-gateway.js";
+
+const currentCliCommand = () => {
+	const script = process.argv[1];
+	const isBun = basename(process.execPath) === "bun";
+	return {
+		command: process.execPath,
+		args: isBun && script !== undefined ? [script] : [],
+	};
+};
 
 export const apiCommand = defineCommand({
 	meta: {
@@ -61,6 +71,7 @@ export const apiCommand = defineCommand({
 			...(int(args, "port") === undefined ? {} : { port: int(args, "port") }),
 			...(str(args, "host") === undefined ? {} : { host: str(args, "host") }),
 			open: args["no-open"] !== true,
+			cli: currentCliCommand(),
 			...(io.writeStderr === undefined ? {} : { writeStderr: io.writeStderr }),
 		});
 	},

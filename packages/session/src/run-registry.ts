@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
 import { z } from "zod";
@@ -290,10 +290,17 @@ const childArgs = (options: RunSpawnOptions): readonly string[] => {
 	return args;
 };
 
-const defaultCli = () => ({
-	command: process.execPath,
-	args: process.argv[1] === undefined ? [] : [process.argv[1]],
-});
+const defaultCli = () => {
+	const script = process.argv[1];
+	const isBun = basename(process.execPath) === "bun";
+	return {
+		command: process.execPath,
+		args:
+			isBun && script !== undefined && /\.[cm]?[jt]sx?$/.test(script)
+				? [script]
+				: [],
+	};
+};
 
 const nodeChild = (input: {
 	readonly command: string;
@@ -328,6 +335,15 @@ const nodeChild = (input: {
 const encodeClientRequestLine = (request: ClientRequest): string =>
 	stringifyJsonl(request, { maxLineBytes: 1024 * 1024 });
 
+const stripTrailingNuls = (text: string): string => {
+	let end = text.length;
+	while (end > 0 && text.charCodeAt(end - 1) === 0) end--;
+	return text.slice(0, end);
+};
+
+const parseRunStoreJson = (text: string): readonly RunRecord[] =>
+	runArraySchema.parse(JSON.parse(stripTrailingNuls(text)) as unknown);
+
 const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 	let text: string;
 	try {
@@ -336,43 +352,60 @@ const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 		if (isErrno(error, "ENOENT")) return [];
 		throw error;
 	}
-	return runArraySchema.parse(JSON.parse(text) as unknown);
+	try {
+		return parseRunStoreJson(text);
+	} catch (error) {
+		const lastCompleteRecord = stripTrailingNuls(text).lastIndexOf("\n  }");
+		if (lastCompleteRecord === -1) throw error;
+		return parseRunStoreJson(`${text.slice(0, lastCompleteRecord + 4)}\n]\n`);
+	}
 };
 
 export const createFileRunStore = (path: string): RunStore => {
+	let pendingWrite: Promise<void> = Promise.resolve();
+	const mutate = async (work: () => Promise<void>) => {
+		const next = pendingWrite.then(work, work);
+		pendingWrite = next.catch(() => undefined);
+		await next;
+	};
 	const writeRecords = async (records: readonly RunRecord[]) => {
 		await mkdir(dirname(path), { recursive: true });
-		await writeFile(path, `${JSON.stringify(records, null, 2)}\n`);
+		const tmp = `${path}.${process.pid}.tmp`;
+		await writeFile(tmp, `${JSON.stringify(records, null, 2)}\n`);
+		await rename(tmp, path);
 	};
 	return {
 		list: async () => readJson(path),
 		get: async (id) =>
 			(await readJson(path)).find((record) => record.id === id),
-		upsert: async (record) => {
-			const records = [...(await readJson(path))];
-			const index = records.findIndex((item) => item.id === record.id);
-			if (index === -1) records.push(record);
-			else records[index] = record;
-			await writeRecords(records);
-		},
-		remove: async (id) => {
-			await writeRecords(
-				(await readJson(path)).filter((record) => record.id !== id),
-			);
-		},
-		recoverAfterRestart: async () => {
-			const recoveredAt = new Date().toISOString();
-			await writeRecords(
-				(await readJson(path)).map((record) => ({
-					...record,
-					status:
-						record.status === "online" || record.status === "starting"
-							? "stopped"
-							: record.status,
-					lastSeenAt: recoveredAt,
-				})),
-			);
-		},
+		upsert: (record) =>
+			mutate(async () => {
+				const records = [...(await readJson(path))];
+				const index = records.findIndex((item) => item.id === record.id);
+				if (index === -1) records.push(record);
+				else records[index] = record;
+				await writeRecords(records);
+			}),
+		remove: (id) =>
+			mutate(async () => {
+				await writeRecords(
+					(await readJson(path)).filter((record) => record.id !== id),
+				);
+			}),
+		recoverAfterRestart: () =>
+			mutate(async () => {
+				const recoveredAt = new Date().toISOString();
+				await writeRecords(
+					(await readJson(path)).map((record) => ({
+						...record,
+						status:
+							record.status === "online" || record.status === "starting"
+								? "stopped"
+								: record.status,
+						lastSeenAt: recoveredAt,
+					})),
+				);
+			}),
 	};
 };
 

@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -149,6 +149,19 @@ test("runRegistry marks a child that exits before welcome as error", async () =>
 	});
 });
 
+test("file run store ignores a corrupt final record", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-run-store-corrupt-"));
+	const path = join(cwd, "runs.json");
+	await writeFile(
+		path,
+		`[\n  {\n    "id": "complete",\n    "status": "stopped",\n    "cwd": "${cwd}",\n    "createdAt": "2026-01-01T00:00:00.000Z"\n  },\n  {\n    "id": "partial"\n`,
+	);
+
+	expect(await createFileRunStore(path).list()).toEqual([
+		expect.objectContaining({ id: "complete" }),
+	]);
+});
+
 test("runRegistry recovery does not leave stale runs online", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-recover-"));
 	const store = createFileRunStore(
@@ -216,7 +229,7 @@ test("runRegistry attach replays only durable event log records after a sequence
 });
 
 test("runRegistry IPC opens the existing shared run registry", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-run-ipc-shared-"));
+	const cwd = await mkdtemp(join(tmpdir(), "p-"));
 	const child = new FakeChild("session-shared");
 	const runRegistry = new RunRegistry({
 		cwd,
@@ -273,7 +286,7 @@ test("runRegistry IPC opens the existing shared run registry", async () => {
 });
 
 test("runRegistry IPC survives a client disconnecting from a protocol stream", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-run-ipc-"));
+	const cwd = await mkdtemp(join(tmpdir(), "p-"));
 	const runRegistry = new RunRegistry({
 		cwd,
 		store: createMemoryRunStore(),

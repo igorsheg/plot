@@ -354,7 +354,11 @@ const toPiToolDefinition = (
 		: { executionMode: tool.executionMode }),
 	execute: async (_toolCallId, params, signal) => {
 		const context = signal === undefined ? {} : { signal };
-		const result = await tool.execute(params, context);
+		const normalizedParams = normalizeToolArguments(tool.parameters, params);
+		const result = await tool.execute(
+			normalizedParams as Record<string, unknown>,
+			context,
+		);
 		return {
 			content: [...result.content],
 			details: result.details,

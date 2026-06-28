@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import {
 	defineCommand,
 	renderUsage,
@@ -30,6 +31,15 @@ export type { PlotCliIo } from "./io.js";
 
 const rootArgs = sessionCommandArgs;
 
+export const currentCliCommand = () => {
+	const script = process.argv[1];
+	const isBun = basename(process.execPath) === "bun";
+	return {
+		command: process.execPath,
+		args: isBun && script !== undefined ? [script] : [],
+	};
+};
+
 const runRootTui = async ({
 	args,
 	rawArgs,
@@ -42,6 +52,7 @@ const runRootTui = async ({
 	void rawArgs;
 	return runTui({
 		...baseOptions(args),
+		cli: currentCliCommand(),
 		...(io.createAgentSession === undefined
 			? {}
 			: { createAgentSession: io.createAgentSession }),

@@ -144,13 +144,21 @@ export const startRunIpcServer = async (input: {
 			);
 		});
 	});
-	await new Promise<void>((resolveListen, reject) => {
-		server.once("error", reject);
-		server.listen(socketPath, () => {
-			server.off("error", reject);
-			resolveListen();
+	const listen = () =>
+		new Promise<void>((resolveListen, reject) => {
+			server.once("error", reject);
+			server.listen(socketPath, () => {
+				server.off("error", reject);
+				resolveListen();
+			});
 		});
-	});
+	try {
+		await listen();
+	} catch (error) {
+		if (!existsSync(socketPath)) throw error;
+		unlinkSync(socketPath);
+		await listen();
+	}
 	return { runRegistry, server, socketPath };
 };
 

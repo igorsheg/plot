@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { basename } from "node:path";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 import type { CreateSessionHostOptions } from "@plot/session/host";
-import { openRunIpc } from "@plot/session/run-ipc";
+import { openRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
 import {
 	sessionProtocolVersion,
 	type ClientRequest,
@@ -19,6 +19,7 @@ import {
 
 export interface PlotTuiOptions extends CreateSessionHostOptions {
 	readonly mode?: "watch" | "oneshot";
+	readonly cli?: RunIpcOptions["cli"];
 }
 
 const errorMessage = (error: unknown) =>
@@ -41,11 +42,6 @@ const withTimeout = async <A>(
 		if (timeout !== undefined) clearTimeout(timeout);
 	}
 };
-
-const cli = () => ({
-	command: process.execPath,
-	args: process.argv[1] === undefined ? [] : [process.argv[1]],
-});
 
 const initialProjection = (input: {
 	readonly id: string;
@@ -70,7 +66,10 @@ const initialProjection = (input: {
 	);
 
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	const runIpc = await openRunIpc({ cwd: options.cwd, cli: cli() });
+	const runIpc = await openRunIpc({
+		cwd: options.cwd,
+		...(options.cli === undefined ? {} : { cli: options.cli }),
+	});
 	const run = await runIpc.runRegistry.spawn({
 		cwd: options.cwd,
 		...(options.sessionId === undefined
@@ -178,17 +177,21 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			fail(error);
 		}
 	};
+	let stopping = false;
+	const stopTui = () => {
+		if (stopping) return;
+		stopping = true;
+		setStatus("shutting_down");
+		resolveStopped();
+		tui.stop();
+	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
 			void request("request_tick").then(refresh).catch(fail);
 		},
 		refresh,
 		toggleDebug: render,
-		quit: () => {
-			setStatus("shutting_down");
-			resolveStopped();
-			tui.stop();
-		},
+		quit: stopTui,
 		openUrl,
 		height: () => terminal.rows,
 		requestRender: () => tui.requestRender(),
@@ -211,6 +214,8 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			}
 		}
 	})().catch(fail);
+	process.once("SIGINT", stopTui);
+	process.once("SIGTERM", stopTui);
 	try {
 		dashboard.startLiveUpdates();
 		tui.start();
@@ -218,6 +223,8 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		refresh();
 		await stopped;
 	} finally {
+		process.off("SIGINT", stopTui);
+		process.off("SIGTERM", stopTui);
 		dashboard.stopLiveUpdates();
 		tui.stop();
 		await withTimeout(runIpc.runRegistry.stop(run.id), 5_000);

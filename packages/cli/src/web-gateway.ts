@@ -9,7 +9,7 @@ import {
 	splitJsonl,
 	type JsonlDecodeState,
 } from "@plot/session/jsonl";
-import { openRunIpc } from "@plot/session/run-ipc";
+import { openRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
 import type { RunRecord } from "@plot/session/run-registry";
 import {
 	emptyProjection,
@@ -30,6 +30,7 @@ export interface PlotWebGatewayOptions {
 	readonly open?: boolean | undefined;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
 	readonly openUrl?: (url: string) => Promise<void> | void;
+	readonly cli?: RunIpcOptions["cli"];
 }
 
 const text = (body: unknown) =>
@@ -268,10 +269,7 @@ export const startPlotWebGateway = async (
 		...(options.registryDir === undefined
 			? {}
 			: { runRegistryDir: options.registryDir }),
-		cli: {
-			command: process.execPath,
-			args: process.argv[1] === undefined ? [] : [process.argv[1]],
-		},
+		...(options.cli === undefined ? {} : { cli: options.cli }),
 	});
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
