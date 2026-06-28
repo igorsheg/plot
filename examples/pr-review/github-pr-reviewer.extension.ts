@@ -541,6 +541,15 @@ const parseToolTier = (params: Record<string, unknown>) => {
 	return parsed;
 };
 
+const pickToolArgs = (args: unknown, keys: readonly string[]) => {
+	const picked: Record<string, unknown> = {};
+	if (!isRecord(args)) return picked;
+	for (const key of keys) {
+		if (args[key] !== undefined) picked[key] = args[key];
+	}
+	return picked;
+};
+
 const parseDiffContext = (diff: string): DiffContextFile[] => {
 	const files: DiffContextFile[] = [];
 	let current: { path: string; changedLines: ChangedLineRange[] } | undefined;
@@ -626,6 +635,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 				description:
 					"Load the current PR diff changed-line map for accurate inline review coordinates.",
 				parameters: { type: "object", properties: {} },
+				prepareArguments: () => ({}),
 				execute: async () => {
 					await assertCurrentHead(toolPaths.cwd, target);
 					const diff = await command(toolPaths.cwd, "gh", [
@@ -660,6 +670,8 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					},
 					required: ["status", "body"],
 				},
+				prepareArguments: (args) =>
+					pickToolArgs(args, ["status", "tier", "body"]),
 				execute: async (_id, params) => {
 					if (!isRecord(params)) throw new Error("params must be an object");
 					const status = stringField(params, "status");
@@ -745,6 +757,8 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					},
 					required: ["event", "body"],
 				},
+				prepareArguments: (args) =>
+					pickToolArgs(args, ["event", "body", "comments"]),
 				execute: async (_id, params) => {
 					if (!isRecord(params)) throw new Error("params must be an object");
 					const event = stringField(params, "event");
