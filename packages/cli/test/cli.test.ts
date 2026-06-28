@@ -7,6 +7,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runPlotCli } from "../src/cli.js";
+import { selectOptionId } from "../src/commands/auth.js";
 import {
 	flushRawStdout,
 	restoreStdout,
@@ -250,6 +251,21 @@ describe("plot CLI", () => {
 		);
 		expect(output).toContain("--workflow");
 		expect(output).toContain("--provider");
+	});
+
+	test("auth select accepts labels, ids, numbers, and default", () => {
+		const prompt = {
+			message: "Select OpenAI Codex login method:",
+			options: [
+				{ id: "browser", label: "Browser login" },
+				{ id: "device", label: "Device code login" },
+			],
+		};
+
+		expect(selectOptionId(prompt, "")).toBe("browser");
+		expect(selectOptionId(prompt, "2")).toBe("device");
+		expect(selectOptionId(prompt, "device")).toBe("device");
+		expect(selectOptionId(prompt, "Browser login")).toBe("browser");
 	});
 
 	test("prints nested citty auth help", async () => {

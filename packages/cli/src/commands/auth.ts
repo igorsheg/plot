@@ -6,12 +6,52 @@ import { runHumanCommand, writeProcessStderr } from "../io.js";
 import { makeAuth, str } from "../options.js";
 import { renderAuthStatus } from "../render.js";
 
+interface SelectPrompt {
+	readonly message: string;
+	readonly options: readonly { readonly id: string; readonly label: string }[];
+}
+
 const readPrompt = (message: string): Promise<string> => {
 	const readline = createInterface({
 		input: process.stdin,
 		output: process.stderr,
 	});
 	return readline.question(`${message} `).finally(() => readline.close());
+};
+
+export const selectOptionId = (
+	prompt: SelectPrompt,
+	input: string,
+): string | undefined => {
+	const value = input.trim();
+	if (value.length === 0) return prompt.options[0]?.id;
+	const numbered = Number(value);
+	if (Number.isInteger(numbered) && numbered >= 1)
+		return prompt.options[numbered - 1]?.id;
+	const normalized = value.toLowerCase();
+	return prompt.options.find(
+		(option) =>
+			option.id.toLowerCase() === normalized ||
+			option.label.toLowerCase() === normalized,
+	)?.id;
+};
+
+const readSelect = async (
+	prompt: SelectPrompt,
+): Promise<string | undefined> => {
+	const lines = [
+		prompt.message.replace(/:+$/, ":"),
+		...prompt.options.map((option, index) => `  ${index + 1}. ${option.label}`),
+	];
+	await writeProcessStderr(`${lines.join("\n")}\n`);
+	for (;;) {
+		// eslint-disable-next-line no-await-in-loop -- interactive prompt retries are sequential.
+		const response = await readPrompt("Choose [1]:");
+		const selected = selectOptionId(prompt, response);
+		if (selected !== undefined) return selected;
+		// eslint-disable-next-line no-await-in-loop -- show validation before asking again.
+		await writeProcessStderr("Enter a number from the list.\n");
+	}
 };
 
 const providerArg = {
@@ -96,11 +136,7 @@ export const authCommand = defineCommand({
 								prompt: (prompt) => {
 									void writeProcessStderr(`${prompt.message}\n`);
 								},
-								select: (prompt) => {
-									void writeProcessStderr(
-										`${prompt.message}: ${prompt.options.map((o) => o.label).join(", ")}\n`,
-									);
-								},
+
 								progress: (message) => {
 									void writeProcessStderr(`${message}\n`);
 								},
@@ -108,9 +144,7 @@ export const authCommand = defineCommand({
 							promptInput: (prompt) => readPrompt(prompt.message),
 							manualCodeInput: () =>
 								readPrompt("Paste the authorization code or redirect URL:"),
-							selectInput: async (prompt) =>
-								(await readPrompt(prompt.message)).trim() ||
-								prompt.options[0]?.id,
+							selectInput: readSelect,
 						})
 						.then(() => provider),
 					(x) => `Logged in to ${x}.\n`,
