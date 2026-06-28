@@ -1,3 +1,14 @@
+import type {
+	ActivityEntry,
+	AgentAttemptProjection,
+	CompletedWorkProjection,
+	DashboardStatus,
+	RuntimeIdentityProjection,
+	ScheduledWakeProjection,
+	TokenSample,
+	UsageTotals,
+	WorkItemProjection,
+} from "@plot/session/projection";
 import { z } from "zod";
 import { parsePlotRuns, type PlotRun } from "./run.js";
 
@@ -6,7 +17,7 @@ const eventSchema = z
 	.object({
 		sequence: z.number(),
 		timestamp: z.string(),
-		type: z.string(),
+		type: z.string().optional(),
 	})
 	.passthrough();
 
@@ -15,29 +26,32 @@ export interface PlotEventRecord {
 	readonly event: Record<string, unknown> & {
 		readonly sequence: number;
 		readonly timestamp: string;
-		readonly type: string;
+		readonly type?: string | undefined;
 	};
 }
 
-export interface WebActivityEntry {
-	readonly atMs: number;
-	readonly tone: string;
-	readonly text: string;
-}
+export type WebActivityEntry = ActivityEntry;
 
 export interface WebDashboardProjection {
 	readonly sessionId: string;
 	readonly workflowName: string;
-	readonly status: string;
+	readonly runtime: RuntimeIdentityProjection;
+	readonly status: DashboardStatus;
 	readonly frontier: number;
-	readonly work: Record<string, unknown>;
-	readonly attempts: Record<string, unknown>;
+	readonly usageTotals: UsageTotals;
+	readonly tokenSamples: readonly TokenSample[];
+	readonly work: Record<string, WorkItemProjection>;
+	readonly attempts: Record<string, AgentAttemptProjection>;
+	readonly completed: readonly CompletedWorkProjection[];
+	readonly diagnostics: readonly string[];
+	readonly scheduledWakes: readonly ScheduledWakeProjection[];
 	readonly activity: readonly WebActivityEntry[];
+	readonly debugEvents: readonly string[];
 }
 
 const activityEntrySchema: z.ZodType<WebActivityEntry> = z.object({
 	atMs: z.number(),
-	tone: z.string(),
+	tone: z.enum(["ok", "bad", "info"]),
 	text: z.string(),
 });
 
@@ -51,14 +65,57 @@ const activitySchema = z
 	)
 	.catch([]);
 
+const runtimeSchema: z.ZodType<RuntimeIdentityProjection> = z
+	.object({
+		cwd: z.string(),
+		cwdName: z.string(),
+		skills: z.array(z.string()).catch([]),
+		skillPaths: z.array(z.string()).catch([]),
+		workflowPath: z.string().optional(),
+		provider: z.string().optional(),
+		model: z.string().optional(),
+		thinking: z.string().optional(),
+		tickIntervalMs: z.number().optional(),
+		maxConcurrentRuns: z.number().optional(),
+		maxRunDurationMs: z.number().optional(),
+	})
+	.catch({ cwd: "", cwdName: "", skills: [], skillPaths: [] });
+
+const usageTotalsSchema: z.ZodType<UsageTotals> = z
+	.object({ tokens: z.number(), cost: z.number().optional() })
+	.catch({ tokens: 0 });
+
 const projectionPayloadSchema: z.ZodType<WebDashboardProjection> = z.object({
 	sessionId: z.string(),
 	workflowName: z.string(),
-	status: z.string(),
+	runtime: runtimeSchema,
+	status: z.enum([
+		"starting",
+		"idle",
+		"running",
+		"shutting_down",
+		"paused",
+		"stopped",
+		"error",
+	]),
 	frontier: z.number(),
-	work: recordSchema.catch({}),
-	attempts: recordSchema.catch({}),
+	usageTotals: usageTotalsSchema,
+	tokenSamples: z.array(z.unknown()).catch([]) as z.ZodType<
+		readonly TokenSample[]
+	>,
+	work: recordSchema.catch({}) as z.ZodType<Record<string, WorkItemProjection>>,
+	attempts: recordSchema.catch({}) as z.ZodType<
+		Record<string, AgentAttemptProjection>
+	>,
+	completed: z.array(z.unknown()).catch([]) as z.ZodType<
+		readonly CompletedWorkProjection[]
+	>,
+	diagnostics: z.array(z.string()).catch([]),
+	scheduledWakes: z.array(z.unknown()).catch([]) as z.ZodType<
+		readonly ScheduledWakeProjection[]
+	>,
 	activity: activitySchema,
+	debugEvents: z.array(z.string()).catch([]),
 });
 
 const projectionSchema = z
