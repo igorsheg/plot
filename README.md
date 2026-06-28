@@ -5,7 +5,7 @@ PLOT CONTROL PLANE █
 AGENT FLEET [TYPESCRIPT]
 
 LOOP: tick -> reconcile -> act
-MODE: operator supervised
+MODE: fleet managed
 STATUS: early / online
 ```
 

@@ -1,4 +1,19 @@
-import type { EventLogEvent, PlotEventRecord } from "@plot/session/protocol";
+interface ProjectableEvent {
+	readonly kind?: string;
+	readonly sessionId: string;
+	readonly sequence?: number;
+	readonly timestamp: string;
+	readonly type?: string;
+	readonly payload?: unknown;
+	readonly event?: unknown;
+	readonly [key: string]: unknown;
+}
+
+interface ProjectableEventRecord {
+	readonly kind: string;
+	readonly event: ProjectableEvent;
+}
+
 import {
 	appendStreamDelta,
 	piEventDisplay,
@@ -13,7 +28,6 @@ export type DashboardStatus =
 	| "paused"
 	| "stopped"
 	| "error";
-export type TuiStatus = DashboardStatus;
 export type WorkStatus =
 	| "pending"
 	| "running"
@@ -39,6 +53,8 @@ export type ActivityKind =
 	| "wait";
 export type ActivityTone = "ok" | "bad" | "info";
 export type WorkCheck = "not-run" | "running" | "passed" | "failed";
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export interface RuntimeIdentityProjection {
 	readonly cwdName: string;
@@ -216,9 +232,9 @@ const record = (v: unknown): v is Record<string, unknown> =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
 const num = (v: unknown) => (typeof v === "number" ? v : undefined);
-const at = (e: EventLogEvent) => Date.parse(e.timestamp) || Date.now();
+const at = (e: ProjectableEvent) => Date.parse(e.timestamp) || Date.now();
 const cap = <T>(xs: readonly T[], n: number) => xs.slice(0, n);
-const debug = (p: DashboardProjection, e: EventLogEvent) => ({
+const debug = (p: DashboardProjection, e: ProjectableEvent) => ({
 	...p,
 	debugEvents: cap([`${e.sequence} ${e.type}`, ...p.debugEvents], 200),
 });
@@ -230,19 +246,11 @@ const displayWork = (
 ): WorkItemProjection => {
 	const d = display(work["display"]);
 	const key = String(work["workKey"] ?? previous?.workKey ?? "work");
-	return {
+	const item: Mutable<WorkItemProjection> = {
 		workKey: key,
 		sourceId: String(work["sourceId"] ?? previous?.sourceId ?? "source"),
-		...(str(work["subject"]) === undefined
-			? {}
-			: { subject: str(work["subject"]) }),
 		primary: str(d["primary"]) ?? previous?.primary,
 		title: str(d["title"]) ?? str(work["title"]) ?? previous?.title ?? key,
-		...(str(d["subtitle"]) === undefined
-			? {}
-			: { subtitle: str(d["subtitle"]) }),
-		...(str(d["url"]) === undefined ? {} : { url: str(d["url"]) }),
-		...(str(d["version"]) === undefined ? {} : { version: str(d["version"]) }),
 		labels: Array.isArray(d["labels"])
 			? d["labels"].filter((x): x is string => typeof x === "string")
 			: (previous?.labels ?? []),
@@ -250,20 +258,24 @@ const displayWork = (
 			(str(work["status"]) as WorkStatus | undefined) ??
 			previous?.status ??
 			"pending",
-		...(str(work["blockedReason"]) === undefined
-			? {}
-			: { blockedReason: str(work["blockedReason"]) }),
-		...(Array.isArray(work["operatorActions"])
-			? { operatorActions: work["operatorActions"] }
-			: previous?.operatorActions === undefined
-				? {}
-				: { operatorActions: previous.operatorActions }),
-		...(str(work["currentRunId"]) === undefined
-			? previous?.currentRunId === undefined
-				? {}
-				: { currentRunId: previous.currentRunId }
-			: { currentRunId: str(work["currentRunId"]) }),
 	};
+	const subject = str(work["subject"]);
+	const subtitle = str(d["subtitle"]);
+	const url = str(d["url"]);
+	const version = str(d["version"]);
+	const blockedReason = str(work["blockedReason"]);
+	const currentRunId = str(work["currentRunId"]) ?? previous?.currentRunId;
+	if (subject !== undefined) item.subject = subject;
+	if (subtitle !== undefined) item.subtitle = subtitle;
+	if (url !== undefined) item.url = url;
+	if (version !== undefined) item.version = version;
+	if (blockedReason !== undefined) item.blockedReason = blockedReason;
+	if (Array.isArray(work["operatorActions"]))
+		item.operatorActions = work["operatorActions"];
+	else if (previous?.operatorActions !== undefined)
+		item.operatorActions = previous.operatorActions;
+	if (currentRunId !== undefined) item.currentRunId = currentRunId;
+	return item;
 };
 export const workLabel = (work: {
 	readonly primary?: string | undefined;
@@ -274,7 +286,7 @@ export const workLabel = (work: {
 const mergeAttempt = (
 	a: AgentAttemptProjection,
 	patch: Partial<AgentAttemptProjection>,
-	e: EventLogEvent,
+	e: ProjectableEvent,
 ): AgentAttemptProjection => ({
 	...a,
 	lastEventSeq: Number(e.sequence),
@@ -293,12 +305,15 @@ const activeTool = (tool: {
 	readonly check: string;
 	readonly target?: string | undefined;
 	readonly toolCallId?: string | undefined;
-}) => ({
-	kind: tool.kind,
-	isCheck: tool.check === "running",
-	...(tool.target === undefined ? {} : { target: tool.target }),
-	...(tool.toolCallId === undefined ? {} : { toolCallId: tool.toolCallId }),
-});
+}) => {
+	const active: Mutable<ActiveTool> = {
+		kind: tool.kind,
+		isCheck: tool.check === "running",
+	};
+	if (tool.target !== undefined) active.target = tool.target;
+	if (tool.toolCallId !== undefined) active.toolCallId = tool.toolCallId;
+	return active;
+};
 const lifecycleActivity = (
 	prev: AgentAttemptProjection,
 	summary: string,
@@ -316,7 +331,7 @@ const addUsage = (
 
 const reduceAgentEvent = (
 	p: DashboardProjection,
-	e: EventLogEvent,
+	e: ProjectableEvent,
 	payload: Record<string, unknown>,
 ): DashboardProjection => {
 	const runId = str(payload["runId"]);
@@ -493,11 +508,11 @@ const reduceAgentEvent = (
 
 const reduceEvent = (
 	p0: DashboardProjection,
-	e: EventLogEvent,
+	e: ProjectableEvent,
 ): DashboardProjection => {
 	let p = debug(p0, e);
 	const payload = record(e.payload) ? e.payload : {};
-	if (e.kind === "agent_session_event")
+	if (e.kind === "agent_event" || e.kind === "agent_session_event")
 		return reduceAgentEvent(p, e, e as Record<string, unknown>);
 	if (e.type === "session_paused") return { ...p, status: "paused" };
 	if (e.type === "session_resumed") return { ...p, status: "running" };
@@ -642,15 +657,15 @@ const reduceEvent = (
 					workKey: str(payload["workKey"]),
 					attempt: num(payload["attempt"]),
 				},
-			].sort((a, b) => a.dueAtMs - b.dueAtMs),
+			].toSorted((a, b) => a.dueAtMs - b.dueAtMs),
 		};
 	}
 	return p;
 };
 
-export const reduceEventLogEvent = (
+export const reduceProjectableEvent = (
 	projection: DashboardProjection,
-	event: EventLogEvent,
+	event: ProjectableEvent,
 ): DashboardProjection => {
 	if (Number(event.sequence) <= projection.frontier) return projection;
 	return {
@@ -660,8 +675,8 @@ export const reduceEventLogEvent = (
 };
 export const reduceRecord = (
 	projection: DashboardProjection,
-	input: PlotEventRecord,
-): DashboardProjection => reduceEventLogEvent(projection, input.event);
+	input: ProjectableEventRecord,
+): DashboardProjection => reduceProjectableEvent(projection, input.event);
 
 export const applySnapshot = (
 	projection: DashboardProjection,
@@ -741,9 +756,9 @@ export const applySnapshot = (
 };
 
 export const rebuildProjectionFromEventLog = (
-	events: readonly EventLogEvent[],
+	events: readonly ProjectableEvent[],
 	seed = emptyProjection("default", "workflow"),
-): DashboardProjection => events.reduce(reduceEventLogEvent, seed);
+): DashboardProjection => events.reduce(reduceProjectableEvent, seed);
 export const safeParseDashboardProjection = (value: unknown) => ({
 	success: true as const,
 	data: value as DashboardProjection,

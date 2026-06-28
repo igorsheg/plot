@@ -1,4 +1,14 @@
+import { z } from "zod";
 import { parsePlotInstances, type PlotInstance } from "./instance.js";
+
+const recordSchema = z.record(z.string(), z.unknown());
+const eventSchema = z
+	.object({
+		sequence: z.number(),
+		timestamp: z.string(),
+		type: z.string(),
+	})
+	.passthrough();
 
 export interface PlotEventRecord {
 	readonly kind: "event";
@@ -25,70 +35,53 @@ export interface WebDashboardProjection {
 	readonly activity: readonly WebActivityEntry[];
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
+const activityEntrySchema: z.ZodType<WebActivityEntry> = z.object({
+	atMs: z.number(),
+	tone: z.string(),
+	text: z.string(),
+});
+
+const activitySchema = z
+	.array(z.unknown())
+	.transform((entries) =>
+		entries.flatMap((entry) => {
+			const parsed = activityEntrySchema.safeParse(entry);
+			return parsed.success ? [parsed.data] : [];
+		}),
+	)
+	.catch([]);
+
+const projectionPayloadSchema: z.ZodType<WebDashboardProjection> = z.object({
+	sessionId: z.string(),
+	workflowName: z.string(),
+	status: z.string(),
+	frontier: z.number(),
+	work: recordSchema.catch({}),
+	attempts: recordSchema.catch({}),
+	activity: activitySchema,
+});
+
+const projectionSchema = z
+	.union([
+		z.object({ projection: projectionPayloadSchema }),
+		projectionPayloadSchema,
+	])
+	.transform((value) => ("projection" in value ? value.projection : value));
 
 export const parsePlotEventRecord = (
 	value: unknown,
 ): PlotEventRecord | undefined => {
-	if (!isRecord(value) || value["kind"] !== "event") return undefined;
-	const event = value["event"];
-	if (!isRecord(event)) return undefined;
-	if (
-		typeof event["sequence"] !== "number" ||
-		typeof event["timestamp"] !== "string" ||
-		typeof event["type"] !== "string"
-	)
-		return undefined;
-	return {
-		kind: "event",
-		event: {
-			...event,
-			sequence: event["sequence"],
-			timestamp: event["timestamp"],
-			type: event["type"],
-		},
-	};
-};
-
-const parseActivityEntry = (value: unknown): WebActivityEntry | undefined => {
-	if (!isRecord(value)) return undefined;
-	if (
-		typeof value["atMs"] !== "number" ||
-		typeof value["tone"] !== "string" ||
-		typeof value["text"] !== "string"
-	)
-		return undefined;
-	return { atMs: value["atMs"], tone: value["tone"], text: value["text"] };
+	const parsed = z
+		.object({ kind: z.literal("event"), event: eventSchema })
+		.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
 };
 
 const parseProjection = (
 	value: unknown,
 ): WebDashboardProjection | undefined => {
-	if (!isRecord(value)) return undefined;
-	const projection = isRecord(value["projection"])
-		? value["projection"]
-		: value;
-	if (
-		typeof projection["sessionId"] !== "string" ||
-		typeof projection["workflowName"] !== "string" ||
-		typeof projection["status"] !== "string" ||
-		typeof projection["frontier"] !== "number"
-	)
-		return undefined;
-	return {
-		sessionId: projection["sessionId"],
-		workflowName: projection["workflowName"],
-		status: projection["status"],
-		frontier: projection["frontier"],
-		work: isRecord(projection["work"]) ? projection["work"] : {},
-		attempts: isRecord(projection["attempts"]) ? projection["attempts"] : {},
-		activity: Array.isArray(projection["activity"])
-			? projection["activity"]
-					.map(parseActivityEntry)
-					.filter((entry) => entry !== undefined)
-			: [],
-	};
+	const parsed = projectionSchema.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
 };
 
 export const fetchInstances = async (): Promise<readonly PlotInstance[]> => {

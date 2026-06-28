@@ -2,35 +2,35 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { createEventLogStore } from "@plot/session/event-log";
-import type { PlotInstanceRecord } from "@plot/session/supervisor";
+import { createFileEventLogStore } from "@plot/session/event-log";
+import type { FleetInstanceRecord } from "@plot/session/fleet";
 import { startPlotWebGateway } from "../src/web-gateway.js";
 
 const writeInstances = async (
-	supervisorDir: string,
-	instances: readonly PlotInstanceRecord[],
+	fleetDir: string,
+	instances: readonly FleetInstanceRecord[],
 ) => {
-	await mkdir(supervisorDir, { recursive: true });
+	await mkdir(fleetDir, { recursive: true });
 	await writeFile(
-		join(supervisorDir, "instances.json"),
+		join(fleetDir, "instances.json"),
 		`${JSON.stringify(instances, null, 2)}\n`,
 	);
 };
 
 const startTestGateway = async (cwd: string) => {
-	const supervisorDir = await mkdtemp(join(tmpdir(), "plot-supervisor-"));
+	const fleetDir = await mkdtemp(join(tmpdir(), "plot-fleet-"));
 	return {
-		supervisorDir,
-		gateway: await startPlotWebGateway({ cwd, supervisorDir, open: false }),
+		fleetDir,
+		gateway: await startPlotWebGateway({ cwd, fleetDir, open: false }),
 	};
 };
 
 describe("Plot web gateway", () => {
-	test("serves supervised sessions", async () => {
+	test("serves fleet sessions", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const { gateway, supervisorDir } = await startTestGateway(dir);
+		const { gateway, fleetDir } = await startTestGateway(dir);
 		try {
-			await writeInstances(supervisorDir, [
+			await writeInstances(fleetDir, [
 				{
 					id: "instance-1",
 					status: "online",
@@ -57,15 +57,19 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("tails supervised session events as SSE", async () => {
+	test("tails fleet session events as SSE", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const eventLog = await createEventLogStore({
-			sessionDir: join(dir, ".plot/sessions"),
+		const sessionDir = join(dir, ".plot/sessions");
+		const eventLog = await createFileEventLogStore({
+			sessionDir,
 			sessionId: "default",
 		});
-		await eventLog.append({ type: "session_started", payload: { ok: true } });
-		const { gateway, supervisorDir } = await startTestGateway(dir);
-		await writeInstances(supervisorDir, [
+		await eventLog.appendSessionEvent({
+			type: "session_started",
+			payload: { ok: true },
+		});
+		const { gateway, fleetDir } = await startTestGateway(dir);
+		await writeInstances(fleetDir, [
 			{
 				id: "instance-1",
 				status: "online",
@@ -75,8 +79,8 @@ describe("Plot web gateway", () => {
 				sessionId: "default",
 				workflowName: "workflow",
 				cwdName: "project",
-				sessionDir: eventLog.sessionPath,
-				eventLogPath: eventLog.eventLogPath,
+				sessionDir,
+				eventLogPath: eventLog.path,
 				lastSequence: 1,
 			},
 		]);
@@ -94,6 +98,7 @@ describe("Plot web gateway", () => {
 			const decoder = new TextDecoder();
 			let text = "";
 			while (!text.includes("id: 1")) {
+				// eslint-disable-next-line no-await-in-loop -- test reads SSE until the expected event arrives.
 				const chunk = await reader.read();
 				if (chunk.done) break;
 				text += decoder.decode(chunk.value, { stream: true });
@@ -106,17 +111,21 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("serves a projected supervised session snapshot", async () => {
+	test("serves a projected fleet session snapshot", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const eventLog = await createEventLogStore({
-			sessionDir: join(dir, ".plot/sessions"),
+		const sessionDir = join(dir, ".plot/sessions");
+		const eventLog = await createFileEventLogStore({
+			sessionDir,
 			sessionId: "default",
 		});
-		await eventLog.append({ type: "session_started", payload: {} });
-		await eventLog.append({ type: "session_tick", payload: { tickId: 7 } });
-		const { gateway, supervisorDir } = await startTestGateway(dir);
+		await eventLog.appendSessionEvent({ type: "session_started", payload: {} });
+		await eventLog.appendSessionEvent({
+			type: "session_tick",
+			payload: { tickId: 7 },
+		});
+		const { gateway, fleetDir } = await startTestGateway(dir);
 		try {
-			await writeInstances(supervisorDir, [
+			await writeInstances(fleetDir, [
 				{
 					id: "instance-1",
 					status: "online",
@@ -126,8 +135,8 @@ describe("Plot web gateway", () => {
 					sessionId: "default",
 					workflowName: "workflow",
 					cwdName: "project",
-					sessionDir: eventLog.sessionPath,
-					eventLogPath: eventLog.eventLogPath,
+					sessionDir,
+					eventLogPath: eventLog.path,
 					lastSequence: 2,
 				},
 			]);

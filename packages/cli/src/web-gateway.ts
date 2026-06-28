@@ -1,24 +1,21 @@
 import { spawn } from "node:child_process";
 import { open } from "node:fs/promises";
 import {
-	safeParseEventLogEvent,
-	type EventLogEvent,
-} from "@plot/session/protocol";
+	decodeEventLogRecord,
+	type EventLogRecord,
+} from "@plot/session/event-log";
 import {
-	initialJsonlDecoderState,
-	splitJsonlChunk,
-	type JsonlDecoderState,
-} from "@plot/session/protocol-jsonl";
-import { startPlotSupervisorIpcServer } from "@plot/session/supervisor-ipc";
-import {
-	resolvePlotCliSpawnCommand,
-	type PlotInstanceRecord,
-} from "@plot/session/supervisor";
+	emptyJsonlDecodeState,
+	splitJsonl,
+	type JsonlDecodeState,
+} from "@plot/session/jsonl";
+import { startFleetIpcServer } from "@plot/session/fleet-ipc";
+import type { FleetInstanceRecord } from "@plot/session/fleet";
 import {
 	emptyProjection,
 	rebuildProjectionFromEventLog,
 	type DashboardProjection,
-} from "@plot/tui/projection";
+} from "@plot/session/projection";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
 const assets: Record<string, WebAsset> = webAssets;
@@ -26,7 +23,7 @@ const assets: Record<string, WebAsset> = webAssets;
 export interface PlotWebGatewayOptions {
 	readonly cwd: string;
 	readonly agentDir?: string | undefined;
-	readonly supervisorDir?: string | undefined;
+	readonly fleetDir?: string | undefined;
 	readonly workflowPath?: string | undefined;
 	readonly host?: string | undefined;
 	readonly port?: number | undefined;
@@ -114,20 +111,19 @@ const parseAfterSequence = (input: {
 
 interface EventLogTailState {
 	readonly decoder: TextDecoder;
-	readonly jsonl: JsonlDecoderState;
+	readonly jsonl: JsonlDecodeState;
 	readonly offset: number;
 }
 
 const initialEventLogTailState = (offset = 0): EventLogTailState => ({
 	decoder: new TextDecoder(),
-	jsonl: initialJsonlDecoderState,
+	jsonl: emptyJsonlDecodeState,
 	offset,
 });
 
-const parseEventLogLine = (line: string): EventLogEvent | undefined => {
+const parseEventLogLine = (line: string): EventLogRecord | undefined => {
 	try {
-		const parsed = safeParseEventLogEvent(JSON.parse(line) as unknown);
-		return parsed.success ? (parsed.data as EventLogEvent) : undefined;
+		return decodeEventLogRecord(JSON.parse(line) as unknown);
 	} catch {
 		return undefined;
 	}
@@ -138,7 +134,7 @@ const readEventLogTail = async (input: {
 	readonly path: string;
 	readonly state: EventLogTailState;
 }): Promise<{
-	readonly events: readonly EventLogEvent[];
+	readonly events: readonly EventLogRecord[];
 	readonly state: EventLogTailState;
 }> => {
 	let file;
@@ -153,9 +149,10 @@ const readEventLogTail = async (input: {
 			stats.size < input.state.offset
 				? initialEventLogTailState()
 				: input.state;
-		const events: EventLogEvent[] = [];
+		const events: EventLogRecord[] = [];
 		const buffer = Buffer.alloc(64 * 1024);
 		while (state.offset < stats.size) {
+			// eslint-disable-next-line no-await-in-loop -- tailer reads sequential file offsets.
 			const { bytesRead } = await file.read(
 				buffer,
 				0,
@@ -167,7 +164,9 @@ const readEventLogTail = async (input: {
 			const chunk = state.decoder.decode(buffer.subarray(0, bytesRead), {
 				stream: true,
 			});
-			const split = await splitJsonlChunk(state.jsonl, chunk);
+			const split = splitJsonl(state.jsonl, chunk, {
+				maxLineBytes: 2 * 1024 * 1024,
+			});
 			state = { ...state, jsonl: split.state, offset: nextOffset };
 			for (const line of split.lines) {
 				const event = parseEventLogLine(line);
@@ -184,7 +183,7 @@ const readEventLogTail = async (input: {
 
 const readSessionEventLog = async (
 	path: string,
-): Promise<readonly EventLogEvent[]> =>
+): Promise<readonly EventLogRecord[]> =>
 	(
 		await readEventLogTail({
 			after: -1,
@@ -200,7 +199,7 @@ const serializableProjection = (projection: DashboardProjection) => ({
 });
 
 const sessionProjectionResponse = async (
-	instance: PlotInstanceRecord,
+	instance: FleetInstanceRecord,
 ): Promise<Response> => {
 	if (instance.eventLogPath === undefined || instance.sessionId === undefined)
 		return new Response("session not ready", { status: 409 });
@@ -266,14 +265,14 @@ const sessionEventsResponse = (input: {
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const supervisor = await startPlotSupervisorIpcServer({
+	const fleetServer = await startFleetIpcServer({
 		options: {
 			cwd: options.cwd,
-			...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
-			...(options.supervisorDir === undefined
-				? {}
-				: { supervisorDir: options.supervisorDir }),
-			cli: resolvePlotCliSpawnCommand(),
+			...(options.fleetDir === undefined ? {} : { fleetDir: options.fleetDir }),
+			cli: {
+				command: process.execPath,
+				args: process.argv[1] === undefined ? [] : [process.argv[1]],
+			},
 		},
 	});
 	const server = Bun.serve({
@@ -283,7 +282,7 @@ export const startPlotWebGateway = async (
 			const url = new URL(request.url);
 			if (url.pathname === "/api/instances" && request.method === "POST") {
 				const body = await parseCreateInstanceBody(request);
-				const instance = await supervisor.supervisor.spawnInstance({
+				const instance = await fleetServer.fleet.spawn({
 					cwd: body.cwd ?? options.cwd,
 					...(body.workflowPath !== undefined
 						? { workflowPath: body.workflowPath }
@@ -291,15 +290,12 @@ export const startPlotWebGateway = async (
 							? {}
 							: { workflowPath: options.workflowPath }),
 					...(body.label === undefined ? {} : { label: body.label }),
-					...(options.agentDir === undefined
-						? {}
-						: { agentDir: options.agentDir }),
 				});
 				return text({ instance });
 			}
 			const stopPath = /^\/api\/instances\/([^/]+)$/.exec(url.pathname);
 			if (stopPath !== null && request.method === "DELETE") {
-				const instance = await supervisor.supervisor.stopInstance(
+				const instance = await fleetServer.fleet.stop(
 					decodeURIComponent(stopPath[1] ?? ""),
 				);
 				return instance === undefined
@@ -307,7 +303,7 @@ export const startPlotWebGateway = async (
 					: text({ instance });
 			}
 			if (url.pathname === "/api/instances") {
-				return text({ instances: supervisor.supervisor.listInstances() });
+				return text({ instances: await fleetServer.fleet.list() });
 			}
 			const eventPath = /^\/api\/instances\/([^/]+)\/events$/.exec(
 				url.pathname,
@@ -320,7 +316,7 @@ export const startPlotWebGateway = async (
 				if (after === undefined)
 					return text({ error: "invalid after sequence" });
 				const id = decodeURIComponent(eventPath[1] ?? "");
-				const instance = supervisor.supervisor.getInstance(id);
+				const instance = await fleetServer.fleet.status(id);
 				if (instance === undefined)
 					return new Response("session not found", { status: 404 });
 				if (instance.eventLogPath === undefined)
@@ -328,14 +324,14 @@ export const startPlotWebGateway = async (
 				void instance;
 				return sessionEventsResponse({
 					request,
-					records: supervisor.supervisor.attachRecords(id, after),
+					records: fleetServer.fleet.attachRecords(id, after),
 				});
 			}
 			const projectionPath = /^\/api\/instances\/([^/]+)\/projection$/.exec(
 				url.pathname,
 			);
 			if (projectionPath !== null) {
-				const instance = supervisor.supervisor.getInstance(
+				const instance = await fleetServer.fleet.status(
 					decodeURIComponent(projectionPath[1] ?? ""),
 				);
 				if (instance === undefined)
@@ -343,7 +339,7 @@ export const startPlotWebGateway = async (
 				return sessionProjectionResponse(instance);
 			}
 			if (url.pathname === "/api/health")
-				return text({ ok: true, socketPath: supervisor.socketPath });
+				return text({ ok: true, socketPath: fleetServer.socketPath });
 			return assetResponse(url.pathname);
 		},
 	});
@@ -354,8 +350,8 @@ export const startPlotWebGateway = async (
 		url,
 		stop: () => {
 			server.stop(true);
-			supervisor.server.close();
-			void supervisor.supervisor.shutdown();
+			fleetServer.server.close();
+			void fleetServer.fleet.shutdown();
 		},
 	};
 };

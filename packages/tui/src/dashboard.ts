@@ -10,7 +10,10 @@ import {
 import { debugViewLines } from "./debug-view.js";
 import { detailBodyLines, detailViewLines } from "./detail-view.js";
 import { fleetViewLines } from "./fleet-view.js";
-import type { DashboardProjection, DashboardStatus } from "./projection.js";
+import type {
+	DashboardProjection,
+	DashboardStatus,
+} from "@plot/session/projection";
 import { style } from "./style.js";
 
 export interface DashboardActions {

@@ -6,7 +6,7 @@ export type {
 	ToolDefinition,
 	ToolExecutionMode,
 } from "@earendil-works/pi-coding-agent";
-export { defineTool } from "@earendil-works/pi-coding-agent";
+export const defineTool = <T extends ToolDefinition>(tool: T): T => tool;
 
 export type MaybePromise<A> = A | Promise<A>;
 

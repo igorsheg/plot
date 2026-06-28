@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { RuntimeIdentityProjection } from "./projection.js";
+import type { RuntimeIdentityProjection } from "@plot/session/projection";
 import type { WorkflowDefinition } from "@plot/session/workflow";
 
 export const runtimeIdentityFrom = (input: {

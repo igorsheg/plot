@@ -1,12 +1,11 @@
-import type { CreateAgentSession } from "@plot/session/pi/agent-session";
-import type { StdioChunk } from "@plot/session/protocol-stdio";
+import type { CreatePiAgentSession } from "@plot/session/pi-runner";
 import { takeOverStdout, writeRawStdout } from "./stdout-guard.js";
 
 export interface PlotCliIo {
-	readonly stdin: AsyncIterable<StdioChunk>;
+	readonly stdin: AsyncIterable<string | Uint8Array>;
 	readonly writeStdout: (text: string) => Promise<void> | void;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
-	readonly createAgentSession?: CreateAgentSession;
+	readonly createAgentSession?: CreatePiAgentSession;
 	readonly runTui?: (options: unknown) => Promise<void> | void;
 	readonly protectStdout?: () => void;
 }
@@ -44,7 +43,7 @@ export const writeProcessStderr = (text: string) =>
 	});
 
 export const processCliIo = (): PlotCliIo => ({
-	stdin: process.stdin as AsyncIterable<StdioChunk>,
+	stdin: process.stdin as AsyncIterable<string | Uint8Array>,
 	writeStdout: writeRawStdout,
 	writeStderr: writeProcessStderr,
 	protectStdout: takeOverStdout,

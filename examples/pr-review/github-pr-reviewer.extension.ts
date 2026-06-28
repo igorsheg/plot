@@ -797,6 +797,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					const draftBlocked = pr.isDraft && !config.includeDrafts;
 					const head = pr.headRefOid ?? pr.headRefName;
 					const workspacePath = prWorkspacePath(repo, pr.number);
+					// eslint-disable-next-line no-await-in-loop -- work records are built sequentially for stable output order.
 					await mkdir(workspacePath, { recursive: true });
 					const headMatches =
 						anchor !== undefined && anchor.head === pr.headRefOid;

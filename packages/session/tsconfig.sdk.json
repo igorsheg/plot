@@ -3,9 +3,9 @@
 	"compilerOptions": {
 		"declaration": true,
 		"emitDeclarationOnly": true,
-		"declarationMap": false,
 		"outDir": "dist",
-		"rootDir": "src"
+		"rootDir": "src",
+		"noEmit": false
 	},
-	"include": ["src/**/*.ts"]
+	"include": ["src/sdk.ts"]
 }

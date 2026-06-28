@@ -1,10 +1,10 @@
 # Plot
 
-Plot is a control plane for long-running coding-agent work. Its language distinguishes durable work definitions from live supervised runs so operators can reason about a fleet clearly.
+Plot is a control plane for long-running coding-agent work. Its language distinguishes durable work definitions from live fleet-managed sessions so operators can reason about a fleet clearly.
 
 ## Product principle
 
-Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning. Plot owns the outer loop (`tick -> observe -> reconcile -> act`), Sources own domain observation and compact Work Item context, tools own trusted side effects, and Agent Runs own investigation and judgment.
+Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning. Plot owns the outer loop (`tick -> reconcile -> act`), Sources own domain observation and compact Work Item context, tools own trusted side effects, and Agent Runs own investigation and judgment.
 
 ## Language
 
@@ -13,7 +13,7 @@ A durable definition of what work to look for and how an agent should handle it.
 _Avoid_: Plot instance, workflow instance, session
 
 **Plot Session**:
-A live supervised run of a Workflow. It is the unit operators see and control in fleet views.
+A live fleet-managed run of a Workflow. It is the unit operators see and control in fleet views.
 _Avoid_: Workflow, plot instance, run
 
 **Work Item**:

@@ -1,241 +1,132 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { withWideEvent } from "@plot/common/observability";
 import { parse as parseYaml } from "yaml";
-import { errorMessage } from "./util.js";
+import { z } from "zod";
+import { errorMessage } from "./primitives.js";
+import {
+	decodeWorkflowRuntimeConfig,
+	type WorkflowRuntimeConfig,
+} from "./workflow-config.js";
 
-export class PlotWorkflowError extends Error {
-	override readonly name = "PlotWorkflowError";
+export class WorkflowBoundaryError extends Error {
+	override readonly name = "WorkflowBoundaryError";
 	readonly phase: "read" | "parse";
-	readonly path?: string | undefined;
+	readonly path?: string;
+
 	constructor(input: {
 		readonly phase: "read" | "parse";
 		readonly message: string;
-		readonly path?: string | undefined;
+		readonly path?: string;
 	}) {
 		super(input.message);
 		this.phase = input.phase;
-		this.path = input.path;
+		if (input.path !== undefined) this.path = input.path;
 	}
 }
-export type AgentToolMode = boolean | "all" | "builtin";
-export interface WorkflowAgentConfig {
-	readonly provider?: string | undefined;
-	readonly model?: string | undefined;
-	readonly thinking?:
-		| "off"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| undefined;
-	readonly tools?: readonly string[] | undefined;
-	readonly excludeTools?: readonly string[] | undefined;
-	readonly noTools?: AgentToolMode | undefined;
-	readonly allowProjectConfig?: boolean | undefined;
-	readonly maxTurns?: number | undefined;
-}
-export interface WorkflowPlotConfig {
-	readonly tickIntervalMs?: number | undefined;
-	readonly maxRunDurationMs?: number | undefined;
-	readonly stallTimeoutMs?: number | undefined;
-	readonly queueCapacity?: number | undefined;
-	readonly eventCapacity?: number | undefined;
-	readonly eventBufferCapacity?: number | undefined;
-}
-export interface WorkflowResourcesConfig {
-	readonly skills?: readonly string[] | undefined;
-	readonly prompts?: readonly string[] | undefined;
-	readonly contextFiles?: boolean | undefined;
-	readonly systemPrompt?: string | undefined;
-	readonly appendSystemPrompt?: readonly string[] | undefined;
-}
-export interface WorkflowExtensionConfig {
-	readonly source: string;
-	readonly maxConcurrentRuns?: number | undefined;
-	readonly config?: unknown;
-}
-export interface WorkflowRuntimeConfig {
-	readonly name?: string;
-	readonly plot?: WorkflowPlotConfig;
-	readonly agent?: WorkflowAgentConfig;
-	readonly resources?: WorkflowResourcesConfig;
-	readonly extension?: WorkflowExtensionConfig;
-}
+
 export interface WorkflowDefinition {
 	readonly config: Record<string, unknown>;
 	readonly runtime: WorkflowRuntimeConfig;
 	readonly prompt: string;
 	readonly path?: string;
 }
-export interface WorkflowFileSystemShape {
+
+export interface WorkflowFileSystem {
 	readonly readFileString: (path: string) => Promise<string>;
 }
-export type WorkflowFileSystem = WorkflowFileSystemShape;
-export const WorkflowFileSystem = Symbol("WorkflowFileSystem");
-export const nodeWorkflowFileSystemLayer: WorkflowFileSystemShape = {
-	readFileString: (path) =>
-		withWideEvent("workflow.read", { path }, async () => {
-			try {
-				return await readFile(path, "utf8");
-			} catch (error) {
-				throw new PlotWorkflowError({
-					phase: "read",
-					path,
-					message: errorMessage(error),
-				});
-			}
-		}),
-};
+
+export interface WorkflowDiscoveryOptions {
+	readonly cwd: string;
+	readonly workflowPath?: string;
+}
+
+export const DEFAULT_WORKFLOW_PATH = "WORKFLOW.md";
+
+const configSchema = z.record(z.string(), z.unknown());
 const frontMatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-const parseConfig = (
+const runtimeKeys = [
+	"name",
+	"plot",
+	"agent",
+	"resources",
+	"extension",
+] as const;
+
+const nodeFileSystem: WorkflowFileSystem = {
+	readFileString: async (path) => {
+		try {
+			return await readFile(path, "utf8");
+		} catch (error) {
+			throw new WorkflowBoundaryError({
+				phase: "read",
+				path,
+				message: errorMessage(error),
+			});
+		}
+	},
+};
+
+const parseFrontMatter = (
 	frontMatter: string,
 	path: string | undefined,
 ): Record<string, unknown> => {
 	try {
 		const parsed = frontMatter.trim() === "" ? {} : parseYaml(frontMatter);
 		if (parsed === null) return {};
-		if (typeof parsed !== "object" || Array.isArray(parsed))
-			throw new Error("workflow front matter must be an object");
-		return parsed as Record<string, unknown>;
+		return configSchema.parse(parsed);
 	} catch (error) {
-		throw new PlotWorkflowError({
+		throw new WorkflowBoundaryError({
 			phase: "parse",
-			message: errorMessage(error),
 			...(path === undefined ? {} : { path }),
+			message: errorMessage(error),
 		});
 	}
 };
-const stringArray = (
-	value: unknown,
-	field: string,
-): readonly string[] | undefined => {
-	if (value === undefined) return undefined;
-	if (!Array.isArray(value) || value.some((x) => typeof x !== "string"))
-		throw new Error(`${field} must be string[]`);
-	return value;
-};
-const object = (value: unknown, field: string): Record<string, unknown> => {
-	if (value === undefined) return {};
-	if (typeof value !== "object" || value === null || Array.isArray(value))
-		throw new Error(`${field} must be object`);
-	return value as Record<string, unknown>;
-};
-const decodeRuntimeConfig = (
+
+const runtimeInputFromConfig = (
 	config: Record<string, unknown>,
-	path?: string,
+): Record<string, unknown> => {
+	const runtime = config["runtime"];
+	if (runtime !== undefined) return configSchema.parse(runtime);
+	const input: Record<string, unknown> = {};
+	for (const key of runtimeKeys) {
+		if (config[key] !== undefined) input[key] = config[key];
+	}
+	return input;
+};
+
+const decodeRuntime = (
+	config: Record<string, unknown>,
+	path: string | undefined,
 ): WorkflowRuntimeConfig => {
 	try {
-		const runtime = object(config["runtime"] ?? config, "runtime");
-		const agent =
-			runtime["agent"] === undefined
-				? undefined
-				: object(runtime["agent"], "agent");
-		const plot =
-			runtime["plot"] === undefined
-				? undefined
-				: object(runtime["plot"], "plot");
-		const resources =
-			runtime["resources"] === undefined
-				? undefined
-				: object(runtime["resources"], "resources");
-		const extension =
-			runtime["extension"] === undefined
-				? undefined
-				: object(runtime["extension"], "extension");
-		return {
-			...(typeof runtime["name"] === "string" ? { name: runtime["name"] } : {}),
-			...(plot
-				? {
-						plot: {
-							tickIntervalMs: plot["tickIntervalMs"] as number | undefined,
-							maxRunDurationMs: plot["maxRunDurationMs"] as number | undefined,
-							stallTimeoutMs: plot["stallTimeoutMs"] as number | undefined,
-							queueCapacity: plot["queueCapacity"] as number | undefined,
-							eventCapacity: plot["eventCapacity"] as number | undefined,
-							eventBufferCapacity: plot["eventBufferCapacity"] as
-								| number
-								| undefined,
-						},
-					}
-				: {}),
-			...(agent
-				? {
-						agent: {
-							provider: agent["provider"] as string | undefined,
-							model: agent["model"] as string | undefined,
-							thinking: agent["thinking"] as WorkflowAgentConfig["thinking"],
-							tools: stringArray(agent["tools"], "tools"),
-							excludeTools: stringArray(agent["excludeTools"], "excludeTools"),
-							noTools: agent["noTools"] as AgentToolMode | undefined,
-							allowProjectConfig: agent["allowProjectConfig"] as
-								| boolean
-								| undefined,
-							maxTurns: agent["maxTurns"] as number | undefined,
-						},
-					}
-				: {}),
-			...(resources
-				? {
-						resources: {
-							skills: stringArray(resources["skills"], "skills"),
-							prompts: stringArray(resources["prompts"], "prompts"),
-							contextFiles: resources["contextFiles"] as boolean | undefined,
-							systemPrompt: resources["systemPrompt"] as string | undefined,
-							appendSystemPrompt: stringArray(
-								resources["appendSystemPrompt"],
-								"appendSystemPrompt",
-							),
-						},
-					}
-				: {}),
-			...(extension
-				? {
-						extension: {
-							source: String(extension["source"]),
-							maxConcurrentRuns: extension["maxConcurrentRuns"] as
-								| number
-								| undefined,
-							config: extension["config"],
-						},
-					}
-				: {}),
-		};
+		return decodeWorkflowRuntimeConfig(runtimeInputFromConfig(config));
 	} catch (error) {
-		throw new PlotWorkflowError({
+		throw new WorkflowBoundaryError({
 			phase: "parse",
-			message: errorMessage(error),
 			...(path === undefined ? {} : { path }),
+			message: errorMessage(error),
 		});
 	}
 };
+
 export const parseWorkflowText = (
 	text: string,
 	path?: string,
-): Promise<WorkflowDefinition> =>
-	withWideEvent(
-		"workflow.parse",
-		{ ...(path === undefined ? {} : { path }), bytes: text.length },
-		async () => {
-			const match = frontMatterPattern.exec(text);
-			const frontMatter = match?.[1] ?? "";
-			const prompt = match ? text.slice(match[0].length).trim() : text.trim();
-			const config = parseConfig(frontMatter, path);
-			const runtime = decodeRuntimeConfig(config, path);
-			return {
-				config,
-				runtime,
-				prompt,
-				...(path === undefined ? {} : { path }),
-			};
-		},
-	);
-export const DEFAULT_WORKFLOW_PATH = "WORKFLOW.md";
-export interface WorkflowDiscoveryOptions {
-	readonly cwd: string;
-	readonly workflowPath?: string;
-}
+): WorkflowDefinition => {
+	const match = frontMatterPattern.exec(text);
+	const frontMatter = match?.[1] ?? "";
+	const prompt = match ? text.slice(match[0].length).trim() : text.trim();
+	const config = parseFrontMatter(frontMatter, path);
+	const workflow: WorkflowDefinition = {
+		config,
+		runtime: decodeRuntime(config, path),
+		prompt,
+		...(path === undefined ? {} : { path }),
+	};
+	return workflow;
+};
+
 export const resolveWorkflowPath = (
 	options: WorkflowDiscoveryOptions,
 ): string => {
@@ -244,18 +135,15 @@ export const resolveWorkflowPath = (
 		? workflowPath
 		: resolve(options.cwd, workflowPath);
 };
+
 export const loadWorkflow = async (
 	path = DEFAULT_WORKFLOW_PATH,
-	fileSystem: WorkflowFileSystemShape = nodeWorkflowFileSystemLayer,
+	fileSystem: WorkflowFileSystem = nodeFileSystem,
 ): Promise<WorkflowDefinition> =>
-	withWideEvent("workflow.load", { path }, async () =>
-		parseWorkflowText(await fileSystem.readFileString(path), path),
-	);
-export const loadWorkflowFromNode = (
-	path = DEFAULT_WORKFLOW_PATH,
-): Promise<WorkflowDefinition> =>
-	loadWorkflow(path, nodeWorkflowFileSystemLayer);
-export const loadDiscoveredWorkflowFromNode = (
+	parseWorkflowText(await fileSystem.readFileString(path), path);
+
+export const loadDiscoveredWorkflow = (
 	options: WorkflowDiscoveryOptions,
+	fileSystem: WorkflowFileSystem = nodeFileSystem,
 ): Promise<WorkflowDefinition> =>
-	loadWorkflowFromNode(resolveWorkflowPath(options));
+	loadWorkflow(resolveWorkflowPath(options), fileSystem);

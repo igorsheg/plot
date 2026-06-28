@@ -2,37 +2,76 @@
 	"name": "@plot/session",
 	"private": true,
 	"type": "module",
+	"sideEffects": false,
 	"exports": {
-		"./pi/runner": "./src/pi/runner.ts",
-		"./extension-source": "./src/extension-source.ts",
-		"./pi/agent-session": "./src/pi/agent-session.ts",
-		"./pi/auth": "./src/pi/auth.ts",
-		"./pi/settings": "./src/pi/settings.ts",
-		"./plot-paths": "./src/plot-paths.ts",
-		"./session": "./src/session.ts",
-		"./protocol": "./src/protocol.ts",
-		"./protocol-session": "./src/protocol-session.ts",
-		"./protocol-jsonl": "./src/protocol-jsonl.ts",
-		"./protocol-stdio": "./src/protocol-stdio.ts",
-		"./event-log": "./src/event-log.ts",
-		"./session-host": "./src/session-host.ts",
-		"./supervisor": "./src/supervisor.ts",
-		"./supervisor-ipc": "./src/supervisor-ipc.ts",
-		"./pi/testing": "./src/pi/testing.ts",
-		"./workflow": "./src/workflow.ts",
-		"./workflow-template": "./src/workflow-template.ts"
+		"./agent-session": {
+			"types": "./src/agent-session.ts",
+			"import": "./src/agent-session.ts"
+		},
+		"./auth": {
+			"types": "./src/auth.ts",
+			"import": "./src/auth.ts"
+		},
+		"./event-log": {
+			"types": "./src/event-log.ts",
+			"import": "./src/event-log.ts"
+		},
+		"./fleet": {
+			"types": "./src/fleet.ts",
+			"import": "./src/fleet.ts"
+		},
+		"./fleet-ipc": {
+			"types": "./src/fleet-ipc.ts",
+			"import": "./src/fleet-ipc.ts"
+		},
+		"./host": {
+			"types": "./src/host.ts",
+			"import": "./src/host.ts"
+		},
+		"./jsonl": {
+			"types": "./src/jsonl.ts",
+			"import": "./src/jsonl.ts"
+		},
+		"./paths": {
+			"types": "./src/paths.ts",
+			"import": "./src/paths.ts"
+		},
+		"./pi-runner": {
+			"types": "./src/pi-runner.ts",
+			"import": "./src/pi-runner.ts"
+		},
+		"./projection": {
+			"types": "./src/projection.ts",
+			"import": "./src/projection.ts"
+		},
+		"./protocol": {
+			"types": "./src/protocol.ts",
+			"import": "./src/protocol.ts"
+		},
+		"./protocol-codec": {
+			"types": "./src/protocol-codec.ts",
+			"import": "./src/protocol-codec.ts"
+		},
+		"./sdk": {
+			"types": "./src/sdk.ts",
+			"import": "./src/sdk.ts"
+		},
+		"./workflow": {
+			"types": "./src/workflow.ts",
+			"import": "./src/workflow.ts"
+		}
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
-		"test": "bun test test"
+		"test": "bun test test",
+		"build:sdk": "rm -rf dist && bun build src/sdk.ts --target=node --format=esm --outfile=dist/sdk.js && tsc -p tsconfig.sdk.json"
 	},
 	"dependencies": {
 		"@earendil-works/pi-ai": "0.79.0",
 		"@earendil-works/pi-coding-agent": "0.79.0",
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
-		"@plot/sdk": "workspace:*",
 		"eta": "4.6.0",
 		"jiti": "^2.7.0",
 		"yaml": "2.9.0",

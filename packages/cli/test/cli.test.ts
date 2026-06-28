@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-	decodePlotServerRecord,
-	plotProtocolVersion,
+	serverRecordSchema,
+	sessionProtocolVersion,
 } from "@plot/session/protocol";
-import { writePlotFauxAgentFiles } from "@plot/session/pi/testing";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -72,7 +71,7 @@ const fakeWrite = (append: (text: string) => void) =>
 
 const decodeLines = (lines: readonly string[]) =>
 	Promise.all(
-		lines.map((line) => decodePlotServerRecord(JSON.parse(line) as unknown)),
+		lines.map((line) => serverRecordSchema.parse(JSON.parse(line) as unknown)),
 	);
 
 describe("plot CLI", () => {
@@ -87,16 +86,15 @@ describe("plot CLI", () => {
 	test("prints model list as a text table", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-cli-models-"));
 		tempDirs.push(dir);
-		await writePlotFauxAgentFiles({ cwd: dir });
-		const previousKey = process.env["PLOT_FAUX_API_KEY"];
-		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
+		const previousKey = process.env["ANTHROPIC_API_KEY"];
+		process.env["ANTHROPIC_API_KEY"] = "anthropic-key";
 		const stdout: string[] = [];
 
 		try {
 			await runPlotCli(
 				[
 					"list-models",
-					"faux",
+					"claude",
 					"--cwd",
 					dir,
 					"--agent-dir",
@@ -110,15 +108,15 @@ describe("plot CLI", () => {
 				},
 			);
 		} finally {
-			if (previousKey === undefined) delete process.env["PLOT_FAUX_API_KEY"];
-			else process.env["PLOT_FAUX_API_KEY"] = previousKey;
+			if (previousKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+			else process.env["ANTHROPIC_API_KEY"] = previousKey;
 		}
 
 		const output = stdout.join("");
 		expect(output).toContain("provider");
 		expect(output).toContain("model");
-		expect(output).toContain("plot-faux");
-		expect(output).toContain("faux-1");
+		expect(output).toContain("anthropic");
+		expect(output).toContain("claude");
 	});
 
 	test("prints citty root help", async () => {
@@ -206,16 +204,15 @@ describe("plot CLI", () => {
 	test("lets subcommands own their options", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-cli-subcommand-option-"));
 		tempDirs.push(dir);
-		await writePlotFauxAgentFiles({ cwd: dir });
-		const previousKey = process.env["PLOT_FAUX_API_KEY"];
-		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
+		const previousKey = process.env["ANTHROPIC_API_KEY"];
+		process.env["ANTHROPIC_API_KEY"] = "anthropic-key";
 		const stdout: string[] = [];
 
 		try {
 			await runPlotCli(
 				[
 					"list-models",
-					"faux",
+					"claude",
 					"--cwd",
 					dir,
 					"--agent-dir",
@@ -229,12 +226,12 @@ describe("plot CLI", () => {
 				},
 			);
 		} finally {
-			if (previousKey === undefined) delete process.env["PLOT_FAUX_API_KEY"];
-			else process.env["PLOT_FAUX_API_KEY"] = previousKey;
+			if (previousKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+			else process.env["ANTHROPIC_API_KEY"] = previousKey;
 		}
 
 		const output = stdout.join("");
-		expect(output).toContain("plot-faux");
+		expect(output).toContain("anthropic");
 	});
 
 	test("prints citty subcommand help", async () => {
@@ -287,7 +284,7 @@ describe("plot CLI", () => {
 		expect(output).toContain("--tick-interval-ms");
 	});
 
-	test("prints supervised instances help", async () => {
+	test("prints fleet instances help", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["instances", "events", "--help"], {
 			stdin: chunks([]),
@@ -367,7 +364,7 @@ describe("plot CLI", () => {
 				["serve", "stdio", "--workflow", workflowPath, "--log-level", "info"],
 				{
 					stdin: chunks([
-						`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
+						`{"protocol":"${sessionProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
 					]),
 					writeStdout: (line) => {
 						stdout.push(line);
@@ -383,7 +380,7 @@ describe("plot CLI", () => {
 		expect(records[0]).toEqual(
 			expect.objectContaining({
 				kind: "welcome",
-				limits: expect.objectContaining({ maxEventBufferEvents: 7 }),
+				limits: expect.objectContaining({ maxBufferedEvents: 7 }),
 			}),
 		);
 		expect(records.find((record) => record.kind === "response")).toEqual(

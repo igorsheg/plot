@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parsePlotInstances } from "../src/instance.js";
 
 describe("web instance parser", () => {
-	test("drops invalid rows but keeps supervised sessions", () => {
+	test("drops invalid rows but keeps fleet sessions", () => {
 		const sessions = parsePlotInstances({
 			instances: [
 				{

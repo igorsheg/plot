@@ -13,7 +13,7 @@ api.ts              HTTP/SSE contract parsing, URLs, fetch helpers
 main.tsx           app wiring only
 flow-canvas.tsx    canvas substrate + composed node UI
 live-events.ts     live fleet delta hook
-instance.ts        supervisor instance DTO parsing
+instance.ts        fleet instance DTO parsing
 components/ui/*    copied coss primitives only when used
 ```
 

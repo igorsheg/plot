@@ -1343,6 +1343,7 @@ export const makePlotAgentLayer = (
 					while (!stoppingOrStopped()) {
 						let message: InternalMessage;
 						try {
+							// eslint-disable-next-line no-await-in-loop -- actor loop processes one mailbox message at a time.
 							message = await mailbox.take();
 						} catch {
 							break;
@@ -1355,6 +1356,7 @@ export const makePlotAgentLayer = (
 							if (activeTickToken !== message.token) continue;
 							activeTickToken = undefined;
 						}
+						// eslint-disable-next-line no-await-in-loop -- reconciliation must finish before the next actor message.
 						const tick = await runTick([message]);
 						if (tick.shutdownRequested || stoppingOrStopped()) break;
 						const token = ++nextTickToken;

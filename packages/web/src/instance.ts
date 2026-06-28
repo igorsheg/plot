@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export interface PlotInstance {
 	readonly id: string;
 	readonly status: string;
@@ -15,72 +17,37 @@ export interface PlotInstance {
 	readonly lastEventType?: string | undefined;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
+const plotInstanceSchema: z.ZodType<PlotInstance> = z.object({
+	id: z.string(),
+	status: z.string(),
+	cwd: z.string(),
+	createdAt: z.string(),
+	lastSeenAt: z.string().optional(),
+	label: z.string().optional(),
+	sessionId: z.string().optional(),
+	workflowName: z.string().optional(),
+	workflowPath: z.string().optional(),
+	cwdName: z.string().optional(),
+	sessionDir: z.string().optional(),
+	eventLogPath: z.string().optional(),
+	lastSequence: z.number().optional(),
+	lastEventType: z.string().optional(),
+});
 
-const stringAt = (record: Record<string, unknown>, key: string) =>
-	typeof record[key] === "string" ? record[key] : undefined;
-
-const numberAt = (record: Record<string, unknown>, key: string) =>
-	typeof record[key] === "number" ? record[key] : undefined;
+const instanceListSchema = z.union([
+	z.array(z.unknown()),
+	z
+		.object({ instances: z.array(z.unknown()) })
+		.transform((value) => value.instances),
+]);
 
 const parseInstance = (value: unknown): PlotInstance | undefined => {
-	if (!isRecord(value)) return undefined;
-	const id = stringAt(value, "id");
-	const status = stringAt(value, "status");
-	const cwd = stringAt(value, "cwd");
-	const createdAt = stringAt(value, "createdAt");
-	if (
-		id === undefined ||
-		status === undefined ||
-		cwd === undefined ||
-		createdAt === undefined
-	)
-		return undefined;
-	return {
-		id,
-		status,
-		cwd,
-		createdAt,
-		...(stringAt(value, "lastSeenAt") === undefined
-			? {}
-			: { lastSeenAt: stringAt(value, "lastSeenAt") }),
-		...(stringAt(value, "label") === undefined
-			? {}
-			: { label: stringAt(value, "label") }),
-		...(stringAt(value, "sessionId") === undefined
-			? {}
-			: { sessionId: stringAt(value, "sessionId") }),
-		...(stringAt(value, "workflowName") === undefined
-			? {}
-			: { workflowName: stringAt(value, "workflowName") }),
-		...(stringAt(value, "workflowPath") === undefined
-			? {}
-			: { workflowPath: stringAt(value, "workflowPath") }),
-		...(stringAt(value, "cwdName") === undefined
-			? {}
-			: { cwdName: stringAt(value, "cwdName") }),
-		...(stringAt(value, "sessionDir") === undefined
-			? {}
-			: { sessionDir: stringAt(value, "sessionDir") }),
-		...(stringAt(value, "eventLogPath") === undefined
-			? {}
-			: { eventLogPath: stringAt(value, "eventLogPath") }),
-		...(numberAt(value, "lastSequence") === undefined
-			? {}
-			: { lastSequence: numberAt(value, "lastSequence") }),
-		...(stringAt(value, "lastEventType") === undefined
-			? {}
-			: { lastEventType: stringAt(value, "lastEventType") }),
-	};
+	const parsed = plotInstanceSchema.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
 };
 
 export const parsePlotInstances = (value: unknown): readonly PlotInstance[] => {
-	if (Array.isArray(value))
-		return value.map(parseInstance).filter((entry) => entry !== undefined);
-	if (isRecord(value) && Array.isArray(value["instances"]))
-		return value["instances"]
-			.map(parseInstance)
-			.filter((entry) => entry !== undefined);
-	return [];
+	const parsed = instanceListSchema.safeParse(value);
+	if (!parsed.success) return [];
+	return parsed.data.map(parseInstance).filter((entry) => entry !== undefined);
 };

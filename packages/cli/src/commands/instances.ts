@@ -4,29 +4,29 @@ import { pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
 import { str } from "../options.js";
-import { resolvePlotSupervisorSocketPath } from "@plot/session/plot-paths";
-import type { PlotSupervisorOptions } from "@plot/session/supervisor";
+import type { FleetIpcOptions } from "@plot/session/fleet-ipc";
 import {
-	sendPlotSupervisorIpcRequest,
-	type PlotSupervisorRequest,
-} from "@plot/session/supervisor-ipc";
+	resolveFleetIpcSocketPath,
+	sendFleetIpcRequest,
+} from "@plot/session/fleet-ipc";
+import type { FleetRequest } from "@plot/session/fleet";
 
-const supervisorOptions = (_args: ParsedArgs): PlotSupervisorOptions => ({
+const fleetOptions = (_args: ParsedArgs): FleetIpcOptions => ({
 	cwd: process.cwd(),
 });
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
-const request = async (args: ParsedArgs, value: PlotSupervisorRequest) => {
+const request = async (args: ParsedArgs, value: FleetRequest) => {
 	const io = getCliIo();
 	try {
 		await io.writeStdout(
-			json(await sendPlotSupervisorIpcRequest(supervisorOptions(args), value)),
+			json(await sendFleetIpcRequest(fleetOptions(args), value)),
 		);
 	} catch (error) {
 		await writeCliStderr(
 			io,
-			`Error: ${errorMessage(error)}\nFix: run \`plot serve supervisor\` or \`plot web\`.\n`,
+			`Error: ${errorMessage(error)}\nFix: run \`plot serve fleet\` or \`plot web\`.\n`,
 		);
 		throw error;
 	}
@@ -38,7 +38,7 @@ const streamEvents = async (args: ParsedArgs) => {
 	if (instanceId === undefined) throw new Error("instance id required");
 	const after = str(args, "after");
 	const socket = createConnection(
-		resolvePlotSupervisorSocketPath(supervisorOptions(args)),
+		resolveFleetIpcSocketPath(fleetOptions(args)),
 	);
 	await new Promise<void>((resolve, reject) => {
 		socket.once("connect", resolve);
@@ -47,7 +47,7 @@ const streamEvents = async (args: ParsedArgs) => {
 	socket.write(
 		`${JSON.stringify({
 			type: "protocol_stream",
-			instanceId,
+			id: instanceId,
 			...(after === undefined ? {} : { afterSequence: Number(after) }),
 		})}\n`,
 	);
@@ -63,7 +63,10 @@ const streamEvents = async (args: ParsedArgs) => {
 					if (index === -1) return;
 					const line = buffer.slice(0, index);
 					buffer = buffer.slice(index + 1);
-					if (line.trim() !== "") await io.writeStdout(`${line}\n`);
+					if (line.trim() !== "") {
+						// eslint-disable-next-line no-await-in-loop -- preserve streamed instance output order.
+						await io.writeStdout(`${line}\n`);
+					}
 				}
 			})().catch(reject);
 		});
@@ -73,15 +76,15 @@ const streamEvents = async (args: ParsedArgs) => {
 export const instancesCommand = defineCommand({
 	meta: {
 		name: "instances",
-		description: "Debug supervised Plot instances.",
+		description: "Debug Plot fleet instances.",
 	},
 	subCommands: {
 		list: defineCommand({
-			meta: { name: "list", description: "List supervised instances." },
+			meta: { name: "list", description: "List fleet instances." },
 			run: ({ args }) => request(args, { type: "list" }),
 		}),
 		spawn: defineCommand({
-			meta: { name: "spawn", description: "Spawn a supervised instance." },
+			meta: { name: "spawn", description: "Spawn a fleet instance." },
 			args: {
 				cwd: pathArgs.cwd,
 				workflow: {
@@ -109,7 +112,7 @@ export const instancesCommand = defineCommand({
 			},
 		}),
 		status: defineCommand({
-			meta: { name: "status", description: "Show one supervised instance." },
+			meta: { name: "status", description: "Show one fleet instance." },
 			args: {
 				instanceId: {
 					type: "positional",
@@ -118,10 +121,10 @@ export const instancesCommand = defineCommand({
 				},
 			},
 			run: ({ args }) =>
-				request(args, { type: "status", instanceId: str(args, "instanceId")! }),
+				request(args, { type: "status", id: str(args, "instanceId")! }),
 		}),
 		stop: defineCommand({
-			meta: { name: "stop", description: "Stop one supervised instance." },
+			meta: { name: "stop", description: "Stop one fleet instance." },
 			args: {
 				instanceId: {
 					type: "positional",
@@ -130,7 +133,7 @@ export const instancesCommand = defineCommand({
 				},
 			},
 			run: ({ args }) =>
-				request(args, { type: "stop", instanceId: str(args, "instanceId")! }),
+				request(args, { type: "stop", id: str(args, "instanceId")! }),
 		}),
 		events: defineCommand({
 			meta: {

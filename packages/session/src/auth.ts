@@ -7,9 +7,13 @@ import type {
 	OAuthPrompt,
 	OAuthSelectPrompt,
 } from "@earendil-works/pi-ai";
-import type { PlotPaths } from "../plot-paths.js";
+import {
+	resolveSessionPaths,
+	type SessionPathOptions,
+	type SessionPaths,
+} from "./paths.js";
 
-export interface PlotAuthProviderInfo {
+export interface AuthProviderInfo {
 	readonly id: string;
 	readonly name: string;
 	readonly usesCallbackServer: boolean;
@@ -18,14 +22,14 @@ export interface PlotAuthProviderInfo {
 	readonly label?: string;
 }
 
-export interface PlotAuthStatusInfo {
+export interface AuthStatusInfo {
 	readonly provider: string;
 	readonly configured: boolean;
 	readonly source?: string;
 	readonly label?: string;
 }
 
-export interface PlotModelInfo {
+export interface ModelInfo {
 	readonly provider: string;
 	readonly model: string;
 	readonly context: number;
@@ -34,7 +38,7 @@ export interface PlotModelInfo {
 	readonly images: boolean;
 }
 
-export interface PlotAuthLoginEventSink {
+export interface AuthLoginEventSink {
 	readonly auth?: (info: OAuthAuthInfo) => void;
 	readonly deviceCode?: (info: OAuthDeviceCodeInfo) => void;
 	readonly prompt?: (prompt: OAuthPrompt) => void;
@@ -42,7 +46,7 @@ export interface PlotAuthLoginEventSink {
 	readonly progress?: (message: string) => void;
 }
 
-export interface PlotAuthLoginOptions {
+export interface AuthLoginOptions {
 	readonly provider: string;
 	readonly promptResponses?: readonly string[];
 	readonly promptInput?: (prompt: OAuthPrompt) => Promise<string>;
@@ -52,16 +56,14 @@ export interface PlotAuthLoginOptions {
 	) => Promise<string | undefined>;
 	readonly manualCode?: string;
 	readonly manualCodeInput?: () => Promise<string>;
-	readonly events?: PlotAuthLoginEventSink;
+	readonly events?: AuthLoginEventSink;
 }
 
-export interface PlotAuthShape {
-	readonly providers: () => Promise<readonly PlotAuthProviderInfo[]>;
-	readonly listModels: (search?: string) => Promise<readonly PlotModelInfo[]>;
-	readonly status: (
-		provider?: string,
-	) => Promise<readonly PlotAuthStatusInfo[]>;
-	readonly login: (options: PlotAuthLoginOptions) => Promise<void>;
+export interface SessionAuth {
+	readonly providers: () => Promise<readonly AuthProviderInfo[]>;
+	readonly listModels: (search?: string) => Promise<readonly ModelInfo[]>;
+	readonly status: (provider?: string) => Promise<readonly AuthStatusInfo[]>;
+	readonly login: (options: AuthLoginOptions) => Promise<void>;
 	readonly logout: (provider: string) => Promise<void>;
 }
 
@@ -81,7 +83,7 @@ const providerIds = (
 const statusFor = (
 	modelRegistry: ModelRegistry,
 	provider: string,
-): PlotAuthStatusInfo => {
+): AuthStatusInfo => {
 	const status = modelRegistry.getProviderAuthStatus(provider);
 	return {
 		provider,
@@ -91,14 +93,14 @@ const statusFor = (
 	};
 };
 
-const matchesModelSearch = (model: PlotModelInfo, search: string) => {
+const matchesModelSearch = (model: ModelInfo, search: string) => {
 	const query = search.toLowerCase();
 	return `${model.provider} ${model.model} ${model.provider}/${model.model}`
 		.toLowerCase()
 		.includes(query);
 };
 
-const makeCallbacks = (options: PlotAuthLoginOptions): OAuthLoginCallbacks => {
+const makeCallbacks = (options: AuthLoginOptions): OAuthLoginCallbacks => {
 	let promptIndex = 0;
 	const onManualCodeInput =
 		options.manualCodeInput ??
@@ -112,9 +114,7 @@ const makeCallbacks = (options: PlotAuthLoginOptions): OAuthLoginCallbacks => {
 			options.events?.prompt?.(prompt);
 			const response = options.promptResponses?.[promptIndex++];
 			if (response !== undefined) return response;
-			if (options.promptInput !== undefined) {
-				return options.promptInput(prompt);
-			}
+			if (options.promptInput !== undefined) return options.promptInput(prompt);
 			if (prompt.allowEmpty === true) return "";
 			throw new Error("auth login requires prompt input");
 		},
@@ -129,7 +129,10 @@ const makeCallbacks = (options: PlotAuthLoginOptions): OAuthLoginCallbacks => {
 	};
 };
 
-export const makePlotAuth = (paths: PlotPaths): PlotAuthShape => {
+export const createSessionAuth = (
+	input: SessionPathOptions | SessionPaths,
+): SessionAuth => {
+	const paths = "skillsDir" in input ? input : resolveSessionPaths(input);
 	const authStorage = AuthStorage.create(join(paths.agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(
 		authStorage,

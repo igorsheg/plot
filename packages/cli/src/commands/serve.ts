@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import { sessionCommandArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { baseOptions } from "../options.js";
-import { serveStdio, serveSupervisor } from "../runtime.js";
+import { serveFleet, serveStdio } from "../runtime.js";
 import { cliSemantics } from "../semantics.js";
 
 export const serveCommand = defineCommand({
@@ -30,15 +30,15 @@ export const serveCommand = defineCommand({
 				});
 			},
 		}),
-		supervisor: defineCommand({
+		fleet: defineCommand({
 			meta: {
-				name: "supervisor",
-				description: "Run the local Plot supervisor daemon.",
+				name: "fleet",
+				description: "Run the local Plot fleet daemon.",
 			},
 			args: sessionCommandArgs,
 			run: ({ args }) => {
 				const io = getCliIo();
-				return serveSupervisor({
+				return serveFleet({
 					...baseOptions(args),
 					...(io.writeStderr === undefined
 						? {}

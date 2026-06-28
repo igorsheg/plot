@@ -1,27 +1,40 @@
 import { describe, expect, test } from "bun:test";
-import {
-	plotProtocolVersion,
-	type PlotEventRecord,
-} from "@plot/session/protocol";
+import { sessionProtocolVersion } from "@plot/session/protocol";
+
+interface ProjectionEventRecord {
+	readonly protocol: string;
+	readonly kind: "event";
+	readonly event: {
+		readonly kind?: string;
+		readonly sessionId: string;
+		readonly sequence?: number;
+		readonly timestamp: string;
+		readonly type?: string;
+		readonly payload?: unknown;
+		readonly event?: unknown;
+		readonly [key: string]: unknown;
+	};
+	readonly [key: string]: unknown;
+}
 import { dashboardModelFrom } from "../src/dashboard-model.js";
 import {
 	applySnapshot,
 	emptyProjection,
 	reduceRecord,
-} from "../src/projection.js";
+} from "@plot/session/projection";
 
 const eventRecord = (
 	sequence: number,
 	type: string,
 	payload: unknown,
-): PlotEventRecord => ({
-	protocol: plotProtocolVersion,
+): ProjectionEventRecord => ({
+	protocol: sessionProtocolVersion,
 	kind: "event",
 	sessionId: "default",
 	epoch: "epoch-1",
 	sequence,
 	event: {
-		kind: "plot_event",
+		kind: "session_event",
 		sessionId: "default",
 		epoch: "epoch-1",
 		sequence,
@@ -39,19 +52,18 @@ const started = eventRecord(1, "attempt_started", {
 		display: { primary: "#42", title: "Fix checkout" },
 	},
 });
-const agentEventRecord = (
+const agentProjectionEventRecord = (
 	sequence: number,
 	event: unknown,
 	timestamp = "2026-06-15T00:00:00.000Z",
-): PlotEventRecord => ({
-	protocol: plotProtocolVersion,
+): ProjectionEventRecord => ({
+	protocol: sessionProtocolVersion,
 	kind: "event",
 	event: {
-		kind: "agent_session_event",
+		kind: "agent_event",
 		sessionId: "default",
 		sequence,
 		timestamp,
-		type: "agent_session_event",
 		runId: "run-1",
 		workKey: "source:item:42",
 		sourceId: "extension:worker",
@@ -112,7 +124,7 @@ describe("Plot TUI projection", () => {
 		p = reduceRecord(p, started);
 		p = reduceRecord(
 			p,
-			agentEventRecord(
+			agentProjectionEventRecord(
 				2,
 				{
 					type: "message_end",
@@ -130,7 +142,7 @@ describe("Plot TUI projection", () => {
 		);
 		p = reduceRecord(
 			p,
-			agentEventRecord(
+			agentProjectionEventRecord(
 				3,
 				{
 					type: "message_end",
@@ -159,7 +171,7 @@ describe("Plot TUI projection", () => {
 		p = reduceRecord(p, started);
 		p = reduceRecord(
 			p,
-			agentEventRecord(2, {
+			agentProjectionEventRecord(2, {
 				type: "message_update",
 				assistantMessageEvent: {
 					type: "toolcall_delta",
@@ -190,7 +202,7 @@ describe("Plot TUI projection", () => {
 		p = reduceRecord(p, started);
 		p = reduceRecord(
 			p,
-			agentEventRecord(2, {
+			agentProjectionEventRecord(2, {
 				type: "message_update",
 				assistantMessageEvent: {
 					type: "text_delta",
@@ -199,8 +211,8 @@ describe("Plot TUI projection", () => {
 				},
 			}),
 		);
-		p = reduceRecord(p, agentEventRecord(3, { type: "message_end" }));
-		p = reduceRecord(p, agentEventRecord(4, { type: "turn_start" }));
+		p = reduceRecord(p, agentProjectionEventRecord(3, { type: "message_end" }));
+		p = reduceRecord(p, agentProjectionEventRecord(4, { type: "turn_start" }));
 		expect(dashboardModelFrom(p).work[0]?.activity).toBe(
 			"writing: checking cache",
 		);
@@ -211,7 +223,7 @@ describe("Plot TUI projection", () => {
 		p = reduceRecord(p, started);
 		p = reduceRecord(
 			p,
-			agentEventRecord(2, {
+			agentProjectionEventRecord(2, {
 				type: "tool_execution_start",
 				toolCallId: "tool-1",
 				toolName: "bash",
@@ -220,12 +232,12 @@ describe("Plot TUI projection", () => {
 		);
 		p = reduceRecord(
 			p,
-			agentEventRecord(3, {
+			agentProjectionEventRecord(3, {
 				type: "tool_execution_end",
 				toolCallId: "tool-1",
 			}),
 		);
-		p = reduceRecord(p, agentEventRecord(4, { type: "turn_start" }));
+		p = reduceRecord(p, agentProjectionEventRecord(4, { type: "turn_start" }));
 		expect(dashboardModelFrom(p).work[0]?.activity).toBe("bun run check");
 	});
 

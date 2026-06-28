@@ -20,6 +20,7 @@ export const readPlotDoc = async (name: DocName): Promise<string> => {
 	const file = `${name}.md`;
 	for (const dir of docsDirs()) {
 		try {
+			// eslint-disable-next-line no-await-in-loop -- docs lookup checks fallback directories in order.
 			return await readFile(join(dir, file), "utf8");
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

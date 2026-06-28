@@ -47,11 +47,11 @@ const record = (v: unknown): v is Record<string, unknown> =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
 const numberAt = (
-	record: Record<string, unknown>,
+	input: Record<string, unknown>,
 	...keys: readonly string[]
 ) => {
 	for (const key of keys) {
-		const value = record[key];
+		const value = input[key];
 		if (typeof value === "number") return value;
 	}
 	return undefined;
@@ -84,12 +84,14 @@ const usageDelta = (
 		...(cost === undefined ? {} : { cost }),
 	};
 };
+const ansiPattern = new RegExp(
+	`[${String.fromCharCode(27)}\u009B][[\\]()#;?]*(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><]`,
+	"g",
+);
+
 const oneLine = (value: string) =>
 	value
-		.replace(
-			/[\u001B\u009B][[\]()#;?]*(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><]/g,
-			"",
-		)
+		.replace(ansiPattern, "")
 		.replace(/[\r\n\t]+/g, " ")
 		.replace(/\s+/g, " ")
 		.trim();

@@ -231,7 +231,7 @@ function PlotToolbar() {
 			<div className="plot-app-toolbar">
 				<div className="plot-app-toolbar-title">
 					<strong>Plot Canvas</strong>
-					<span>{instances.length} supervised instance(s)</span>
+					<span>{instances.length} fleet instance(s)</span>
 				</div>
 				<div className="plot-app-toolbar-actions">
 					<form className="plot-instance-spawn-form" onSubmit={onSubmit}>
@@ -272,7 +272,7 @@ function PlotCanvasRegion() {
 			<main className="canvas canvas-empty">
 				<Empty>
 					<EmptyHeader>
-						<EmptyTitle>No supervised Plot instances</EmptyTitle>
+						<EmptyTitle>No Plot fleet instances</EmptyTitle>
 						<EmptyDescription>
 							Spawn one with `plot instances spawn --cwd /path/to/project`.
 						</EmptyDescription>

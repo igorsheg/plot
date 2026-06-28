@@ -5,7 +5,7 @@ import {
 	type DashboardProjection,
 	type WorkItemProjection,
 	type WorkStatus,
-} from "./projection.js";
+} from "@plot/session/projection";
 
 export interface PulseTickModel {
 	readonly id: number;

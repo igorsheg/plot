@@ -1,0 +1,341 @@
+import { basename, resolve } from "node:path";
+import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import { setFact, sourceId, subjectKey, workKey } from "@plot/agent/model";
+import type { WorkRunnerContext } from "@plot/agent/work-runner";
+import type { WorkSource } from "@plot/agent/work-source";
+import {
+	createEventLogSessionId,
+	createFileEventLogStore,
+	type EventLogStore,
+} from "./event-log.js";
+import {
+	makeCreatePiAgentSession,
+	type AgentSessionOverrides,
+} from "./agent-session.js";
+import {
+	makePlotExtensionSourceBundleFromWorkflow,
+	type PlotExtensionSourceBundle,
+} from "./extension-source.js";
+import { resolveSessionPaths, type SessionPaths } from "./paths.js";
+import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
+import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";
+import {
+	makeSessionProtocol,
+	type SessionProtocol,
+} from "./protocol-adapter.js";
+import {
+	makeAgentSessionRuntime,
+	type AgentSessionRuntimeOptions,
+} from "./agent-runtime.js";
+import type { SessionRuntime } from "./runtime.js";
+import { loadDiscoveredWorkflow, type WorkflowDefinition } from "./workflow.js";
+import type { WorkflowRuntimeConfig } from "./workflow-config.js";
+
+export interface SessionHostMetadata {
+	readonly workflowName: string;
+	readonly workflowPath: string;
+	readonly cwd: string;
+	readonly cwdName: string;
+	readonly sessionDir: string;
+	readonly eventLogPath: string;
+}
+
+export interface SessionHost {
+	readonly runtime: SessionRuntime;
+	readonly eventLog: EventLogStore;
+	readonly paths: SessionPaths;
+	readonly workflow: WorkflowDefinition;
+	readonly metadata: SessionHostMetadata;
+	readonly shutdown: () => Promise<void>;
+}
+
+export interface ProtocolSessionHost extends SessionHost {
+	readonly protocol: SessionProtocol;
+	readonly limits: ProtocolLimits;
+}
+
+export interface SessionHostPart {
+	readonly name: string;
+	readonly shutdown?: () => Promise<void> | void;
+}
+
+export interface CreateSessionHostOptions {
+	readonly cwd: string;
+	readonly workflowPath?: string;
+	readonly sessionId?: string;
+	readonly plotDir?: string;
+	readonly agentDir?: string;
+	readonly sessionDir?: string;
+	readonly createAgentSession?: CreatePiAgentSession;
+	readonly agentSessionOverrides?: AgentSessionOverrides;
+	readonly requestQueueCapacity?: number;
+	readonly eventCapacity?: number;
+	readonly eventBufferCapacity?: number;
+	readonly tickIntervalMs?: number;
+	readonly maxRunDurationMs?: number;
+	readonly stallTimeoutMs?: number;
+}
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+export class SessionHostError extends Error {
+	override readonly name = "SessionHostError";
+	readonly phase: "config";
+
+	constructor(message: string) {
+		super(message);
+		this.phase = "config";
+	}
+}
+
+const workflowSourceId = sourceId("workflow");
+const workflowSubject = subjectKey("workflow");
+const workflowWorkKey = workKey("workflow:default");
+const workflowCompletedFact = "workflow:default:completed";
+
+const positiveInteger = (value: number, field: string): number => {
+	if (Number.isInteger(value) && value >= 1) return value;
+	throw new SessionHostError(`${field} must be a positive integer`);
+};
+
+const workflowName = (workflow: WorkflowDefinition): string =>
+	workflow.runtime.name ??
+	(workflow.path === undefined ? "workflow" : basename(workflow.path));
+
+const makeOneShotWorkflowSource = (
+	workflow: WorkflowDefinition,
+): WorkSource => ({
+	id: workflowSourceId,
+	reconcile: ({ snapshot }) =>
+		snapshot.completions.some(
+			(completion) => completion.workKey === workflowWorkKey,
+		)
+			? [setFact(workflowCompletedFact, true)]
+			: [],
+	selectWork: ({ snapshot }) => {
+		if (snapshot.running.has(workflowWorkKey)) return [];
+		if (snapshot.facts.get(workflowCompletedFact) === true) return [];
+		return [
+			{
+				workKey: workflowWorkKey,
+				subject: workflowSubject,
+				templateContext: { workflow: workflow.config },
+			},
+		];
+	},
+});
+
+const shutdownHostParts = async (
+	parts: readonly SessionHostPart[],
+): Promise<void> => {
+	const shutdowns = parts
+		.toReversed()
+		.map((part) => part.shutdown)
+		.filter((shutdown): shutdown is NonNullable<typeof shutdown> =>
+			Boolean(shutdown),
+		);
+	await shutdowns.reduce(
+		(previous, shutdown) => previous.then(() => shutdown()),
+		Promise.resolve(),
+	);
+};
+
+const makeProtocolLimits = (input: {
+	readonly requestQueueCapacity: number;
+	readonly eventBufferCapacity: number;
+}): ProtocolLimits => ({
+	...defaultProtocolLimits,
+	maxPendingRequests: positiveInteger(
+		input.requestQueueCapacity,
+		"requestQueueCapacity",
+	),
+	maxBufferedEvents: positiveInteger(
+		input.eventBufferCapacity,
+		"eventBufferCapacity",
+	),
+});
+
+const noToolsForPi = (
+	value: WorkflowRuntimeConfig["agent"] extends infer Agent
+		? Agent extends { readonly noTools?: infer NoTools }
+			? NoTools
+			: never
+		: never,
+): CreateAgentSessionOptions["noTools"] => {
+	if (value === undefined || value === false) return undefined;
+	if (value === true) return "all";
+	return value;
+};
+
+const baseCreateOptions = (input: {
+	readonly paths: SessionPaths;
+	readonly workflow: WorkflowDefinition;
+}): CreateAgentSessionOptions => {
+	const agent = input.workflow.runtime.agent;
+	const noTools = noToolsForPi(agent?.noTools);
+	const options: CreateAgentSessionOptions = {
+		cwd: input.paths.cwd,
+		agentDir: input.paths.agentDir,
+	};
+	if (agent?.thinking !== undefined) options.thinkingLevel = agent.thinking;
+	if (agent?.tools !== undefined) options.tools = [...agent.tools];
+	if (agent?.excludeTools !== undefined)
+		options.excludeTools = [...agent.excludeTools];
+	if (noTools !== undefined) options.noTools = noTools;
+	return options;
+};
+
+const runnerCreateOptions = async (input: {
+	readonly base: CreateAgentSessionOptions;
+	readonly extensionBundle?: PlotExtensionSourceBundle;
+	readonly context: WorkRunnerContext;
+}): Promise<CreateAgentSessionOptions> => {
+	const extensionCreate = await input.extensionBundle?.createOptions(
+		input.context,
+	);
+	if (extensionCreate === undefined || extensionCreate.customTools.length === 0)
+		return input.base;
+	return { ...input.base, customTools: extensionCreate.customTools };
+};
+
+const makeMetadata = (input: {
+	readonly workflow: WorkflowDefinition;
+	readonly paths: SessionPaths;
+	readonly eventLog: EventLogStore;
+}): SessionHostMetadata => ({
+	workflowName: workflowName(input.workflow),
+	workflowPath: input.workflow.path ?? "WORKFLOW.md",
+	cwd: input.paths.cwd,
+	cwdName: basename(input.paths.cwd),
+	sessionDir: input.paths.sessionDir,
+	eventLogPath: input.eventLog.path,
+});
+
+export const createSessionHost = async (
+	options: CreateSessionHostOptions,
+): Promise<SessionHost> => {
+	const paths = resolveSessionPaths(options);
+	const workflowOptions = { cwd: paths.cwd };
+	if (options.workflowPath !== undefined)
+		Object.assign(workflowOptions, {
+			workflowPath: resolve(paths.cwd, options.workflowPath),
+		});
+	const workflow = await loadDiscoveredWorkflow(workflowOptions);
+	const plot = workflow.runtime.plot;
+	const requestQueueCapacity = positiveInteger(
+		options.requestQueueCapacity ?? plot?.queueCapacity ?? 64,
+		"requestQueueCapacity",
+	);
+	const eventCapacity = positiveInteger(
+		options.eventCapacity ?? plot?.eventCapacity ?? 256,
+		"eventCapacity",
+	);
+	const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
+	const maxRunDurationMs = options.maxRunDurationMs ?? plot?.maxRunDurationMs;
+	const stallTimeoutMs = options.stallTimeoutMs ?? plot?.stallTimeoutMs;
+	const sessionId = options.sessionId ?? createEventLogSessionId();
+	const eventLog = await createFileEventLogStore({
+		sessionId,
+		sessionDir: paths.sessionDir,
+	});
+	const extensionBundle = workflow.runtime.extension
+		? await makePlotExtensionSourceBundleFromWorkflow({ workflow, paths })
+		: undefined;
+	const sources = extensionBundle
+		? [extensionBundle.source]
+		: [makeOneShotWorkflowSource(workflow)];
+	const base = baseCreateOptions({ paths, workflow });
+	const agentSessionFactoryOptions = { workflow, paths };
+	if (options.agentSessionOverrides !== undefined)
+		Object.assign(agentSessionFactoryOptions, {
+			overrides: options.agentSessionOverrides,
+		});
+	const createAgentSession =
+		options.createAgentSession ??
+		makeCreatePiAgentSession(agentSessionFactoryOptions);
+	const runner = makePiWorkRunner({
+		createAgentSession,
+		prompt: workflow.prompt,
+		create: (context) => {
+			const input = { base, context };
+			if (extensionBundle !== undefined)
+				Object.assign(input, { extensionBundle });
+			return runnerCreateOptions(input);
+		},
+		maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
+		onEvent: async ({ context, event }) => {
+			await eventLog.appendAgentEvent({
+				sourceId: String(context.sourceId),
+				runId: String(context.run.runId),
+				workKey: String(context.work.workKey),
+				event,
+			});
+		},
+	});
+	const agentOptions: Mutable<
+		NonNullable<AgentSessionRuntimeOptions["agent"]>
+	> = {
+		queueCapacity: requestQueueCapacity,
+	};
+	if (tickIntervalMs !== undefined)
+		agentOptions.tickIntervalMs = tickIntervalMs;
+	if (maxRunDurationMs !== undefined)
+		agentOptions.maxRunDurationMs = maxRunDurationMs;
+	if (stallTimeoutMs !== undefined)
+		agentOptions.stallTimeoutMs = stallTimeoutMs;
+	const runtimeOptions: AgentSessionRuntimeOptions = {
+		id: sessionId,
+		eventLog,
+		sources,
+		runner: extensionBundle?.wrapRunner(runner) ?? runner,
+		eventCapacity,
+		agent: agentOptions,
+	};
+	const runtime = makeAgentSessionRuntime(runtimeOptions);
+	const parts: SessionHostPart[] = [];
+	if (extensionBundle !== undefined)
+		parts.push({
+			name: "extension",
+			shutdown: () => extensionBundle.shutdown(),
+		});
+	parts.push({
+		name: "runtime",
+		shutdown: async () => {
+			await runtime.shutdown();
+		},
+	});
+	return {
+		runtime,
+		eventLog,
+		paths,
+		workflow,
+		metadata: makeMetadata({ workflow, paths, eventLog }),
+		shutdown: () => shutdownHostParts(parts),
+	};
+};
+
+export const createProtocolSessionHost = async (
+	options: CreateSessionHostOptions,
+): Promise<ProtocolSessionHost> => {
+	const host = await createSessionHost(options);
+	const limits = makeProtocolLimits({
+		requestQueueCapacity:
+			options.requestQueueCapacity ??
+			host.workflow.runtime.plot?.queueCapacity ??
+			64,
+		eventBufferCapacity:
+			options.eventBufferCapacity ??
+			host.workflow.runtime.plot?.eventBufferCapacity ??
+			1024,
+	});
+	const protocol = makeSessionProtocol({ runtime: host.runtime, limits });
+	return {
+		...host,
+		limits,
+		protocol,
+		shutdown: async () => {
+			await host.shutdown();
+			await protocol.close();
+		},
+	};
+};

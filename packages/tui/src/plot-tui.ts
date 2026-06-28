@@ -1,16 +1,14 @@
 import { spawn } from "node:child_process";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 import {
-	createPlotProtocolSessionHost,
-	type PlotSessionHostOptions,
-} from "@plot/session/session-host";
+	createProtocolSessionHost,
+	type CreateSessionHostOptions,
+} from "@plot/session/host";
 import {
-	plotProtocolRequestId,
-	plotProtocolVersion,
-	type PlotClientRecord,
-	type PlotCommand,
-	type PlotProtocolRequestId,
-	type PlotServerRecord,
+	sessionProtocolVersion,
+	type ClientRequest,
+	type ServerRecord,
+	type SessionCommand,
 } from "@plot/session/protocol";
 import { PlotDashboard } from "./dashboard.js";
 import {
@@ -18,10 +16,10 @@ import {
 	emptyProjection,
 	reduceRecord,
 	type DashboardProjection,
-} from "./projection.js";
+} from "@plot/session/projection";
 import { runtimeIdentityFrom } from "./runtime-identity.js";
 
-export interface PlotTuiOptions extends PlotSessionHostOptions {
+export interface PlotTuiOptions extends CreateSessionHostOptions {
 	readonly mode?: "watch" | "oneshot";
 }
 
@@ -49,9 +47,9 @@ const withTimeout = async <A>(
 };
 
 const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
-	const host = await createPlotProtocolSessionHost(options);
+	const host = await createProtocolSessionHost(options);
 	let projection: DashboardProjection = emptyProjection(
-		options.sessionId,
+		options.sessionId ?? "session",
 		String(
 			host.workflow.runtime.name ?? host.workflow.config["name"] ?? "workflow",
 		),
@@ -62,10 +60,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 	const stopped = new Promise<void>((resolve) => {
 		resolveStopped = resolve;
 	});
-	const pending = new Map<
-		PlotProtocolRequestId,
-		(record: PlotServerRecord) => void
-	>();
+	const pending = new Map<string, (record: ServerRecord) => void>();
 	const terminal = new ProcessTerminal();
 	const tui = new TUI(terminal);
 	const render = () => {
@@ -87,18 +82,18 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 		});
 	};
 	const request = async (
-		command: PlotCommand,
+		command: SessionCommand,
 		params?: unknown,
-	): Promise<PlotServerRecord> => {
-		const id = plotProtocolRequestId(`tui-${++requestIndex}`);
-		const record: PlotClientRecord = {
-			protocol: plotProtocolVersion,
+	): Promise<ServerRecord> => {
+		const id = `tui-${++requestIndex}`;
+		const record: ClientRequest = {
+			protocol: sessionProtocolVersion,
 			kind: "request",
 			id,
 			command,
 			...(params === undefined ? {} : { params }),
 		};
-		const response = new Promise<PlotServerRecord>((resolve) =>
+		const response = new Promise<ServerRecord>((resolve) =>
 			pending.set(id, resolve),
 		);
 		if (!(await host.protocol.submit(record))) {
@@ -199,7 +194,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 			frontier: 0,
 		});
 		void welcome;
-		await host.session.start();
+		await host.runtime.start();
 		setStatus("running");
 		refresh();
 		await stopped;
@@ -207,7 +202,7 @@ const runPlotTuiInProcess = async (options: PlotTuiOptions): Promise<void> => {
 		dashboard.stopLiveUpdates();
 		tui.stop();
 		await host.protocol.close();
-		await withTimeout(host.session.shutdown(), 5_000, "session shutdown");
+		await withTimeout(host.runtime.shutdown(), 5_000, "session shutdown");
 		await withTimeout(host.shutdown(), 5_000, "host shutdown");
 	}
 };
