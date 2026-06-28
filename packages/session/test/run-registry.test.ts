@@ -10,8 +10,8 @@ import {
 	createFileRunStore,
 	createMemoryRunStore,
 	decodeRunRequest,
-	type RunChildProcess,
 } from "../src/run-registry.js";
+import type { RunChildProcess } from "../src/run-process.js";
 import {
 	openRunIpc,
 	sendRunIpcRequest,
@@ -77,17 +77,32 @@ test("runRegistry rejects invalid IPC shapes at the boundary", () => {
 	expect(() => decodeRunRequest({ type: "status", id: "run-1" })).not.toThrow();
 });
 
+test("runRegistry requires an explicit CLI command for real child processes", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-run-command-"));
+	const runRegistry = new RunRegistry({ cwd, store: createMemoryRunStore() });
+	await expect(runRegistry.spawn()).rejects.toThrow("CLI command");
+});
+
 test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-"));
 	const store = createMemoryRunStore();
 	let child: FakeChild | undefined;
+	let childInput:
+		| {
+				readonly command: string;
+				readonly args: readonly string[];
+				readonly cwd: string;
+		  }
+		| undefined;
 	const runRegistry = new RunRegistry({
+		cli: { command: "bun", args: ["./packages/cli/src/main.ts"] },
 		cwd,
 		store,
 		id: () => "run-1",
 		now: () => "2026-01-01T00:00:00.000Z",
 		stderrLimitBytes: 8,
-		spawnChild: () => {
+		spawnChild: (input) => {
+			childInput = input;
 			child = new FakeChild();
 			queueMicrotask(() =>
 				child?.emit({
@@ -116,6 +131,10 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		status: "online",
 		sessionId: "session-runRegistry",
 	});
+	expect(childInput).toMatchObject({
+		command: "bun",
+		args: ["./packages/cli/src/main.ts", "__internal-api-stdio", "--cwd", cwd],
+	});
 	expect(
 		child?.writes.map((line) => decodeClientRequestLine(line).command),
 	).toEqual(["start", "shutdown"]);
@@ -142,7 +161,7 @@ test("runRegistry marks a child that exits before welcome as error", async () =>
 		},
 	});
 
-	await expect(runRegistry.spawn()).rejects.toThrow("closed before welcome");
+	await expect(runRegistry.spawn()).rejects.toThrow("run process exited");
 	expect(await store.get("run-exit")).toMatchObject({
 		status: "error",
 		stderrTail: expect.stringContaining("boot failed"),

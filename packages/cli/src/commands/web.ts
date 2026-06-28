@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import { pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { int, str } from "../options.js";
+import { resolvePlotCommand } from "../plot-command.js";
 import { cliSemantics } from "../semantics.js";
 import { runPlotWebGateway } from "../web-gateway.js";
 
@@ -32,6 +33,7 @@ export const webCommand = defineCommand({
 				: { agentDir: str(args, "agent-dir") }),
 			...(int(args, "port") === undefined ? {} : { port: int(args, "port") }),
 			open: args["no-open"] !== true,
+			cli: resolvePlotCommand(),
 			...(io.writeStderr === undefined ? {} : { writeStderr: io.writeStderr }),
 		});
 	},

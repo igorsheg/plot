@@ -1,4 +1,3 @@
-import { basename } from "node:path";
 import {
 	defineCommand,
 	renderUsage,
@@ -23,6 +22,7 @@ import { webCommand } from "./commands/web.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 import { baseOptions } from "./options.js";
 import { VERSION } from "./package.js";
+import { resolvePlotCommand } from "./plot-command.js";
 import { cliSemantics } from "./semantics.js";
 
 export const version = VERSION;
@@ -30,15 +30,6 @@ export { processCliIo } from "./io.js";
 export type { PlotCliIo } from "./io.js";
 
 const rootArgs = sessionCommandArgs;
-
-export const currentCliCommand = () => {
-	const script = process.argv[1];
-	const isBun = basename(process.execPath) === "bun";
-	return {
-		command: process.execPath,
-		args: isBun && script !== undefined ? [script] : [],
-	};
-};
 
 const runRootTui = async ({
 	args,
@@ -52,7 +43,7 @@ const runRootTui = async ({
 	void rawArgs;
 	return runTui({
 		...baseOptions(args),
-		cli: currentCliCommand(),
+		cli: resolvePlotCommand(),
 		...(io.createAgentSession === undefined
 			? {}
 			: { createAgentSession: io.createAgentSession }),

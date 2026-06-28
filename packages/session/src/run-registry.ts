@@ -1,20 +1,21 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
 import { z } from "zod";
-import { decodeServerRecordLine } from "./protocol-codec.js";
 import {
 	clientRequestSchema,
-	defaultProtocolLimits,
 	sessionProtocolVersion,
 	type ClientRequest,
 	type ServerRecord,
 } from "./protocol.js";
-import { jsonlLines, stringifyJsonl } from "./jsonl.js";
 import { errorMessage } from "./primitives.js";
 import { createFileEventLogStore } from "./event-log.js";
+import {
+	createRunChildProcess,
+	RunProcessInstance,
+	type RunChildProcess,
+} from "./run-process.js";
 
 type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
 
@@ -161,15 +162,6 @@ export interface RunRegistryRuntime {
 	readonly shutdown: () => Promise<void>;
 }
 
-export interface RunChildProcess {
-	readonly pid?: number;
-	readonly stdout: AsyncIterable<string | Uint8Array>;
-	readonly stderr: AsyncIterable<string | Uint8Array>;
-	readonly write: (line: string) => Promise<void> | void;
-	readonly kill: (signal?: NodeJS.Signals) => void;
-	readonly exited: Promise<void>;
-}
-
 export interface RunRegistryOptions {
 	readonly cwd: string;
 	readonly store: RunStore;
@@ -188,19 +180,12 @@ export interface RunRegistryOptions {
 
 interface LiveRun {
 	record: RunRecord;
-	readonly child: RunChildProcess;
+	readonly process: RunProcessInstance;
 	readonly events: EventHub<ServerRecord>;
-	readonly pending: Map<
-		string,
-		{
-			readonly resolve: (record: ServerRecord) => void;
-			readonly reject: (error: Error) => void;
-		}
-	>;
+	readonly cleanup: () => void;
 }
 
 const runArraySchema = z.array(runRecordSchema);
-const textDecoder = () => new TextDecoder();
 
 const clone = (record: RunRecord): RunRecord => ({
 	...record,
@@ -212,24 +197,8 @@ const isErrno = (error: unknown, code: string): boolean =>
 	"code" in error &&
 	(error as { readonly code?: unknown }).code === code;
 
-async function* emptyAsyncIterable(): AsyncIterable<string | Uint8Array> {}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
-
-const decodeText = (decoder: TextDecoder, chunk: string | Uint8Array): string =>
-	typeof chunk === "string" ? chunk : decoder.decode(chunk);
-
-async function* childServerRecords(
-	stdout: AsyncIterable<string | Uint8Array>,
-): AsyncIterable<ServerRecord> {
-	for await (const line of jsonlLines(stdout, {
-		maxLineBytes: defaultProtocolLimits.maxInputLineBytes,
-	})) {
-		const trimmed = line.trim();
-		if (trimmed !== "") yield decodeServerRecordLine(trimmed);
-	}
-}
 
 const trimTail = (value: string, maxBytes: number): string => {
 	const bytes = new TextEncoder().encode(value);
@@ -282,58 +251,13 @@ async function* liveEventRecords(
 }
 
 const childArgs = (options: RunSpawnOptions): readonly string[] => {
-	const args = ["api", "--stdio", "--cwd", options.cwd ?? process.cwd()];
+	const args = ["__internal-api-stdio", "--cwd", options.cwd ?? process.cwd()];
 	if (options.sessionId !== undefined)
 		args.push("--session-id", options.sessionId);
 	if (options.workflowPath !== undefined)
 		args.push("--workflow", options.workflowPath);
 	return args;
 };
-
-const defaultCli = () => {
-	const script = process.argv[1];
-	const isBun = basename(process.execPath) === "bun";
-	return {
-		command: process.execPath,
-		args:
-			isBun && script !== undefined && /\.[cm]?[jt]sx?$/.test(script)
-				? [script]
-				: [],
-	};
-};
-
-const nodeChild = (input: {
-	readonly command: string;
-	readonly args: readonly string[];
-	readonly cwd: string;
-}): RunChildProcess => {
-	const child: ChildProcess = spawn(input.command, [...input.args], {
-		cwd: input.cwd,
-		stdio: ["pipe", "pipe", "pipe"],
-	});
-	return {
-		...(child.pid === undefined ? {} : { pid: child.pid }),
-		stdout: child.stdout ?? emptyAsyncIterable(),
-		stderr: child.stderr ?? emptyAsyncIterable(),
-		write: (line) =>
-			new Promise<void>((resolveWrite, rejectWrite) => {
-				child.stdin?.write(line, (error) => {
-					if (error === undefined) resolveWrite();
-					else rejectWrite(error);
-				});
-			}),
-		kill: (signal) => {
-			child.kill(signal);
-		},
-		exited: new Promise((resolveExit) => {
-			child.once("exit", () => resolveExit());
-			child.once("error", () => resolveExit());
-		}),
-	};
-};
-
-const encodeClientRequestLine = (request: ClientRequest): string =>
-	stringifyJsonl(request, { maxLineBytes: 1024 * 1024 });
 
 const stripTrailingNuls = (text: string): string => {
 	let end = text.length;
@@ -481,37 +405,16 @@ export class RunRegistry implements RunRegistryRuntime {
 	}
 
 	private send(live: LiveRun, request: ClientRequest): Promise<ServerRecord> {
-		return new Promise((resolve, reject) => {
-			live.pending.set(request.id, { resolve, reject });
-			Promise.resolve(live.child.write(encodeClientRequestLine(request))).catch(
-				(error: unknown) => {
-					live.pending.delete(request.id);
-					reject(error instanceof Error ? error : new Error(String(error)));
-				},
-			);
-		});
+		return live.process.send(request);
 	}
 
-	private async consumeStdout(live: LiveRun): Promise<void> {
-		for await (const record of childServerRecords(live.child.stdout)) {
-			// eslint-disable-next-line no-await-in-loop -- child protocol records must update runRegistry state in order.
-			await this.handleServerRecord(live, record);
-		}
+	private handleProcessRecord(live: LiveRun, record: ServerRecord): void {
+		void this.applyServerRecord(live, record).catch((error) =>
+			this.markError(live, error),
+		);
 	}
 
-	private async consumeStderr(live: LiveRun): Promise<void> {
-		const decoder = textDecoder();
-		let stderrTail = live.record.stderrTail ?? "";
-		for await (const chunk of live.child.stderr) {
-			stderrTail = trimTail(
-				`${stderrTail}${decodeText(decoder, chunk)}`,
-				this.options.stderrLimitBytes,
-			);
-			await this.update(live, { stderrTail });
-		}
-	}
-
-	private async handleServerRecord(
+	private async applyServerRecord(
 		live: LiveRun,
 		record: ServerRecord,
 	): Promise<void> {
@@ -525,10 +428,6 @@ export class RunRegistry implements RunRegistryRuntime {
 			typeof record.data["sessionId"] === "string"
 		)
 			await this.update(live, { sessionId: record.data["sessionId"] });
-		if (record.kind === "response" && typeof record.id === "string") {
-			live.pending.get(record.id)?.resolve(record);
-			live.pending.delete(record.id);
-		}
 		if (record.kind === "event")
 			await this.update(live, {
 				lastSequence: record.sequence,
@@ -540,30 +439,6 @@ export class RunRegistry implements RunRegistryRuntime {
 		live.events.publish(record);
 	}
 
-	private async waitForWelcome(live: LiveRun): Promise<void> {
-		const records = live.events.subscribe();
-		let timeout: ReturnType<typeof setTimeout> | undefined;
-		try {
-			await Promise.race([
-				(async () => {
-					for await (const record of records) {
-						if (record.kind !== "welcome") continue;
-						return;
-					}
-					throw new Error("run closed before welcome");
-				})(),
-				new Promise<never>((_, reject) => {
-					timeout = setTimeout(
-						() => reject(new Error("run did not send welcome")),
-						this.options.spawnDeadlineMs,
-					);
-				}),
-			]);
-		} finally {
-			if (timeout !== undefined) clearTimeout(timeout);
-		}
-	}
-
 	async recoverAfterRestart(): Promise<void> {
 		await this.options.store.recoverAfterRestart();
 	}
@@ -571,12 +446,17 @@ export class RunRegistry implements RunRegistryRuntime {
 	async spawn(input: RunSpawnOptions = {}): Promise<RunRecord> {
 		const now = this.options.now();
 		const cwd = input.cwd ?? this.options.cwd;
-		const cli = this.options.cli ?? defaultCli();
-		const args = [...cli.args, ...childArgs({ ...input, cwd })];
-		const child = (this.options.spawnChild ?? nodeChild)({
-			command: cli.command,
+		const cli = this.options.cli;
+		if (cli === undefined && this.options.spawnChild === undefined)
+			throw new Error("run registry needs a CLI command to spawn runs");
+		const args = [...(cli?.args ?? []), ...childArgs({ ...input, cwd })];
+		const child = (this.options.spawnChild ?? createRunChildProcess)({
+			command: cli?.command ?? "plot-test",
 			args,
 			cwd,
+		});
+		const process = new RunProcessInstance(child, {
+			stderrLimitBytes: this.options.stderrLimitBytes,
 		});
 		const record = runRecordSchema.parse({
 			id: this.options.id(),
@@ -592,19 +472,33 @@ export class RunRegistry implements RunRegistryRuntime {
 				? {}
 				: { workflowPath: input.workflowPath }),
 		});
+		const events = new EventHub<ServerRecord>(this.options.eventCapacity);
 		const live: LiveRun = {
 			record,
-			child,
-			events: new EventHub<ServerRecord>(this.options.eventCapacity),
-			pending: new Map(),
+			process,
+			events,
+			cleanup: () => {},
 		};
+		const cleanup = [
+			process.onRecord((serverRecord) =>
+				this.handleProcessRecord(live, serverRecord),
+			),
+			process.onStderrTail((stderrTail) => {
+				void this.update(live, { stderrTail }).catch((error) =>
+					this.markError(live, error),
+				);
+			}),
+			process.onExit((error) => {
+				void this.handleExit(live, error);
+			}),
+		];
+		Object.assign(live, {
+			cleanup: () => cleanup.forEach((unsubscribe) => unsubscribe()),
+		});
 		this.live.set(record.id, live);
 		await this.options.store.upsert(record);
-		void this.consumeStdout(live).catch((error) => this.markError(live, error));
-		void this.consumeStderr(live).catch((error) => this.markError(live, error));
-		void child.exited.then(() => this.handleExit(live));
 		try {
-			await this.waitForWelcome(live);
+			await process.waitForWelcome(this.options.spawnDeadlineMs);
 			await this.send(live, makeRequest("start"));
 			await this.setStatus(live, "online");
 			return clone(live.record);
@@ -623,18 +517,16 @@ export class RunRegistry implements RunRegistryRuntime {
 				this.options.stderrLimitBytes,
 			),
 		});
-		for (const pending of live.pending.values())
-			pending.reject(error instanceof Error ? error : new Error(String(error)));
-		live.pending.clear();
+		live.cleanup();
 		live.events.close();
 		this.live.delete(live.record.id);
 	}
 
-	private async handleExit(live: LiveRun): Promise<void> {
+	private async handleExit(live: LiveRun, error?: Error): Promise<void> {
 		if (this.live.get(live.record.id) !== live) return;
 		if (live.record.status === "stopping" || live.record.status === "stopped")
 			return;
-		await this.markError(live, "run exited");
+		await this.markError(live, error ?? "run exited");
 	}
 
 	async stop(id: string): Promise<RunRecord | undefined> {
@@ -642,7 +534,8 @@ export class RunRegistry implements RunRegistryRuntime {
 		if (live === undefined) return this.options.store.get(id);
 		await this.setStatus(live, "stopping");
 		await this.send(live, makeRequest("shutdown")).catch(() => undefined);
-		live.child.kill("SIGTERM");
+		live.process.kill("SIGTERM");
+		live.cleanup();
 		live.events.close();
 		this.live.delete(id);
 		await this.update(live, { status: "stopped" });
