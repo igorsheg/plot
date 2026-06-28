@@ -1,14 +1,55 @@
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-
-export type {
-	AgentToolResult,
-	AgentToolUpdateCallback,
-	ToolDefinition,
-	ToolExecutionMode,
-} from "@earendil-works/pi-coding-agent";
-export const defineTool = <T extends ToolDefinition>(tool: T): T => tool;
-
 export type MaybePromise<A> = A | Promise<A>;
+
+export interface PlotToolTextContent {
+	readonly type: "text";
+	readonly text: string;
+}
+
+export interface PlotToolResult<Details = unknown> {
+	readonly content: readonly PlotToolTextContent[];
+	readonly details?: Details;
+	readonly terminate?: boolean;
+}
+
+export interface PlotToolExecutionContext {
+	readonly signal?: AbortSignal;
+}
+
+export type PlotToolExecutionMode = "sequential" | "parallel";
+
+export type PlotJsonSchema =
+	| { readonly type: "string"; readonly enum?: readonly string[] }
+	| { readonly type: "number" }
+	| { readonly type: "integer" }
+	| { readonly type: "boolean" }
+	| {
+			readonly type: "array";
+			readonly items?: PlotJsonSchema;
+	  }
+	| {
+			readonly type: "object";
+			readonly properties?: Readonly<Record<string, PlotJsonSchema>>;
+			readonly required?: readonly string[];
+	  };
+
+export interface PlotToolDefinition<
+	Params = Record<string, unknown>,
+	Details = unknown,
+> {
+	readonly name: string;
+	readonly label: string;
+	readonly description: string;
+	readonly promptSnippet?: string;
+	readonly promptGuidelines?: readonly string[];
+	readonly parameters: PlotJsonSchema;
+	readonly executionMode?: PlotToolExecutionMode;
+	readonly execute: (
+		params: Params,
+		context: PlotToolExecutionContext,
+	) => MaybePromise<PlotToolResult<Details>>;
+}
+
+export const defineTool = <T extends PlotToolDefinition>(tool: T): T => tool;
 
 export interface WorkDisplay {
 	readonly kind?: string;
@@ -81,8 +122,8 @@ export interface PlotToolContext<Config = unknown> {
 }
 
 export type PlotExtensionTool<Config = unknown> =
-	| ToolDefinition
-	| ((context: PlotToolContext<Config>) => MaybePromise<ToolDefinition>);
+	| PlotToolDefinition
+	| ((context: PlotToolContext<Config>) => MaybePromise<PlotToolDefinition>);
 
 export interface PlotExtensionSetupContext<Config = unknown> {
 	readonly workflow: unknown;

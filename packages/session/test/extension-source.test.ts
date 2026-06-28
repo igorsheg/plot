@@ -240,8 +240,13 @@ describe("extension source adapter", () => {
 						properties: { body: { type: "string" } },
 						required: ["body"],
 					},
-					execute: async () => ({
-						content: [{ type: "text", text: `commented on ${work.id}` }],
+					execute: async (params) => ({
+						content: [
+							{
+								type: "text",
+								text: `commented on ${work.id}: ${String((params as { body: string }).body)}`,
+							},
+						],
 						details: { workId: work.id, runId },
 					}),
 				}),
@@ -250,18 +255,27 @@ describe("extension source adapter", () => {
 		const runner: WorkRunner = {
 			run: async (context) => {
 				const create = await bundle.createOptions(context);
-				expect(create.customTools[0]?.description).toBe(
+				const tool = create.customTools[0];
+				expect(tool?.description).toBe(
 					"Comment on github:acme/web:pr:42 during run-0 with test-token.",
 				);
-				const result = await create.customTools[0]?.execute(
+				const params = tool?.prepareArguments?.({
+					body: "looks good",
+					dynamic: true,
+				});
+				expect(params).toEqual({ body: "looks good" });
+				const result = await tool?.execute(
 					"tool-1",
-					{ body: "looks good" },
+					params as never,
 					undefined,
 					undefined,
 					undefined as never,
 				);
 				expect(result?.content).toEqual([
-					{ type: "text", text: "commented on github:acme/web:pr:42" },
+					{
+						type: "text",
+						text: "commented on github:acme/web:pr:42: looks good",
+					},
 				]);
 				return { output: "ok" };
 			},

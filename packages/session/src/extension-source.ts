@@ -16,14 +16,16 @@ import {
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { logWideEvent } from "@plot/common/observability";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
 	MaybePromise,
 	PlotExtension,
 	PlotExtensionRuntime,
 	PlotExtensionTool,
 	PlotExtensionWork,
+	PlotJsonSchema,
 	PlotToolContext,
-	ToolDefinition,
+	PlotToolDefinition,
 } from "./sdk.js";
 import * as plotSdk from "./sdk.js";
 import { z } from "zod";
@@ -310,6 +312,59 @@ const discover = async (input: {
 		String(input.source),
 	);
 
+const normalizeToolArguments = (
+	schema: PlotJsonSchema,
+	value: unknown,
+): unknown => {
+	if (schema.type === "object") {
+		const normalized: Record<string, unknown> = {};
+		if (!isRecord(value)) return normalized;
+		for (const [key, propertySchema] of Object.entries(
+			schema.properties ?? {},
+		)) {
+			if (value[key] !== undefined)
+				normalized[key] = normalizeToolArguments(propertySchema, value[key]);
+		}
+		return normalized;
+	}
+	if (schema.type === "array" && Array.isArray(value)) {
+		if (schema.items === undefined) return value;
+		return value.map((item) => normalizeToolArguments(schema.items!, item));
+	}
+	return value;
+};
+
+const toPiToolDefinition = (
+	tool: PlotToolDefinition,
+): ToolDefinition<never, unknown> => ({
+	name: tool.name,
+	label: tool.label,
+	description: tool.description,
+	parameters: tool.parameters as never,
+	prepareArguments: (args) =>
+		normalizeToolArguments(tool.parameters, args) as never,
+	...(tool.promptSnippet === undefined
+		? {}
+		: { promptSnippet: tool.promptSnippet }),
+	...(tool.promptGuidelines === undefined
+		? {}
+		: { promptGuidelines: [...tool.promptGuidelines] }),
+	...(tool.executionMode === undefined
+		? {}
+		: { executionMode: tool.executionMode }),
+	execute: async (_toolCallId, params, signal) => {
+		const context = signal === undefined ? {} : { signal };
+		const result = await tool.execute(params, context);
+		return {
+			content: [...result.content],
+			details: result.details,
+			...(result.terminate === undefined
+				? {}
+				: { terminate: result.terminate }),
+		};
+	},
+});
+
 const resolveToolDefinitions = async (options: {
 	readonly tools: readonly PlotExtensionTool[];
 	readonly workflow: WorkflowDefinition;
@@ -339,7 +394,7 @@ const resolveToolDefinitions = async (options: {
 			});
 		names.add(tool.name);
 	}
-	return resolved;
+	return resolved.map(toPiToolDefinition);
 };
 
 const invokeOperatorActionHook = async (
