@@ -18,8 +18,8 @@ import {
 import { jsonlLines, stringifyJsonl } from "./jsonl.js";
 import { errorMessage } from "@plot/common/primitives";
 import {
+	decodeServerRecord,
 	defaultProtocolLimits,
-	serverRecordSchema,
 	type ClientRequest,
 	type ServerRecord,
 } from "./protocol.js";
@@ -295,7 +295,7 @@ export const createRunIpcClient = (
 			});
 			if (response.type !== "protocol_response")
 				throw new Error(`unexpected IPC response: ${response.type}`);
-			return serverRecordSchema.parse(response.record);
+			return decodeServerRecord(response.record);
 		},
 		attachRecords: async function* (
 			id: string,
@@ -323,7 +323,7 @@ export const createRunIpcClient = (
 						continue;
 					}
 					if (response.type === "protocol_response")
-						yield serverRecordSchema.parse(response.record);
+						yield decodeServerRecord(response.record);
 				}
 			} finally {
 				socket.end();
@@ -394,8 +394,18 @@ export const startRunIpcDaemon = async (
 		detached: true,
 		stdio: "ignore",
 	});
+	const failed = new Promise<never>((_resolve, reject) => {
+		child.once("error", reject);
+		child.once("exit", (code, signal) =>
+			reject(
+				new Error(
+					`run registry daemon exited before ready: ${signal ?? code ?? "unknown"}`,
+				),
+			),
+		);
+	});
 	child.unref();
-	await waitForRunIpc(options);
+	await Promise.race([waitForRunIpc(options), failed]);
 };
 
 export const openOrStartRunIpc = async (

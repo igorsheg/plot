@@ -1,43 +1,43 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { z } from "zod";
+import { Schema } from "effect";
 import { hasErrnoCode, errorMessage, isRecord } from "@plot/common/primitives";
 import { parseJsonl, stringifyJsonl, type JsonlLimits } from "./jsonl.js";
+import {
+	NonEmptyString,
+	PositiveInteger,
+	decodeBoundary,
+	encodeBoundary,
+	optional,
+} from "./schema.js";
 
-const nonEmptyString = z.string().min(1);
-const positiveInteger = z.number().int().positive();
+export const sessionEventSchema = Schema.Struct({
+	kind: Schema.Literal("session_event"),
+	sessionId: NonEmptyString,
+	sequence: PositiveInteger,
+	timestamp: NonEmptyString,
+	type: NonEmptyString,
+	payload: optional(Schema.Unknown),
+});
 
-export const sessionEventSchema = z
-	.object({
-		kind: z.literal("session_event"),
-		sessionId: nonEmptyString,
-		sequence: positiveInteger,
-		timestamp: nonEmptyString,
-		type: nonEmptyString,
-		payload: z.unknown().optional(),
-	})
-	.strict();
+export const agentEventSchema = Schema.Struct({
+	kind: Schema.Literal("agent_event"),
+	sessionId: NonEmptyString,
+	sequence: PositiveInteger,
+	timestamp: NonEmptyString,
+	sourceId: optional(NonEmptyString),
+	runId: optional(NonEmptyString),
+	workKey: optional(NonEmptyString),
+	event: Schema.Unknown,
+});
 
-export const agentEventSchema = z
-	.object({
-		kind: z.literal("agent_event"),
-		sessionId: nonEmptyString,
-		sequence: positiveInteger,
-		timestamp: nonEmptyString,
-		sourceId: nonEmptyString.optional(),
-		runId: nonEmptyString.optional(),
-		workKey: nonEmptyString.optional(),
-		event: z.unknown(),
-	})
-	.strict();
-
-export const eventLogRecordSchema = z.discriminatedUnion("kind", [
+export const eventLogRecordSchema = Schema.Union([
 	sessionEventSchema,
 	agentEventSchema,
 ]);
 
-export type EventLogRecord = z.infer<typeof eventLogRecordSchema>;
+export type EventLogRecord = typeof eventLogRecordSchema.Type;
 
 export interface EventLogAppendInput {
 	readonly type: string;
@@ -156,7 +156,7 @@ export const makeSessionEventRecord = (input: {
 	readonly timestamp?: string;
 	readonly event: EventLogAppendInput;
 }): EventLogRecord =>
-	eventLogRecordSchema.parse({
+	decodeBoundary(eventLogRecordSchema, {
 		kind: "session_event",
 		sessionId: input.sessionId,
 		sequence: input.sequence,
@@ -174,7 +174,7 @@ export const makeAgentEventRecord = (input: {
 	readonly timestamp?: string;
 	readonly event: AgentEventAppendInput;
 }): EventLogRecord =>
-	eventLogRecordSchema.parse({
+	decodeBoundary(eventLogRecordSchema, {
 		kind: "agent_event",
 		sessionId: input.sessionId,
 		sequence: input.sequence,
@@ -216,7 +216,7 @@ const normalizeEventLogRecord = (value: unknown): unknown => {
 };
 
 export const decodeEventLogRecord = (value: unknown): EventLogRecord =>
-	eventLogRecordSchema.parse(normalizeEventLogRecord(value));
+	decodeBoundary(eventLogRecordSchema, normalizeEventLogRecord(value));
 
 const decodeLine = (line: string, sessionId: string): EventLogRecord => {
 	const record = decodeEventLogRecord(parseJsonl(line));
@@ -311,7 +311,10 @@ export const createFileEventLogStore = async (
 		const record = makeRecord(cachedLastSequence + 1);
 		try {
 			await mkdir(dirname(path), { recursive: true });
-			const line = stringifyJsonl(record, limits);
+			const line = stringifyJsonl(
+				encodeBoundary(eventLogRecordSchema, record),
+				limits,
+			);
 			await appendFile(path, line, "utf8");
 			cachedLastSequence = record.sequence;
 			cachedByteOffset += Buffer.byteLength(line, "utf8");

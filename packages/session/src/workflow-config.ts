@@ -1,70 +1,66 @@
-import { z } from "zod";
+import { Schema } from "effect";
+import {
+	NonEmptyString,
+	PositiveInteger,
+	decodeBoundary,
+	optional,
+} from "./schema.js";
 
-const positiveInteger = z.number().int().positive();
-const stringArray = z.array(z.string().min(1));
+const stringArray = Schema.Array(NonEmptyString);
 
-export const agentToolModeSchema = z.union([
-	z.boolean(),
-	z.literal("all"),
-	z.literal("builtin"),
+export const agentToolModeSchema = Schema.Union([
+	Schema.Boolean,
+	Schema.Literal("all"),
+	Schema.Literal("builtin"),
 ]);
 
-export const workflowAgentConfigSchema = z
-	.object({
-		provider: z.string().min(1).optional(),
-		model: z.string().min(1).optional(),
-		thinking: z
-			.enum(["off", "minimal", "low", "medium", "high", "xhigh"])
-			.optional(),
-		tools: stringArray.optional(),
-		excludeTools: stringArray.optional(),
-		noTools: agentToolModeSchema.optional(),
-		allowProjectConfig: z.boolean().optional(),
-		maxTurns: positiveInteger.optional(),
-	})
-	.strict();
+export const workflowAgentConfigSchema = Schema.Struct({
+	provider: optional(NonEmptyString),
+	model: optional(NonEmptyString),
+	thinking: optional(
+		Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh"]),
+	),
+	tools: optional(stringArray),
+	excludeTools: optional(stringArray),
+	noTools: optional(agentToolModeSchema),
+	allowProjectConfig: optional(Schema.Boolean),
+	maxTurns: optional(PositiveInteger),
+});
 
-export const workflowPlotConfigSchema = z
-	.object({
-		tickIntervalMs: positiveInteger.optional(),
-		maxRunDurationMs: positiveInteger.optional(),
-		stallTimeoutMs: positiveInteger.optional(),
-		queueCapacity: positiveInteger.optional(),
-		eventCapacity: positiveInteger.optional(),
-		eventBufferCapacity: positiveInteger.optional(),
-	})
-	.strict();
+export const workflowPlotConfigSchema = Schema.Struct({
+	tickIntervalMs: optional(PositiveInteger),
+	maxRunDurationMs: optional(PositiveInteger),
+	stallTimeoutMs: optional(PositiveInteger),
+	queueCapacity: optional(PositiveInteger),
+	eventCapacity: optional(PositiveInteger),
+	eventBufferCapacity: optional(PositiveInteger),
+});
 
-export const workflowResourcesConfigSchema = z
-	.object({
-		skills: stringArray.optional(),
-		prompts: stringArray.optional(),
-		contextFiles: z.boolean().optional(),
-		systemPrompt: z.string().optional(),
-		appendSystemPrompt: stringArray.optional(),
-	})
-	.strict();
+export const workflowResourcesConfigSchema = Schema.Struct({
+	skills: optional(stringArray),
+	prompts: optional(stringArray),
+	contextFiles: optional(Schema.Boolean),
+	systemPrompt: optional(Schema.String),
+	appendSystemPrompt: optional(stringArray),
+});
 
-export const workflowExtensionConfigSchema = z
-	.object({
-		source: z.string().min(1),
-		maxConcurrentRuns: positiveInteger.optional(),
-		config: z.unknown().optional(),
-	})
-	.strict();
+export const workflowExtensionConfigSchema = Schema.Struct({
+	source: NonEmptyString,
+	maxConcurrentRuns: optional(PositiveInteger),
+	config: optional(Schema.Unknown),
+});
 
-export const workflowRuntimeConfigSchema = z
-	.object({
-		name: z.string().min(1).optional(),
-		plot: workflowPlotConfigSchema.optional(),
-		agent: workflowAgentConfigSchema.optional(),
-		resources: workflowResourcesConfigSchema.optional(),
-		extension: workflowExtensionConfigSchema.optional(),
-	})
-	.strict();
+export const workflowRuntimeConfigSchema = Schema.Struct({
+	name: optional(NonEmptyString),
+	plot: optional(workflowPlotConfigSchema),
+	agent: optional(workflowAgentConfigSchema),
+	resources: optional(workflowResourcesConfigSchema),
+	extension: optional(workflowExtensionConfigSchema),
+});
 
-export type WorkflowRuntimeConfig = z.infer<typeof workflowRuntimeConfigSchema>;
+export type WorkflowRuntimeConfig = typeof workflowRuntimeConfigSchema.Type;
 
 export const decodeWorkflowRuntimeConfig = (
 	value: unknown,
-): WorkflowRuntimeConfig => workflowRuntimeConfigSchema.parse(value ?? {});
+): WorkflowRuntimeConfig =>
+	decodeBoundary(workflowRuntimeConfigSchema, value ?? {});

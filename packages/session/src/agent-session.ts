@@ -10,14 +10,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 import { errorMessage, hasErrnoCode } from "@plot/common/primitives";
-import { z } from "zod";
+import { Schema } from "effect";
 import type { CreatePiAgentSession } from "./pi-runner.js";
 import type { SessionPaths } from "./paths.js";
 import type { WorkflowDefinition } from "./workflow.js";
 import type { WorkflowRuntimeConfig } from "./workflow-config.js";
+import { NonEmptyString, decodeBoundary, optional } from "./schema.js";
 
 type AgentConfig = NonNullable<WorkflowRuntimeConfig["agent"]>;
 type ResourcesConfig = NonNullable<WorkflowRuntimeConfig["resources"]>;
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 type AgentToolMode = NonNullable<AgentConfig["noTools"]>;
 
 export interface AgentSessionOverrides {
@@ -44,15 +46,15 @@ export interface AgentSessionFactoryOptions {
 	readonly overrides?: AgentSessionOverrides;
 }
 
-const settingsSchema = z.object({
-	defaultProvider: z.string().min(1).optional(),
-	defaultModel: z.string().min(1).optional(),
-	defaultThinkingLevel: z
-		.enum(["off", "minimal", "low", "medium", "high", "xhigh"])
-		.optional(),
+const settingsSchema = Schema.Struct({
+	defaultProvider: optional(NonEmptyString),
+	defaultModel: optional(NonEmptyString),
+	defaultThinkingLevel: optional(
+		Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh"]),
+	),
 });
 
-type AgentSettings = z.infer<typeof settingsSchema>;
+type AgentSettings = typeof settingsSchema.Type;
 
 const readJson = async (path: string): Promise<unknown> => {
 	try {
@@ -78,8 +80,8 @@ const loadAgentSettings = async (
 		readJson(files.globalSettingsPath),
 		readJson(files.projectSettingsPath),
 	]);
-	const globalSettings = settingsSchema.parse(global);
-	const projectSettings = settingsSchema.parse(project);
+	const globalSettings = decodeBoundary(settingsSchema, global);
+	const projectSettings = decodeBoundary(settingsSchema, project);
 	return { ...globalSettings, ...projectSettings };
 };
 
@@ -127,7 +129,7 @@ const resolvedAgent = (
 ): AgentConfig => {
 	const selector = splitModelSelector(overrides?.model);
 	const provider = overrides?.provider ?? selector.provider;
-	const agent: AgentConfig = { ...workflow.runtime.agent };
+	const agent: Mutable<AgentConfig> = { ...workflow.runtime.agent };
 	if (provider !== undefined) agent.provider = provider;
 	if (selector.model !== undefined) agent.model = selector.model;
 	if (overrides?.thinking !== undefined) agent.thinking = overrides.thinking;
@@ -144,7 +146,7 @@ const resolvedResources = (
 	workflow: WorkflowDefinition,
 	overrides: AgentSessionOverrides | undefined,
 ): ResourcesConfig => {
-	const resources: ResourcesConfig = { ...workflow.runtime.resources };
+	const resources: Mutable<ResourcesConfig> = { ...workflow.runtime.resources };
 	if (overrides?.skills !== undefined) resources.skills = [...overrides.skills];
 	if (overrides?.prompts !== undefined)
 		resources.prompts = [...overrides.prompts];

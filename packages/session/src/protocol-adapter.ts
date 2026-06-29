@@ -1,5 +1,5 @@
 import { AsyncQueue } from "@plot/common/async-queue";
-import { z } from "zod";
+import { Schema } from "effect";
 import { errorMessage } from "@plot/common/primitives";
 import {
 	ProtocolBoundaryError,
@@ -16,6 +16,7 @@ import {
 	type OwnedTask,
 	type SessionRuntime,
 } from "./runtime.js";
+import { NonEmptyString, decodeBoundary, optional } from "./schema.js";
 
 export interface SessionProtocol {
 	readonly welcome: () => Promise<ServerRecord>;
@@ -35,17 +36,18 @@ interface QueuedRequest {
 	readonly resolve: (accepted: boolean) => void;
 }
 
-const emptyParamsSchema = z.object({}).strict();
-const interruptParamsSchema = z
-	.object({
-		runId: z.string().min(1),
-		workKey: z.string().min(1).optional(),
-	})
-	.strict();
+const emptyParamsSchema = Schema.Struct({});
+const interruptParamsSchema = Schema.Struct({
+	runId: NonEmptyString,
+	workKey: optional(NonEmptyString),
+});
 
-const decodeParams = <A>(schema: z.ZodType<A>, value: unknown): A => {
+const decodeParams = <S extends Schema.Decoder<unknown>>(
+	schema: S,
+	value: unknown,
+): S["Type"] => {
 	try {
-		return schema.parse(value ?? {});
+		return decodeBoundary(schema, value ?? {});
 	} catch (error) {
 		throw new ProtocolBoundaryError({
 			code: "invalid_request",

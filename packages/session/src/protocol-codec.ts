@@ -1,32 +1,25 @@
-import { ZodError } from "zod";
+import { byteLength, errorMessage } from "@plot/common/primitives";
 import {
 	JsonlBoundaryError,
 	parseJsonl,
 	stringifyJsonl,
 	type JsonlLimits,
 } from "./jsonl.js";
-import { byteLength } from "@plot/common/primitives";
 import {
 	ProtocolBoundaryError,
-	clientRequestSchema,
+	decodeClientRequest,
+	decodeServerRecord,
 	defaultProtocolLimits,
 	serverRecordSchema,
 	type ClientRequest,
 	type ProtocolLimits,
 	type ServerRecord,
 } from "./protocol.js";
+import { encodeBoundary } from "./schema.js";
 
 const outputLimits = (limits: ProtocolLimits): JsonlLimits => ({
 	maxLineBytes: limits.maxOutputLineBytes,
 });
-
-const formatZodError = (error: ZodError): string =>
-	error.issues
-		.map((issue) => {
-			const path = issue.path.length === 0 ? "record" : issue.path.join(".");
-			return `${path}: ${issue.message}`;
-		})
-		.join("; ");
 
 const mapDecodeError = (error: unknown): ProtocolBoundaryError => {
 	if (error instanceof ProtocolBoundaryError) return error;
@@ -36,14 +29,9 @@ const mapDecodeError = (error: unknown): ProtocolBoundaryError => {
 			message: error.message,
 			...(error.details === undefined ? {} : { details: error.details }),
 		});
-	if (error instanceof ZodError)
-		return new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: formatZodError(error),
-		});
 	return new ProtocolBoundaryError({
 		code: "invalid_request",
-		message: error instanceof Error ? error.message : String(error),
+		message: errorMessage(error),
 	});
 };
 
@@ -53,7 +41,7 @@ export const encodeServerRecordLine = (
 ): string => {
 	try {
 		return stringifyJsonl(
-			serverRecordSchema.parse(record),
+			encodeBoundary(serverRecordSchema, record),
 			outputLimits(limits),
 		);
 	} catch (error) {
@@ -83,7 +71,7 @@ export const decodeClientRequestLine = (
 ): ClientRequest => {
 	try {
 		assertInputLineSize(line, limits);
-		return clientRequestSchema.parse(parseJsonl(line));
+		return decodeClientRequest(parseJsonl(line));
 	} catch (error) {
 		throw mapDecodeError(error);
 	}
@@ -95,7 +83,7 @@ export const decodeServerRecordLine = (
 ): ServerRecord => {
 	try {
 		assertInputLineSize(line, limits);
-		return serverRecordSchema.parse(parseJsonl(line));
+		return decodeServerRecord(parseJsonl(line));
 	} catch (error) {
 		throw mapDecodeError(error);
 	}

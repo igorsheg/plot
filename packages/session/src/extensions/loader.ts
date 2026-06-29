@@ -9,6 +9,7 @@ import type {
 } from "../sdk.js";
 import * as plotSdk from "../sdk.js";
 import type { WorkflowDefinition } from "../workflow.js";
+import { decodeBoundary } from "../schema.js";
 import { PlotExtensionSourceError, runMaybePromise } from "./errors.js";
 import { cleanWork, extensionWorkSchema } from "./work.js";
 
@@ -99,7 +100,7 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 			config,
 			workflow: options.workflow,
 			paths: options.paths,
-			work: (input) => cleanWork(extensionWorkSchema.parse(input)),
+			work: (input) => cleanWork(decodeBoundary(extensionWorkSchema, input)),
 			registerTool: (tool) => {
 				tools.push(tool as PlotExtensionTool);
 			},

@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
 import { errorMessage, hasErrnoCode, isRecord } from "@plot/common/primitives";
-import { z } from "zod";
+import { Schema } from "effect";
 import {
 	clientRequestSchema,
 	sessionProtocolVersion,
@@ -16,10 +16,18 @@ import {
 	RunProcessInstance,
 	type RunChildProcess,
 } from "./run-process.js";
+import {
+	NonEmptyString,
+	NonNegativeInteger,
+	PositiveInteger,
+	decodeBoundary,
+	optional,
+} from "./schema.js";
 
 type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
-export const runStatusSchema = z.enum([
+export const runStatusSchema = Schema.Literals([
 	"starting",
 	"online",
 	"stopping",
@@ -27,116 +35,95 @@ export const runStatusSchema = z.enum([
 	"error",
 ]);
 
-export const runRecordSchema = z
-	.object({
-		id: z.string().min(1),
-		status: runStatusSchema,
-		cwd: z.string().min(1),
-		cwdName: z.string().min(1).optional(),
-		createdAt: z.string().min(1),
-		lastSeenAt: z.string().min(1).optional(),
-		label: z.string().min(1).optional(),
-		pid: z.number().int().positive().optional(),
-		sessionId: z.string().min(1).optional(),
-		workflowName: z.string().min(1).optional(),
-		workflowPath: z.string().min(1).optional(),
-		sessionDir: z.string().min(1).optional(),
-		eventLogPath: z.string().min(1).optional(),
-		lastSequence: z.number().int().positive().optional(),
-		lastEventType: z.string().min(1).optional(),
-		stderrTail: z.string().optional(),
-	})
-	.strict();
+export const runRecordSchema = Schema.Struct({
+	id: NonEmptyString,
+	status: runStatusSchema,
+	cwd: NonEmptyString,
+	cwdName: optional(NonEmptyString),
+	createdAt: NonEmptyString,
+	lastSeenAt: optional(NonEmptyString),
+	label: optional(NonEmptyString),
+	pid: optional(PositiveInteger),
+	sessionId: optional(NonEmptyString),
+	workflowName: optional(NonEmptyString),
+	workflowPath: optional(NonEmptyString),
+	sessionDir: optional(NonEmptyString),
+	eventLogPath: optional(NonEmptyString),
+	lastSequence: optional(PositiveInteger),
+	lastEventType: optional(NonEmptyString),
+	stderrTail: optional(Schema.String),
+});
 
-export const runSpawnOptionsSchema = z
-	.object({
-		cwd: z.string().min(1).optional(),
-		label: z.string().min(1).optional(),
-		sessionId: z.string().min(1).optional(),
-		workflowPath: z.string().min(1).optional(),
-	})
-	.strict();
+export const runSpawnOptionsSchema = Schema.Struct({
+	cwd: optional(NonEmptyString),
+	label: optional(NonEmptyString),
+	sessionId: optional(NonEmptyString),
+	workflowPath: optional(NonEmptyString),
+});
 
-export const runRequestSchema = z.discriminatedUnion("type", [
-	z
-		.object({
-			type: z.literal("spawn"),
-			options: runSpawnOptionsSchema.optional(),
-		})
-		.strict(),
-	z.object({ type: z.literal("list") }).strict(),
-	z.object({ type: z.literal("status"), id: z.string().min(1) }).strict(),
-	z.object({ type: z.literal("stop"), id: z.string().min(1) }).strict(),
-	z
-		.object({
-			type: z.literal("protocol_stream"),
-			id: z.string().min(1),
-			afterSequence: z.number().int().nonnegative().optional(),
-		})
-		.strict(),
-	z
-		.object({
-			type: z.literal("protocol_request"),
-			id: z.string().min(1),
-			request: clientRequestSchema,
-		})
-		.strict(),
+export const runRequestSchema = Schema.Union([
+	Schema.Struct({
+		type: Schema.Literal("spawn"),
+		options: optional(runSpawnOptionsSchema),
+	}),
+	Schema.Struct({ type: Schema.Literal("list") }),
+	Schema.Struct({ type: Schema.Literal("status"), id: NonEmptyString }),
+	Schema.Struct({ type: Schema.Literal("stop"), id: NonEmptyString }),
+	Schema.Struct({
+		type: Schema.Literal("protocol_stream"),
+		id: NonEmptyString,
+		afterSequence: optional(NonNegativeInteger),
+	}),
+	Schema.Struct({
+		type: Schema.Literal("protocol_request"),
+		id: NonEmptyString,
+		request: clientRequestSchema,
+	}),
 ]);
 
-export const runResponseSchema = z.discriminatedUnion("type", [
-	z
-		.object({
-			type: z.literal("spawn_result"),
-			ok: z.literal(true),
-			run: runRecordSchema,
-		})
-		.strict(),
-	z
-		.object({
-			type: z.literal("list_result"),
-			ok: z.literal(true),
-			runs: z.array(runRecordSchema),
-		})
-		.strict(),
-	z
-		.object({
-			type: z.literal("status_result"),
-			ok: z.literal(true),
-			run: runRecordSchema.optional(),
-		})
-		.strict(),
-	z
-		.object({
-			type: z.literal("stop_result"),
-			ok: z.literal(true),
-			id: z.string(),
-			run: runRecordSchema.optional(),
-		})
-		.strict(),
-	z
-		.object({
-			type: z.literal("protocol_ready"),
-			ok: z.literal(true),
-			run: runRecordSchema.optional(),
-		})
-		.strict(),
-	z
-		.object({ type: z.literal("protocol_response"), record: z.unknown() })
-		.strict(),
-	z
-		.object({
-			type: z.literal("error"),
-			ok: z.literal(false),
-			error: z.string(),
-		})
-		.strict(),
+export const runResponseSchema = Schema.Union([
+	Schema.Struct({
+		type: Schema.Literal("spawn_result"),
+		ok: Schema.Literal(true),
+		run: runRecordSchema,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("list_result"),
+		ok: Schema.Literal(true),
+		runs: Schema.Array(runRecordSchema),
+	}),
+	Schema.Struct({
+		type: Schema.Literal("status_result"),
+		ok: Schema.Literal(true),
+		run: optional(runRecordSchema),
+	}),
+	Schema.Struct({
+		type: Schema.Literal("stop_result"),
+		ok: Schema.Literal(true),
+		id: Schema.String,
+		run: optional(runRecordSchema),
+	}),
+	Schema.Struct({
+		type: Schema.Literal("protocol_ready"),
+		ok: Schema.Literal(true),
+		run: optional(runRecordSchema),
+	}),
+	Schema.Struct({
+		type: Schema.Literal("protocol_response"),
+		record: Schema.Unknown,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("error"),
+		ok: Schema.Literal(false),
+		error: Schema.String,
+	}),
 ]);
 
-export type RunStatus = z.infer<typeof runStatusSchema>;
-export type RunRecord = z.infer<typeof runRecordSchema>;
-export type RunSpawnOptions = z.infer<typeof runSpawnOptionsSchema>;
-export type RunRequest = z.infer<typeof runRequestSchema>;
-export type RunResponse = z.infer<typeof runResponseSchema>;
+export type RunStatus = typeof runStatusSchema.Type;
+export type RunRecord = typeof runRecordSchema.Type;
+export type RunSpawnOptions = typeof runSpawnOptionsSchema.Type;
+export type RunRequest = typeof runRequestSchema.Type;
+export type RunResponse = typeof runResponseSchema.Type;
 
 export interface RunStore {
 	readonly list: () => Promise<readonly RunRecord[]>;
@@ -185,7 +172,7 @@ interface LiveRun {
 	readonly cleanup: () => void;
 }
 
-const runArraySchema = z.array(runRecordSchema);
+const runArraySchema = Schema.Array(runRecordSchema);
 
 const clone = (record: RunRecord): RunRecord => ({
 	...record,
@@ -209,7 +196,7 @@ const makeRequest = (command: ClientRequest["command"]): ClientRequest => ({
 
 const stateUpdates = (data: unknown): Partial<RunRecord> => {
 	if (!isRecord(data)) return {};
-	const updates: Partial<RunRecord> = {};
+	const updates: Partial<Mutable<RunRecord>> = {};
 	for (const key of [
 		"sessionId",
 		"workflowName",
@@ -276,7 +263,10 @@ const stripTrailingNuls = (text: string): string => {
 };
 
 const parseRunStoreJson = (text: string): readonly RunRecord[] =>
-	runArraySchema.parse(JSON.parse(stripTrailingNuls(text)) as unknown);
+	decodeBoundary(
+		runArraySchema,
+		JSON.parse(stripTrailingNuls(text)) as unknown,
+	);
 
 const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 	let text: string;
@@ -375,11 +365,11 @@ export const createMemoryRunStore = (
 };
 
 export const decodeRunRecord = (value: unknown): RunRecord =>
-	runRecordSchema.parse(value);
+	decodeBoundary(runRecordSchema, value);
 export const decodeRunRequest = (value: unknown): RunRequest =>
-	runRequestSchema.parse(value);
+	decodeBoundary(runRequestSchema, value);
 export const decodeRunResponse = (value: unknown): RunResponse =>
-	runResponseSchema.parse(value);
+	decodeBoundary(runResponseSchema, value);
 export class RunRegistry implements RunRegistryRuntime {
 	private readonly live = new Map<string, LiveRun>();
 	private readonly options: Required<
@@ -466,7 +456,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		const process = new RunProcessInstance(child, {
 			stderrLimitBytes: this.options.stderrLimitBytes,
 		});
-		const record = runRecordSchema.parse({
+		const record = decodeBoundary(runRecordSchema, {
 			id: this.options.id(),
 			status: "starting",
 			cwd,
