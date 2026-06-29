@@ -66,11 +66,17 @@ const serializeAttempt = (
 	};
 };
 
+const isActiveToolEntry = (value: unknown): value is [string, ActiveTool] =>
+	Array.isArray(value) &&
+	typeof value[0] === "string" &&
+	typeof value[1] === "object" &&
+	value[1] !== null;
+
 const hydrateActiveTools = (
 	value: unknown,
 ): ReadonlyMap<string, ActiveTool> | undefined => {
 	if (value === undefined) return undefined;
-	if (Array.isArray(value)) return new Map(value);
+	if (Array.isArray(value)) return new Map(value.filter(isActiveToolEntry));
 	if (typeof value === "object" && value !== null)
 		return new Map(Object.entries(value) as [string, ActiveTool][]);
 	return undefined;

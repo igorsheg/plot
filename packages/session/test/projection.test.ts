@@ -65,6 +65,48 @@ test("projection JSON helpers round-trip map fields", () => {
 	);
 });
 
+test("projection hydration ignores malformed active tool entries", () => {
+	const projection = emptyProjection("session-1", "workflow");
+	const hydrated = hydrateDashboardProjection({
+		...projection,
+		work: {},
+		attempts: {
+			"run-1": {
+				runId: "run-1",
+				workKey: "work-1",
+				sourceId: "source-1",
+				stage: "working",
+				startedAtSeq: 1,
+				lastEventSeq: 1,
+				turnCount: 0,
+				eventCount: 0,
+				meaningfulCount: 0,
+				toolUpdateCount: 0,
+				messageCount: 0,
+				activity: "running",
+				activityKind: "run",
+				streaming: true,
+				lastDisplay: "running",
+				check: "running",
+				commands: [],
+				observations: [],
+				streams: {},
+				phases: [],
+				timeline: [],
+				activeTools: [
+					"bad",
+					["tool-1", { kind: "run", isCheck: true }],
+				] as never,
+			},
+		},
+	});
+
+	expect(hydrated.attempts.get("run-1")?.activeTools?.size).toBe(1);
+	expect(hydrated.attempts.get("run-1")?.activeTools?.get("tool-1")?.kind).toBe(
+		"run",
+	);
+});
+
 test("session_started starts a fresh live projection window", () => {
 	const projection = rebuildProjectionFromEventLog(
 		[
