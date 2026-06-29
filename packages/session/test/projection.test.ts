@@ -67,6 +67,41 @@ test("projection JSON helpers round-trip map fields", () => {
 	);
 });
 
+test("completed work keeps source display labels", () => {
+	const base = emptyProjection("session-1", "workflow");
+	const started = reduceProjectableEvent(base, {
+		kind: "session_event",
+		sessionId: "session-1",
+		sequence: 1,
+		timestamp: "2026-06-29T10:00:00.000Z",
+		type: "attempt_started",
+		payload: {
+			run: {
+				runId: "run-1",
+				workKey: "work-1",
+				sourceId: "source-1",
+				display: { title: "Work 1", labels: ["done"] },
+			},
+		},
+	});
+	const completed = reduceProjectableEvent(started, {
+		kind: "session_event",
+		sessionId: "session-1",
+		sequence: 2,
+		timestamp: "2026-06-29T10:00:01.000Z",
+		type: "attempt_completed",
+		payload: {
+			completion: {
+				runId: "run-1",
+				workKey: "work-1",
+				status: "succeeded",
+			},
+		},
+	});
+
+	expect(completed.completed[0]?.labels).toEqual(["done"]);
+});
+
 test("debug events name agent event payloads", () => {
 	const projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),

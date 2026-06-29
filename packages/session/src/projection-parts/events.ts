@@ -152,6 +152,7 @@ export const reduceEvent = (
 				? {}
 				: { durationMs: at(e) - a.startedAtMs }),
 			...(item?.url ? { url: item.url } : {}),
+			...(item?.labels.length ? { labels: item.labels } : {}),
 			...(a?.tokens ? { tokens: a.tokens } : {}),
 		};
 		return {
