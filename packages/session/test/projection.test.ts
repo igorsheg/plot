@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+	applySnapshot,
 	emptyProjection,
 	hydrateDashboardProjection,
 	rebuildProjectionFromEventLog,
@@ -80,6 +81,44 @@ test("debug events name agent event payloads", () => {
 	);
 
 	expect(projection.debugEvents[0]).toBe("1 agent_event:turn_start");
+});
+
+test("snapshot clears stale current run ids", () => {
+	const live = {
+		...emptyProjection("session-1", "workflow"),
+		work: new Map([
+			[
+				"work-1",
+				{
+					workKey: "work-1",
+					sourceId: "source-1",
+					title: "Work 1",
+					labels: [],
+					status: "running" as const,
+					currentRunId: "run-1",
+				},
+			],
+		]),
+	};
+
+	const repaired = applySnapshot(live, {
+		asOfSequence: 2,
+		snapshot: {
+			work: {
+				"work-1": {
+					workKey: "work-1",
+					sourceId: "source-1",
+					status: "done",
+					display: { title: "Work 1" },
+				},
+			},
+			running: {},
+		},
+	});
+
+	expect(repaired.work.get("work-1")?.status).toBe("done");
+	expect(repaired.work.get("work-1")?.currentRunId).toBeUndefined();
+	expect(repaired.attempts.size).toBe(0);
 });
 
 test("session_started starts a fresh live projection window", () => {
