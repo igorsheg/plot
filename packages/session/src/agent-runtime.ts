@@ -19,6 +19,7 @@ import type {
 import {
 	startOwnedTask,
 	type SessionRuntime,
+	type SessionRuntimeState,
 	type SessionSnapshot,
 	type SessionTickResult,
 } from "./runtime.js";
@@ -28,6 +29,10 @@ export interface AgentSessionRuntimeOptions {
 	readonly eventLog: EventLogStore;
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
+	readonly state?: Omit<
+		SessionRuntimeState,
+		"sessionId" | "eventLogPath" | "lastSequence"
+	>;
 	readonly agent?: Omit<PlotAgentLayerOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
 }
@@ -126,6 +131,12 @@ export const makeAgentSessionRuntime = (
 			await agent.start();
 		},
 		tickOnce: async () => compactTickResult(await agent.tickOnce()),
+		state: async () => ({
+			sessionId,
+			...options.state,
+			eventLogPath: options.eventLog.path,
+			lastSequence: (await options.eventLog.frontier()).lastSequence,
+		}),
 		snapshot: async () =>
 			snapshotForProtocol(sessionId, await agent.snapshot()),
 		pauseDispatch: () => agent.pauseDispatch(),

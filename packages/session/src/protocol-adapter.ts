@@ -127,7 +127,7 @@ export const makeSessionProtocol = (
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
-					data: { sessionId: options.runtime.id },
+					data: await options.runtime.state(),
 				});
 			case "get_snapshot":
 				decodeParams(emptyParamsSchema, request.params);

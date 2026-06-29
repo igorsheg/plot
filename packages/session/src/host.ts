@@ -275,11 +275,19 @@ export const createSessionHost = async (
 		agentOptions.maxRunDurationMs = maxRunDurationMs;
 	if (stallTimeoutMs !== undefined)
 		agentOptions.stallTimeoutMs = stallTimeoutMs;
+	const metadata = makeMetadata({ workflow, paths, eventLog });
 	const runtimeOptions: AgentSessionRuntimeOptions = {
 		id: sessionId,
 		eventLog,
 		sources,
 		runner: extensionBundle?.wrapRunner(runner) ?? runner,
+		state: {
+			workflowName: metadata.workflowName,
+			workflowPath: metadata.workflowPath,
+			cwd: metadata.cwd,
+			cwdName: metadata.cwdName,
+			sessionDir: metadata.sessionDir,
+		},
 		eventCapacity,
 		agent: agentOptions,
 	};
@@ -297,7 +305,7 @@ export const createSessionHost = async (
 		eventLog,
 		paths,
 		workflow,
-		metadata: makeMetadata({ workflow, paths, eventLog }),
+		metadata,
 		shutdown: () => shutdownHostParts(parts),
 	};
 };

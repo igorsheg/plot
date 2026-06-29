@@ -207,6 +207,23 @@ const makeRequest = (command: ClientRequest["command"]): ClientRequest => ({
 	params: {},
 });
 
+const stateUpdates = (data: unknown): Partial<RunRecord> => {
+	if (!isRecord(data)) return {};
+	const updates: Partial<RunRecord> = {};
+	for (const key of [
+		"sessionId",
+		"workflowName",
+		"workflowPath",
+		"cwdName",
+		"sessionDir",
+		"eventLogPath",
+	] as const) {
+		const value = data[key];
+		if (typeof value === "string" && value.length > 0) updates[key] = value;
+	}
+	return updates;
+};
+
 async function* replayEventLogRecords(
 	run: RunRecord,
 	afterSequence: number,
@@ -416,11 +433,9 @@ export class RunRegistry implements RunRegistryRuntime {
 		if (
 			record.kind === "response" &&
 			record.ok &&
-			record.command === "get_state" &&
-			isRecord(record.data) &&
-			typeof record.data["sessionId"] === "string"
+			record.command === "get_state"
 		)
-			await this.update(live, { sessionId: record.data["sessionId"] });
+			await this.update(live, stateUpdates(record.data));
 		if (record.kind === "event")
 			await this.update(live, {
 				lastSequence: record.sequence,
@@ -492,12 +507,23 @@ export class RunRegistry implements RunRegistryRuntime {
 		try {
 			await process.waitForWelcome(this.options.spawnDeadlineMs);
 			await this.send(live, makeRequest("start"));
+			await this.syncRunRecord(live);
 			await this.setStatus(live, "online");
 			return clone(live.record);
 		} catch (error) {
 			await this.markError(live, error);
 			throw error;
 		}
+	}
+
+	private async syncRunRecord(live: LiveRun): Promise<void> {
+		const record = await this.send(live, makeRequest("get_state"));
+		if (
+			record.kind === "response" &&
+			record.ok &&
+			record.command === "get_state"
+		)
+			await this.update(live, stateUpdates(record.data));
 	}
 
 	private async markError(live: LiveRun, error: unknown): Promise<void> {

@@ -33,6 +33,7 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 		completionCount: 0,
 		diagnosticCount: 0,
 	}),
+	state: async () => ({ sessionId: "session-1" }),
 	snapshot: async () => ({ sessionId: "session-1" }),
 	pauseDispatch: async () => {},
 	resumeDispatch: async () => {},

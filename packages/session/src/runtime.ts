@@ -22,10 +22,22 @@ export interface InterruptAgentRunInput {
 	readonly workKey?: string;
 }
 
+export interface SessionRuntimeState {
+	readonly sessionId: string;
+	readonly workflowName?: string | undefined;
+	readonly workflowPath?: string | undefined;
+	readonly cwd?: string | undefined;
+	readonly cwdName?: string | undefined;
+	readonly sessionDir?: string | undefined;
+	readonly eventLogPath?: string | undefined;
+	readonly lastSequence?: number | undefined;
+}
+
 export interface SessionRuntime {
 	readonly id: string;
 	readonly start: () => Promise<void>;
 	readonly tickOnce: () => Promise<SessionTickResult>;
+	readonly state: () => Promise<SessionRuntimeState>;
 	readonly snapshot: () => Promise<SessionSnapshot>;
 	readonly pauseDispatch: () => Promise<void>;
 	readonly resumeDispatch: () => Promise<void>;

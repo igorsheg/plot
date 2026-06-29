@@ -36,7 +36,10 @@ class FakeChild implements RunChildProcess {
 		this.resolveExited = resolve;
 	});
 
-	constructor(readonly sessionId = "session-runRegistry") {}
+	constructor(
+		readonly sessionId = "session-runRegistry",
+		readonly state: Record<string, unknown> = {},
+	) {}
 
 	write(line: string): void {
 		this.writes.push(line);
@@ -48,7 +51,9 @@ class FakeChild implements RunChildProcess {
 			command: request.command,
 			ok: true,
 			data:
-				request.command === "get_state" ? { sessionId: this.sessionId } : {},
+				request.command === "get_state"
+					? { sessionId: this.sessionId, ...this.state }
+					: {},
 		});
 	}
 
@@ -103,7 +108,17 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		stderrLimitBytes: 8,
 		spawnChild: (input) => {
 			childInput = input;
-			child = new FakeChild();
+			child = new FakeChild("session-runRegistry", {
+				eventLogPath: join(
+					cwd,
+					".plot",
+					"sessions",
+					"session-runRegistry",
+					"events.jsonl",
+				),
+				sessionDir: join(cwd, ".plot", "sessions"),
+				workflowName: "workflow",
+			});
 			queueMicrotask(() =>
 				child?.emit({
 					protocol: "plot.session.v2",
@@ -130,6 +145,15 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		id: "run-1",
 		status: "online",
 		sessionId: "session-runRegistry",
+		eventLogPath: join(
+			cwd,
+			".plot",
+			"sessions",
+			"session-runRegistry",
+			"events.jsonl",
+		),
+		sessionDir: join(cwd, ".plot", "sessions"),
+		workflowName: "workflow",
 	});
 	expect(childInput).toMatchObject({
 		command: "bun",
@@ -137,7 +161,7 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 	});
 	expect(
 		child?.writes.map((line) => decodeClientRequestLine(line).command),
-	).toEqual(["start", "shutdown"]);
+	).toEqual(["start", "get_state", "shutdown"]);
 	expect(child?.killed).toBe(true);
 	expect(stopped).toMatchObject({ status: "stopped", stderrTail: "stuvwxyz" });
 });
