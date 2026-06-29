@@ -66,11 +66,17 @@ const serializeAttempt = (
 	};
 };
 
+const isActiveToolEntry = (value: unknown): value is [string, ActiveTool] =>
+	Array.isArray(value) &&
+	typeof value[0] === "string" &&
+	typeof value[1] === "object" &&
+	value[1] !== null;
+
 const hydrateActiveTools = (
 	value: unknown,
 ): ReadonlyMap<string, ActiveTool> | undefined => {
 	if (value === undefined) return undefined;
-	if (Array.isArray(value)) return new Map(value);
+	if (Array.isArray(value)) return new Map(value.filter(isActiveToolEntry));
 	if (typeof value === "object" && value !== null)
 		return new Map(Object.entries(value) as [string, ActiveTool][]);
 	return undefined;
@@ -144,10 +150,12 @@ export const reduceProjectableEvent = (
 	projection: DashboardProjection,
 	event: ProjectableEvent,
 ): DashboardProjection => {
-	if (Number(event.sequence) <= projection.frontier) return projection;
+	const sequence = Number(event.sequence);
+	if (!Number.isFinite(sequence)) return reduceEvent(projection, event);
+	if (sequence <= projection.frontier) return projection;
 	return {
 		...reduceEvent(projection, event),
-		frontier: Number(event.sequence),
+		frontier: sequence,
 	};
 };
 
