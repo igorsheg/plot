@@ -207,14 +207,25 @@ export const sendRunIpcRequest = async (
 	new Promise((resolve, reject) => {
 		const socket = createConnection(resolveRunIpcSocketPath(options));
 		let buffer = "";
+		let settled = false;
+		const finish = (work: () => void) => {
+			if (settled) return;
+			settled = true;
+			socket.removeAllListeners();
+			socket.destroy();
+			work();
+		};
 		socket.on("connect", () => write(socket, request));
-		socket.on("error", reject);
+		socket.on("error", (error) => finish(() => reject(error)));
 		socket.on("data", (chunk: Buffer | string) => {
 			buffer += chunk.toString();
 			const index = buffer.indexOf("\n");
 			if (index === -1) return;
-			resolve(decodeRunResponse(JSON.parse(buffer.slice(0, index)) as unknown));
-			socket.end();
+			finish(() =>
+				resolve(
+					decodeRunResponse(JSON.parse(buffer.slice(0, index)) as unknown),
+				),
+			);
 		});
 	});
 
