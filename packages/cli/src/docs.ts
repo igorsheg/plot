@@ -8,6 +8,7 @@ const docNames = [
 	"workflows",
 	"extensions",
 	"tui",
+	"web",
 ] as const;
 export type DocName = (typeof docNames)[number];
 
