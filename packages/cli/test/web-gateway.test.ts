@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -53,6 +53,36 @@ describe("Plot web gateway", () => {
 				id: "run-1",
 				lastSequence: 3,
 			});
+		} finally {
+			gateway.stop();
+		}
+	});
+
+	test("reopens the run registry when its socket disappears", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const { gateway, registryDir } = await startTestGateway(dir);
+		try {
+			await writeRuns(registryDir, [
+				{
+					id: "run-1",
+					status: "online",
+					cwd: dir,
+					createdAt: new Date().toISOString(),
+					lastSeenAt: new Date().toISOString(),
+					sessionId: "default",
+					workflowName: "workflow",
+					cwdName: "project",
+				},
+			]);
+			const health = (await (
+				await fetch(new URL("/api/health", gateway.url))
+			).json()) as { readonly socketPath: string };
+			await unlink(health.socketPath);
+
+			const response = await fetch(new URL("/api/runs", gateway.url));
+			expect(response.ok).toBe(true);
+			const body = (await response.json()) as { readonly runs?: unknown[] };
+			expect(body.runs).toHaveLength(1);
 		} finally {
 			gateway.stop();
 		}

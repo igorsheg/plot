@@ -228,7 +228,13 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		process.off("SIGTERM", stopTui);
 		dashboard.stopLiveUpdates();
 		tui.stop();
-		await withTimeout(runIpc.runRegistry.stop(run.id), 5_000);
-		await withTimeout(runIpc.close(), 5_000);
+		await withTimeout(
+			runIpc.runRegistry.stop(run.id).catch(() => undefined),
+			5_000,
+		);
+		await withTimeout(
+			runIpc.close().catch(() => undefined),
+			5_000,
+		);
 	}
 };

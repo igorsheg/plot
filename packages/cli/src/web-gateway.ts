@@ -11,7 +11,7 @@ import {
 	type JsonlDecodeState,
 } from "@plot/session/jsonl";
 import { openRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
-import type { RunRecord } from "@plot/session/run-registry";
+import type { RunRecord, RunRegistryRuntime } from "@plot/session/run-registry";
 import {
 	emptyProjection,
 	rebuildProjectionFromEventLog,
@@ -34,10 +34,24 @@ export interface PlotWebGatewayOptions {
 	readonly cli?: RunIpcOptions["cli"];
 }
 
-const text = (body: unknown) =>
+const text = (body: unknown, init: ResponseInit = {}) =>
 	new Response(JSON.stringify(body), {
+		...init,
 		headers: { "content-type": "application/json; charset=utf-8" },
 	});
+
+const errorCode = (error: unknown) =>
+	typeof error === "object" && error !== null && "code" in error
+		? String((error as { readonly code?: unknown }).code)
+		: undefined;
+
+const isRunIpcUnavailable = (error: unknown) =>
+	["ENOENT", "ECONNREFUSED", "ECONNRESET", "EPIPE"].includes(
+		errorCode(error) ?? "",
+	);
+
+const errorText = (error: unknown) =>
+	error instanceof Error ? error.message : String(error);
 
 const openBrowser = (url: string) => {
 	const command =
@@ -295,6 +309,8 @@ const sessionEventsResponse = (input: {
 								: undefined;
 						write(sseFrame(record, event?.event?.sequence));
 					}
+				} catch (error) {
+					write(sseFrame({ kind: "error", error: errorText(error) }));
 				} finally {
 					input.request.signal.removeEventListener("abort", cancel);
 					if (!cancelled) controller.close();
@@ -315,79 +331,97 @@ const sessionEventsResponse = (input: {
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const runIpc = await openRunIpc({
+	const runIpcOptions: RunIpcOptions = {
 		cwd: options.cwd,
 		...(options.registryDir === undefined
 			? {}
 			: { runRegistryDir: options.registryDir }),
 		...(options.cli === undefined ? {} : { cli: options.cli }),
-	});
+	};
+	let runIpc = await openRunIpc(runIpcOptions);
+	const withRunRegistry = async <A>(
+		work: (runRegistry: RunRegistryRuntime) => Promise<A> | A,
+	): Promise<A> => {
+		try {
+			return await work(runIpc.runRegistry);
+		} catch (error) {
+			if (!isRunIpcUnavailable(error)) throw error;
+			await runIpc.close();
+			runIpc = await openRunIpc(runIpcOptions);
+			return work(runIpc.runRegistry);
+		}
+	};
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
 		port: options.port ?? 0,
+		idleTimeout: 255,
 		async fetch(request) {
-			const url = new URL(request.url);
-			if (url.pathname === "/api/runs/events")
-				return runCatalogEventsResponse({
-					request,
-					listRuns: () => runIpc.runRegistry.list(),
-				});
-			if (url.pathname === "/api/runs" && request.method === "POST") {
-				const body = await parseCreateRunBody(request);
-				const run = await runIpc.runRegistry.spawn({
-					cwd: body.cwd ?? options.cwd,
-					...(body.workflowPath !== undefined
-						? { workflowPath: body.workflowPath }
-						: options.workflowPath === undefined
-							? {}
-							: { workflowPath: options.workflowPath }),
-					...(body.label === undefined ? {} : { label: body.label }),
-				});
-				return text({ run });
-			}
-			const stopPath = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
-			if (stopPath !== null && request.method === "DELETE") {
-				const run = await runIpc.runRegistry.stop(
-					decodeURIComponent(stopPath[1] ?? ""),
+			try {
+				const url = new URL(request.url);
+				if (url.pathname === "/api/runs/events")
+					return runCatalogEventsResponse({
+						request,
+						listRuns: () => withRunRegistry((r) => r.list()),
+					});
+				if (url.pathname === "/api/runs" && request.method === "POST") {
+					const body = await parseCreateRunBody(request);
+					const run = await withRunRegistry((r) =>
+						r.spawn({
+							cwd: body.cwd ?? options.cwd,
+							...(body.workflowPath !== undefined
+								? { workflowPath: body.workflowPath }
+								: options.workflowPath === undefined
+									? {}
+									: { workflowPath: options.workflowPath }),
+							...(body.label === undefined ? {} : { label: body.label }),
+						}),
+					);
+					return text({ run });
+				}
+				const stopPath = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
+				if (stopPath !== null && request.method === "DELETE") {
+					const id = decodeURIComponent(stopPath[1] ?? "");
+					const run = await withRunRegistry((r) => r.stop(id));
+					return run === undefined
+						? new Response("run not found", { status: 404 })
+						: text({ run });
+				}
+				if (url.pathname === "/api/runs") {
+					return text({ runs: await withRunRegistry((r) => r.list()) });
+				}
+				const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
+				if (eventPath !== null) {
+					const after = parseAfterSequence({
+						header: request.headers.get("last-event-id"),
+						query: url.searchParams.get("after"),
+					});
+					if (after === undefined)
+						return text({ error: "invalid after sequence" });
+					const id = decodeURIComponent(eventPath[1] ?? "");
+					const run = await withRunRegistry((r) => r.status(id));
+					if (run === undefined)
+						return new Response("run not found", { status: 404 });
+					const records = await withRunRegistry((r) =>
+						r.attachRecords(id, after),
+					);
+					return sessionEventsResponse({ request, records });
+				}
+				const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
+					url.pathname,
 				);
-				return run === undefined
-					? new Response("run not found", { status: 404 })
-					: text({ run });
+				if (projectionPath !== null) {
+					const id = decodeURIComponent(projectionPath[1] ?? "");
+					const run = await withRunRegistry((r) => r.status(id));
+					if (run === undefined)
+						return new Response("run not found", { status: 404 });
+					return runProjectionResponse(run);
+				}
+				if (url.pathname === "/api/health")
+					return text({ ok: true, socketPath: runIpc.socketPath });
+				return assetResponse(url.pathname);
+			} catch (error) {
+				return text({ error: errorText(error) }, { status: 503 });
 			}
-			if (url.pathname === "/api/runs") {
-				return text({ runs: await runIpc.runRegistry.list() });
-			}
-			const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
-			if (eventPath !== null) {
-				const after = parseAfterSequence({
-					header: request.headers.get("last-event-id"),
-					query: url.searchParams.get("after"),
-				});
-				if (after === undefined)
-					return text({ error: "invalid after sequence" });
-				const id = decodeURIComponent(eventPath[1] ?? "");
-				const run = await runIpc.runRegistry.status(id);
-				if (run === undefined)
-					return new Response("run not found", { status: 404 });
-				return sessionEventsResponse({
-					request,
-					records: runIpc.runRegistry.attachRecords(id, after),
-				});
-			}
-			const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
-				url.pathname,
-			);
-			if (projectionPath !== null) {
-				const run = await runIpc.runRegistry.status(
-					decodeURIComponent(projectionPath[1] ?? ""),
-				);
-				if (run === undefined)
-					return new Response("run not found", { status: 404 });
-				return runProjectionResponse(run);
-			}
-			if (url.pathname === "/api/health")
-				return text({ ok: true, socketPath: runIpc.socketPath });
-			return assetResponse(url.pathname);
 		},
 	});
 	const url = `http://${server.hostname}:${server.port}/`;
