@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createConnection, createServer, type Server } from "node:net";
@@ -317,25 +318,75 @@ export const openRunIpc = async (
 	readonly owned: boolean;
 	readonly close: () => Promise<void>;
 }> => {
+	await sendRunIpcRequest(options, { type: "list" });
+	return {
+		runRegistry: createRunIpcClient(options),
+		socketPath: resolveRunIpcSocketPath(options),
+		owned: false,
+		close: async () => {},
+	};
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const waitForRunIpc = async (
+	options: RunIpcOptions,
+	timeoutMs = 5_000,
+): Promise<void> => {
+	const deadline = Date.now() + timeoutMs;
+	let lastError: unknown;
+	while (Date.now() <= deadline) {
+		try {
+			// eslint-disable-next-line no-await-in-loop -- poll until the daemon accepts requests.
+			await sendRunIpcRequest(options, { type: "list" });
+			return;
+		} catch (error) {
+			lastError = error;
+			// eslint-disable-next-line no-await-in-loop -- bounded retry delay.
+			await sleep(50);
+		}
+	}
+	throw new Error(`run registry did not start: ${errorMessage(lastError)}`);
+};
+
+export const startRunIpcDaemon = async (
+	options: RunIpcOptions,
+): Promise<void> => {
+	if (options.cli === undefined)
+		throw new Error(
+			"run registry daemon is not running; run `plot registry serve`",
+		);
+	const args = [
+		...options.cli.args,
+		"registry",
+		"serve",
+		"--cwd",
+		options.cwd,
+		...(options.runRegistryDir === undefined
+			? []
+			: ["--registry-dir", options.runRegistryDir]),
+	];
+	const child = spawn(options.cli.command, args, {
+		cwd: options.cwd,
+		detached: true,
+		stdio: "ignore",
+	});
+	child.unref();
+	await waitForRunIpc(options);
+};
+
+export const openOrStartRunIpc = async (
+	options: RunIpcOptions,
+): Promise<{
+	readonly runRegistry: RunRegistryRuntime;
+	readonly socketPath: string;
+	readonly owned: boolean;
+	readonly close: () => Promise<void>;
+}> => {
 	try {
-		await sendRunIpcRequest(options, { type: "list" });
-		return {
-			runRegistry: createRunIpcClient(options),
-			socketPath: resolveRunIpcSocketPath(options),
-			owned: false,
-			close: async () => {},
-		};
+		return await openRunIpc(options);
 	} catch {
-		const server = await startRunIpcServer({ options });
-		return {
-			runRegistry: server.runRegistry,
-			socketPath: server.socketPath,
-			owned: true,
-			close: async () => {
-				server.server.close();
-				await server.runRegistry.shutdown();
-				if (existsSync(server.socketPath)) unlinkSync(server.socketPath);
-			},
-		};
+		await startRunIpcDaemon(options);
+		return openRunIpc(options);
 	}
 };

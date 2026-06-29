@@ -135,6 +135,7 @@ describe("plot CLI", () => {
 		expect(output).toContain("docs");
 		expect(output).not.toContain("dynamic");
 		expect(output).toContain("run");
+		expect(output).toContain("registry");
 		expect(output).toContain("tui");
 		expect(output).toContain("web");
 		expect(output).toContain("api");

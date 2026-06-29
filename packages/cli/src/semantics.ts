@@ -33,4 +33,9 @@ export const cliSemantics = {
 		surface: "transport",
 		description: "Serve the Plot API for external clients.",
 	},
+	registry: {
+		audience: "machine",
+		surface: "transport",
+		description: "Manage the shared Plot run registry daemon.",
+	},
 } as const satisfies Record<string, CliCommandSemantics>;

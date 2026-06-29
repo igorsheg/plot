@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import {
 import type { RunChildProcess } from "../src/run-process.js";
 import {
 	openRunIpc,
+	resolveRunIpcSocketPath,
 	sendRunIpcRequest,
 	startRunIpcServer,
 } from "../src/run-ipc.js";
@@ -269,6 +271,13 @@ test("runRegistry attach replays only durable event log records after a sequence
 			record.kind === "event" ? [record.sequence] : [],
 		),
 	).toEqual([21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
+});
+
+test("runRegistry IPC does not start an in-process registry", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "p-"));
+	const options = { cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") };
+	await expect(openRunIpc(options)).rejects.toThrow();
+	expect(existsSync(resolveRunIpcSocketPath(options))).toBe(false);
 });
 
 test("runRegistry IPC opens the existing shared run registry", async () => {

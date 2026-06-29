@@ -11,6 +11,7 @@ import { authCommand } from "./commands/auth.js";
 import { apiCommand } from "./commands/api.js";
 import { docsCommand } from "./commands/docs.js";
 import { listModelsCommand } from "./commands/list-models.js";
+import { registryCommand } from "./commands/registry.js";
 import { runCommand } from "./commands/run.js";
 import {
 	listRunsCommand,
@@ -64,6 +65,7 @@ const subCommands = {
 	auth: authCommand,
 	docs: docsCommand,
 	run: runCommand,
+	registry: registryCommand,
 	tui: tuiCommand,
 	web: webCommand,
 	api: apiCommand,
