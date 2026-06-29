@@ -83,6 +83,43 @@ const handleRequest = async (runRegistry: RunRegistry, request: RunRequest) => {
 	};
 };
 
+const isSocketLive = (socketPath: string): Promise<boolean> =>
+	new Promise<boolean>((resolve, reject) => {
+		const socket = createConnection(socketPath);
+		let settled = false;
+		const finish = (value: boolean) => {
+			if (settled) return;
+			settled = true;
+			socket.removeAllListeners();
+			socket.destroy();
+			resolve(value);
+		};
+		socket.on("connect", () => finish(true));
+		socket.on("error", (error: NodeJS.ErrnoException) => {
+			if (
+				error.code === "ENOENT" ||
+				error.code === "ECONNREFUSED" ||
+				error.code === "ECONNRESET" ||
+				error.code === "EPIPE"
+			) {
+				finish(false);
+				return;
+			}
+			if (settled) return;
+			settled = true;
+			socket.removeAllListeners();
+			socket.destroy();
+			reject(error);
+		});
+	});
+
+const removeStaleSocketIfNeeded = async (socketPath: string) => {
+	if (!existsSync(socketPath)) return;
+	if (await isSocketLive(socketPath))
+		throw new Error(`run registry is already running: ${socketPath}`);
+	unlinkSync(socketPath);
+};
+
 export const startRunIpcServer = async (input: {
 	readonly options: RunIpcOptions;
 	readonly runRegistry?: RunRegistry;
@@ -93,7 +130,7 @@ export const startRunIpcServer = async (input: {
 }> => {
 	const socketPath = resolveRunIpcSocketPath(input.options);
 	await mkdir(dirname(socketPath), { recursive: true });
-	if (existsSync(socketPath)) unlinkSync(socketPath);
+	await removeStaleSocketIfNeeded(socketPath);
 	const runRegistry = input.runRegistry ?? makeRunRegistry(input.options);
 	await runRegistry.recoverAfterRestart();
 	const server = createServer((socket) => {
