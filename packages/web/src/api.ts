@@ -2,9 +2,9 @@ import type {
 	ActivityEntry,
 	AgentAttemptProjection,
 	CompletedWorkProjection,
-	DashboardStatus,
 	RuntimeIdentityProjection,
 	ScheduledWakeProjection,
+	SerializedDashboardProjection,
 	TokenSample,
 	UsageTotals,
 	WorkItemProjection,
@@ -37,22 +37,7 @@ export interface RunCatalogEvent {
 
 export type WebActivityEntry = ActivityEntry;
 
-export interface WebDashboardProjection {
-	readonly sessionId: string;
-	readonly workflowName: string;
-	readonly runtime: RuntimeIdentityProjection;
-	readonly status: DashboardStatus;
-	readonly frontier: number;
-	readonly usageTotals: UsageTotals;
-	readonly tokenSamples: readonly TokenSample[];
-	readonly work: Record<string, WorkItemProjection>;
-	readonly attempts: Record<string, AgentAttemptProjection>;
-	readonly completed: readonly CompletedWorkProjection[];
-	readonly diagnostics: readonly string[];
-	readonly scheduledWakes: readonly ScheduledWakeProjection[];
-	readonly activity: readonly WebActivityEntry[];
-	readonly debugEvents: readonly string[];
-}
+export type WebDashboardProjection = SerializedDashboardProjection;
 
 const activityEntrySchema: z.ZodType<WebActivityEntry> = z.object({
 	atMs: z.number(),

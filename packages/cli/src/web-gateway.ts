@@ -14,7 +14,7 @@ import type { RunRecord } from "@plot/session/run-registry";
 import {
 	emptyProjection,
 	rebuildProjectionFromEventLog,
-	type DashboardProjection,
+	serializeDashboardProjection,
 } from "@plot/session/projection";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
@@ -242,12 +242,6 @@ const readRunEventLog = async (
 		})
 	).events;
 
-const serializableProjection = (projection: DashboardProjection) => ({
-	...projection,
-	work: Object.fromEntries(projection.work),
-	attempts: Object.fromEntries(projection.attempts),
-});
-
 const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
 	if (run.eventLogPath === undefined || run.sessionId === undefined)
 		return new Response("run not ready", { status: 409 });
@@ -261,7 +255,7 @@ const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
 			skillPaths: [],
 		}),
 	);
-	return text({ projection: serializableProjection(projection) });
+	return text({ projection: serializeDashboardProjection(projection) });
 };
 
 const sessionEventsResponse = (input: {

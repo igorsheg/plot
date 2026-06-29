@@ -1,10 +1,12 @@
 import { reduceEvent } from "./projection-parts/events.js";
 import { applySnapshot } from "./projection-parts/snapshot.js";
 import type {
+	AgentAttemptProjection,
 	DashboardProjection,
 	ProjectableEvent,
 	ProjectableEventRecord,
 	RuntimeIdentityProjection,
+	WorkItemProjection,
 } from "./projection-parts/types.js";
 import { workLabel } from "./projection-parts/work.js";
 
@@ -35,6 +37,30 @@ export type {
 	WorkStatus,
 } from "./projection-parts/types.js";
 export { applySnapshot, workLabel };
+
+export interface SerializedDashboardProjection extends Omit<
+	DashboardProjection,
+	"work" | "attempts"
+> {
+	readonly work: Record<string, WorkItemProjection>;
+	readonly attempts: Record<string, AgentAttemptProjection>;
+}
+
+export const serializeDashboardProjection = (
+	projection: DashboardProjection,
+): SerializedDashboardProjection => ({
+	...projection,
+	work: Object.fromEntries(projection.work),
+	attempts: Object.fromEntries(projection.attempts),
+});
+
+export const hydrateDashboardProjection = (
+	projection: SerializedDashboardProjection,
+): DashboardProjection => ({
+	...projection,
+	work: new Map(Object.entries(projection.work)),
+	attempts: new Map(Object.entries(projection.attempts)),
+});
 
 export const emptyProjection = (
 	sessionId: string,
