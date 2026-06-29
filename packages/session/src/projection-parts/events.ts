@@ -9,9 +9,17 @@ import type {
 } from "./types.js";
 import { displayWork, workLabel } from "./work.js";
 
+const debugEventName = (e: ProjectableEvent) => {
+	const inner = isRecord(e.event) ? str(e.event["type"]) : undefined;
+	return [str(e.kind), str(e.type) ?? inner].filter(Boolean).join(":");
+};
+
 const debug = (p: DashboardProjection, e: ProjectableEvent) => ({
 	...p,
-	debugEvents: cap([`${e.sequence} ${e.type}`, ...p.debugEvents], 200),
+	debugEvents: cap(
+		[`${e.sequence} ${debugEventName(e)}`, ...p.debugEvents],
+		200,
+	),
 });
 
 export const reduceEvent = (
@@ -144,6 +152,7 @@ export const reduceEvent = (
 				? {}
 				: { durationMs: at(e) - a.startedAtMs }),
 			...(item?.url ? { url: item.url } : {}),
+			...(item?.labels.length ? { labels: item.labels } : {}),
 			...(a?.tokens ? { tokens: a.tokens } : {}),
 		};
 		return {
