@@ -109,8 +109,14 @@ Hello {{ workflow.name }}
 		expect(createOptions).toMatchObject({ cwd, noTools: "all" });
 		expect(session.prompts).toEqual(["Hello host-test"]);
 		expect(log.records.some((record) => record.kind === "agent_event")).toBe(
-			true,
+			false,
 		);
+		expect(
+			log.records.some(
+				(record) =>
+					record.kind === "session_event" && record.type === "tick_completed",
+			),
+		).toBe(true);
 		expect(session.disposed).toBe(true);
 	});
 

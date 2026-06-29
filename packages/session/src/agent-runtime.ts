@@ -16,6 +16,7 @@ import type {
 	EventLogRecord,
 	EventLogStore,
 } from "./event-log.js";
+import { makeAgentEventRecord } from "./event-log.js";
 import { compactPiEvent } from "./pi-event-display.js";
 import {
 	startOwnedTask,
@@ -102,12 +103,35 @@ export const makeAgentSessionRuntime = (
 	});
 	let shutdownPromise: Promise<boolean> | undefined;
 
+	let liveSequence = 0;
+	const publish = (record: EventLogRecord): EventLogRecord => {
+		const liveRecord =
+			record.sequence > liveSequence
+				? record
+				: { ...record, sequence: liveSequence + 1 };
+		liveSequence = liveRecord.sequence;
+		events.publish(liveRecord);
+		return liveRecord;
+	};
 	const appendAndPublish = async (
 		append: () => Promise<EventLogRecord>,
 	): Promise<EventLogRecord> => {
 		const record = await append();
-		events.publish(record);
+		publish(record);
 		return record;
+	};
+	const publishAgentEvent = async (
+		input: AgentEventAppendInput,
+	): Promise<EventLogRecord> => {
+		if (liveSequence === 0)
+			liveSequence = (await options.eventLog.frontier()).lastSequence;
+		return publish(
+			makeAgentEventRecord({
+				sessionId,
+				sequence: liveSequence + 1,
+				event: { ...input, event: compactPiEvent(input.event) },
+			}),
+		);
 	};
 
 	const agentEvents = startOwnedTask({
@@ -144,13 +168,7 @@ export const makeAgentSessionRuntime = (
 		resumeDispatch: () => agent.resumeDispatch(),
 		interruptAgentRun: (input) => agent.interruptAgentRun(input),
 		events: () => events.subscribe(),
-		appendAgentEvent: (input: AgentEventAppendInput) =>
-			appendAndPublish(() =>
-				options.eventLog.appendAgentEvent({
-					...input,
-					event: compactPiEvent(input.event),
-				}),
-			),
+		appendAgentEvent: publishAgentEvent,
 		lastEventSequence: async () =>
 			(await options.eventLog.frontier()).lastSequence,
 		shutdown: async () => {

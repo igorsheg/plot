@@ -117,7 +117,7 @@ test("runtime publishes appended inner agent events", async () => {
 	await runtime.shutdown();
 });
 
-test("runtime stores compact inner agent events", async () => {
+test("runtime publishes compact inner agent events without persisting them", async () => {
 	const eventLog = await createFileEventLogStore({
 		sessionDir: await tempSessionDir(),
 		sessionId: "session-1",
@@ -129,6 +129,7 @@ test("runtime stores compact inner agent events", async () => {
 		runner,
 	});
 
+	const events = runtime.events();
 	await runtime.appendAgentEvent({
 		sourceId: "runtime-test",
 		runId: "run-1",
@@ -158,7 +159,10 @@ test("runtime stores compact inner agent events", async () => {
 		},
 	});
 
-	const [record] = (await eventLog.readAll()).records;
+	const record = await waitForEvent(
+		events,
+		(entry) => entry.kind === "agent_event",
+	);
 	const encoded = JSON.stringify(record);
 	expect(encoded).not.toContain("encrypted-large-payload");
 	expect(encoded).not.toContain("large review body");
@@ -182,6 +186,7 @@ test("runtime stores compact inner agent events", async () => {
 			},
 		},
 	});
+	expect((await eventLog.readAll()).records).toEqual([]);
 
 	await runtime.shutdown();
 });
