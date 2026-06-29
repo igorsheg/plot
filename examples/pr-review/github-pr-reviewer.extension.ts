@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
+import { parseDiffContext } from "./diff-context.ts";
 import type { PlotExtensionWork } from "plot-ai/sdk";
 
 const execFileAsync = promisify(execFile);
@@ -80,17 +81,6 @@ interface GitHubTarget {
 	readonly repo: string;
 	readonly prNumber: number;
 	readonly head: string;
-}
-
-interface ChangedLineRange {
-	readonly start: number;
-	readonly end: number;
-	readonly deletion?: true;
-}
-
-interface DiffContextFile {
-	readonly path: string;
-	readonly changedLines: readonly ChangedLineRange[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -539,30 +529,6 @@ const parseToolTier = (params: Record<string, unknown>) => {
 	if (parsed === undefined)
 		throw new Error("tier must be trivial, lite, or full");
 	return parsed;
-};
-
-const parseDiffContext = (diff: string): DiffContextFile[] => {
-	const files: DiffContextFile[] = [];
-	let current: { path: string; changedLines: ChangedLineRange[] } | undefined;
-	for (const line of diff.split("\n")) {
-		const header = line.match(/^diff --git a\/.+ b\/(.+)$/);
-		if (header?.[1] !== undefined) {
-			current = { path: header[1], changedLines: [] };
-			files.push(current);
-			continue;
-		}
-		if (current === undefined) continue;
-		const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-		if (hunk === null) continue;
-		const start = Number.parseInt(hunk[3] ?? "0", 10);
-		const count = hunk[4] === undefined ? 1 : Number.parseInt(hunk[4], 10);
-		current.changedLines.push(
-			count > 0
-				? { start, end: start + count - 1 }
-				: { start, end: start, deletion: true },
-		);
-	}
-	return files;
 };
 
 const parseReviewComments = (value: unknown) => {
