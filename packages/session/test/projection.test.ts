@@ -67,6 +67,21 @@ test("projection JSON helpers round-trip map fields", () => {
 	);
 });
 
+test("malformed event sequence does not poison the projection frontier", () => {
+	const projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		{
+			kind: "session_event",
+			sessionId: "session-1",
+			timestamp: "2026-06-29T10:00:00.000Z",
+			type: "session_started",
+		},
+	);
+
+	expect(projection.status).toBe("running");
+	expect(projection.frontier).toBe(0);
+});
+
 test("completed work keeps source display labels", () => {
 	const base = emptyProjection("session-1", "workflow");
 	const started = reduceProjectableEvent(base, {
