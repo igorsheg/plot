@@ -10,7 +10,7 @@ import {
 	splitJsonl,
 	type JsonlDecodeState,
 } from "@plot/session/jsonl";
-import { openRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
+import { openOrStartRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
 import type { RunRecord } from "@plot/session/run-registry";
 import {
 	emptyProjection,
@@ -315,7 +315,7 @@ const sessionEventsResponse = (input: {
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const runIpc = await openRunIpc({
+	const runIpc = await openOrStartRunIpc({
 		cwd: options.cwd,
 		...(options.registryDir === undefined
 			? {}

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createFileEventLogStore } from "@plot/session/event-log";
+import { startRunIpcServer } from "@plot/session/run-ipc";
 import type { RunRecord } from "@plot/session/run-registry";
 import { startPlotWebGateway } from "../src/web-gateway.js";
 
@@ -16,20 +17,29 @@ const writeRuns = async (registryDir: string, runs: readonly RunRecord[]) => {
 
 const startTestGateway = async (cwd: string) => {
 	const registryDir = await mkdtemp(join(tmpdir(), "plot-runs-"));
+	const registry = await startRunIpcServer({
+		options: { cwd, runRegistryDir: registryDir },
+	});
+	const gateway = await startPlotWebGateway({
+		cwd,
+		registryDir,
+		open: false,
+	});
 	return {
 		registryDir,
-		gateway: await startPlotWebGateway({
-			cwd,
-			registryDir,
-			open: false,
-		}),
+		gateway,
+		stop: async () => {
+			gateway.stop();
+			registry.server.close();
+			await registry.runRegistry.shutdown();
+		},
 	};
 };
 
 describe("Plot web gateway", () => {
 	test("serves runs", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const { gateway, registryDir } = await startTestGateway(dir);
+		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		try {
 			await writeRuns(registryDir, [
 				{
@@ -54,13 +64,13 @@ describe("Plot web gateway", () => {
 				lastSequence: 3,
 			});
 		} finally {
-			gateway.stop();
+			await stop();
 		}
 	});
 
 	test("streams run catalog updates as one SSE", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const { gateway, registryDir } = await startTestGateway(dir);
+		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		await writeRuns(registryDir, [
 			{
 				id: "run-1",
@@ -96,7 +106,7 @@ describe("Plot web gateway", () => {
 		} finally {
 			clearTimeout(timeout);
 			abort.abort();
-			gateway.stop();
+			await stop();
 		}
 	});
 
@@ -111,7 +121,7 @@ describe("Plot web gateway", () => {
 			type: "session_started",
 			payload: { ok: true },
 		});
-		const { gateway, registryDir } = await startTestGateway(dir);
+		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		await writeRuns(registryDir, [
 			{
 				id: "run-1",
@@ -150,7 +160,7 @@ describe("Plot web gateway", () => {
 		} finally {
 			clearTimeout(timeout);
 			abort.abort();
-			gateway.stop();
+			await stop();
 		}
 	});
 
@@ -166,7 +176,7 @@ describe("Plot web gateway", () => {
 			type: "session_tick",
 			payload: { tickId: 7 },
 		});
-		const { gateway, registryDir } = await startTestGateway(dir);
+		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		try {
 			await writeRuns(registryDir, [
 				{
@@ -194,7 +204,7 @@ describe("Plot web gateway", () => {
 			expect(body.projection?.frontier).toBe(2);
 			expect(body.projection?.work).toEqual({});
 		} finally {
-			gateway.stop();
+			await stop();
 		}
 	});
 });
