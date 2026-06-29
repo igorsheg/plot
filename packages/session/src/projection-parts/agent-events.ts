@@ -256,6 +256,8 @@ export const reduceAgentEvent = (
 		tokenSamples:
 			usageTotals === p.usageTotals
 				? p.tokenSamples
-				: [...p.tokenSamples, { atMs: when, tokens: usageTotals.tokens }],
+				: [...p.tokenSamples, { atMs: when, tokens: usageTotals.tokens }].slice(
+						-120,
+					),
 	};
 };
