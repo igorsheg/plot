@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { open } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
 	decodeEventLogRecord,
 	type EventLogRecord,
@@ -258,7 +258,7 @@ const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
 		await readRunEventLog(eventLogPath),
 		emptyProjection(run.sessionId, run.workflowName ?? "workflow", {
 			cwd: run.cwd,
-			cwdName: run.cwdName ?? run.cwd,
+			cwdName: run.cwdName ?? basename(run.cwd),
 			workflowPath: run.workflowPath ?? "WORKFLOW.md",
 			skills: [],
 			skillPaths: [],
