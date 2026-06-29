@@ -357,6 +357,20 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("--workflow");
 	});
 
+	test("prints web docs", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["docs", "web"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("# Web Dashboard");
+		expect(output).toContain("plot web");
+	});
+
 	test("prints bundled extension author docs", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["docs", "extension-prompt"], {

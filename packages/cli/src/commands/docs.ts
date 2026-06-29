@@ -9,6 +9,7 @@ Start here:
   plot docs workflows
   plot docs extensions
   plot docs tui
+  plot docs web
 
 For LLM-assisted extension authoring:
   plot docs extension-prompt
@@ -22,7 +23,8 @@ export const docsCommand = defineCommand({
 	args: {
 		topic: {
 			type: "positional",
-			description: "index|quickstart|workflows|extensions|tui|extension-prompt",
+			description:
+				"index|quickstart|workflows|extensions|tui|web|extension-prompt",
 			required: false,
 		},
 	},
