@@ -328,6 +328,24 @@ test("runRegistry IPC opens the existing shared run registry", async () => {
 	}
 });
 
+test("runRegistry IPC refuses to replace a live socket", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "p-"));
+	const options = { cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") };
+	const first = await startRunIpcServer({ options });
+	try {
+		await expect(startRunIpcServer({ options })).rejects.toThrow(
+			/run registry is already running/,
+		);
+		expect(await sendRunIpcRequest(options, { type: "list" })).toMatchObject({
+			type: "list_result",
+			ok: true,
+		});
+	} finally {
+		first.server.close();
+		await first.runRegistry.shutdown();
+	}
+});
+
 test("runRegistry IPC survives a client disconnecting from a protocol stream", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "p-"));
 	const runRegistry = new RunRegistry({
