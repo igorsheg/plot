@@ -302,6 +302,28 @@ test("runRegistry IPC rejects when the socket closes before a response", async (
 	}
 });
 
+test("runRegistry IPC rejects malformed responses", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "p-"));
+	const options = { cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") };
+	const socketPath = resolveRunIpcSocketPath(options);
+	await mkdir(dirname(socketPath), { recursive: true });
+	const server = createServer((socket) => socket.end("not-json\n"));
+	await new Promise<void>((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(socketPath, () => {
+			server.off("error", reject);
+			resolve();
+		});
+	});
+	try {
+		await expect(
+			sendRunIpcRequest(options, { type: "list" }),
+		).rejects.toThrow();
+	} finally {
+		server.close();
+	}
+});
+
 test("runRegistry IPC opens the existing shared run registry", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "p-"));
 	const child = new FakeChild("session-shared");
