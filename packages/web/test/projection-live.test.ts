@@ -1,17 +1,14 @@
 import { expect, test } from "bun:test";
-import { emptyProjection } from "@plot/session/projection";
+import {
+	emptyProjection,
+	serializeDashboardProjection,
+} from "@plot/session/projection";
 import { parsePlotEventRecord } from "../src/api.js";
 import { applyProjectionEvent } from "../src/projection-live.js";
 import type { WebDashboardProjection } from "../src/api.js";
 
-const serialize = (projection: ReturnType<typeof emptyProjection>) => ({
-	...projection,
-	work: Object.fromEntries(projection.work),
-	attempts: Object.fromEntries(projection.attempts),
-});
-
 const base = (): WebDashboardProjection =>
-	serialize(emptyProjection("session-1", "workflow"));
+	serializeDashboardProjection(emptyProjection("session-1", "workflow"));
 
 const event = (value: Record<string, unknown>) => {
 	const parsed = parsePlotEventRecord({ kind: "event", event: value });

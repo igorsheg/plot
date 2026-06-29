@@ -1,6 +1,7 @@
 import { reduceEvent } from "./projection-parts/events.js";
 import { applySnapshot } from "./projection-parts/snapshot.js";
 import type {
+	ActiveTool,
 	AgentAttemptProjection,
 	DashboardProjection,
 	ProjectableEvent,
@@ -38,20 +39,66 @@ export type {
 } from "./projection-parts/types.js";
 export { applySnapshot, workLabel };
 
+export interface SerializedAgentAttemptProjection extends Omit<
+	AgentAttemptProjection,
+	"activeTools"
+> {
+	readonly activeTools?: readonly (readonly [string, ActiveTool])[] | undefined;
+}
+
 export interface SerializedDashboardProjection extends Omit<
 	DashboardProjection,
 	"work" | "attempts"
 > {
 	readonly work: Record<string, WorkItemProjection>;
-	readonly attempts: Record<string, AgentAttemptProjection>;
+	readonly attempts: Record<string, SerializedAgentAttemptProjection>;
 }
+
+const serializeAttempt = (
+	attempt: AgentAttemptProjection,
+): SerializedAgentAttemptProjection => {
+	const { activeTools, ...rest } = attempt;
+	return {
+		...rest,
+		...(activeTools === undefined
+			? {}
+			: { activeTools: [...activeTools.entries()] }),
+	};
+};
+
+const hydrateActiveTools = (
+	value: unknown,
+): ReadonlyMap<string, ActiveTool> | undefined => {
+	if (value === undefined) return undefined;
+	if (Array.isArray(value)) return new Map(value);
+	if (typeof value === "object" && value !== null)
+		return new Map(Object.entries(value) as [string, ActiveTool][]);
+	return undefined;
+};
+
+const hydrateAttempt = (
+	attempt: SerializedAgentAttemptProjection,
+): AgentAttemptProjection => {
+	const { activeTools, ...rest } = attempt;
+	return {
+		...rest,
+		...(activeTools === undefined
+			? {}
+			: { activeTools: hydrateActiveTools(activeTools) }),
+	};
+};
 
 export const serializeDashboardProjection = (
 	projection: DashboardProjection,
 ): SerializedDashboardProjection => ({
 	...projection,
 	work: Object.fromEntries(projection.work),
-	attempts: Object.fromEntries(projection.attempts),
+	attempts: Object.fromEntries(
+		[...projection.attempts].map(([key, attempt]) => [
+			key,
+			serializeAttempt(attempt),
+		]),
+	),
 });
 
 export const hydrateDashboardProjection = (
@@ -59,7 +106,12 @@ export const hydrateDashboardProjection = (
 ): DashboardProjection => ({
 	...projection,
 	work: new Map(Object.entries(projection.work)),
-	attempts: new Map(Object.entries(projection.attempts)),
+	attempts: new Map(
+		Object.entries(projection.attempts).map(([key, attempt]) => [
+			key,
+			hydrateAttempt(attempt),
+		]),
+	),
 });
 
 export const emptyProjection = (

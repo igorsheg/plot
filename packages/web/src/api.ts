@@ -1,9 +1,9 @@
 import type {
 	ActivityEntry,
-	AgentAttemptProjection,
 	CompletedWorkProjection,
 	RuntimeIdentityProjection,
 	ScheduledWakeProjection,
+	SerializedAgentAttemptProjection,
 	SerializedDashboardProjection,
 	TokenSample,
 	UsageTotals,
@@ -95,7 +95,7 @@ const projectionPayloadSchema: z.ZodType<WebDashboardProjection> = z.object({
 	>,
 	work: recordSchema.catch({}) as z.ZodType<Record<string, WorkItemProjection>>,
 	attempts: recordSchema.catch({}) as z.ZodType<
-		Record<string, AgentAttemptProjection>
+		Record<string, SerializedAgentAttemptProjection>
 	>,
 	completed: z.array(z.unknown()).catch([]) as z.ZodType<
 		readonly CompletedWorkProjection[]
