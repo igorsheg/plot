@@ -1,69 +1,61 @@
-# Plot
+# Plot Context
 
-Plot is a control plane for long-running coding-agent work. Its language distinguishes durable work definitions from live runRegistry-managed sessions so operators can reason about a runRegistry clearly.
-
-## Product principle
-
-Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning. Plot owns the outer loop (`tick -> reconcile -> act`), Sources own domain observation and compact Work Item context, tools own trusted side effects, and Agent Runs own investigation and judgment.
+Plot is a control plane for long-running coding-agent work. This glossary keeps product language short and consistent.
 
 ## Language
 
 **Workflow**:
-A durable definition of what work to look for and how an agent should handle it. Running a Workflow creates a Plot Session.
+A durable Markdown + TypeScript definition of what work to find and how agents should handle it.
 _Avoid_: Plot run, workflow run, session
 
 **Plot Session**:
-A live runRegistry-managed run of a Workflow. It is the unit operators see and control in runRegistry views.
-_Avoid_: Workflow, plot run, run
+A live execution of a Workflow that operators can watch, pause, stop, or inspect.
+_Avoid_: Workflow, run, job
 
 **Work Item**:
-A unit of work discovered by a source and selected by Plot for possible agent execution.
+A unit of work discovered by a Source and eligible for agent execution.
 _Avoid_: Task, job, issue
 
 **Agent Run**:
-One attempt by an agent to handle a Work Item during a Plot Session. It is Plot's only first-class agent execution unit.
+One agent attempt to handle one Work Item inside a Plot Session.
 _Avoid_: Run, session, task, subagent
 
-**Process Table**:
-The per-Plot Session operator view organized around Work Items and their current or most recent Agent Run.
-_Avoid_: Run table, log view, vital sign
-
 **Source**:
-A participant in a Plot Session that observes part of the world and proposes Work Items.
-_Avoid_: Extension, plugin, integration
+Trusted code that observes a domain and proposes or reconciles Work Items.
+_Avoid_: Plugin, integration, scraper
 
 **Extension**:
-Trusted TypeScript code that can provide Sources, tools, and integration behavior for a Workflow.
+Trusted TypeScript that contributes Sources, tools, and integration behavior to a Workflow.
 _Avoid_: Source, plugin
 
+**Process Table**:
+The operator view of Work Items and their current or latest Agent Run.
+_Avoid_: Run table, log view, transcript
+
 **Needs You**:
-An operator attention signal for Work Items that require human input or approval. It is separate from the Plot Session lifecycle.
+A Work Item attention state requiring human input or approval.
 _Avoid_: Blocked session, error, alert
 
-**Operator Observation**:
-Human input or a human decision that becomes part of what a Source can reconcile for a Work Item.
-_Avoid_: Button click, command, approval state
-
 **Operator Action**:
-A Source-declared choice a human may take on a Work Item. Performing an Operator Action creates an Operator Observation.
-_Avoid_: Button, approval, command
+A Source-declared choice a human can take on a Work Item.
+_Avoid_: Button, command, approval
 
-**Session Mode**:
-Whether a Plot Session is intended to keep watching for work or run to a terminal outcome.
-_Avoid_: State, status, command
+**Operator Observation**:
+A human decision recorded so Sources can reconcile with it.
+_Avoid_: Click, approval state, command result
 
 **Session State**:
-Where a Plot Session is in its lifecycle right now, such as watching, reconciling, acting, idle, paused, stopping, stopped, or error.
+The current lifecycle position of a Plot Session: watching, reconciling, acting, idle, paused, stopping, stopped, or error.
 _Avoid_: Mode, outcome, needs-you
 
-**Session History**:
-The record of what happened at Plot's control-plane level during a Plot Session.
-_Avoid_: Agent Transcript, provider log, chat history
-
 **Agent Transcript**:
-The record of an Agent Run's inner conversation and tool activity.
-_Avoid_: Session History, Process Table, roster
+The inner conversation and tool activity from one Agent Run.
+_Avoid_: Session History, Process Table
+
+**Session History**:
+The append-only control-plane record of what happened during a Plot Session.
+_Avoid_: Agent Transcript, provider log
 
 **Workflow Bundle**:
-The pair of `WORKFLOW.md` and `workflow.extension.ts` files that define a Workflow and its trusted TypeScript extension.
+The `WORKFLOW.md` plus optional `workflow.extension.ts` that define a Workflow.
 _Avoid_: Dynamic runtime, generated pipeline

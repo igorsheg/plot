@@ -1,37 +1,28 @@
 # Plot Docs
 
-Plot runs coding agents on work your code discovers.
-
-The public model is small:
+Plot runs coding agents on work your TypeScript discovers.
 
 ```txt
-extension finds work and registers tools
-workflow prompt teaches the agent
-Plot schedules runs and shows dashboards
+extension finds work + tools
+workflow prompt teaches judgment
+Plot schedules Agent Runs and shows dashboards
 ```
 
-If you are writing a Plot extension, start here:
+Start here:
 
-- [Quickstart](quickstart.md) — install Plot and run a workflow.
-- [Workflows](workflows.md) — configure the agent, extension, prompt, and resources.
-- [Extensions](extensions.md) — write trusted TypeScript that discovers work and registers tools.
-- [TUI](tui.md) — watch one live Plot run from a terminal dashboard.
+- [Quickstart](quickstart.md) — install, auth, run a Workflow.
+- [Workflows](workflows.md) — front matter, prompt, resources.
+- [Extensions](extensions.md) — trusted TypeScript that discovers Work Items and tools.
+- [TUI](tui.md) — terminal dashboard.
+- [Web](web.md) — browser dashboard and HTTP API.
 
-## Ask an agent to write an extension
-
-Plot docs are written to be pasted into an LLM.
+For LLM-assisted extension authoring:
 
 ```bash
 plot docs extension-prompt | pbcopy
 ```
 
-Then add your goal:
-
-```txt
-Create a Plot extension that watches Linear issues tagged agent-ready.
-```
-
-The agent should use the public SDK only:
+Use the public SDK only:
 
 ```ts
 import { definePlotExtension, defineTool } from "plot-ai/sdk";

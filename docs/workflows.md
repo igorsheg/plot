@@ -1,37 +1,29 @@
 # Workflows
 
-A workflow is a Markdown file with front matter. A Plot run is the live runtime created from that workflow.
+A Workflow is Markdown with front matter. Running one creates a Plot Session.
 
-It answers three questions:
+It answers:
 
-1. Which agent should run?
+1. Which agent runs?
 2. Which extension finds work?
-3. What should the agent do with each work item?
+3. What should the agent do with each Work Item?
 
 ```md
 ---
 name: review-current-pr
-agent:
-  provider: openai-codex
-  model: gpt-5.5
-  thinking: high
+agent: { provider: openai-codex, model: gpt-5.5 }
 extension:
   source: ./github-pr-reviewer.extension.ts
-  config:
-    includeDrafts: false
-plot:
-  tickIntervalMs: 300000
+  config: { includeDrafts: false }
+plot: { tickIntervalMs: 300000, maxRunDurationMs: 300000 }
 resources:
   contextFiles: true
-  skills:
-    - ./skills/pr-review
+  skills: [./skills/pr-review]
 ---
 
 # Review {{ work.title }}
 
-Use the repository, GitHub CLI, tests, and your judgment.
-Post one useful review.
-
+Use the repo, GitHub CLI, tests, and judgment. Post one useful review.
 {{ githubContext }}
 ```
 
@@ -39,13 +31,11 @@ Post one useful review.
 
 The extension finds work and exposes safe integration tools. The prompt teaches judgment.
 
-Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning.
-
-Good extension:
+Good extension context:
 
 ```txt
-There is a PR: #42. Here is its URL, head SHA, previous review, and display title.
-The agent may call post_pr_review when it is ready to publish the final review.
+PR #42, URL, head SHA, previous review, display title.
+Tool available: post_pr_review.
 ```
 
 Good prompt:
@@ -57,22 +47,20 @@ Read the diff, inspect callers, run relevant checks, and post one durable review
 Bad extension:
 
 ```txt
-Step 1: read file A. Step 2: grep B. Step 3: post exactly this comment.
+Step 1 read file A. Step 2 grep B. Step 3 post exactly this comment.
 ```
 
-Plot should not turn agents into brittle scripts.
+Plot should shape context, not turn agents into brittle scripts.
 
 ## Front matter
 
-### `name`
+- `name`: stable Workflow name.
+- `agent`: provider/model settings. `maxTurns` limits high-level Agent Run turns; use `plot.maxRunDurationMs` for wall-clock timeout.
+- `extension`: local TypeScript module exporting a Plot extension. `config` is passed to optional `parseConfig`.
+- `plot`: runtime settings such as `tickIntervalMs` and `maxRunDurationMs`.
+- `resources`: explicit agent-session inputs such as context files and skills.
 
-A stable workflow name.
-
-### `agent`
-
-Provider and model settings for the agent session. `maxTurns` limits high-level Agent Run turns: one initial prompt plus continuation prompts on the same live session. It does not cap the model/tool loop inside one turn. Use `plot.maxRunDurationMs` for a wall-clock guard.
-
-You can omit provider/model here and use Plot settings instead:
+Defaults may live in `~/.plot/settings.json` or `.plot/settings.json`:
 
 ```json
 {
@@ -82,90 +70,33 @@ You can omit provider/model here and use Plot settings instead:
 }
 ```
 
-Plot reads `~/.plot/settings.json`, then `.plot/settings.json`. Workflow front matter and CLI flags override settings.
+Workflow front matter and CLI flags override settings. Plot does not auto-load behavior from `.plot/agent/skills`.
 
-### `extension`
+## Prompt data and tools
 
-The local TypeScript module that exports a Plot extension.
-
-```yaml
-extension:
-  source: ./my-extension.ts
-  config:
-    label: agent-ready
-```
-
-The `config` object is passed to your extension after optional `parseConfig`.
-
-An extension can also register tools for the agent session. Tools are not configured in workflow YAML; they are normal TypeScript registered by the extension setup.
-
-### `plot`
-
-Runtime settings.
-
-```yaml
-plot:
-  tickIntervalMs: 300000
-  maxRunDurationMs: 300000
-```
-
-### `resources`
-
-Inputs for the agent session.
-
-```yaml
-resources:
-  contextFiles: true
-  skills:
-    - ./skills/review
-```
-
-Resources are explicit. Plot does not auto-load behavior from `.plot/agent/skills`.
-
-## Template context
-
-Work context from your extension is available to the prompt.
-
-If the extension returns:
+Work Item `context` is available to the prompt:
 
 ```ts
-context: {
-  issue: { id: "ENG-123", title: "Fix checkout" }
-}
+context: { issue: { id: "ENG-123", title: "Fix checkout" } }
 ```
-
-The workflow can use:
 
 ```md
 Review {{ issue.id }}: {{ issue.title }}
 ```
 
-Use context for facts the agent needs. Do not use it to micromanage every tool call. If a Source discovers multiple Work Items, render the relevant context in the prompt (`{{ work.title }}`, `{{ issue.id }}`, etc.) or expose a work-bound context tool.
-
-## Tools
-
-Workflow prompts should mention important registered tools by name and explain when they are appropriate.
-
-Example:
+Use context for facts, not micromanagement. Mention important registered tools by name:
 
 ```md
-Use `prepare_review_context` before reviewing. When you have a final review, call `post_pr_review`; do not hand-roll GitHub API mutation in shell.
+Use `prepare_review_context` before reviewing. When done, call `post_pr_review`.
 ```
 
-Registered tools come from the extension SDK:
+TypeScript tools own integration correctness and idempotent mutations. The agent owns investigation, judgment, and final content.
 
-- `registerTool(tool)` exposes a tool to the Agent Run.
-- `defineTool(...)` defines the tool contract.
-
-Keep this split clear: TypeScript owns integration correctness and idempotent mutations; the agent owns investigation, judgment, and final content. Output tools should bind or validate the current Work Item so the agent cannot accidentally write a result for the wrong target.
-
-## Running and observing
+## Run and observe
 
 ```bash
-plot run --workflow WORKFLOW.md
 plot tui --workflow WORKFLOW.md
+plot run --workflow WORKFLOW.md
 ```
 
-`plot run` creates a oneshot Plot run. `plot tui` opens a terminal dashboard attached to a managed run for this project/workflow.
-
-Plot stores project-local event logs under `.plot/sessions`. Event logs record Plot run events and projection state, while agent transcripts remain the inner agent-session record.
+Plot stores session history under `.plot/sessions`. Agent transcripts stay separate.

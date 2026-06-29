@@ -1,18 +1,14 @@
 # Extensions
 
-> Plot can help create extensions. Ask your coding agent to build one for your use case.
+Extensions are trusted TypeScript. They discover Work Items, register tools, and own integration correctness. Plot schedules Agent Runs; the Workflow prompt teaches judgment.
 
-Paste this doc, then say what work you want Plot to run.
-
-Extensions are trusted TypeScript modules. They discover work and register tools. Plot schedules one Agent Run for each selected Work Item. The agent handles judgment inside the workflow prompt.
-
-Use the public SDK:
+Use only the public SDK:
 
 ```ts
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
 ```
 
-Do not import from Plot internals like `packages/session/src/*` or `@plot/session`.
+Do not import Plot internals (`packages/session/src/*`, `@plot/session`, etc.).
 
 ## Minimal extension
 
@@ -21,7 +17,6 @@ import { definePlotExtension } from "plot-ai/sdk";
 
 export default definePlotExtension({
 	id: "demo",
-
 	create({ work }) {
 		return {
 			async discover() {
@@ -30,14 +25,8 @@ export default definePlotExtension({
 						id: "demo:hello",
 						version: "1",
 						title: "Say hello",
-						context: {
-							message: "Write a short hello from Plot.",
-						},
-						display: {
-							primary: "demo",
-							title: "Say hello",
-							labels: ["example"],
-						},
+						context: { message: "Write a short hello from Plot." },
+						display: { primary: "demo", title: "Say hello" },
 					}),
 				];
 			},
@@ -46,14 +35,10 @@ export default definePlotExtension({
 });
 ```
 
-Wire it into `WORKFLOW.md`:
-
 ```yaml
 extension:
   source: ./demo.extension.ts
 ```
-
-Then run:
 
 ```bash
 plot tui --workflow WORKFLOW.md
@@ -61,37 +46,16 @@ plot tui --workflow WORKFLOW.md
 
 ## Mental model
 
-Think in three layers:
-
 ```txt
-world -> extension -> work item -> Agent Run
+world -> extension -> Work Item -> Agent Run
                      └─ registered tools
 ```
 
-The extension should answer:
+Extension owns: what needs attention, stable ID/version, compact context, safe tools, display hints.
 
-- What needs attention?
-- What stable ID identifies it?
-- What version should rerun it?
-- What context does the agent need?
-- Which integration actions should be exposed as tools?
-- How should it look in the dashboard?
+Prompt owns: how to investigate, what counts as done, what output should look like.
 
-The prompt should answer:
-
-- How should the agent investigate?
-- What counts as done?
-- What should the output look like?
-
-## Durability contract
-
-The extension is authoritative for domain state. If work is done, `discover()` should stop returning it. If the same work should run again, `discover()` should return it again with the same `id` and appropriate `version`.
-
-Plot Event Log records session events, projections, active attempts, usage, and audit history. It does not make extension work permanently complete. A completed Agent Run suppresses only stale discovery from the same tick; the next tick trusts the extension again.
-
-## Work items
-
-A discovered work item looks like this:
+## Work Items
 
 ```ts
 work({
@@ -99,260 +63,101 @@ work({
 	version: "head-sha",
 	title: "Review PR #42",
 	url: "https://github.com/acme/web/pull/42",
-	context: {
-		prNumber: 42,
-		repo: "acme/web",
-	},
+	context: { prNumber: 42, repo: "acme/web" },
 	display: {
-		kind: "github-pr-review",
 		primary: "#42",
 		title: "Fix checkout totals",
 		subtitle: "acme/web · main...feature",
-		url: "https://github.com/acme/web/pull/42",
 		version: "abc1234",
 		labels: ["fresh"],
 	},
 });
 ```
 
-### `id`
+Rules:
 
-Required. Stable domain identity.
+- `id`: required stable domain identity. Good: `github:acme/web:pr:42`. Bad: `Date.now()`.
+- `version`: rerun trigger, such as PR head SHA, issue timestamp, CI attempt, dependency version.
+- `context`: compact facts for the prompt, not a script.
+- `display`: generic dashboard hints. No custom UI.
 
-Good:
+The extension is authoritative for domain state. Done work should stop appearing. Changed work should return with the same `id` and a new `version`.
 
-```txt
-github:acme/web:pr:42
-linear:ENG-123
-ci:acme/web:run:123456
+## Config
+
+Validate Workflow config with `parseConfig` when needed.
+
+```ts
+export default definePlotExtension<{ label: string }>({
+	id: "linear",
+	parseConfig(input) {
+		const label = (input as { label?: unknown })?.label;
+		if (typeof label !== "string") throw new Error("config.label required");
+		return { label };
+	},
+	create({ config }) {
+		return {
+			async discover() {
+				return [];
+			},
+		};
+	},
+});
 ```
 
-Bad:
-
-```txt
-Date.now()
-Math.random()
-latest-pr
+```yaml
+extension:
+  source: ./linear.extension.ts
+  config: { label: agent-ready }
 ```
 
-### `version`
+## Tools
 
-Optional. Use it when the same work should rerun after a change.
+Register tools for API-shaped side effects: loading prepared context, posting reviews, updating tickets, reporting structured progress. Do not build a second orchestration system.
 
-Examples:
+```ts
+registerTool(
+	defineTool({
+		name: "post_result",
+		description: "Post the final result.",
+		parameters: {
+			type: "object",
+			properties: { body: { type: "string" } },
+			required: ["body"],
+		},
+		execute: async ({ body }) => ({
+			content: [{ type: "text", text: `posted ${body.length} chars` }],
+		}),
+	}),
+);
+```
 
-- PR head SHA
-- issue updated timestamp
-- CI run attempt
-- dependency version
+Bind tools to the current Work Item when they write results:
 
-### `context`
+```ts
+registerTool(({ work }) => defineTool({ name: "load_context", ... }));
+```
 
-Data for the prompt. Keep it useful and compact.
+## Operator Actions
 
-Give the agent facts, not a rigid script. Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning.
-
-### `display`
-
-Hints for the TUI dashboard. Plot owns rendering.
-
-Extensions may provide titles, labels, URLs, and short version text. Extensions may not provide TUI components, keybindings, or custom renderers.
-
-### `operatorActions`
-
-Source-declared choices a human controller may perform on the Work Item. They are semantic actions, not display hints, and they are rendered generically by the TUI.
+Use `operatorActions` when a Work Item needs a human choice.
 
 ```ts
 work({
 	id: "release:v1",
 	title: "Release v1",
 	status: "blocked",
-	blockedReason: "waiting for operator approval",
-	operatorActions: [
-		{
-			id: "approve",
-			label: "Approve",
-			tone: "primary",
-			confirm: { title: "Approve release?" },
-		},
-		{ id: "hold", label: "Hold", requiresComment: true },
-	],
+	blockedReason: "waiting for approval",
+	operatorActions: [{ id: "approve", label: "Approve", tone: "primary" }],
 });
 ```
 
-When an operator performs an action, Plot records an Operator Observation in Event Log. your extension can implement `operatorAction(event)` to update its own trusted state before later discovery/reconciliation decides what changed.
+Plot records the choice as an Operator Observation. Your extension may implement `operatorAction(event)` and later discovery decides what changed.
 
-## Config
+## Hooks and behavior
 
-Use `parseConfig` when workflow config should be validated.
+Lifecycle hooks (`started`, `completed`, `failed`, `interrupted`, `timedOut`, `shutdown`) are for bookkeeping, not replacing agent execution.
 
-```ts
-import { definePlotExtension } from "plot-ai/sdk";
+Do: stable IDs, rerun versions, compact context, env/CLI secrets, idempotent tools, no work when done.
 
-type Config = {
-	label: string;
-};
-
-export default definePlotExtension<Config>({
-	id: "linear",
-
-	parseConfig(input) {
-		if (
-			typeof input !== "object" ||
-			input === null ||
-			typeof (input as { label?: unknown }).label !== "string"
-		) {
-			throw new Error("linear extension requires config.label");
-		}
-		return { label: (input as { label: string }).label };
-	},
-
-	create({ config }) {
-		return {
-			async discover() {
-				console.log(`Finding issues with label ${config.label}`);
-				return [];
-			},
-		};
-	},
-});
-```
-
-Workflow:
-
-```yaml
-extension:
-  source: ./linear.extension.ts
-  config:
-    label: agent-ready
-```
-
-## Registered tools
-
-Extensions can register tools with `registerTool`. Use tools for integration boundaries where TypeScript should own side-effect correctness: fetching prepared context, calling an API, posting a review, updating a ticket, or reporting structured progress.
-
-Do not invent a second orchestration system. Tools run inside the Agent Run that Plot scheduled.
-
-```ts
-import { definePlotExtension, defineTool } from "plot-ai/sdk";
-
-export default definePlotExtension({
-	id: "demo-tools",
-	create({ registerTool }) {
-		registerTool(
-			defineTool({
-				name: "post_result",
-				description: "Post the final result to the external system.",
-				parameters: {
-					type: "object",
-					properties: { body: { type: "string" } },
-					required: ["body"],
-				},
-				execute: async ({ body }) => ({
-					content: [{ type: "text", text: `posted ${body.length} chars` }],
-				}),
-			}),
-		);
-
-		return {
-			async discover() {
-				return [];
-			},
-		};
-	},
-});
-```
-
-Tool factories can bind the current Plot work item:
-
-```ts
-registerTool(({ work }) =>
-	defineTool({
-		name: "load_context",
-		description: `Load context for ${work.id}`,
-		parameters: { type: "object", properties: {} },
-		execute: async () => ({
-			content: [{ type: "text", text: JSON.stringify(work.context) }],
-		}),
-	}),
-);
-```
-
-Keep judgment in the prompt and agent. Put durable, idempotent, API-shaped operations in tools. For result-writing tools, bind or validate the current Work Item in the tool factory so the agent cannot write output for the wrong target. Plot does not expose separate agent-session helpers.
-
-## Lifecycle hooks
-
-Extensions can observe run lifecycle:
-
-```ts
-export default definePlotExtension({
-	id: "demo",
-	create() {
-		return {
-			async discover() {
-				return [];
-			},
-			started(event) {
-				console.log("started", event.work.id);
-			},
-			completed(event) {
-				console.log("completed", event.work.id, event.output);
-			},
-			failed(event) {
-				console.error("failed", event.work.id, event.error);
-			},
-			interrupted(event) {
-				console.log("interrupted", event.work.id);
-			},
-			timedOut(event) {
-				console.log("timed out", event.work.id);
-			},
-			shutdown() {
-				console.log("extension shutting down");
-			},
-		};
-	},
-});
-```
-
-Use hooks for bookkeeping. Do not use them to replace the agent’s own task execution.
-
-## Good extension behavior
-
-Do:
-
-- keep work IDs stable
-- use versions to rerun changed work
-- keep context small and relevant
-- put secrets in environment variables or external CLIs
-- use registered tools for idempotent external mutations
-- let the workflow prompt teach judgment
-- return no work when there is nothing to do
-
-Avoid:
-
-- random work IDs
-- giant context dumps
-- plugin-owned UI rendering
-- hidden writes during discovery unless clearly intentional
-- encoding every agent step as code
-- launching separate agent sessions from the Source path
-- importing private Plot modules
-
-## LLM prompt
-
-Use this with your coding agent:
-
-```md
-You are writing a Plot extension.
-
-Use only the public SDK:
-
-import { definePlotExtension, defineTool } from "plot-ai/sdk";
-
-The extension should discover work and return stable work items. It may register tools with registerTool for API/integration side effects. The workflow prompt will tell the Agent Run how to handle the work and make judgments. Do not import Plot internals. Do not create custom TUI rendering.
-
-Create an extension for:
-
-<describe the work source here>
-```
+Avoid: random IDs, giant context dumps, plugin-owned UI, hidden discovery writes, scripting every agent step, launching agent sessions from Sources, private imports.

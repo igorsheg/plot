@@ -1,17 +1,10 @@
 # Plot
 
 ```txt
-PLOT CONTROL PLANE █
-AGENT FLEET [TYPESCRIPT]
-
-LOOP: tick -> reconcile -> act
-MODE: run managed
-STATUS: early / online
+PLOT CONTROL PLANE █  tick -> reconcile -> act
 ```
 
-Plot is a control plane for long-running coding agents.
-
-It finds work, starts agents, tracks runs, and gives you terminal dashboards when something needs attention.
+Plot is a control plane for long-running coding agents: find work, start agents, track runs, and show TUI/web dashboards when something needs attention.
 
 ```bash
 npm install -g plot-ai
@@ -20,74 +13,37 @@ plot --workflow WORKFLOW.md
 
 ## Why
 
-Coding agents are useful. Running them is still awkward.
-
-You either babysit one prompt at a time, or build brittle scripts that over-control the agent.
-
-Plot sits between those extremes:
+Agents are useful; running them is awkward. Plot sits between babysitting one prompt and building brittle scripts that over-control the agent.
 
 ```txt
-tick -> reconcile -> act
+workflow finds work -> Plot schedules it -> agent keeps judgment
 ```
 
-Your workflow finds work. Plot schedules it. The agent keeps its judgment.
-
-Plot handles the operational layer:
-
-- concurrency
-- source-scheduled wakeups
-- stale-run timeouts
-- run history and diagnostics
-- usage and cost visibility
-- append-only run history separate from agent transcripts
-- `plot api --stdio` for automation
-- TUI and web dashboards for runs
+Plot handles concurrency, wakeups, stale-run timeouts, history, diagnostics, usage/cost, dashboards, and `plot api --stdio` automation.
 
 ## Try the PR reviewer
 
-From a repo branch with an open GitHub PR:
-
 ```bash
 plot --workflow examples/pr-review/WORKFLOW.md
+plot run --workflow examples/pr-review/WORKFLOW.md # one pass, no dashboard
 ```
 
-Or run one pass without the dashboard:
-
-```bash
-plot run --workflow examples/pr-review/WORKFLOW.md
-```
-
-`plot run` opens a temporary oneshot run and keeps run history afterward.
-
-You need:
-
-- `gh` installed and authenticated
-- a branch with an associated pull request
-- agent provider auth configured
-
-Optional Plot defaults live in `~/.plot/settings.json` or `.plot/settings.json`:
+Needs: authenticated `gh`, a branch with a PR, and agent provider auth. Optional defaults live in `~/.plot/settings.json` or `.plot/settings.json`:
 
 ```json
 { "defaultProvider": "openai-codex", "defaultModel": "gpt-5.5" }
 ```
 
-## Workflows
+## Workflows and extensions
 
-A workflow is Markdown plus config.
+A Workflow is Markdown plus config. The extension discovers Work Items; the prompt tells the agent how to handle them.
 
 ```md
 ---
 name: review-current-pr
-extension:
-  source: ./github-pr-reviewer.extension.ts
-agent:
-  provider: openai-codex
-  model: gpt-5.5
-  thinking: high
-resources:
-  contextFiles: true
-  skills:
-    - ./skills/pr-review
+extension: { source: ./github-pr-reviewer.extension.ts }
+agent: { provider: openai-codex, model: gpt-5.5 }
+resources: { contextFiles: true }
 ---
 
 # Review {{ work.title }}
@@ -95,79 +51,27 @@ resources:
 Use GitHub, tests, and judgment. Post one useful review.
 ```
 
-The extension discovers work. The prompt teaches the agent how to handle it.
+Extensions are trusted TypeScript. They read systems like GitHub, Linear, CI, logs, queues, files, or databases; return Work Items; and register tools for side effects like posting a review.
 
-No hidden project magic: workflow resources are explicit. `.plot/` is runtime state, not surprise behavior.
-
-## Extensions
-
-Extensions are trusted TypeScript.
-
-They can read GitHub, Linear, CI, logs, queues, files, or databases. They return work items. Plot runs them.
-
-Extensions can also register tools for API-shaped side effects where TypeScript should own correctness, such as posting a review or updating a ticket. Those tools are passed directly to the Agent Run Plot schedules for the Work Item.
-
-Build workflows like:
-
-- review open PRs
-- investigate failed CI
-- triage production errors
-- refresh generated docs
-- check dependency updates
-- run recurring repo maintenance
-
-Plot should not care what kind of work it is. It should care whether the work is running, waiting, blocked, failed, or complete.
-
-Plot should make agents cheaper and better by shaping context and ownership, not by micromanaging reasoning.
+Good fits: PR review, failed-CI investigation, production-error triage, generated docs, dependency checks, and repo maintenance. Plot should only care whether work is running, waiting, blocked, failed, or complete.
 
 ## Dashboards
 
 ```bash
 plot --workflow WORKFLOW.md
+plot web
 ```
 
-The TUI opens a normal managed Plot run. While it is active, `plot web` can see the same run.
+The TUI opens a managed Plot Session. `plot web` can watch the same session. Workflows provide titles, labels, URLs, and short status text; Plot owns rendering.
 
-It shows:
+## Docs and development
 
-- running work
-- blocked work
-- source-scheduled wakeups
-- stale runs
-- token usage and cost
-- recent activity
-- raw debug events
-
-Your workflow can provide titles, labels, URLs, and short status text. Plot owns the rendering.
-
-## Docs
-
-- [Quickstart](docs/quickstart.md)
-- [Workflows](docs/workflows.md)
-- [Extensions](docs/extensions.md)
-- [TUI](docs/tui.md)
-- [Web](docs/web.md)
-
-For LLM-assisted extension authoring:
+Docs: [Quickstart](docs/quickstart.md), [Workflows](docs/workflows.md), [Extensions](docs/extensions.md), [TUI](docs/tui.md), [Web](docs/web.md).
 
 ```bash
 plot docs extension-prompt | pbcopy
-```
-
-## Developing
-
-```bash
 bun install
 bun run check
 ```
 
-## Releases
-
-Releases happen from tags.
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Prereleases publish to the `beta` npm tag. Run `bun run release:local --version <version>` before cutting one.
+Releases are tag-driven from `v*`. Run `bun run release:local --version <version>` before cutting one.
