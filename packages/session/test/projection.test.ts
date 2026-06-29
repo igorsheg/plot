@@ -3,6 +3,7 @@ import {
 	emptyProjection,
 	hydrateDashboardProjection,
 	rebuildProjectionFromEventLog,
+	reduceProjectableEvent,
 	serializeDashboardProjection,
 } from "../src/projection.js";
 
@@ -63,6 +64,21 @@ test("projection JSON helpers round-trip map fields", () => {
 	expect(hydrated.attempts.get("run-1")?.activeTools?.get("tool-1")?.kind).toBe(
 		"run",
 	);
+});
+
+test("malformed event sequence does not poison the projection frontier", () => {
+	const projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		{
+			kind: "session_event",
+			sessionId: "session-1",
+			timestamp: "2026-06-29T10:00:00.000Z",
+			type: "session_started",
+		},
+	);
+
+	expect(projection.status).toBe("running");
+	expect(projection.frontier).toBe(0);
 });
 
 test("session_started starts a fresh live projection window", () => {
