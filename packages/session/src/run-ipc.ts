@@ -217,6 +217,15 @@ export const sendRunIpcRequest = async (
 		};
 		socket.on("connect", () => write(socket, request));
 		socket.on("error", (error) => finish(() => reject(error)));
+		socket.on("end", () =>
+			finish(() =>
+				reject(
+					new Error(
+						`run registry closed before response: ${resolveRunIpcSocketPath(options)}`,
+					),
+				),
+			),
+		);
 		socket.on("data", (chunk: Buffer | string) => {
 			buffer += chunk.toString();
 			const index = buffer.indexOf("\n");

@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { createConnection } from "node:net";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
 import { createFileEventLogStore } from "../src/event-log.js";
@@ -278,6 +278,28 @@ test("runRegistry IPC does not start an in-process registry", async () => {
 	const options = { cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") };
 	await expect(openRunIpc(options)).rejects.toThrow();
 	expect(existsSync(resolveRunIpcSocketPath(options))).toBe(false);
+});
+
+test("runRegistry IPC rejects when the socket closes before a response", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "p-"));
+	const options = { cwd, runRegistryDir: join(cwd, ".plot", "runRegistry") };
+	const socketPath = resolveRunIpcSocketPath(options);
+	await mkdir(dirname(socketPath), { recursive: true });
+	const server = createServer((socket) => socket.end());
+	await new Promise<void>((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(socketPath, () => {
+			server.off("error", reject);
+			resolve();
+		});
+	});
+	try {
+		await expect(sendRunIpcRequest(options, { type: "list" })).rejects.toThrow(
+			/run registry closed before response/,
+		);
+	} finally {
+		server.close();
+	}
 });
 
 test("runRegistry IPC opens the existing shared run registry", async () => {
