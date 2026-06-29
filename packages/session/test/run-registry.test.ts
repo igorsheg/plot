@@ -16,6 +16,7 @@ import type { RunChildProcess } from "../src/run-process.js";
 import {
 	openRunIpc,
 	resolveRunIpcSocketPath,
+	startRunIpcDaemon,
 	sendRunIpcRequest,
 	startRunIpcServer,
 } from "../src/run-ipc.js";
@@ -322,6 +323,17 @@ test("runRegistry IPC rejects malformed responses", async () => {
 	} finally {
 		server.close();
 	}
+});
+
+test("runRegistry IPC daemon start rejects spawn errors", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "p-"));
+	await expect(
+		startRunIpcDaemon({
+			cwd,
+			runRegistryDir: join(cwd, ".plot", "runRegistry"),
+			cli: { command: join(cwd, "missing-plot"), args: [] },
+		}),
+	).rejects.toThrow();
 });
 
 test("runRegistry IPC opens the existing shared run registry", async () => {

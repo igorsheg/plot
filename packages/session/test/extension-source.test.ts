@@ -128,7 +128,7 @@ describe("extension source adapter", () => {
 
 		const result = await agent.tickOnce();
 
-		expect(result.diagnostics[0]?.message).toContain("expected string");
+		expect(result.diagnostics[0]?.message).toContain("id");
 	});
 
 	test("superseded versions drain; blocked work holds claim without redispatch", async () => {

@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { Schema } from "effect";
+import { decodeOrUndefined, optional } from "./schema.js";
 
 export interface PlotRun {
 	readonly id: string;
@@ -17,35 +18,33 @@ export interface PlotRun {
 	readonly lastEventType?: string | undefined;
 }
 
-const plotRunSchema: z.ZodType<PlotRun> = z.object({
-	id: z.string(),
-	status: z.string(),
-	cwd: z.string(),
-	createdAt: z.string(),
-	lastSeenAt: z.string().optional(),
-	label: z.string().optional(),
-	sessionId: z.string().optional(),
-	workflowName: z.string().optional(),
-	workflowPath: z.string().optional(),
-	cwdName: z.string().optional(),
-	sessionDir: z.string().optional(),
-	eventLogPath: z.string().optional(),
-	lastSequence: z.number().optional(),
-	lastEventType: z.string().optional(),
+const plotRunSchema = Schema.Struct({
+	id: Schema.String,
+	status: Schema.String,
+	cwd: Schema.String,
+	createdAt: Schema.String,
+	lastSeenAt: optional(Schema.String),
+	label: optional(Schema.String),
+	sessionId: optional(Schema.String),
+	workflowName: optional(Schema.String),
+	workflowPath: optional(Schema.String),
+	cwdName: optional(Schema.String),
+	sessionDir: optional(Schema.String),
+	eventLogPath: optional(Schema.String),
+	lastSequence: optional(Schema.Number),
+	lastEventType: optional(Schema.String),
 });
 
-const runListSchema = z.union([
-	z.array(z.unknown()),
-	z.object({ runs: z.array(z.unknown()) }).transform((value) => value.runs),
-]);
+const runListObjectSchema = Schema.Struct({
+	runs: Schema.Array(Schema.Unknown),
+});
 
-const parseRun = (value: unknown): PlotRun | undefined => {
-	const parsed = plotRunSchema.safeParse(value);
-	return parsed.success ? parsed.data : undefined;
-};
+const parseRun = (value: unknown): PlotRun | undefined =>
+	decodeOrUndefined(plotRunSchema, value);
 
 export const parsePlotRuns = (value: unknown): readonly PlotRun[] => {
-	const parsed = runListSchema.safeParse(value);
-	if (!parsed.success) return [];
-	return parsed.data.map(parseRun).filter((entry) => entry !== undefined);
+	const rows = Array.isArray(value)
+		? value
+		: decodeOrUndefined(runListObjectSchema, value)?.runs;
+	return (rows ?? []).map(parseRun).filter((entry) => entry !== undefined);
 };

@@ -1,12 +1,15 @@
-import { z } from "zod";
-import { eventLogRecordSchema } from "./event-log.js";
-
-const nonEmptyString = z.string().min(1);
-const nonNegativeInteger = z.number().int().nonnegative();
-const positiveInteger = z.number().int().positive();
+import { Schema } from "effect";
+import { eventLogRecordSchema, type EventLogRecord } from "./event-log.js";
+import {
+	NonEmptyString,
+	NonNegativeInteger,
+	PositiveInteger,
+	decodeBoundary,
+	optional,
+} from "./schema.js";
 
 export const sessionProtocolVersion = "plot.session.v2";
-export const sessionCommandSchema = z.enum([
+export const sessionCommandSchema = Schema.Literals([
 	"ping",
 	"start",
 	"shutdown",
@@ -18,14 +21,15 @@ export const sessionCommandSchema = z.enum([
 	"interrupt_agent_run",
 ]);
 
-export const protocolLimitsSchema = z
-	.object({
-		maxInputLineBytes: positiveInteger,
-		maxOutputLineBytes: positiveInteger,
-		maxPendingRequests: positiveInteger,
-		maxBufferedEvents: positiveInteger,
-	})
-	.strict();
+export const protocolLimitsSchema = Schema.Struct({
+	maxInputLineBytes: PositiveInteger,
+	maxOutputLineBytes: PositiveInteger,
+	maxPendingRequests: PositiveInteger,
+	maxBufferedEvents: PositiveInteger,
+});
+
+export type SessionCommand = typeof sessionCommandSchema.Type;
+export type ProtocolLimits = typeof protocolLimitsSchema.Type;
 
 export const defaultProtocolLimits = {
 	maxInputLineBytes: 1024 * 1024,
@@ -34,89 +38,85 @@ export const defaultProtocolLimits = {
 	maxBufferedEvents: 1024,
 } satisfies ProtocolLimits;
 
-export const clientRequestSchema = z
-	.object({
-		protocol: z.literal(sessionProtocolVersion),
-		kind: z.literal("request"),
-		id: nonEmptyString.max(128),
-		command: sessionCommandSchema,
-		params: z.unknown().optional(),
-	})
-	.strict();
+export const clientRequestSchema = Schema.Struct({
+	protocol: Schema.Literal(sessionProtocolVersion),
+	kind: Schema.Literal("request"),
+	id: NonEmptyString.check(Schema.isMaxLength(128)),
+	command: sessionCommandSchema,
+	params: optional(Schema.Unknown),
+});
 
-export const welcomeRecordSchema = z
-	.object({
-		protocol: z.literal(sessionProtocolVersion),
-		kind: z.literal("welcome"),
-		sessionId: nonEmptyString,
-		limits: protocolLimitsSchema,
-	})
-	.strict();
+export const welcomeRecordSchema = Schema.Struct({
+	protocol: Schema.Literal(sessionProtocolVersion),
+	kind: Schema.Literal("welcome"),
+	sessionId: NonEmptyString,
+	limits: protocolLimitsSchema,
+});
 
-export const eventRecordSchema = z
-	.object({
-		protocol: z.literal(sessionProtocolVersion),
-		kind: z.literal("event"),
-		sequence: nonNegativeInteger,
-		event: eventLogRecordSchema,
-	})
-	.strict();
+export const eventRecordSchema = Schema.Struct({
+	protocol: Schema.Literal(sessionProtocolVersion),
+	kind: Schema.Literal("event"),
+	sequence: NonNegativeInteger,
+	event: eventLogRecordSchema,
+});
 
-export const successResponseSchema = z
-	.object({
-		protocol: z.literal(sessionProtocolVersion),
-		kind: z.literal("response"),
-		id: nonEmptyString,
-		command: sessionCommandSchema,
-		ok: z.literal(true),
-		lastSequence: nonNegativeInteger.optional(),
-		data: z.unknown().optional(),
-	})
-	.strict();
+export const successResponseSchema = Schema.Struct({
+	protocol: Schema.Literal(sessionProtocolVersion),
+	kind: Schema.Literal("response"),
+	id: NonEmptyString,
+	command: sessionCommandSchema,
+	ok: Schema.Literal(true),
+	lastSequence: optional(NonNegativeInteger),
+	data: optional(Schema.Unknown),
+});
 
-export const errorResponseSchema = z
-	.object({
-		protocol: z.literal(sessionProtocolVersion),
-		kind: z.literal("response"),
-		id: nonEmptyString.optional(),
-		command: sessionCommandSchema.optional(),
-		ok: z.literal(false),
-		error: z
-			.object({
-				code: z.enum([
-					"parse_error",
-					"invalid_request",
-					"payload_too_large",
-					"request_queue_full",
-					"session_closed",
-					"internal_error",
-				]),
-				message: z.string(),
-				details: z.unknown().optional(),
-			})
-			.strict(),
-	})
-	.strict();
+export const protocolErrorCodeSchema = Schema.Literals([
+	"parse_error",
+	"invalid_request",
+	"payload_too_large",
+	"request_queue_full",
+	"session_closed",
+	"internal_error",
+]);
 
-export const serverRecordSchema = z.union([
+export const errorResponseSchema = Schema.Struct({
+	protocol: Schema.Literal(sessionProtocolVersion),
+	kind: Schema.Literal("response"),
+	id: optional(NonEmptyString),
+	command: optional(sessionCommandSchema),
+	ok: Schema.Literal(false),
+	error: Schema.Struct({
+		code: protocolErrorCodeSchema,
+		message: Schema.String,
+		details: optional(Schema.Unknown),
+	}),
+});
+
+export const serverRecordSchema = Schema.Union([
 	welcomeRecordSchema,
 	eventRecordSchema,
 	successResponseSchema,
 	errorResponseSchema,
 ]);
 
-export type SessionCommand = z.infer<typeof sessionCommandSchema>;
-export type ProtocolLimits = z.infer<typeof protocolLimitsSchema>;
-export type ClientRequest = z.infer<typeof clientRequestSchema>;
-export type ServerRecord = z.infer<typeof serverRecordSchema>;
-export type EventRecord = z.infer<typeof eventRecordSchema>;
-export type ProtocolErrorCode =
-	| "parse_error"
-	| "invalid_request"
-	| "payload_too_large"
-	| "request_queue_full"
-	| "session_closed"
-	| "internal_error";
+export type ClientRequest = typeof clientRequestSchema.Type;
+export type WelcomeRecord = typeof welcomeRecordSchema.Type;
+export type EventRecord = Omit<typeof eventRecordSchema.Type, "event"> & {
+	readonly event: EventLogRecord;
+};
+export type SuccessResponse = typeof successResponseSchema.Type;
+export type ErrorResponse = typeof errorResponseSchema.Type;
+export type ServerRecord =
+	| WelcomeRecord
+	| EventRecord
+	| SuccessResponse
+	| ErrorResponse;
+export type ProtocolErrorCode = typeof protocolErrorCodeSchema.Type;
+
+export const decodeClientRequest = (value: unknown): ClientRequest =>
+	decodeBoundary(clientRequestSchema, value);
+export const decodeServerRecord = (value: unknown): ServerRecord =>
+	decodeBoundary(serverRecordSchema, value) as ServerRecord;
 
 export class ProtocolBoundaryError extends Error {
 	override readonly name = "ProtocolBoundaryError";
@@ -138,7 +138,7 @@ export const makeWelcome = (input: {
 	readonly sessionId: string;
 	readonly limits: ProtocolLimits;
 }): ServerRecord =>
-	welcomeRecordSchema.parse({
+	decodeBoundary(welcomeRecordSchema, {
 		protocol: sessionProtocolVersion,
 		kind: "welcome",
 		sessionId: input.sessionId,
@@ -150,7 +150,7 @@ export const makeSuccess = (input: {
 	readonly lastSequence?: number;
 	readonly data?: unknown;
 }): ServerRecord =>
-	successResponseSchema.parse({
+	decodeBoundary(successResponseSchema, {
 		protocol: sessionProtocolVersion,
 		kind: "response",
 		id: input.request.id,
@@ -168,7 +168,7 @@ export const makeError = (input: {
 	readonly message: string;
 	readonly details?: unknown;
 }): ServerRecord =>
-	errorResponseSchema.parse({
+	decodeBoundary(errorResponseSchema, {
 		protocol: sessionProtocolVersion,
 		kind: "response",
 		...(input.request === undefined

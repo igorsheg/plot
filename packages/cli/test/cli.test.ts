@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-	serverRecordSchema,
+	decodeServerRecord,
 	sessionProtocolVersion,
 } from "@plot/session/protocol";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -72,7 +72,7 @@ const fakeWrite = (append: (text: string) => void) =>
 
 const decodeLines = (lines: readonly string[]) =>
 	Promise.all(
-		lines.map((line) => serverRecordSchema.parse(JSON.parse(line) as unknown)),
+		lines.map((line) => decodeServerRecord(JSON.parse(line) as unknown)),
 	);
 
 describe("plot CLI", () => {

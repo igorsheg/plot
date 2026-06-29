@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { z } from "zod";
 import { errorMessage } from "@plot/common/primitives";
 import {
 	decodeWorkflowRuntimeConfig,
 	type WorkflowRuntimeConfig,
 } from "./workflow-config.js";
+import { StringRecord, decodeBoundary } from "./schema.js";
 
 export class WorkflowBoundaryError extends Error {
 	override readonly name = "WorkflowBoundaryError";
@@ -42,7 +42,7 @@ export interface WorkflowDiscoveryOptions {
 
 export const DEFAULT_WORKFLOW_PATH = "WORKFLOW.md";
 
-const configSchema = z.record(z.string(), z.unknown());
+const configSchema = StringRecord;
 const frontMatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const runtimeKeys = [
 	"name",
@@ -73,7 +73,7 @@ const parseFrontMatter = (
 	try {
 		const parsed = frontMatter.trim() === "" ? {} : parseYaml(frontMatter);
 		if (parsed === null) return {};
-		return configSchema.parse(parsed);
+		return decodeBoundary(configSchema, parsed);
 	} catch (error) {
 		throw new WorkflowBoundaryError({
 			phase: "parse",
@@ -87,7 +87,7 @@ const runtimeInputFromConfig = (
 	config: Record<string, unknown>,
 ): Record<string, unknown> => {
 	const runtime = config["runtime"];
-	if (runtime !== undefined) return configSchema.parse(runtime);
+	if (runtime !== undefined) return decodeBoundary(configSchema, runtime);
 	const input: Record<string, unknown> = {};
 	for (const key of runtimeKeys) {
 		if (config[key] !== undefined) input[key] = config[key];

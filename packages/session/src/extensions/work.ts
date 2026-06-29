@@ -7,56 +7,50 @@ import {
 	type WorkRecord,
 } from "@plot/agent/model";
 import { errorMessage, isRecord } from "@plot/common/primitives";
-import { z } from "zod";
+import { Schema } from "effect";
 import type { PlotExtension, PlotExtensionWork } from "../sdk.js";
 import type { WorkflowDefinition } from "../workflow.js";
 import { PlotExtensionSourceError } from "./errors.js";
+import { NonEmptyString, decodeBoundary, optional } from "../schema.js";
 
-const displaySchema = z
-	.object({
-		kind: z.string().optional(),
-		primary: z.string().optional(),
-		title: z.string().optional(),
-		subtitle: z.string().optional(),
-		url: z.string().optional(),
-		version: z.string().optional(),
-		labels: z.array(z.string()).optional(),
-	})
-	.strict();
+const displaySchema = Schema.Struct({
+	kind: optional(Schema.String),
+	primary: optional(Schema.String),
+	title: optional(Schema.String),
+	subtitle: optional(Schema.String),
+	url: optional(Schema.String),
+	version: optional(Schema.String),
+	labels: optional(Schema.Array(Schema.String)),
+});
 
-const operatorActionSchema = z
-	.object({
-		id: z.string().min(1),
-		label: z.string().min(1),
-		tone: z.enum(["primary", "secondary", "danger"]).optional(),
-		disabledReason: z.string().optional(),
-		requiresComment: z.boolean().optional(),
-		confirm: z
-			.object({ title: z.string().min(1), message: z.string().optional() })
-			.strict()
-			.optional(),
-	})
-	.strict();
+const operatorActionSchema = Schema.Struct({
+	id: NonEmptyString,
+	label: NonEmptyString,
+	tone: optional(Schema.Literals(["primary", "secondary", "danger"])),
+	disabledReason: optional(Schema.String),
+	requiresComment: optional(Schema.Boolean),
+	confirm: optional(
+		Schema.Struct({ title: NonEmptyString, message: optional(Schema.String) }),
+	),
+});
 
-export const extensionWorkSchema = z
-	.object({
-		id: z.string().min(1),
-		version: z.string().optional(),
-		title: z.string().optional(),
-		url: z.string().optional(),
-		subject: z.string().optional(),
-		status: z.enum(["pending", "blocked"]).optional(),
-		blockedReason: z.string().optional(),
-		display: displaySchema.optional(),
-		operatorActions: z.array(operatorActionSchema).optional(),
-		context: z.unknown().optional(),
-	})
-	.strict();
+export const extensionWorkSchema = Schema.Struct({
+	id: NonEmptyString,
+	version: optional(Schema.String),
+	title: optional(Schema.String),
+	url: optional(Schema.String),
+	subject: optional(Schema.String),
+	status: optional(Schema.Literals(["pending", "blocked"])),
+	blockedReason: optional(Schema.String),
+	display: optional(displaySchema),
+	operatorActions: optional(Schema.Array(operatorActionSchema)),
+	context: optional(Schema.Unknown),
+});
 
-const extensionWorkListSchema = z.array(extensionWorkSchema);
-type ParsedExtensionWork = z.infer<typeof extensionWorkSchema>;
-type ParsedDisplay = z.infer<typeof displaySchema>;
-type ParsedOperatorAction = z.infer<typeof operatorActionSchema>;
+const extensionWorkListSchema = Schema.Array(extensionWorkSchema);
+type ParsedExtensionWork = typeof extensionWorkSchema.Type;
+type ParsedDisplay = typeof displaySchema.Type;
+type ParsedOperatorAction = typeof operatorActionSchema.Type;
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 const cleanDisplay = (
@@ -152,7 +146,7 @@ export const decodeDiscoveredWorks = (
 	source: string | undefined,
 ): readonly PlotExtensionWork[] => {
 	try {
-		return extensionWorkListSchema.parse(value).map(cleanWork);
+		return decodeBoundary(extensionWorkListSchema, value).map(cleanWork);
 	} catch (error) {
 		throw new PlotExtensionSourceError({
 			phase: "discover",
