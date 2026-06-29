@@ -1,4 +1,11 @@
-import { createContext, use, useEffect, useMemo, useState } from "react";
+import {
+	createContext,
+	use,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
 	createRun,
@@ -70,7 +77,7 @@ const sortRuns = (runs: readonly PlotRun[]) =>
 	});
 
 function PlotAppProvider({ children }: { readonly children: ReactNode }) {
-	const pollMs = 1_000;
+	const pollMs = 10_000;
 	const [runs, setRuns] = useState<readonly PlotRun[]>([]);
 	const [error, setError] = useState<string>();
 	const [openDetailKeys, setOpenDetailKeys] = useState<readonly string[]>([]);
@@ -78,7 +85,11 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 		Readonly<Record<string, PlotDetailEntry>>
 	>({});
 	const sortedRuns = useMemo(() => sortRuns(runs), [runs]);
-	const live = useRunLiveEvents(sortedRuns);
+	const updateRuns = useCallback(
+		(next: readonly PlotRun[]) => setRuns(sortRuns(next)),
+		[],
+	);
+	const live = useRunLiveEvents(sortedRuns, updateRuns);
 
 	const reload = async () => {
 		try {

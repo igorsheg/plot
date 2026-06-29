@@ -58,6 +58,48 @@ describe("Plot web gateway", () => {
 		}
 	});
 
+	test("streams run catalog updates as one SSE", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const { gateway, registryDir } = await startTestGateway(dir);
+		await writeRuns(registryDir, [
+			{
+				id: "run-1",
+				status: "online",
+				cwd: dir,
+				createdAt: new Date().toISOString(),
+				lastSeenAt: new Date().toISOString(),
+				sessionId: "default",
+				workflowName: "workflow",
+				cwdName: "project",
+				lastSequence: 1,
+			},
+		]);
+		const abort = new AbortController();
+		const timeout = setTimeout(() => abort.abort(), 5_000);
+		try {
+			const response = await fetch(new URL("/api/runs/events", gateway.url), {
+				signal: abort.signal,
+			});
+			expect(response.headers.get("content-type")).toContain(
+				"text/event-stream",
+			);
+			const reader = response.body!.getReader();
+			const decoder = new TextDecoder();
+			let text = "";
+			while (!text.includes('"kind":"runs"')) {
+				// eslint-disable-next-line no-await-in-loop -- test reads SSE until the expected event arrives.
+				const chunk = await reader.read();
+				if (chunk.done) break;
+				text += decoder.decode(chunk.value, { stream: true });
+			}
+			expect(text).toContain("run-1");
+		} finally {
+			clearTimeout(timeout);
+			abort.abort();
+			gateway.stop();
+		}
+	});
+
 	test("tails run events as SSE", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const sessionDir = join(dir, ".plot/sessions");

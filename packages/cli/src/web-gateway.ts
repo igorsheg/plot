@@ -66,6 +66,55 @@ const assetResponse = (pathname: string): Response => {
 const sseFrame = (event: unknown, id?: number): string =>
 	`${id === undefined ? "" : `id: ${id}\n`}event: plot\ndata: ${JSON.stringify(event)}\n\n`;
 
+const runCatalogEventsResponse = (input: {
+	readonly request: Request;
+	readonly listRuns: () => Promise<readonly RunRecord[]>;
+}): Response => {
+	const encoder = new TextEncoder();
+	let interval: ReturnType<typeof setInterval> | undefined;
+	let cancelled = false;
+	let previous = "";
+	let sequence = 0;
+	const cancel = () => {
+		cancelled = true;
+		if (interval !== undefined) clearInterval(interval);
+	};
+	input.request.signal.addEventListener("abort", cancel, { once: true });
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			start(controller) {
+				const write = (chunk: string) => {
+					if (!cancelled) controller.enqueue(encoder.encode(chunk));
+				};
+				const emit = async () => {
+					try {
+						const runs = await input.listRuns();
+						const serialized = JSON.stringify(runs);
+						if (serialized === previous) return;
+						previous = serialized;
+						write(sseFrame({ kind: "runs", runs }, ++sequence));
+					} catch (error) {
+						write(
+							sseFrame({ kind: "error", error: String(error) }, ++sequence),
+						);
+					}
+				};
+				write(": connected\n\n");
+				void emit();
+				interval = setInterval(() => void emit(), 1_000);
+			},
+			cancel,
+		}),
+		{
+			headers: {
+				"content-type": "text/event-stream; charset=utf-8",
+				"cache-control": "no-cache, no-transform",
+				connection: "keep-alive",
+			},
+		},
+	);
+};
+
 const parseSequence = (value: string | null): number | undefined => {
 	if (value === null) return undefined;
 	const parsed = Number(value);
@@ -276,6 +325,11 @@ export const startPlotWebGateway = async (
 		port: options.port ?? 0,
 		async fetch(request) {
 			const url = new URL(request.url);
+			if (url.pathname === "/api/runs/events")
+				return runCatalogEventsResponse({
+					request,
+					listRuns: () => runIpc.runRegistry.list(),
+				});
 			if (url.pathname === "/api/runs" && request.method === "POST") {
 				const body = await parseCreateRunBody(request);
 				const run = await runIpc.runRegistry.spawn({

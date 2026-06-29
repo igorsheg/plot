@@ -30,6 +30,11 @@ export interface PlotEventRecord {
 	};
 }
 
+export interface RunCatalogEvent {
+	readonly kind: "runs";
+	readonly runs: readonly PlotRun[];
+}
+
 export type WebActivityEntry = ActivityEntry;
 
 export interface WebDashboardProjection {
@@ -134,6 +139,16 @@ export const parsePlotEventRecord = (
 	return parsed.success ? parsed.data : undefined;
 };
 
+export const parseRunCatalogEvent = (
+	value: unknown,
+): RunCatalogEvent | undefined => {
+	const parsed = z
+		.object({ kind: z.literal("runs"), runs: z.array(z.unknown()) })
+		.safeParse(value);
+	if (!parsed.success) return undefined;
+	return { kind: "runs", runs: parsePlotRuns(parsed.data.runs) };
+};
+
 const parseProjection = (
 	value: unknown,
 ): WebDashboardProjection | undefined => {
@@ -176,6 +191,8 @@ export const fetchRunProjection = async (
 	if (projection === undefined) throw new Error("invalid projection response");
 	return projection;
 };
+
+export const runCatalogEventsUrl = (): string => "/api/runs/events";
 
 export const runEventsUrl = (key: string, after: number): string =>
 	`/api/runs/${encodeURIComponent(key)}/events?after=${after}`;
