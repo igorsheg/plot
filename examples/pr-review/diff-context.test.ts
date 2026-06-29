@@ -30,3 +30,22 @@ index 1111111..2222222 100644
 		},
 	]);
 });
+
+test("parseDiffContext handles addition-first hunks", () => {
+	const diff = `diff --git a/src/new.ts b/src/new.ts
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/new.ts
+@@ -0,0 +1,2 @@
++first
++second
+`;
+
+	expect(parseDiffContext(diff)).toEqual([
+		{
+			path: "src/new.ts",
+			changedLines: [{ start: 1, end: 2 }],
+		},
+	]);
+});

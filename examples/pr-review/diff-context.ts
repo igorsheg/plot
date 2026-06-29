@@ -18,7 +18,11 @@ export const parseDiffContext = (diff: string): DiffContextFile[] => {
 	const pushRange = (line: number, deletion?: true) => {
 		if (current === undefined) return;
 		const previous = current.changedLines.at(-1);
-		if (previous?.deletion === deletion && previous.end + 1 === line) {
+		if (
+			previous !== undefined &&
+			previous.deletion === deletion &&
+			previous.end + 1 === line
+		) {
 			previous.end = line;
 			return;
 		}
