@@ -30,7 +30,7 @@ export const displayWork = (
 	const url = str(d["url"]);
 	const version = str(d["version"]);
 	const blockedReason = str(work["blockedReason"]);
-	const currentRunId = str(work["currentRunId"]) ?? previous?.currentRunId;
+	const currentRunId = str(work["currentRunId"]);
 	if (subject !== undefined) item.subject = subject;
 	if (subtitle !== undefined) item.subtitle = subtitle;
 	if (url !== undefined) item.url = url;
