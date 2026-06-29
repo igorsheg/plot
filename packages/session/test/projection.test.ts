@@ -4,6 +4,7 @@ import {
 	emptyProjection,
 	hydrateDashboardProjection,
 	rebuildProjectionFromEventLog,
+	reduceProjectableEvent,
 	serializeDashboardProjection,
 } from "../src/projection.js";
 
@@ -64,6 +65,22 @@ test("projection JSON helpers round-trip map fields", () => {
 	expect(hydrated.attempts.get("run-1")?.activeTools?.get("tool-1")?.kind).toBe(
 		"run",
 	);
+});
+
+test("debug events name agent event payloads", () => {
+	const projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		{
+			kind: "agent_event",
+			sessionId: "session-1",
+			sequence: 1,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			runId: "run-1",
+			event: { type: "turn_start" },
+		},
+	);
+
+	expect(projection.debugEvents[0]).toBe("1 agent_event:turn_start");
 });
 
 test("snapshot clears stale current run ids", () => {
