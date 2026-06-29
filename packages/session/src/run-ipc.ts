@@ -15,7 +15,7 @@ import {
 	type RunResponse,
 	type RunSpawnOptions,
 } from "./run-registry.js";
-import { jsonlLines, stringifyJsonl } from "./jsonl.js";
+import { jsonlLines, parseJsonl, stringifyJsonl } from "./jsonl.js";
 import { errorMessage } from "@plot/common/primitives";
 import {
 	decodeServerRecord,
@@ -38,8 +38,10 @@ const resolveRunIpcDir = (options: RunIpcOptions): string =>
 export const resolveRunIpcSocketPath = (options: RunIpcOptions): string =>
 	join(resolveRunIpcDir(options), "runRegistry.sock");
 
+const runIpcLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
+
 const write = (socket: { write: (text: string) => void }, response: unknown) =>
-	socket.write(stringifyJsonl(response, { maxLineBytes: 2 * 1024 * 1024 }));
+	socket.write(stringifyJsonl(response, runIpcLimits));
 
 const makeRunRegistry = (options: RunIpcOptions): RunRegistry => {
 	const runRegistryDir = resolveRunIpcDir(options);
@@ -135,7 +137,6 @@ export const startRunIpcServer = async (input: {
 	const runRegistry = input.runRegistry ?? makeRunRegistry(input.options);
 	await runRegistry.recoverAfterRestart();
 	const server = createServer((socket) => {
-		let buffer = "";
 		const streamRecords = async (
 			request: Extract<RunRequest, { type: "protocol_stream" }>,
 		) => {
@@ -159,28 +160,20 @@ export const startRunIpcServer = async (input: {
 				await iterator.return?.();
 			}
 		};
-		socket.on("data", (chunk: Buffer | string) => {
-			buffer += chunk.toString();
-			void (async () => {
-				for (;;) {
-					const index = buffer.indexOf("\n");
-					if (index === -1) return;
-					const line = buffer.slice(0, index).trim();
-					buffer = buffer.slice(index + 1);
-					if (line === "") continue;
-					const request = decodeRunRequest(JSON.parse(line) as unknown);
-					if (request.type === "protocol_stream") {
-						// eslint-disable-next-line no-await-in-loop -- stream requests take over this socket.
-						await streamRecords(request);
-						return;
-					}
-					// eslint-disable-next-line no-await-in-loop -- socket requests are handled in wire order.
-					write(socket, await handleRequest(runRegistry, request));
+		void (async () => {
+			for await (const line of jsonlLines(socket, runIpcLimits)) {
+				const trimmed = line.trim();
+				if (trimmed === "") continue;
+				const request = decodeRunRequest(parseJsonl(trimmed));
+				if (request.type === "protocol_stream") {
+					await streamRecords(request);
+					return;
 				}
-			})().catch((error) =>
-				write(socket, { type: "error", ok: false, error: errorMessage(error) }),
-			);
-		});
+				write(socket, await handleRequest(runRegistry, request));
+			}
+		})().catch((error) =>
+			write(socket, { type: "error", ok: false, error: errorMessage(error) }),
+		);
 	});
 	const listen = () =>
 		new Promise<void>((resolveListen, reject) => {
@@ -203,43 +196,22 @@ export const startRunIpcServer = async (input: {
 export const sendRunIpcRequest = async (
 	options: RunIpcOptions,
 	request: RunRequest,
-): Promise<RunResponse> =>
-	new Promise((resolve, reject) => {
-		const socket = createConnection(resolveRunIpcSocketPath(options));
-		let buffer = "";
-		let settled = false;
-		const finish = (work: () => void) => {
-			if (settled) return;
-			settled = true;
-			socket.removeAllListeners();
-			socket.destroy();
-			work();
-		};
-		socket.on("connect", () => write(socket, request));
-		socket.on("error", (error) => finish(() => reject(error)));
-		socket.on("end", () =>
-			finish(() =>
-				reject(
-					new Error(
-						`run registry closed before response: ${resolveRunIpcSocketPath(options)}`,
-					),
-				),
-			),
-		);
-		socket.on("data", (chunk: Buffer | string) => {
-			buffer += chunk.toString();
-			const index = buffer.indexOf("\n");
-			if (index === -1) return;
-			try {
-				const response = decodeRunResponse(
-					JSON.parse(buffer.slice(0, index)) as unknown,
-				);
-				finish(() => resolve(response));
-			} catch (error) {
-				finish(() => reject(error));
-			}
+): Promise<RunResponse> => {
+	const socketPath = resolveRunIpcSocketPath(options);
+	const socket = createConnection(socketPath);
+	try {
+		await new Promise<void>((resolve, reject) => {
+			socket.once("connect", resolve);
+			socket.once("error", reject);
 		});
-	});
+		write(socket, request);
+		for await (const line of jsonlLines(socket, runIpcLimits))
+			return decodeRunResponse(parseJsonl(line));
+		throw new Error(`run registry closed before response: ${socketPath}`);
+	} finally {
+		socket.destroy();
+	}
+};
 
 const runMissing = (id: string) => new Error(`unknown run: ${id}`);
 
@@ -315,7 +287,7 @@ export const createRunIpcClient = (
 				for await (const line of jsonlLines(socket, {
 					maxLineBytes: defaultProtocolLimits.maxOutputLineBytes,
 				})) {
-					const response = decodeRunResponse(JSON.parse(line) as unknown);
+					const response = decodeRunResponse(parseJsonl(line));
 					const error = responseError(response);
 					if (error !== undefined) throw error;
 					if (response.type === "protocol_ready") {
