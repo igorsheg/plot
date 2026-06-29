@@ -35,6 +35,7 @@ const waitForEvent = async <A>(
 	try {
 		const nextMatching = (async () => {
 			for (;;) {
+				// eslint-disable-next-line no-await-in-loop -- helper polls until the requested event arrives.
 				const next = await iterator.next();
 				if (next.done) break;
 				if (predicate(next.value)) return next.value;
@@ -283,7 +284,7 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("sources select work while the runner owns inner agent execution", async () => {
-		const ready = { provider: "plot-faux", model: "faux-1" };
+		const ready = { provider: "anthropic", model: "claude-opus-4-8" };
 		const pr = subjectKey("github:acme/web:pr:42");
 		const key = workKey("review:github:acme/web:pr:42:sha-1");
 		const calls: unknown[] = [];
@@ -725,8 +726,10 @@ describe("task-agnostic Plot agent", () => {
 		};
 		const runner: WorkRunner = {
 			run: async ({ emitObservation }) => {
-				for (let i = 0; i < 16; i++)
+				for (let i = 0; i < 16; i++) {
+					// eslint-disable-next-line no-await-in-loop -- test needs ordered mailbox pressure.
 					await emitObservation({ type: "noise", data: i });
+				}
 				return {};
 			},
 		};
@@ -869,7 +872,9 @@ describe("task-agnostic Plot agent", () => {
 			run: async ({ emitObservation, signal }) => {
 				for (;;) {
 					if (signal.aborted) return {};
+					// eslint-disable-next-line no-await-in-loop -- heartbeat loop intentionally emits over time.
 					await emitObservation({ type: "heartbeat" });
+					// eslint-disable-next-line no-await-in-loop -- heartbeat cadence is sequential by design.
 					await new Promise((resolve) => setTimeout(resolve, 2));
 				}
 			},

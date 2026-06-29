@@ -5,7 +5,7 @@ PLOT CONTROL PLANE █
 AGENT FLEET [TYPESCRIPT]
 
 LOOP: tick -> reconcile -> act
-MODE: operator supervised
+MODE: run managed
 STATUS: early / online
 ```
 
@@ -39,9 +39,9 @@ Plot handles the operational layer:
 - stale-run timeouts
 - run history and diagnostics
 - usage and cost visibility
-- append-only Session History separate from agent transcripts
-- a stdio protocol stream for automation
-- a TUI for one session
+- append-only run history separate from agent transcripts
+- `plot api --stdio` for automation
+- TUI and web dashboards for runs
 
 ## Try the PR reviewer
 
@@ -57,7 +57,7 @@ Or run one pass without the dashboard:
 plot run --workflow examples/pr-review/WORKFLOW.md
 ```
 
-`plot run` opens a temporary `oneshot` Plot Session and keeps Session History afterward.
+`plot run` opens a temporary oneshot run and keeps run history afterward.
 
 You need:
 
@@ -126,7 +126,7 @@ Plot should make agents cheaper and better by shaping context and ownership, not
 plot --workflow WORKFLOW.md
 ```
 
-The TUI owns one Plot Session. Pressing Ctrl-C in `plot` closes that Plot Session.
+The TUI opens a normal managed Plot run. While it is active, `plot web` can see the same run.
 
 It shows:
 

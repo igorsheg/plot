@@ -1,20 +1,21 @@
 #!/usr/bin/env bun
-import {
-	fauxAssistantMessage,
-	registerPlotFauxProvider,
-} from "@plot/session/pi/testing";
+import { runCommand as runCittyCommand } from "citty";
 import { processCliIo, runPlotCli } from "./cli.js";
+import { apiCommand } from "./commands/api.js";
 
-const responseText = process.env["PLOT_FAUX_RESPONSE_TEXT"] ?? "plot faux ok";
-const faux = registerPlotFauxProvider({
-	responses: [fauxAssistantMessage(responseText)],
+const args = process.argv.slice(2);
+const run =
+	args[0] === "__internal-api-stdio"
+		? runCittyCommand(apiCommand, {
+				rawArgs: ["--stdio", ...args.slice(1)],
+				showUsage: false,
+			})
+		: runPlotCli(args, processCliIo());
+
+run.catch((error) => {
+	if (error === null || error === undefined) return;
+	process.stderr.write(
+		`${error instanceof Error ? error.message : String(error)}\n`,
+	);
+	process.exitCode = 1;
 });
-
-runPlotCli(process.argv.slice(2), processCliIo())
-	.catch((error) => {
-		process.stderr.write(
-			`${error instanceof Error ? error.message : String(error)}\n`,
-		);
-		process.exitCode = 1;
-	})
-	.finally(() => faux.cleanup());

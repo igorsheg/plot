@@ -660,7 +660,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					},
 					required: ["status", "body"],
 				},
-				execute: async (_id, params) => {
+				execute: async (params) => {
 					if (!isRecord(params)) throw new Error("params must be an object");
 					const status = stringField(params, "status");
 					const body = stringField(params, "body");
@@ -745,7 +745,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					},
 					required: ["event", "body"],
 				},
-				execute: async (_id, params) => {
+				execute: async (params) => {
 					if (!isRecord(params)) throw new Error("params must be an object");
 					const event = stringField(params, "event");
 					const body = stringField(params, "body");
@@ -797,6 +797,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					const draftBlocked = pr.isDraft && !config.includeDrafts;
 					const head = pr.headRefOid ?? pr.headRefName;
 					const workspacePath = prWorkspacePath(repo, pr.number);
+					// eslint-disable-next-line no-await-in-loop -- work records are built sequentially for stable output order.
 					await mkdir(workspacePath, { recursive: true });
 					const headMatches =
 						anchor !== undefined && anchor.head === pr.headRefOid;

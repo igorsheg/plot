@@ -72,6 +72,7 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
 			}
 			if (this.failure) throw this.failure;
 			if (this.closed) return;
+			// eslint-disable-next-line no-await-in-loop -- async iterator waits for the next queued item.
 			const result = await new Promise<IteratorResult<T>>((resolve) =>
 				this.waiters.push(resolve),
 			);

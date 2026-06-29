@@ -1,51 +1,43 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, appendFile } from "node:fs/promises";
-import { join } from "node:path";
-import {
-	safeParseEventLogEvent,
-	type EventLogEvent,
-	type EventLogSequence,
-} from "@plot/session/protocol";
-import { errorMessage } from "./util.js";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { z } from "zod";
+import { hasErrnoCode, errorMessage, isRecord } from "@plot/common/primitives";
+import { parseJsonl, stringifyJsonl, type JsonlLimits } from "./jsonl.js";
 
-export interface EventLogDiagnostic {
-	readonly level: "warning";
-	readonly phase: "read" | "parse";
-	readonly message: string;
-	readonly path: string;
-	readonly lineNumber?: number;
-}
+const nonEmptyString = z.string().min(1);
+const positiveInteger = z.number().int().positive();
 
-export class PlotEventLogError extends Error {
-	override readonly name = "PlotEventLogError";
-	readonly phase: "read" | "parse" | "write";
-	readonly path: string;
-	readonly lineNumber?: number | undefined;
-	constructor(input: {
-		readonly phase: "read" | "parse" | "write";
-		readonly message: string;
-		readonly path: string;
-		readonly lineNumber?: number | undefined;
-	}) {
-		super(input.message);
-		this.phase = input.phase;
-		this.path = input.path;
-		this.lineNumber = input.lineNumber;
-	}
-}
+export const sessionEventSchema = z
+	.object({
+		kind: z.literal("session_event"),
+		sessionId: nonEmptyString,
+		sequence: positiveInteger,
+		timestamp: nonEmptyString,
+		type: nonEmptyString,
+		payload: z.unknown().optional(),
+	})
+	.strict();
 
-export interface EventLogFrontier {
-	readonly sessionId: string;
-	readonly epoch: string;
-	readonly lastSequence: number;
-	readonly path: string;
-}
+export const agentEventSchema = z
+	.object({
+		kind: z.literal("agent_event"),
+		sessionId: nonEmptyString,
+		sequence: positiveInteger,
+		timestamp: nonEmptyString,
+		sourceId: nonEmptyString.optional(),
+		runId: nonEmptyString.optional(),
+		workKey: nonEmptyString.optional(),
+		event: z.unknown(),
+	})
+	.strict();
 
-export interface EventLogReadResult {
-	readonly events: readonly EventLogEvent[];
-	readonly diagnostics: readonly EventLogDiagnostic[];
-	readonly frontier: EventLogFrontier;
-}
+export const eventLogRecordSchema = z.discriminatedUnion("kind", [
+	sessionEventSchema,
+	agentEventSchema,
+]);
+
+export type EventLogRecord = z.infer<typeof eventLogRecordSchema>;
 
 export interface EventLogAppendInput {
 	readonly type: string;
@@ -53,31 +45,189 @@ export interface EventLogAppendInput {
 	readonly timestamp?: string;
 }
 
-export interface EventLogStoreOptions {
-	readonly sessionDir: string;
+export interface AgentEventAppendInput {
+	readonly sourceId?: string;
+	readonly runId?: string;
+	readonly workKey?: string;
+	readonly event: unknown;
+	readonly timestamp?: string;
+}
+
+export interface EventLogFrontier {
 	readonly sessionId: string;
-	readonly epoch?: string;
+	readonly lastSequence: number;
+	readonly byteOffset: number;
+	readonly path: string;
+}
+
+export interface EventLogDiagnostic {
+	readonly level: "warning";
+	readonly phase: "parse";
+	readonly path: string;
+	readonly lineNumber: number;
+	readonly message: string;
+}
+
+export interface EventLogReadResult {
+	readonly records: readonly EventLogRecord[];
+	readonly diagnostics: readonly EventLogDiagnostic[];
+	readonly frontier: EventLogFrontier;
+}
+
+export class EventLogError extends Error {
+	override readonly name = "EventLogError";
+	readonly phase: "read" | "parse" | "write";
+	readonly path: string;
+	readonly lineNumber?: number;
+
+	constructor(input: {
+		readonly phase: "read" | "parse" | "write";
+		readonly path: string;
+		readonly message: string;
+		readonly lineNumber?: number;
+	}) {
+		super(input.message);
+		this.phase = input.phase;
+		this.path = input.path;
+		if (input.lineNumber !== undefined) this.lineNumber = input.lineNumber;
+	}
 }
 
 export interface EventLogStore {
 	readonly sessionId: string;
-	readonly epoch: string;
-	readonly sessionPath: string;
-	readonly eventLogPath: string;
-	readonly append: (event: EventLogAppendInput) => Promise<EventLogEvent>;
-	readonly frontier: () => Promise<EventLogFrontier>;
+	readonly path: string;
+	readonly appendSessionEvent: (
+		input: EventLogAppendInput,
+	) => Promise<EventLogRecord>;
+	readonly appendAgentEvent: (
+		input: AgentEventAppendInput,
+	) => Promise<EventLogRecord>;
 	readonly readAll: () => Promise<EventLogReadResult>;
+	readonly readFrom: (
+		frontier: EventLogFrontier,
+	) => Promise<readonly EventLogRecord[]>;
+	readonly frontier: () => Promise<EventLogFrontier>;
 }
 
-export const createEventLogEpoch = (): string => `epoch-${randomUUID()}`;
+export interface FileEventLogStoreOptions {
+	readonly sessionId: string;
+	readonly sessionDir: string;
+	readonly path?: string;
+	readonly limits?: JsonlLimits;
+}
 
-const isNoEntryError = (error: unknown) =>
-	typeof error === "object" &&
-	error !== null &&
-	"code" in error &&
-	(error as { readonly code?: unknown }).code === "ENOENT";
+const defaultJsonlLimits: JsonlLimits = { maxLineBytes: 2 * 1024 * 1024 };
 
-const incompleteTailDiagnostic = (
+const optionalString = (key: string, value: string | undefined) =>
+	value === undefined ? {} : { [key]: value };
+
+const lastSequence = (records: readonly EventLogRecord[]): number =>
+	records.at(-1)?.sequence ?? 0;
+
+const readText = async (path: string): Promise<string> => {
+	try {
+		return await readFile(path, "utf8");
+	} catch (error) {
+		if (hasErrnoCode(error, "ENOENT")) return "";
+		throw new EventLogError({
+			phase: "read",
+			path,
+			message: errorMessage(error),
+		});
+	}
+};
+
+const fileSize = async (path: string): Promise<number> => {
+	try {
+		return (await stat(path)).size;
+	} catch (error) {
+		if (hasErrnoCode(error, "ENOENT")) return 0;
+		throw new EventLogError({
+			phase: "read",
+			path,
+			message: errorMessage(error),
+		});
+	}
+};
+
+export const makeSessionEventRecord = (input: {
+	readonly sessionId: string;
+	readonly sequence: number;
+	readonly timestamp?: string;
+	readonly event: EventLogAppendInput;
+}): EventLogRecord =>
+	eventLogRecordSchema.parse({
+		kind: "session_event",
+		sessionId: input.sessionId,
+		sequence: input.sequence,
+		timestamp:
+			input.event.timestamp ?? input.timestamp ?? new Date().toISOString(),
+		type: input.event.type,
+		...(input.event.payload === undefined
+			? {}
+			: { payload: input.event.payload }),
+	});
+
+export const makeAgentEventRecord = (input: {
+	readonly sessionId: string;
+	readonly sequence: number;
+	readonly timestamp?: string;
+	readonly event: AgentEventAppendInput;
+}): EventLogRecord =>
+	eventLogRecordSchema.parse({
+		kind: "agent_event",
+		sessionId: input.sessionId,
+		sequence: input.sequence,
+		timestamp:
+			input.event.timestamp ?? input.timestamp ?? new Date().toISOString(),
+		...optionalString("sourceId", input.event.sourceId),
+		...optionalString("runId", input.event.runId),
+		...optionalString("workKey", input.event.workKey),
+		event: input.event.event,
+	});
+
+const normalizeEventLogRecord = (value: unknown): unknown => {
+	if (!isRecord(value)) return value;
+	if (value["kind"] === "plot_event")
+		return {
+			kind: "session_event",
+			sessionId: value["sessionId"],
+			sequence: value["sequence"],
+			timestamp: value["timestamp"],
+			type: value["type"],
+			...(value["payload"] === undefined ? {} : { payload: value["payload"] }),
+		};
+	if (value["kind"] === "agent_session_event")
+		return {
+			kind: "agent_event",
+			sessionId: value["sessionId"],
+			sequence: value["sequence"],
+			timestamp: value["timestamp"],
+			...(typeof value["sourceId"] === "string"
+				? { sourceId: value["sourceId"] }
+				: {}),
+			...(typeof value["runId"] === "string" ? { runId: value["runId"] } : {}),
+			...(typeof value["workKey"] === "string"
+				? { workKey: value["workKey"] }
+				: {}),
+			event: value["event"],
+		};
+	return value;
+};
+
+export const decodeEventLogRecord = (value: unknown): EventLogRecord =>
+	eventLogRecordSchema.parse(normalizeEventLogRecord(value));
+
+const decodeLine = (line: string, sessionId: string): EventLogRecord => {
+	const record = decodeEventLogRecord(parseJsonl(line));
+	if (record.sessionId !== sessionId)
+		throw new Error(
+			`event sessionId ${record.sessionId} does not match ${sessionId}`,
+		);
+	return record;
+};
+
+const corruptTailDiagnostic = (
 	path: string,
 	lineNumber: number,
 	error: unknown,
@@ -89,43 +239,27 @@ const incompleteTailDiagnostic = (
 	message: `ignored corrupt final event log line: ${errorMessage(error)}`,
 });
 
-const readEventLogFile = async (path: string) => {
-	try {
-		return await readFile(path, "utf8");
-	} catch (error) {
-		if (isNoEntryError(error)) return "";
-		throw new PlotEventLogError({
-			phase: "read",
-			path,
-			message: errorMessage(error),
-		});
-	}
-};
-
-const parseEventLogText = (
+const parseText = (
 	path: string,
+	sessionId: string,
 	text: string,
-): Pick<EventLogReadResult, "events" | "diagnostics"> => {
+): Pick<EventLogReadResult, "records" | "diagnostics"> => {
 	const lines = text.split(/\r?\n/);
 	if (lines.at(-1) === "") lines.pop();
-	const events: EventLogEvent[] = [];
+	const records: EventLogRecord[] = [];
 	const diagnostics: EventLogDiagnostic[] = [];
 	for (let index = 0; index < lines.length; index++) {
 		const line = lines[index];
 		if (line === undefined || line.trim() === "") continue;
 		const lineNumber = index + 1;
-		const isFinalLine = index === lines.length - 1;
 		try {
-			const parsedJson = JSON.parse(line) as unknown;
-			const parsedEvent = safeParseEventLogEvent(parsedJson);
-			if (!parsedEvent.success) throw parsedEvent.error;
-			events.push(parsedEvent.data as EventLogEvent);
+			records.push(decodeLine(line, sessionId));
 		} catch (error) {
-			if (isFinalLine) {
-				diagnostics.push(incompleteTailDiagnostic(path, lineNumber, error));
+			if (index === lines.length - 1) {
+				diagnostics.push(corruptTailDiagnostic(path, lineNumber, error));
 				continue;
 			}
-			throw new PlotEventLogError({
+			throw new EventLogError({
 				phase: "parse",
 				path,
 				lineNumber,
@@ -133,127 +267,103 @@ const parseEventLogText = (
 			});
 		}
 	}
-	return { events, diagnostics };
+	return { records, diagnostics };
 };
 
-const lastSequenceOf = (events: readonly EventLogEvent[]) =>
-	Number(events.at(-1)?.sequence ?? 0);
-
-const jsonEventLogReplacer = (_key: string, value: unknown) =>
-	value instanceof Map ? [...value] : value;
-
-const readFromDisk = async (
+const readAllFromDisk = async (
 	path: string,
 	sessionId: string,
-	epoch: string,
 ): Promise<EventLogReadResult> => {
-	const parsed = parseEventLogText(path, await readEventLogFile(path));
+	const text = await readText(path);
+	const parsed = parseText(path, sessionId, text);
 	return {
 		...parsed,
 		frontier: {
 			sessionId,
-			epoch,
-			lastSequence: lastSequenceOf(parsed.events),
+			lastSequence: lastSequence(parsed.records),
+			byteOffset: Buffer.byteLength(text, "utf8"),
 			path,
 		},
 	};
 };
 
-export const createEventLogStore = async (
-	options: EventLogStoreOptions,
+export const createFileEventLogStore = async (
+	options: FileEventLogStoreOptions,
 ): Promise<EventLogStore> => {
-	const epoch = options.epoch ?? createEventLogEpoch();
-	const sessionPath = join(options.sessionDir, options.sessionId);
-	const eventLogPath = join(sessionPath, "events.jsonl");
-	let cachedLastSequence = lastSequenceOf(
-		(await readFromDisk(eventLogPath, options.sessionId, epoch)).events,
-	);
+	const path =
+		options.path ?? join(options.sessionDir, options.sessionId, "events.jsonl");
+	const limits = options.limits ?? defaultJsonlLimits;
+	const initial = await readAllFromDisk(path, options.sessionId);
+	let cachedLastSequence = initial.frontier.lastSequence;
+	let cachedByteOffset = await fileSize(path);
 	let appendChain = Promise.resolve();
 
-	const frontier = async (): Promise<EventLogFrontier> => ({
+	const currentFrontier = async (): Promise<EventLogFrontier> => ({
 		sessionId: options.sessionId,
-		epoch,
 		lastSequence: cachedLastSequence,
-		path: eventLogPath,
+		byteOffset: cachedByteOffset,
+		path,
 	});
 
-	const appendUnsafe = async (
-		input: EventLogAppendInput,
-	): Promise<EventLogEvent> => {
-		const sequence = (cachedLastSequence + 1) as EventLogSequence;
-		const timestamp = input.timestamp ?? new Date().toISOString();
-		const payload = input.payload ?? {};
-		const payloadRecord = payload as Record<string, unknown>;
-		const event =
-			input.type === "agent_run_event" &&
-			typeof payload === "object" &&
-			payload !== null &&
-			"event" in payload
-				? {
-						kind: "agent_session_event" as const,
-						sessionId: options.sessionId,
-						sequence,
-						timestamp,
-						type: "agent_session_event",
-						...(typeof payloadRecord["sourceId"] === "string"
-							? { sourceId: payloadRecord["sourceId"] }
-							: {}),
-						...(typeof payloadRecord["runId"] === "string"
-							? { runId: payloadRecord["runId"] }
-							: {}),
-						...(typeof payloadRecord["workKey"] === "string"
-							? { workKey: payloadRecord["workKey"] }
-							: {}),
-						event: payloadRecord["event"],
-					}
-				: {
-						kind: "plot_event" as const,
-						sessionId: options.sessionId,
-						sequence,
-						timestamp,
-						type: input.type,
-						payload,
-					};
-		const parsed = safeParseEventLogEvent(event);
-		if (!parsed.success)
-			throw new PlotEventLogError({
-				phase: "write",
-				path: eventLogPath,
-				message: errorMessage(parsed.error),
-			});
+	const appendRecord = async (
+		makeRecord: (sequence: number) => EventLogRecord,
+	): Promise<EventLogRecord> => {
+		const record = makeRecord(cachedLastSequence + 1);
 		try {
-			await mkdir(sessionPath, { recursive: true });
-			await appendFile(
-				eventLogPath,
-				`${JSON.stringify(parsed.data, jsonEventLogReplacer)}\n`,
-				"utf8",
-			);
-			cachedLastSequence = Number(parsed.data.sequence);
-			return parsed.data as EventLogEvent;
+			await mkdir(dirname(path), { recursive: true });
+			const line = stringifyJsonl(record, limits);
+			await appendFile(path, line, "utf8");
+			cachedLastSequence = record.sequence;
+			cachedByteOffset += Buffer.byteLength(line, "utf8");
+			return record;
 		} catch (error) {
-			throw new PlotEventLogError({
+			throw new EventLogError({
 				phase: "write",
-				path: eventLogPath,
+				path,
 				message: errorMessage(error),
 			});
 		}
 	};
 
-	const store: EventLogStore = {
-		sessionId: options.sessionId,
-		epoch,
-		sessionPath,
-		eventLogPath,
-		append: (input) => {
-			const appended = appendChain.then(() => appendUnsafe(input));
-			appendChain = appended.then(
-				() => undefined,
-				() => undefined,
-			);
-			return appended;
-		},
-		frontier,
-		readAll: async () => readFromDisk(eventLogPath, options.sessionId, epoch),
+	const append = (
+		makeRecord: (sequence: number) => EventLogRecord,
+	): Promise<EventLogRecord> => {
+		const result = appendChain.then(() => appendRecord(makeRecord));
+		appendChain = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
 	};
-	return store;
+
+	return {
+		sessionId: options.sessionId,
+		path,
+		appendSessionEvent: (event) =>
+			append((sequence) =>
+				makeSessionEventRecord({
+					sessionId: options.sessionId,
+					sequence,
+					event,
+				}),
+			),
+		appendAgentEvent: (event) =>
+			append((sequence) =>
+				makeAgentEventRecord({
+					sessionId: options.sessionId,
+					sequence,
+					event,
+				}),
+			),
+		readAll: () => readAllFromDisk(path, options.sessionId),
+		readFrom: async (frontier) => {
+			const read = await readAllFromDisk(path, options.sessionId);
+			return read.records.filter(
+				(record) => record.sequence > frontier.lastSequence,
+			);
+		},
+		frontier: currentFrontier,
+	};
 };
+
+export const createEventLogSessionId = (): string => `session-${randomUUID()}`;

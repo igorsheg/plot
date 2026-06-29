@@ -1,23 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import {
 	DEFAULT_WORKFLOW_PATH,
+	WorkflowBoundaryError,
 	loadWorkflow,
 	parseWorkflowText,
 	resolveWorkflowPath,
 } from "../src/workflow.js";
 
-describe("workflow contract", () => {
-	test("parses YAML front matter and preserves markdown prompt body", async () => {
-		const workflow = await parseWorkflowText(
+describe("workflow", () => {
+	test("parses YAML front matter, strict runtime config, and prompt body", () => {
+		const workflow = parseWorkflowText(
 			`---
 plot:
   maxRunDurationMs: 1000
 agent:
-  provider: plot-faux
-  model: faux-1
+  provider: anthropic
+  model: claude-opus-4-8
   maxTurns: 3
 extension:
-  source: npm:@acme/plot-github-pr-reviewer
+  source: ./extension.ts
   config:
     repo: web
 resources:
@@ -36,23 +37,11 @@ Use the current task context.
 		);
 
 		expect(workflow.path).toBe("WORKFLOW.md");
-		expect(workflow.config).toEqual({
-			plot: { maxRunDurationMs: 1000 },
-			agent: { provider: "plot-faux", model: "faux-1", maxTurns: 3 },
-			extension: {
-				source: "npm:@acme/plot-github-pr-reviewer",
-				config: { repo: "web" },
-			},
-			resources: { skills: [".plot/skills/review"] },
-			tracker: { states: ["Todo"] },
-		});
+		expect(workflow.config["tracker"]).toEqual({ states: ["Todo"] });
 		expect(workflow.runtime).toEqual({
 			plot: { maxRunDurationMs: 1000 },
-			agent: { provider: "plot-faux", model: "faux-1", maxTurns: 3 },
-			extension: {
-				source: "npm:@acme/plot-github-pr-reviewer",
-				config: { repo: "web" },
-			},
+			agent: { provider: "anthropic", model: "claude-opus-4-8", maxTurns: 3 },
+			extension: { source: "./extension.ts", config: { repo: "web" } },
 			resources: { skills: [".plot/skills/review"] },
 		});
 		expect(workflow.prompt).toBe(
@@ -60,20 +49,20 @@ Use the current task context.
 		);
 	});
 
-	test("loads workflow content through an injected file system service", async () => {
-		const workflow = await loadWorkflow("custom/WORKFLOW.md", {
-			readFileString: async (path) => `---\npath: ${path}\n---\n\nDo it.`,
-		});
-
-		expect(workflow).toEqual({
-			config: { path: "custom/WORKFLOW.md" },
-			runtime: {},
-			path: "custom/WORKFLOW.md",
-			prompt: "Do it.",
-		});
+	test("rejects invalid runtime config at parse boundary", () => {
+		expect(() =>
+			parseWorkflowText(`---\nplot:\n  maxRunDurationMs: nope\n---\nDo it.`),
+		).toThrow(WorkflowBoundaryError);
 	});
 
-	test("resolves workflow discovery relative to the project cwd", () => {
+	test("loads through injected file system and resolves discovery paths", async () => {
+		const workflow = await loadWorkflow("custom/WORKFLOW.md", {
+			readFileString: async (path) =>
+				`---\nruntime:\n  name: ${path}\n---\n\nDo it.`,
+		});
+
+		expect(workflow.runtime).toEqual({ name: "custom/WORKFLOW.md" });
+		expect(workflow.prompt).toBe("Do it.");
 		expect(resolveWorkflowPath({ cwd: "/repo" })).toBe(
 			`/repo/${DEFAULT_WORKFLOW_PATH}`,
 		);
@@ -81,10 +70,7 @@ Use the current task context.
 			resolveWorkflowPath({ cwd: "/repo", workflowPath: "ops/review.md" }),
 		).toBe("/repo/ops/review.md");
 		expect(
-			resolveWorkflowPath({
-				cwd: "/repo",
-				workflowPath: "/tmp/WORKFLOW.md",
-			}),
+			resolveWorkflowPath({ cwd: "/repo", workflowPath: "/tmp/WORKFLOW.md" }),
 		).toBe("/tmp/WORKFLOW.md");
 	});
 });

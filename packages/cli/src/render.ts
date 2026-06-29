@@ -1,5 +1,6 @@
-import type { EventLogEvent } from "@plot/session/protocol";
-import type { PlotAuthStatusInfo, PlotModelInfo } from "@plot/session/pi/auth";
+import { isRecord } from "@plot/common/primitives";
+import type { AuthStatusInfo, ModelInfo } from "@plot/session/auth";
+import type { EventLogRecord } from "@plot/session/event-log";
 
 const formatTokenCount = (count: number): string =>
 	count >= 1_000_000
@@ -28,7 +29,7 @@ const renderTable = (
 
 export const renderModels = (
 	search: string | undefined,
-	models: readonly PlotModelInfo[],
+	models: readonly ModelInfo[],
 ) =>
 	models.length === 0
 		? search === undefined
@@ -46,7 +47,7 @@ export const renderModels = (
 				["provider", "model", "context", "max-out", "thinking", "images"],
 			)}\n`;
 
-export const renderAuthStatus = (statuses: readonly PlotAuthStatusInfo[]) =>
+export const renderAuthStatus = (statuses: readonly AuthStatusInfo[]) =>
 	statuses.length === 0
 		? "No auth providers found.\n"
 		: `${renderTable(
@@ -58,9 +59,6 @@ export const renderAuthStatus = (statuses: readonly PlotAuthStatusInfo[]) =>
 				})),
 				["provider", "configured", "source", "label"],
 			)}\n`;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const textFromContent = (content: unknown): string =>
 	typeof content === "string"
@@ -100,7 +98,8 @@ const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
 	return fallback.length ? fallback : undefined;
 };
 
-export const renderRunEvent = (event: EventLogEvent): string | undefined => {
+export const renderRunEvent = (event: EventLogRecord): string | undefined => {
+	if (event.kind !== "session_event") return undefined;
 	if (event.type === "session_started")
 		return `Started session ${event.sessionId}.\n`;
 	if (event.type === "session_shutdown")

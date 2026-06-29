@@ -7,7 +7,7 @@ The public model is small:
 ```txt
 extension finds work and registers tools
 workflow prompt teaches the agent
-Plot schedules runs and shows the fleet
+Plot schedules runs and shows dashboards
 ```
 
 If you are writing a Plot extension, start here:
@@ -15,7 +15,7 @@ If you are writing a Plot extension, start here:
 - [Quickstart](quickstart.md) — install Plot and run a workflow.
 - [Workflows](workflows.md) — configure the agent, extension, prompt, and resources.
 - [Extensions](extensions.md) — write trusted TypeScript that discovers work and registers tools.
-- [TUI](tui.md) — own one live Plot Session from a terminal dashboard.
+- [TUI](tui.md) — watch one live Plot run from a terminal dashboard.
 
 ## Ask an agent to write an extension
 

@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { makePlotAuth } from "@plot/session/pi/auth";
-import { resolvePlotPaths } from "@plot/session/plot-paths";
-import type { PlotAgentSessionCliOverrides } from "@plot/session/pi/agent-session";
+import type { AgentSessionOverrides } from "@plot/session/agent-session";
+import { createSessionAuth } from "@plot/session/auth";
 import type { ParsedArgs } from "citty";
 import type { LogLevelFlag } from "./runtime.js";
 
@@ -37,63 +36,48 @@ const splitCommaList = (value: string): readonly string[] =>
 		.map((p) => p.trim())
 		.filter(Boolean);
 
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
 export const makeAuth = (options: {
 	cwd: string;
 	plotDir?: string;
 	agentDir?: string;
-}) =>
-	makePlotAuth(
-		resolvePlotPaths({
-			cwd: options.cwd,
-			...(options.plotDir === undefined ? {} : { plotDir: options.plotDir }),
-			...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
-		}),
-	);
+}) => createSessionAuth(options);
 
 export const makeAgentSessionOverrides = (
 	args: ParsedArgs,
-): PlotAgentSessionCliOverrides | undefined => {
+): AgentSessionOverrides | undefined => {
+	const override: Mutable<AgentSessionOverrides> = {};
+	const provider = str(args, "provider");
+	const model = str(args, "model");
+	const apiKey = str(args, "api-key");
+	const thinking = str(args, "thinking") as AgentSessionOverrides["thinking"];
 	const tools = str(args, "tools");
 	const excludeTools = str(args, "exclude-tools");
-	const override = {
-		...(str(args, "provider") === undefined
-			? {}
-			: { provider: str(args, "provider")! }),
-		...(str(args, "model") === undefined ? {} : { model: str(args, "model")! }),
-		...(str(args, "api-key") === undefined
-			? {}
-			: { apiKey: str(args, "api-key")! }),
-		...(str(args, "thinking") === undefined
-			? {}
-			: {
-					thinking: str(
-						args,
-						"thinking",
-					) as PlotAgentSessionCliOverrides["thinking"],
-				}),
-		...(tools === undefined ? {} : { tools: splitCommaList(tools) }),
-		...(excludeTools === undefined
-			? {}
-			: { excludeTools: splitCommaList(excludeTools) }),
-		...(bool(args, "no-tools") ? { noTools: true } : {}),
-		...(bool(args, "no-builtin-tools") ? { noTools: "builtin" as const } : {}),
-		...(bool(args, "approve") === undefined
-			? {}
-			: { allowProjectConfig: true }),
-		...(many(args, "skill").length ? { skills: many(args, "skill") } : {}),
-		...(many(args, "prompt-template").length
-			? { prompts: many(args, "prompt-template") }
-			: {}),
-		...(bool(args, "no-skills") ? { noSkills: true } : {}),
-		...(bool(args, "no-prompt-templates") ? { noPromptTemplates: true } : {}),
-		...(bool(args, "no-context-files") ? { contextFiles: false } : {}),
-		...(str(args, "system-prompt") === undefined
-			? {}
-			: { systemPrompt: str(args, "system-prompt")! }),
-		...(many(args, "append-system-prompt").length
-			? { appendSystemPrompt: many(args, "append-system-prompt") }
-			: {}),
-	} satisfies PlotAgentSessionCliOverrides;
+	const skills = many(args, "skill");
+	const prompts = many(args, "prompt-template");
+	const appendSystemPrompt = many(args, "append-system-prompt");
+	const systemPrompt = str(args, "system-prompt");
+
+	if (provider !== undefined) override.provider = provider;
+	if (model !== undefined) override.model = model;
+	if (apiKey !== undefined) override.apiKey = apiKey;
+	if (thinking !== undefined) override.thinking = thinking;
+	if (tools !== undefined) override.tools = splitCommaList(tools);
+	if (excludeTools !== undefined)
+		override.excludeTools = splitCommaList(excludeTools);
+	if (bool(args, "no-tools")) override.noTools = true;
+	if (bool(args, "no-builtin-tools")) override.noTools = "builtin";
+	if (bool(args, "approve") !== undefined) override.allowProjectConfig = true;
+	if (skills.length > 0) override.skills = skills;
+	if (prompts.length > 0) override.prompts = prompts;
+	if (bool(args, "no-skills")) override.noSkills = true;
+	if (bool(args, "no-prompt-templates")) override.noPromptTemplates = true;
+	if (bool(args, "no-context-files")) override.contextFiles = false;
+	if (systemPrompt !== undefined) override.systemPrompt = systemPrompt;
+	if (appendSystemPrompt.length > 0)
+		override.appendSystemPrompt = appendSystemPrompt;
+
 	return Object.keys(override).length === 0 ? undefined : override;
 };
 
@@ -113,40 +97,37 @@ export const baseOptions = (args: ParsedArgs) => {
 	const overrides = makeAgentSessionOverrides(args);
 	const cwd = str(args, "cwd") ?? process.cwd();
 	const workflowPath = str(args, "workflow");
-	return {
-		...(workflowPath === undefined ? {} : { workflowPath }),
-		sessionId:
-			str(args, "session-id") ??
-			defaultSessionId({
-				cwd,
-				...(workflowPath === undefined ? {} : { workflowPath }),
-			}),
+	const sessionId =
+		str(args, "session-id") ??
+		defaultSessionId({
+			cwd,
+			...(workflowPath === undefined ? {} : { workflowPath }),
+		});
+	const options = {
+		sessionId,
 		cwd,
-		...(str(args, "plot-dir") === undefined
-			? {}
-			: { plotDir: str(args, "plot-dir")! }),
-		...(str(args, "agent-dir") === undefined
-			? {}
-			: { agentDir: str(args, "agent-dir")! }),
-		...(str(args, "session-dir") === undefined
-			? {}
-			: { sessionDir: str(args, "session-dir")! }),
 		logLevel: (str(args, "log-level") ?? "warn") as LogLevelFlag,
-		...(int(args, "request-queue-capacity") === undefined
-			? {}
-			: { requestQueueCapacity: int(args, "request-queue-capacity")! }),
-		...(int(args, "event-capacity") === undefined
-			? {}
-			: { eventCapacity: int(args, "event-capacity")! }),
-		...(int(args, "event-buffer-capacity") === undefined
-			? {}
-			: { eventBufferCapacity: int(args, "event-buffer-capacity")! }),
-		...(int(args, "tick-interval-ms") === undefined
-			? {}
-			: { tickIntervalMs: int(args, "tick-interval-ms")! }),
-		...(int(args, "max-run-duration-ms") === undefined
-			? {}
-			: { maxRunDurationMs: int(args, "max-run-duration-ms")! }),
-		...(overrides === undefined ? {} : { agentSessionOverrides: overrides }),
 	};
+	if (workflowPath !== undefined) Object.assign(options, { workflowPath });
+	for (const [key, option] of [
+		["plot-dir", "plotDir"],
+		["agent-dir", "agentDir"],
+		["session-dir", "sessionDir"],
+	] as const) {
+		const value = str(args, key);
+		if (value !== undefined) Object.assign(options, { [option]: value });
+	}
+	for (const [key, option] of [
+		["request-queue-capacity", "requestQueueCapacity"],
+		["event-capacity", "eventCapacity"],
+		["event-buffer-capacity", "eventBufferCapacity"],
+		["tick-interval-ms", "tickIntervalMs"],
+		["max-run-duration-ms", "maxRunDurationMs"],
+	] as const) {
+		const value = int(args, key);
+		if (value !== undefined) Object.assign(options, { [option]: value });
+	}
+	if (overrides !== undefined)
+		Object.assign(options, { agentSessionOverrides: overrides });
+	return options;
 };

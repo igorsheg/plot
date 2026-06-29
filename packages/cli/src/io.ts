@@ -1,12 +1,14 @@
-import type { CreateAgentSession } from "@plot/session/pi/agent-session";
-import type { StdioChunk } from "@plot/session/protocol-stdio";
+import { errorMessage } from "@plot/common/primitives";
+import type { CreatePiAgentSession } from "@plot/session/pi-runner";
+import { takeOverStdout, writeRawStdout } from "./stdout-guard.js";
 
 export interface PlotCliIo {
-	readonly stdin: AsyncIterable<StdioChunk>;
+	readonly stdin: AsyncIterable<string | Uint8Array>;
 	readonly writeStdout: (text: string) => Promise<void> | void;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
-	readonly createAgentSession?: CreateAgentSession;
+	readonly createAgentSession?: CreatePiAgentSession;
 	readonly runTui?: (options: unknown) => Promise<void> | void;
+	readonly protectStdout?: () => void;
 }
 
 class PlotCliIoError extends Error {
@@ -16,8 +18,7 @@ class PlotCliIoError extends Error {
 	}
 }
 
-export const errorMessage = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
+export { errorMessage };
 
 const writeStream = (stream: NodeJS.WritableStream, text: string) =>
 	new Promise<void>((resolve, reject) => {
@@ -42,9 +43,10 @@ export const writeProcessStderr = (text: string) =>
 	});
 
 export const processCliIo = (): PlotCliIo => ({
-	stdin: process.stdin as AsyncIterable<StdioChunk>,
-	writeStdout: writeProcessStdout,
+	stdin: process.stdin as AsyncIterable<string | Uint8Array>,
+	writeStdout: writeRawStdout,
 	writeStderr: writeProcessStderr,
+	protectStdout: takeOverStdout,
 });
 
 export const writeCliStderr = (io: PlotCliIo, text: string) =>

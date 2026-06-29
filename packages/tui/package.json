@@ -11,6 +11,7 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
+		"@plot/common": "workspace:*",
 		"@plot/session": "workspace:*",
 		"get-east-asian-width": "1.6.0"
 	},

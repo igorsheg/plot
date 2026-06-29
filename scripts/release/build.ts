@@ -17,7 +17,7 @@ import {
 	npmPackageDir,
 	packageTemplate,
 	repoDir,
-	sdkPackageDir,
+	sessionPackageDir,
 	releaseDir,
 	releaseTargets,
 	version,
@@ -26,7 +26,9 @@ import {
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });
 
-await $`bun run build`.cwd(sdkPackageDir);
+await $`bun --filter @plot/web build`.cwd(repoDir);
+await $`bun run scripts/web-assets.ts`.cwd(repoDir);
+await $`bun run build:sdk`.cwd(sessionPackageDir);
 await Promise.all(releaseTargets.map((target) => buildPlatformPackage(target)));
 await buildUmbrellaPackage();
 
@@ -83,11 +85,11 @@ async function buildUmbrellaPackage() {
 		recursive: true,
 	});
 	cpSync(
-		join(sdkPackageDir, "dist", "index.js"),
+		join(sessionPackageDir, "dist", "sdk.js"),
 		join(packageDir, "lib", "sdk.js"),
 	);
 	cpSync(
-		join(sdkPackageDir, "dist", "index.d.ts"),
+		join(sessionPackageDir, "dist", "sdk.d.ts"),
 		join(packageDir, "lib", "sdk.d.ts"),
 	);
 	cpSync(

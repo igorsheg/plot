@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-	decodePlotServerRecord,
-	plotProtocolVersion,
+	serverRecordSchema,
+	sessionProtocolVersion,
 } from "@plot/session/protocol";
-import { writePlotFauxAgentFiles } from "@plot/session/pi/testing";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runPlotCli } from "../src/cli.js";
+import { selectOptionId } from "../src/commands/auth.js";
+import {
+	flushRawStdout,
+	restoreStdout,
+	takeOverStdout,
+	writeRawStdout,
+} from "../src/stdout-guard.js";
 
 const tempDirs: string[] = [];
 
@@ -54,9 +60,19 @@ const captureConsole = async (run: () => Promise<string[]>) => {
 	}
 };
 
+const fakeWrite = (append: (text: string) => void) =>
+	((chunk: unknown, ...args: unknown[]) => {
+		append(String(chunk));
+		const callback = args.find(
+			(arg): arg is (error?: Error | null) => void => typeof arg === "function",
+		);
+		callback?.();
+		return true;
+	}) as typeof process.stdout.write;
+
 const decodeLines = (lines: readonly string[]) =>
 	Promise.all(
-		lines.map((line) => decodePlotServerRecord(JSON.parse(line) as unknown)),
+		lines.map((line) => serverRecordSchema.parse(JSON.parse(line) as unknown)),
 	);
 
 describe("plot CLI", () => {
@@ -71,16 +87,15 @@ describe("plot CLI", () => {
 	test("prints model list as a text table", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-cli-models-"));
 		tempDirs.push(dir);
-		await writePlotFauxAgentFiles({ cwd: dir });
-		const previousKey = process.env["PLOT_FAUX_API_KEY"];
-		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
+		const previousKey = process.env["ANTHROPIC_API_KEY"];
+		process.env["ANTHROPIC_API_KEY"] = "anthropic-key";
 		const stdout: string[] = [];
 
 		try {
 			await runPlotCli(
 				[
 					"list-models",
-					"faux",
+					"claude",
 					"--cwd",
 					dir,
 					"--agent-dir",
@@ -94,15 +109,15 @@ describe("plot CLI", () => {
 				},
 			);
 		} finally {
-			if (previousKey === undefined) delete process.env["PLOT_FAUX_API_KEY"];
-			else process.env["PLOT_FAUX_API_KEY"] = previousKey;
+			if (previousKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+			else process.env["ANTHROPIC_API_KEY"] = previousKey;
 		}
 
 		const output = stdout.join("");
 		expect(output).toContain("provider");
 		expect(output).toContain("model");
-		expect(output).toContain("plot-faux");
-		expect(output).toContain("faux-1");
+		expect(output).toContain("anthropic");
+		expect(output).toContain("claude");
 	});
 
 	test("prints citty root help", async () => {
@@ -121,8 +136,10 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("dynamic");
 		expect(output).toContain("run");
 		expect(output).toContain("tui");
-		expect(output).toContain("serve");
-		expect(output).not.toContain("stop");
+		expect(output).toContain("web");
+		expect(output).toContain("api");
+		expect(output).toContain("ls");
+		expect(output).toContain("stop");
 		expect(output).not.toContain("service");
 	});
 
@@ -137,7 +154,8 @@ describe("plot CLI", () => {
 
 		const output = stdout.join("");
 		expect(output).toContain("plot [OPTIONS]");
-		expect(output).toContain("serve");
+		expect(output).toContain("web");
+		expect(output).toContain("api");
 	});
 
 	test("runs the root TUI entrypoint when no subcommand is provided", async () => {
@@ -188,16 +206,15 @@ describe("plot CLI", () => {
 	test("lets subcommands own their options", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-cli-subcommand-option-"));
 		tempDirs.push(dir);
-		await writePlotFauxAgentFiles({ cwd: dir });
-		const previousKey = process.env["PLOT_FAUX_API_KEY"];
-		process.env["PLOT_FAUX_API_KEY"] = "plot-faux-key";
+		const previousKey = process.env["ANTHROPIC_API_KEY"];
+		process.env["ANTHROPIC_API_KEY"] = "anthropic-key";
 		const stdout: string[] = [];
 
 		try {
 			await runPlotCli(
 				[
 					"list-models",
-					"faux",
+					"claude",
 					"--cwd",
 					dir,
 					"--agent-dir",
@@ -211,12 +228,12 @@ describe("plot CLI", () => {
 				},
 			);
 		} finally {
-			if (previousKey === undefined) delete process.env["PLOT_FAUX_API_KEY"];
-			else process.env["PLOT_FAUX_API_KEY"] = previousKey;
+			if (previousKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+			else process.env["ANTHROPIC_API_KEY"] = previousKey;
 		}
 
 		const output = stdout.join("");
-		expect(output).toContain("plot-faux");
+		expect(output).toContain("anthropic");
 	});
 
 	test("prints citty subcommand help", async () => {
@@ -236,6 +253,21 @@ describe("plot CLI", () => {
 		expect(output).toContain("--provider");
 	});
 
+	test("auth select accepts labels, ids, numbers, and default", () => {
+		const prompt = {
+			message: "Select OpenAI Codex login method:",
+			options: [
+				{ id: "browser", label: "Browser login (default)" },
+				{ id: "device", label: "Device code login (headless)" },
+			],
+		};
+
+		expect(selectOptionId(prompt, "")).toBe("browser");
+		expect(selectOptionId(prompt, "2")).toBe("device");
+		expect(selectOptionId(prompt, "device")).toBe("device");
+		expect(selectOptionId(prompt, "Browser login")).toBe("browser");
+	});
+
 	test("prints nested citty auth help", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["auth", "login", "--help"], {
@@ -252,9 +284,9 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("--tick-interval-ms");
 	});
 
-	test("prints nested serve stdio help", async () => {
+	test("prints API stdio help", async () => {
 		const stdout: string[] = [];
-		await runPlotCli(["serve", "stdio", "--help"], {
+		await runPlotCli(["api", "--help"], {
 			stdin: chunks([]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -262,11 +294,50 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain(
-			"Serve the Plot session protocol over newline-delimited JSON on stdio.",
-		);
+		expect(output).toContain("Serve the Plot API");
+		expect(output).toContain("--stdio");
 		expect(output).toContain("--workflow");
-		expect(output).toContain("--tick-interval-ms");
+	});
+
+	test("prints run logs help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["logs", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("Stream run protocol records.");
+		expect(output).toContain("RUNID");
+		expect(output).toContain("--after");
+	});
+
+	test("stdout guard keeps protocol output on raw stdout", async () => {
+		const originalStdout = process.stdout.write;
+		const originalStderr = process.stderr.write;
+		let stdout = "";
+		let stderr = "";
+		process.stdout.write = fakeWrite((text) => {
+			stdout += text;
+		});
+		process.stderr.write = fakeWrite((text) => {
+			stderr += text;
+		}) as typeof process.stderr.write;
+		try {
+			takeOverStdout();
+			await writeRawStdout("protocol\n");
+			process.stdout.write("noise\n");
+			await flushRawStdout();
+		} finally {
+			restoreStdout();
+			process.stdout.write = originalStdout;
+			process.stderr.write = originalStderr;
+		}
+
+		expect(stdout).toBe("protocol\n");
+		expect(stderr).toBe("noise\n");
 	});
 
 	test("list-models help only exposes auth path options", async () => {
@@ -300,15 +371,15 @@ describe("plot CLI", () => {
 		expect(output).toContain("Do not import Plot internals");
 	});
 
-	test("serves session protocol over stdio with telemetry on stderr", async () => {
+	test("serves session protocol over API stdio with telemetry on stderr", async () => {
 		const workflowPath = await makeWorkflowFile();
 		const captured = await captureConsole(async () => {
 			const stdout: string[] = [];
 			await runPlotCli(
-				["serve", "stdio", "--workflow", workflowPath, "--log-level", "info"],
+				["api", "--stdio", "--workflow", workflowPath, "--log-level", "info"],
 				{
 					stdin: chunks([
-						`{"protocol":"${plotProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
+						`{"protocol":"${sessionProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
 					]),
 					writeStdout: (line) => {
 						stdout.push(line);
@@ -324,7 +395,7 @@ describe("plot CLI", () => {
 		expect(records[0]).toEqual(
 			expect.objectContaining({
 				kind: "welcome",
-				limits: expect.objectContaining({ maxEventBufferEvents: 7 }),
+				limits: expect.objectContaining({ maxBufferedEvents: 7 }),
 			}),
 		);
 		expect(records.find((record) => record.kind === "response")).toEqual(
@@ -335,7 +406,7 @@ describe("plot CLI", () => {
 				ok: true,
 			}),
 		);
-		expect(captured.stdout.join("")).not.toContain("plot_cli.serve_stdio");
-		expect(captured.stderr).toContain("plot_cli.serve_stdio");
+		expect(captured.stdout.join("")).not.toContain("plot_cli.api_stdio");
+		expect(captured.stderr).toContain("plot_cli.api_stdio");
 	});
 });

@@ -8,15 +8,24 @@ import {
 import { sessionCommandArgs } from "./args.js";
 import { getCliIo, setCliIo } from "./cli-context.js";
 import { authCommand } from "./commands/auth.js";
+import { apiCommand } from "./commands/api.js";
 import { docsCommand } from "./commands/docs.js";
 import { listModelsCommand } from "./commands/list-models.js";
 import { runCommand } from "./commands/run.js";
-import { serveCommand } from "./commands/serve.js";
+import {
+	listRunsCommand,
+	logsRunCommand,
+	statusRunCommand,
+	stopRunCommand,
+} from "./commands/runs.js";
+import { webCommand } from "./commands/web.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 import { baseOptions } from "./options.js";
+import { VERSION } from "./package.js";
+import { resolvePlotCommand } from "./plot-command.js";
 import { cliSemantics } from "./semantics.js";
 
-export const version = "0.0.0";
+export const version = VERSION;
 export { processCliIo } from "./io.js";
 export type { PlotCliIo } from "./io.js";
 
@@ -34,6 +43,7 @@ const runRootTui = async ({
 	void rawArgs;
 	return runTui({
 		...baseOptions(args),
+		cli: resolvePlotCommand(),
 		...(io.createAgentSession === undefined
 			? {}
 			: { createAgentSession: io.createAgentSession }),
@@ -55,7 +65,12 @@ const subCommands = {
 	docs: docsCommand,
 	run: runCommand,
 	tui: tuiCommand,
-	serve: serveCommand,
+	web: webCommand,
+	api: apiCommand,
+	ls: listRunsCommand,
+	status: statusRunCommand,
+	stop: stopRunCommand,
+	logs: logsRunCommand,
 };
 
 const rootMeta = {

@@ -1,6 +1,7 @@
 import { AsyncQueue } from "@plot/common/async-queue";
 import { EventHub } from "@plot/common/event-stream";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
+import { errorMessage } from "@plot/common/primitives";
 import * as Domain from "./model.js";
 import type {
 	Completion,
@@ -125,8 +126,6 @@ const initialState: RuntimeState = {
 	scheduledWakes: [],
 	nextRunIndex: 0,
 };
-const errorMessage = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
 const optionalSubject = (subject: SubjectKey | undefined) =>
 	subject === undefined ? {} : { subject };
 const optionalOutput = (output: unknown) =>
@@ -1343,6 +1342,7 @@ export const makePlotAgentLayer = (
 					while (!stoppingOrStopped()) {
 						let message: InternalMessage;
 						try {
+							// eslint-disable-next-line no-await-in-loop -- actor loop processes one mailbox message at a time.
 							message = await mailbox.take();
 						} catch {
 							break;
@@ -1355,6 +1355,7 @@ export const makePlotAgentLayer = (
 							if (activeTickToken !== message.token) continue;
 							activeTickToken = undefined;
 						}
+						// eslint-disable-next-line no-await-in-loop -- reconciliation must finish before the next actor message.
 						const tick = await runTick([message]);
 						if (tick.shutdownRequested || stoppingOrStopped()) break;
 						const token = ++nextTickToken;

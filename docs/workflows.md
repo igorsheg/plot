@@ -1,6 +1,6 @@
 # Workflows
 
-A workflow is a Markdown file with front matter. A Plot Session is the live runtime created from that workflow.
+A workflow is a Markdown file with front matter. A Plot run is the live runtime created from that workflow.
 
 It answers three questions:
 
@@ -166,6 +166,6 @@ plot run --workflow WORKFLOW.md
 plot tui --workflow WORKFLOW.md
 ```
 
-`plot run` creates a oneshot Plot Session. `plot tui` opens a foreground terminal-owned watch session for this project/workflow; quitting it closes the session.
+`plot run` creates a oneshot Plot run. `plot tui` opens a terminal dashboard attached to a managed run for this project/workflow.
 
-Plot stores project-local Event Log under `.plot/sessions`. Event Log records Plot session events and projection state, while Agent Transcripts remain the inner agent-session record.
+Plot stores project-local event logs under `.plot/sessions`. Event logs record Plot run events and projection state, while agent transcripts remain the inner agent-session record.

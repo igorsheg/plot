@@ -1,4 +1,4 @@
-import type { DashboardProjection } from "./projection.js";
+import type { DashboardProjection } from "@plot/session/projection";
 import {
 	emptyItem,
 	footer,

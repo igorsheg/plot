@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { getDocsDirs } from "./package.js";
 
 const docNames = [
 	"index",
@@ -14,23 +14,13 @@ export type DocName = (typeof docNames)[number];
 export const isDocName = (value: string): value is DocName =>
 	(docNames as readonly string[]).includes(value);
 
-const packageDocsDir = () =>
-	process.env["PLOT_PACKAGE_DIR"] === undefined
-		? undefined
-		: join(process.env["PLOT_PACKAGE_DIR"], "docs");
-
-const repoDocsDir = () =>
-	resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs");
-
-const docsDirs = () =>
-	[packageDocsDir(), join(process.cwd(), "docs"), repoDocsDir()].filter(
-		(dir): dir is string => dir !== undefined,
-	);
+const docsDirs = getDocsDirs;
 
 export const readPlotDoc = async (name: DocName): Promise<string> => {
 	const file = `${name}.md`;
 	for (const dir of docsDirs()) {
 		try {
+			// eslint-disable-next-line no-await-in-loop -- docs lookup checks fallback directories in order.
 			return await readFile(join(dir, file), "utf8");
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

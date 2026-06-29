@@ -3,7 +3,7 @@ import { PlotDashboard } from "../src/dashboard.js";
 import {
 	emptyProjection,
 	type DashboardProjection,
-} from "../src/projection.js";
+} from "@plot/session/projection";
 
 const actions = () => {
 	const opened: string[] = [];

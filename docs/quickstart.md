@@ -20,7 +20,7 @@ Run a workflow once:
 plot run --workflow WORKFLOW.md
 ```
 
-`plot run` opens an ephemeral `oneshot` Plot Session, prints events, and leaves Event Log under `.plot/sessions`.
+`plot run` opens an ephemeral oneshot run, prints events, and leaves an event log under `.plot/sessions`.
 
 Open dashboards:
 
@@ -28,7 +28,7 @@ Open dashboards:
 plot tui --workflow WORKFLOW.md
 ```
 
-`plot tui` opens a foreground, terminal-owned Plot Session for this project/workflow. Quitting or pressing Ctrl-C closes that session.
+`plot tui` opens a terminal dashboard attached to a normal managed Plot run. While it is active, `plot web` can see the same run.
 
 ## Try the PR review example
 
