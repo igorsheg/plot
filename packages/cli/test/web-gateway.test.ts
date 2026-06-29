@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createFileEventLogStore } from "@plot/session/event-log";
 import { startRunIpcServer } from "@plot/session/run-ipc";
@@ -187,7 +187,6 @@ describe("Plot web gateway", () => {
 					lastSeenAt: new Date().toISOString(),
 					sessionId: "default",
 					workflowName: "workflow",
-					cwdName: "project",
 					sessionDir,
 					lastSequence: 2,
 				},
@@ -199,10 +198,12 @@ describe("Plot web gateway", () => {
 				readonly projection?: {
 					readonly frontier?: number;
 					readonly work?: unknown;
+					readonly runtime?: { readonly cwdName?: string };
 				};
 			};
 			expect(body.projection?.frontier).toBe(2);
 			expect(body.projection?.work).toEqual({});
+			expect(body.projection?.runtime?.cwdName).toBe(basename(dir));
 		} finally {
 			await stop();
 		}
