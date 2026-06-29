@@ -16,6 +16,7 @@ import type {
 	EventLogRecord,
 	EventLogStore,
 } from "./event-log.js";
+import { compactPiEvent } from "./pi-event-display.js";
 import {
 	startOwnedTask,
 	type SessionRuntime,
@@ -144,7 +145,12 @@ export const makeAgentSessionRuntime = (
 		interruptAgentRun: (input) => agent.interruptAgentRun(input),
 		events: () => events.subscribe(),
 		appendAgentEvent: (input: AgentEventAppendInput) =>
-			appendAndPublish(() => options.eventLog.appendAgentEvent(input)),
+			appendAndPublish(() =>
+				options.eventLog.appendAgentEvent({
+					...input,
+					event: compactPiEvent(input.event),
+				}),
+			),
 		lastEventSequence: async () =>
 			(await options.eventLog.frontier()).lastSequence,
 		shutdown: async () => {
