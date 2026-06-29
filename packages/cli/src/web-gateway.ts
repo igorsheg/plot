@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { open } from "node:fs/promises";
+import { join } from "node:path";
 import {
 	decodeEventLogRecord,
 	type EventLogRecord,
@@ -242,11 +243,18 @@ const readRunEventLog = async (
 		})
 	).events;
 
+const runEventLogPath = (run: RunRecord): string | undefined => {
+	if (run.eventLogPath !== undefined) return run.eventLogPath;
+	if (run.sessionId === undefined) return undefined;
+	return join(run.cwd, ".plot", "sessions", run.sessionId, "events.jsonl");
+};
+
 const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
-	if (run.eventLogPath === undefined || run.sessionId === undefined)
+	const eventLogPath = runEventLogPath(run);
+	if (eventLogPath === undefined || run.sessionId === undefined)
 		return new Response("run not ready", { status: 409 });
 	const projection = rebuildProjectionFromEventLog(
-		await readRunEventLog(run.eventLogPath),
+		await readRunEventLog(eventLogPath),
 		emptyProjection(run.sessionId, run.workflowName ?? "workflow", {
 			cwd: run.cwd,
 			cwdName: run.cwdName ?? run.cwd,
@@ -361,9 +369,6 @@ export const startPlotWebGateway = async (
 				const run = await runIpc.runRegistry.status(id);
 				if (run === undefined)
 					return new Response("run not found", { status: 404 });
-				if (run.eventLogPath === undefined)
-					return new Response("run not ready", { status: 409 });
-				void run;
 				return sessionEventsResponse({
 					request,
 					records: runIpc.runRegistry.attachRecords(id, after),

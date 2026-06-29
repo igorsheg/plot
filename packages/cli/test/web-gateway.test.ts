@@ -179,7 +179,6 @@ describe("Plot web gateway", () => {
 					workflowName: "workflow",
 					cwdName: "project",
 					sessionDir,
-					eventLogPath: eventLog.path,
 					lastSequence: 2,
 				},
 			]);
