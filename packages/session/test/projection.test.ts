@@ -67,6 +67,38 @@ test("projection JSON helpers round-trip map fields", () => {
 	);
 });
 
+test("projection caps token throughput samples", () => {
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		{
+			kind: "session_event",
+			sessionId: "session-1",
+			sequence: 1,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			type: "attempt_started",
+			payload: {
+				run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+			},
+		},
+	);
+	for (let i = 0; i < 130; i++)
+		projection = reduceProjectableEvent(projection, {
+			kind: "agent_event",
+			sessionId: "session-1",
+			sequence: i + 2,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			runId: "run-1",
+			event: {
+				type: "message_end",
+				message: { responseId: `response-${i}`, usage: { totalTokens: 1 } },
+			},
+		});
+
+	expect(projection.tokenSamples).toHaveLength(120);
+	expect(projection.tokenSamples[0]?.tokens).toBe(11);
+	expect(projection.tokenSamples.at(-1)?.tokens).toBe(130);
+});
+
 test("projection hydration ignores malformed active tool entries", () => {
 	const projection = emptyProjection("session-1", "workflow");
 	const hydrated = hydrateDashboardProjection({
