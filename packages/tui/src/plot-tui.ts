@@ -204,7 +204,10 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		return undefined;
 	});
 	void (async () => {
-		for await (const record of runIpc.runRegistry.attachRecords(run.id, 0)) {
+		for await (const record of runIpc.runRegistry.attachRecords(
+			run.id,
+			run.lastSequence ?? 0,
+		)) {
 			if (record.kind === "event") {
 				projection = reduceRecord(projection, record);
 				render();

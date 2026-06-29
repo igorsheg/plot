@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { AgentSessionOverrides } from "@plot/session/agent-session";
 import { createSessionAuth } from "@plot/session/auth";
 import type { ParsedArgs } from "citty";
@@ -81,28 +80,13 @@ export const makeAgentSessionOverrides = (
 	return Object.keys(override).length === 0 ? undefined : override;
 };
 
-export const defaultSessionId = (input: {
-	readonly cwd: string;
-	readonly workflowPath?: string;
-}): string => {
-	const workflowPath = input.workflowPath ?? "WORKFLOW.md";
-	const fingerprint = createHash("sha256")
-		.update(`${resolve(input.cwd)}\0${resolve(input.cwd, workflowPath)}`)
-		.digest("hex")
-		.slice(0, 12);
-	return `project-${fingerprint}`;
-};
+export const defaultSessionId = (): string => `session-${randomUUID()}`;
 
 export const baseOptions = (args: ParsedArgs) => {
 	const overrides = makeAgentSessionOverrides(args);
 	const cwd = str(args, "cwd") ?? process.cwd();
 	const workflowPath = str(args, "workflow");
-	const sessionId =
-		str(args, "session-id") ??
-		defaultSessionId({
-			cwd,
-			...(workflowPath === undefined ? {} : { workflowPath }),
-		});
+	const sessionId = str(args, "session-id") ?? defaultSessionId();
 	const options = {
 		sessionId,
 		cwd,

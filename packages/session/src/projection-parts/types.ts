@@ -136,6 +136,7 @@ export interface AgentAttemptProjection {
 	readonly activeTool?: ActiveTool | undefined;
 	readonly activeTools?: ReadonlyMap<string, ActiveTool> | undefined;
 	readonly tokens?: TokenUsageProjection | undefined;
+	readonly usageKeys?: readonly string[] | undefined;
 	readonly transcript?: AgentTranscriptReference | undefined;
 }
 export interface CompletedWorkProjection {

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	emptyProjection,
 	hydrateDashboardProjection,
+	rebuildProjectionFromEventLog,
 	serializeDashboardProjection,
 } from "../src/projection.js";
 
@@ -62,4 +63,43 @@ test("projection JSON helpers round-trip map fields", () => {
 	expect(hydrated.attempts.get("run-1")?.activeTools?.get("tool-1")?.kind).toBe(
 		"run",
 	);
+});
+
+test("session_started starts a fresh live projection window", () => {
+	const projection = rebuildProjectionFromEventLog(
+		[
+			{
+				kind: "session_event",
+				sessionId: "session-1",
+				sequence: 1,
+				timestamp: "2026-06-29T10:00:00.000Z",
+				type: "attempt_started",
+				payload: { run: { runId: "run-0", workKey: "work-1" } },
+			},
+			{
+				kind: "agent_event",
+				sessionId: "session-1",
+				sequence: 2,
+				timestamp: "2026-06-29T10:00:01.000Z",
+				runId: "run-0",
+				event: {
+					type: "turn_end",
+					message: { usage: { totalTokens: 123, cost: { total: 0.45 } } },
+				},
+			},
+			{
+				kind: "session_event",
+				sessionId: "session-1",
+				sequence: 3,
+				timestamp: "2026-06-29T10:01:00.000Z",
+				type: "session_started",
+			},
+		],
+		emptyProjection("session-1", "workflow"),
+	);
+
+	expect(projection.usageTotals).toEqual({ tokens: 0 });
+	expect(projection.attempts.size).toBe(0);
+	expect(projection.work.size).toBe(0);
+	expect(projection.status).toBe("running");
 });

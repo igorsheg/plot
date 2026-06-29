@@ -6,6 +6,7 @@ import type {
 } from "./projection-parts/types.js";
 
 export interface PiUsageDelta {
+	readonly key?: string | undefined;
 	readonly input?: number | undefined;
 	readonly output?: number | undefined;
 	readonly total: number;
@@ -80,7 +81,13 @@ const usageDelta = (
 	const cost = isRecord(usage["cost"])
 		? numberAt(usage["cost"], "total")
 		: undefined;
+	const key =
+		str(message?.["responseId"]) ??
+		(typeof message?.["timestamp"] === "number"
+			? String(message["timestamp"])
+			: undefined);
 	return {
+		...(key === undefined ? {} : { key }),
 		...(input === undefined ? {} : { input }),
 		...(output === undefined ? {} : { output }),
 		total,

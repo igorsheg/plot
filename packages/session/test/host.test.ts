@@ -7,8 +7,11 @@ import type {
 	CreateAgentSessionOptions,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
+import { makeCreatePiAgentSession } from "../src/agent-session.js";
 import { createProtocolSessionHost, createSessionHost } from "../src/host.js";
+import { resolveSessionPaths } from "../src/paths.js";
 import type { PiAgentSessionPort } from "../src/pi-runner.js";
+import { parseWorkflowText } from "../src/workflow.js";
 
 class FakePiSession implements PiAgentSessionPort {
 	readonly listeners = new Set<(event: AgentSessionEvent) => void>();
@@ -154,6 +157,25 @@ Hello {{ workflow.name }}
 
 		expect(session.disposed).toBe(true);
 		expect(snapshot.running).toEqual({});
+	});
+
+	test("agent settings parse errors name the bad file", async () => {
+		const cwd = await makeTempDir();
+		const plotDir = join(cwd, ".plot");
+		const agentDir = join(plotDir, "agent");
+		await mkdir(agentDir, { recursive: true });
+		await writeFile(
+			join(plotDir, "settings.json"),
+			'{"defaultProvider":"x",}\n',
+		);
+		const createAgentSession = makeCreatePiAgentSession({
+			workflow: parseWorkflowText("Review"),
+			paths: resolveSessionPaths({ cwd, agentDir }),
+		});
+
+		await expect(createAgentSession()).rejects.toThrow(
+			join(plotDir, "settings.json"),
+		);
 	});
 
 	test("shutdown runs runtime before extension cleanup", async () => {

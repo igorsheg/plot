@@ -166,6 +166,34 @@ describe("Plot TUI projection", () => {
 		expect(pulse.throughputGraph).toBe("▁▁▁▁▁▁▁█");
 	});
 
+	test("dedupes message_end and turn_end usage for one response", () => {
+		let p = emptyProjection("default", "workflow");
+		p = reduceRecord(p, started);
+		const message = {
+			usage: {
+				totalTokens: 15,
+				cost: { total: 0.001 },
+			},
+			responseId: "resp-1",
+		};
+		p = reduceRecord(
+			p,
+			agentProjectionEventRecord(2, { type: "message_end", message }),
+		);
+		p = reduceRecord(
+			p,
+			agentProjectionEventRecord(3, { type: "turn_end", message }),
+		);
+
+		expect(p.usageTotals).toEqual({ tokens: 15, cost: 0.001 });
+		expect(p.attempts.get("run-1")?.tokens).toEqual({
+			total: 15,
+			cost: 0.001,
+			input: 0,
+			output: 0,
+		});
+	});
+
 	test("humanizes streaming tool-call arguments instead of showing raw JSON", () => {
 		let p = emptyProjection("default", "workflow");
 		p = reduceRecord(p, started);
