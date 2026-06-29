@@ -230,11 +230,14 @@ export const sendRunIpcRequest = async (
 			buffer += chunk.toString();
 			const index = buffer.indexOf("\n");
 			if (index === -1) return;
-			finish(() =>
-				resolve(
-					decodeRunResponse(JSON.parse(buffer.slice(0, index)) as unknown),
-				),
-			);
+			try {
+				const response = decodeRunResponse(
+					JSON.parse(buffer.slice(0, index)) as unknown,
+				);
+				finish(() => resolve(response));
+			} catch (error) {
+				finish(() => reject(error));
+			}
 		});
 	});
 
