@@ -43,10 +43,14 @@ export class TUI {
 	private focus: Component | undefined;
 	private renderQueued = false;
 	private running = false;
+	private previousLines: string[] = [];
+	private previousWidth = 0;
+	private previousHeight = 0;
+	private rendered = false;
 	private readonly inputListeners: InputListener[] = [];
 	private readonly onData = (chunk: Buffer | string) =>
 		this.handleInput(String(chunk));
-	private readonly onResize = () => this.requestRender();
+	private readonly onResize = () => this.requestRender(true);
 
 	constructor(private readonly terminal: ProcessTerminal) {}
 
@@ -65,6 +69,10 @@ export class TUI {
 	start(): void {
 		if (this.running) return;
 		this.running = true;
+		this.previousLines = [];
+		this.previousWidth = 0;
+		this.previousHeight = 0;
+		this.rendered = false;
 		this.terminal.write("\x1b[?1049h\x1b[?25l");
 		this.terminal.input.setRawMode?.(true);
 		this.terminal.input.resume();
@@ -83,7 +91,13 @@ export class TUI {
 		this.terminal.write("\x1b[?25h\x1b[?1049l\n");
 	}
 
-	requestRender(): void {
+	requestRender(force = false): void {
+		if (force) {
+			this.previousLines = [];
+			this.previousWidth = 0;
+			this.previousHeight = 0;
+			this.rendered = false;
+		}
 		if (!this.running || this.renderQueued) return;
 		this.renderQueued = true;
 		queueMicrotask(() => {
@@ -107,9 +121,30 @@ export class TUI {
 		const lines = (this.child?.render(width) ?? [])
 			.slice(0, height)
 			.map((line) => fitLine(line, width));
-		this.terminal.write(`\x1b[H\x1b[2J${lines.join("\n")}`);
+		const fullRender =
+			!this.rendered ||
+			this.previousWidth !== width ||
+			this.previousHeight !== height;
+		if (fullRender) {
+			this.terminal.write(syncOutput(`\x1b[H\x1b[2J${lines.join("\n")}`));
+		} else {
+			const maxLines = Math.max(lines.length, this.previousLines.length);
+			let output = "";
+			for (let row = 0; row < maxLines; row++) {
+				const line = lines[row] ?? "";
+				if (line === (this.previousLines[row] ?? "")) continue;
+				output += `\x1b[${row + 1};1H\x1b[2K${line}`;
+			}
+			if (output.length > 0) this.terminal.write(syncOutput(output));
+		}
+		this.previousLines = lines;
+		this.previousWidth = width;
+		this.previousHeight = height;
+		this.rendered = true;
 	}
 }
+
+const syncOutput = (text: string): string => `\x1b[?2026h${text}\x1b[?2026l`;
 
 const fitLine = (line: string, width: number): string => {
 	const used = visibleWidth(line);

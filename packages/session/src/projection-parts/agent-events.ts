@@ -64,6 +64,13 @@ const addUsage = (
 	total: (previous?.total ?? 0) + usage.total,
 	cost: (previous?.cost ?? 0) + (usage.cost ?? 0),
 });
+const freshUsage = (
+	previous: AgentAttemptProjection,
+	usage: PiUsageDelta | undefined,
+): PiUsageDelta | undefined => {
+	if (usage?.key === undefined) return usage;
+	return previous.usageKeys?.includes(usage.key) ? undefined : usage;
+};
 
 export const reduceAgentEvent = (
 	p: DashboardProjection,
@@ -78,6 +85,7 @@ export const reduceAgentEvent = (
 	const prev = p.attempts.get(runId);
 	if (prev === undefined) return p;
 	const when = at(e);
+	let appliedUsage: PiUsageDelta | undefined;
 	const handlers = {
 		turn_start: () => {
 			if (activity.type !== "turn_start") return prev;
@@ -94,15 +102,23 @@ export const reduceAgentEvent = (
 		},
 		turn_end: () => {
 			if (activity.type !== "turn_end") return prev;
+			appliedUsage = freshUsage(prev, activity.usage);
 			return mergeAttempt(
 				prev,
 				{
 					streaming: false,
 					streams: {},
 					...lifecycleActivity(prev, activity.summary),
-					...(activity.usage === undefined
+					...(appliedUsage === undefined
 						? {}
-						: { tokens: addUsage(prev.tokens, activity.usage) }),
+						: {
+								tokens: addUsage(prev.tokens, appliedUsage),
+								...(appliedUsage.key === undefined
+									? {}
+									: {
+											usageKeys: [...(prev.usageKeys ?? []), appliedUsage.key],
+										}),
+							}),
 				},
 				e,
 			);
@@ -221,15 +237,17 @@ export const reduceAgentEvent = (
 	} satisfies Record<typeof activity.type, () => AgentAttemptProjection>;
 	const next = handlers[activity.type]();
 	const attempts = new Map(p.attempts).set(runId, next);
-	const usage = activity.type === "turn_end" ? activity.usage : undefined;
 	const usageTotals =
-		usage === undefined
+		appliedUsage === undefined
 			? p.usageTotals
 			: {
-					tokens: p.usageTotals.tokens + usage.total,
-					...(usage.cost === undefined && p.usageTotals.cost === undefined
+					tokens: p.usageTotals.tokens + appliedUsage.total,
+					...(appliedUsage.cost === undefined &&
+					p.usageTotals.cost === undefined
 						? {}
-						: { cost: (p.usageTotals.cost ?? 0) + (usage.cost ?? 0) }),
+						: {
+								cost: (p.usageTotals.cost ?? 0) + (appliedUsage.cost ?? 0),
+							}),
 				};
 	return {
 		...p,

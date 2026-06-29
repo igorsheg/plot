@@ -63,6 +63,64 @@ describe("PlotDashboard", () => {
 		expect(rendered).toContain("Do thing");
 	});
 
+	test("renders streaming status as one terminal row", () => {
+		const rendered = new PlotDashboard(
+			withWork({
+				work: new Map([
+					[
+						"work-1",
+						{
+							workKey: "work-1",
+							sourceId: "source",
+							title: "Do thing",
+							labels: [],
+							status: "running",
+							currentRunId: "run-1",
+						},
+					],
+				]),
+				attempts: new Map([
+					[
+						"run-1",
+						{
+							runId: "run-1",
+							workKey: "work-1",
+							sourceId: "source",
+							stage: "working",
+							startedAtSeq: 1,
+							lastEventSeq: 1,
+							turnCount: 0,
+							eventCount: 0,
+							meaningfulCount: 0,
+							toolUpdateCount: 0,
+							messageCount: 0,
+							activity: "working",
+							activityKind: "message",
+							streaming: true,
+							lastDisplay: "working",
+							check: "not-run",
+							commands: [],
+							observations: [],
+							streams: {
+								message: "agent message streaming: hello\n\tworld\ragain",
+							},
+							phases: [],
+							timeline: [],
+						},
+					],
+				]),
+			}),
+			actions().actions,
+		).render(100);
+
+		expect(rendered.some((line) => /[\r\n]/.test(line))).toBe(false);
+		expect(
+			rendered
+				.join("\n")
+				.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), ""),
+		).toContain("hello world again");
+	});
+
 	test("q exits and o opens selected work url", () => {
 		const a = actions();
 		const dashboard = new PlotDashboard(withWork(), a.actions);

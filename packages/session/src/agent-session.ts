@@ -9,7 +9,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import { hasErrnoCode } from "@plot/common/primitives";
+import { errorMessage, hasErrnoCode } from "@plot/common/primitives";
 import { z } from "zod";
 import type { CreatePiAgentSession } from "./pi-runner.js";
 import type { SessionPaths } from "./paths.js";
@@ -59,7 +59,9 @@ const readJson = async (path: string): Promise<unknown> => {
 		return JSON.parse(await readFile(path, "utf8")) as unknown;
 	} catch (error) {
 		if (hasErrnoCode(error, "ENOENT")) return {};
-		throw error;
+		throw new Error(`failed to read ${path}: ${errorMessage(error)}`, {
+			cause: error,
+		});
 	}
 };
 

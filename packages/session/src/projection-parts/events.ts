@@ -22,6 +22,20 @@ export const reduceEvent = (
 	const payload = isRecord(e.payload) ? e.payload : {};
 	if (e.kind === "agent_event" || e.kind === "agent_session_event")
 		return reduceAgentEvent(p, e, e as Record<string, unknown>);
+	if (e.type === "session_started")
+		return {
+			...p,
+			status: "running",
+			pulse: undefined,
+			usageTotals: { tokens: 0 },
+			tokenSamples: [],
+			work: new Map(),
+			attempts: new Map(),
+			completed: [],
+			diagnostics: [],
+			scheduledWakes: [],
+			activity: [],
+		};
 	if (e.type === "session_paused") return { ...p, status: "paused" };
 	if (e.type === "session_resumed") return { ...p, status: "running" };
 	if (e.type === "session_close_requested")

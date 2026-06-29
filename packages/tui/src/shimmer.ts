@@ -1,4 +1,5 @@
 import { style } from "./style.js";
+import { stripAnsi } from "./text-width.js";
 
 const leadPadCols = 6;
 const tailPadCols = 10;
@@ -33,12 +34,15 @@ export const shimmerText = (text: string, nowMs: number): string => {
 		.join("");
 };
 
+const oneLine = (value: string) => stripAnsi(value).replace(/\s+/g, " ").trim();
+
 export const quoteActivity = (activity: string) => {
-	const commandOutput = activity.replace(/^command output streaming:\s*/, "");
-	if (commandOutput !== activity) return commandOutput;
-	const stripped = activity.replace(
+	const singleLine = oneLine(activity);
+	const commandOutput = singleLine.replace(/^command output streaming:\s*/, "");
+	if (commandOutput !== singleLine) return commandOutput;
+	const stripped = singleLine.replace(
 		/^(agent message|reasoning) streaming:\s*/,
 		"",
 	);
-	return stripped === activity ? activity : `“${stripped}”`;
+	return stripped === singleLine ? singleLine : `“${stripped}”`;
 };

@@ -19,4 +19,10 @@ describe("TUI shimmer", () => {
 			"yarn failed",
 		);
 	});
+
+	test("forces streaming activity onto one line", () => {
+		expect(
+			quoteActivity("agent message streaming: hello\n\tworld\ragain"),
+		).toBe("“hello world again”");
+	});
 });

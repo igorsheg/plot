@@ -17,7 +17,7 @@ agent:
   allowProjectConfig: true
 extension:
   source: ./github-pr-reviewer.extension.ts
-  maxConcurrentRuns: 2
+  maxConcurrentRuns: 1
   config:
     includeDrafts: false
     maxOpenPrs: 10
