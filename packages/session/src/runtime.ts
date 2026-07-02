@@ -1,4 +1,4 @@
-import type { AgentEventAppendInput, EventLogRecord } from "./event-log.js";
+import type { AgentEventInput, RuntimeEvent } from "./runtime-event.js";
 
 export interface SessionSnapshot {
 	readonly sessionId: string;
@@ -29,7 +29,6 @@ export interface SessionRuntimeState {
 	readonly cwd?: string | undefined;
 	readonly cwdName?: string | undefined;
 	readonly sessionDir?: string | undefined;
-	readonly eventLogPath?: string | undefined;
 	readonly lastSequence?: number | undefined;
 }
 
@@ -44,10 +43,8 @@ export interface SessionRuntime {
 	readonly interruptAgentRun: (
 		input: InterruptAgentRunInput,
 	) => Promise<boolean>;
-	readonly events: () => AsyncIterable<EventLogRecord>;
-	readonly appendAgentEvent: (
-		input: AgentEventAppendInput,
-	) => Promise<EventLogRecord>;
+	readonly events: () => AsyncIterable<RuntimeEvent>;
+	readonly appendAgentEvent: (input: AgentEventInput) => Promise<RuntimeEvent>;
 	readonly lastEventSequence: () => Promise<number>;
 	readonly shutdown: () => Promise<boolean>;
 }

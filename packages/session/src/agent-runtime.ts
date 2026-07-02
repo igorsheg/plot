@@ -12,11 +12,14 @@ import type {
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import type {
-	AgentEventAppendInput,
-	EventLogAppendInput,
-	EventLogRecord,
-} from "./event-log.js";
-import { makeAgentEventRecord, makeSessionEventRecord } from "./event-log.js";
+	AgentEventInput,
+	SessionEventInput,
+	RuntimeEvent,
+} from "./runtime-event.js";
+import {
+	makeAgentEventRecord,
+	makeSessionEventRecord,
+} from "./runtime-event.js";
 import { compactPiEvent } from "./pi-event-display.js";
 import {
 	startOwnedTask,
@@ -28,9 +31,6 @@ import {
 
 export interface AgentSessionRuntimeOptions {
 	readonly id: string;
-	readonly traceSessionEvent?: (
-		input: EventLogAppendInput,
-	) => Promise<unknown> | unknown;
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
 	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
@@ -94,7 +94,7 @@ export const makeAgentSessionRuntime = (
 	options: AgentSessionRuntimeOptions,
 ): SessionRuntime => {
 	const sessionId = nonEmpty(options.id, "session id");
-	const events = new EventHub<EventLogRecord>(options.eventCapacity ?? 256);
+	const events = new EventHub<RuntimeEvent>(options.eventCapacity ?? 256);
 	const agent: PlotAgentShape = makePlotAgentLayer({
 		...options.agent,
 		sources: options.sources,
@@ -103,7 +103,7 @@ export const makeAgentSessionRuntime = (
 	let shutdownPromise: Promise<boolean> | undefined;
 
 	let liveSequence = 0;
-	const publish = (record: EventLogRecord): EventLogRecord => {
+	const publish = (record: RuntimeEvent): RuntimeEvent => {
 		const liveRecord =
 			record.sequence > liveSequence
 				? record
@@ -113,8 +113,8 @@ export const makeAgentSessionRuntime = (
 		return liveRecord;
 	};
 	const publishSessionEvent = async (
-		input: EventLogAppendInput,
-	): Promise<EventLogRecord> => {
+		input: SessionEventInput,
+	): Promise<RuntimeEvent> => {
 		const record = publish(
 			makeSessionEventRecord({
 				sessionId,
@@ -122,12 +122,11 @@ export const makeAgentSessionRuntime = (
 				event: input,
 			}),
 		);
-		await options.traceSessionEvent?.(input);
 		return record;
 	};
 	const publishAgentEvent = async (
-		input: AgentEventAppendInput,
-	): Promise<EventLogRecord> => {
+		input: AgentEventInput,
+	): Promise<RuntimeEvent> => {
 		return publish(
 			makeAgentEventRecord({
 				sessionId,

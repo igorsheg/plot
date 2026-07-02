@@ -47,7 +47,6 @@ export const runRecordSchema = Schema.Struct({
 	workflowName: optional(NonEmptyString),
 	workflowPath: optional(NonEmptyString),
 	sessionDir: optional(NonEmptyString),
-	eventLogPath: optional(NonEmptyString),
 	lastSequence: optional(PositiveInteger),
 	lastEventType: optional(NonEmptyString),
 	stderrTail: optional(Schema.String),
@@ -202,7 +201,6 @@ const stateUpdates = (data: unknown): Partial<RunRecord> => {
 		"workflowPath",
 		"cwdName",
 		"sessionDir",
-		"eventLogPath",
 	] as const) {
 		const value = data[key];
 		if (typeof value === "string" && value.length > 0) updates[key] = value;

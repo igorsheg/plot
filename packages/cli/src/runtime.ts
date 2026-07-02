@@ -6,7 +6,7 @@ import {
 	decodeClientRequestLine,
 	encodeServerRecordLine,
 } from "@plot/session/protocol-codec";
-import type { EventLogRecord } from "@plot/session/event-log";
+import type { RuntimeEvent } from "@plot/session/runtime-event";
 import { resolveWorkflowPath } from "@plot/session/workflow";
 
 export type LogLevelFlag =
@@ -30,7 +30,6 @@ interface BaseRunOptions {
 	readonly eventBufferCapacity?: number;
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
-	readonly traceEvents?: boolean | string;
 	readonly agentSessionOverrides?: AgentSessionOverrides;
 	readonly createAgentSession?: CreatePiAgentSession;
 }
@@ -39,7 +38,7 @@ export interface ApiStdioOptions extends BaseRunOptions {
 	readonly writeStdout: (line: string) => Promise<void> | void;
 }
 export interface RunInProcessOnceOptions extends BaseRunOptions {
-	readonly onEvent?: (event: EventLogRecord) => Promise<void> | void;
+	readonly onEvent?: (event: RuntimeEvent) => Promise<void> | void;
 }
 
 const toLogLevel = (

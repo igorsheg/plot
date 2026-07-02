@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { createFileEventLogStore } from "@plot/session/event-log";
 import { startRunIpcServer } from "@plot/session/run-ipc";
 import type { RunRecord } from "@plot/session/run-registry";
 import { startPlotWebGateway } from "../src/web-gateway.js";
@@ -112,15 +111,6 @@ describe("Plot web gateway", () => {
 
 	test("run event SSE is live-only", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const sessionDir = join(dir, ".plot/sessions");
-		const eventLog = await createFileEventLogStore({
-			sessionDir,
-			sessionId: "default",
-		});
-		await eventLog.appendSessionEvent({
-			type: "session_started",
-			payload: { ok: true },
-		});
 		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		await writeRuns(registryDir, [
 			{
@@ -132,8 +122,6 @@ describe("Plot web gateway", () => {
 				sessionId: "default",
 				workflowName: "workflow",
 				cwdName: "project",
-				sessionDir,
-				eventLogPath: eventLog.path,
 				lastSequence: 1,
 			},
 		]);

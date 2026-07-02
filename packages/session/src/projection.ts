@@ -164,11 +164,6 @@ export const reduceRecord = (
 	input: ProjectableEventRecord,
 ): DashboardProjection => reduceProjectableEvent(projection, input.event);
 
-export const rebuildProjectionFromEventLog = (
-	events: readonly ProjectableEvent[],
-	seed = emptyProjection("default", "workflow"),
-): DashboardProjection => events.reduce(reduceProjectableEvent, seed);
-
 export const safeParseDashboardProjection = (value: unknown) => ({
 	success: true as const,
 	data: value as DashboardProjection,

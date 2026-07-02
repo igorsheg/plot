@@ -77,11 +77,6 @@ export const runtimeArgs = {
 		description: "Timeout for a single work run in milliseconds.",
 		valueHint: "ms",
 	},
-	"trace-events": {
-		type: "string",
-		description: "Write debug session event trace JSONL to this path.",
-		valueHint: "path",
-	},
 } satisfies ArgsDef;
 
 export const agentOverrideArgs = {

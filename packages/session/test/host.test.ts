@@ -105,8 +105,6 @@ Hello {{ workflow.name }}
 			cwd,
 			cwdName: cwd.split("/").at(-1),
 		});
-		expect(host.eventLog).toBeUndefined();
-		expect(host.metadata.eventLogPath).toBeUndefined();
 		expect(createOptions).toMatchObject({ cwd, noTools: "all" });
 		expect(session.prompts).toEqual(["Hello host-test"]);
 		expect(session.disposed).toBe(true);

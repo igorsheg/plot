@@ -1,6 +1,6 @@
 import { isRecord } from "@plot/common/primitives";
 import type { AuthStatusInfo, ModelInfo } from "@plot/session/auth";
-import type { EventLogRecord } from "@plot/session/event-log";
+import type { RuntimeEvent } from "@plot/session/runtime-event";
 
 const formatTokenCount = (count: number): string =>
 	count >= 1_000_000
@@ -98,7 +98,7 @@ const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
 	return fallback.length ? fallback : undefined;
 };
 
-export const renderRunEvent = (event: EventLogRecord): string | undefined => {
+export const renderRunEvent = (event: RuntimeEvent): string | undefined => {
 	if (event.kind !== "session_event") return undefined;
 	if (event.type === "session_started")
 		return `Started session ${event.sessionId}.\n`;

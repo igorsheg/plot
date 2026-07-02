@@ -111,13 +111,6 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		spawnChild: (input) => {
 			childInput = input;
 			child = new FakeChild("session-runRegistry", {
-				eventLogPath: join(
-					cwd,
-					".plot",
-					"sessions",
-					"session-runRegistry",
-					"events.jsonl",
-				),
 				sessionDir: join(cwd, ".plot", "sessions"),
 				workflowName: "workflow",
 			});
@@ -147,13 +140,6 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		id: "run-1",
 		status: "online",
 		sessionId: "session-runRegistry",
-		eventLogPath: join(
-			cwd,
-			".plot",
-			"sessions",
-			"session-runRegistry",
-			"events.jsonl",
-		),
 		sessionDir: join(cwd, ".plot", "sessions"),
 		workflowName: "workflow",
 	});
@@ -247,13 +233,6 @@ test("runRegistry attach is live-only", async () => {
 				cwd,
 				createdAt: "2026-01-01T00:00:00.000Z",
 				sessionId: "session-stopped",
-				eventLogPath: join(
-					cwd,
-					".plot",
-					"sessions",
-					"session-stopped",
-					"events.jsonl",
-				),
 			},
 		]),
 	});

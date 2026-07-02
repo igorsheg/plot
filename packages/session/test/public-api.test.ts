@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 const expectedExports = [
 	"./agent-session",
 	"./auth",
-	"./event-log",
+	"./runtime-event",
 	"./run-registry",
 	"./run-ipc",
 	"./host",

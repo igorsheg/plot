@@ -1,14 +1,8 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { createFileEventLogStore } from "../src/event-log.js";
 import { makeAgentSessionRuntime } from "../src/agent-runtime.js";
-
-const tempSessionDir = () => mkdtemp(join(tmpdir(), "plot-runtime-"));
 
 const waitForEvent = async <A>(
 	iterable: AsyncIterable<A>,
@@ -98,14 +92,9 @@ test("runtime publishes appended inner agent events", async () => {
 	await runtime.shutdown();
 });
 
-test("runtime publishes compact inner agent events without persisting them", async () => {
-	const eventLog = await createFileEventLogStore({
-		sessionDir: await tempSessionDir(),
-		sessionId: "session-1",
-	});
+test("runtime publishes compact inner agent events", async () => {
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		traceSessionEvent: eventLog.appendSessionEvent,
 		sources: [],
 		runner,
 	});
@@ -167,27 +156,26 @@ test("runtime publishes compact inner agent events without persisting them", asy
 			},
 		},
 	});
-	expect((await eventLog.readAll()).records).toEqual([]);
 
 	await runtime.shutdown();
 });
 
-test("runtime shutdown appends shutdown after agent event pump drains", async () => {
-	const eventLog = await createFileEventLogStore({
-		sessionDir: await tempSessionDir(),
-		sessionId: "session-1",
-	});
+test("runtime shutdown publishes shutdown and is idempotent", async () => {
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		traceSessionEvent: eventLog.appendSessionEvent,
 		sources: [],
 		runner,
 	});
 
+	const events = runtime.events();
 	await runtime.start();
-	await runtime.shutdown();
-	const records = (await eventLog.readAll()).records;
-	expect(records.at(-1)).toMatchObject({
+	const shutdown = waitForEvent(
+		events,
+		(record) =>
+			record.kind === "session_event" && record.type === "session_shutdown",
+	);
+	expect(await runtime.shutdown()).toBe(true);
+	expect(await shutdown).toMatchObject({
 		kind: "session_event",
 		type: "session_shutdown",
 	});

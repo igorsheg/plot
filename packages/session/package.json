@@ -12,9 +12,9 @@
 			"types": "./src/auth.ts",
 			"import": "./src/auth.ts"
 		},
-		"./event-log": {
-			"types": "./src/event-log.ts",
-			"import": "./src/event-log.ts"
+		"./runtime-event": {
+			"types": "./src/runtime-event.ts",
+			"import": "./src/runtime-event.ts"
 		},
 		"./run-registry": {
 			"types": "./src/run-registry.ts",
