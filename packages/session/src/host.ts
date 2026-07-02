@@ -177,9 +177,14 @@ const runnerCreateOptions = async (input: {
 	const extensionCreate = await input.extensionBundle?.createOptions(
 		input.context,
 	);
-	if (extensionCreate === undefined || extensionCreate.customTools.length === 0)
-		return input.base;
-	return { ...input.base, customTools: extensionCreate.customTools };
+	if (extensionCreate === undefined) return input.base;
+	return {
+		...input.base,
+		...(extensionCreate.cwd === undefined ? {} : { cwd: extensionCreate.cwd }),
+		...(extensionCreate.customTools.length === 0
+			? {}
+			: { customTools: extensionCreate.customTools }),
+	};
 };
 
 const makeMetadata = (input: {

@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import {
 	interruptWork,
 	removeWork,
@@ -28,11 +29,13 @@ import {
 import { loadPlotExtensionRuntimeFromWorkflow } from "./loader.js";
 import { resolveToolDefinitions } from "./tools.js";
 import {
+	cancelledReason,
 	currentWorkKeys,
 	decodeDiscoveredWorks,
 	decodeStoredWorks,
 	discoveredFactKey,
 	isBlocked,
+	isCancelled,
 	releasedReason,
 	sourceIdForExtension,
 	templateContextForWork,
@@ -43,9 +46,10 @@ import {
 
 export interface PlotExtensionSourceBundle {
 	readonly source: WorkSource;
-	readonly createOptions: (
-		context: WorkRunnerContext,
-	) => Promise<{ readonly customTools: ToolDefinition[] }>;
+	readonly createOptions: (context: WorkRunnerContext) => Promise<{
+		readonly customTools: ToolDefinition[];
+		readonly cwd?: string;
+	}>;
 	readonly workFor: (
 		context: WorkRunnerContext,
 	) => PlotExtensionWork | undefined;
@@ -77,7 +81,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				data: await discover({ runtime: options.runtime, source, signal }),
 			},
 		],
-		reconcile: async ({ snapshot, signal }) => {
+		reconcile: async ({ snapshot }) => {
 			const proposals = [];
 			const previousDiscoveredWorks = decodeStoredWorks(
 				snapshot.facts.get(discoveredFactKey(source)),
@@ -94,6 +98,13 @@ export const makePlotExtensionSourceBundle = (options: {
 					latestDiscovery.data,
 					String(source),
 				);
+			// Cancelled work is the one discovery state that interrupts a running
+			// attempt. It never reaches the stored fact or the work board.
+			const cancelledIds = new Set(
+				discoveredWorks.filter(isCancelled).map((work) => work.id),
+			);
+			if (cancelledIds.size > 0)
+				discoveredWorks = discoveredWorks.filter((work) => !isCancelled(work));
 			for (const work of discoveredWorks)
 				selectedWork.set(
 					workKeyForExtensionWork(options.extension, work),
@@ -138,23 +149,18 @@ export const makePlotExtensionSourceBundle = (options: {
 					selectedWork.delete(completion.workKey);
 			}
 			await Promise.all(completionHooks);
-			if (completedThisTickKeys.size > 0) {
-				discoveredWorks = await discover({
-					runtime: options.runtime,
-					source,
-					signal,
-				});
+			// Completed keys are filtered from the stored fact instead of
+			// re-polling; the next tick's observation refreshes domain truth.
+			if (completedThisTickKeys.size > 0)
 				discoveredWorks = discoveredWorks.filter(
 					(work) =>
 						!completedThisTickKeys.has(
 							workKeyForExtensionWork(options.extension, work),
 						),
 				);
-			}
 			if (shouldWriteDiscoveredFact || completedThisTickKeys.size > 0)
 				proposals.push(setFact(discoveredFactKey(source), discoveredWorks));
 			const currentKeys = currentWorkKeys(options.extension, discoveredWorks);
-			const currentIds = new Set(discoveredWorks.map((work) => work.id));
 			const previousKeys = currentWorkKeys(
 				options.extension,
 				previousDiscoveredWorks,
@@ -162,14 +168,24 @@ export const makePlotExtensionSourceBundle = (options: {
 			const drainingIds = new Set<string>();
 			const runningIds = new Set<string>();
 			const drainingKeys = new Set<WorkKey>();
+			const interruptedThisTick = new Set<WorkKey>();
 			for (const run of snapshot.running.values()) {
 				if (run.sourceId !== source) continue;
 				const known = selectedWork.get(run.workKey);
+				if (known !== undefined && cancelledIds.has(known.id)) {
+					interruptedThisTick.add(run.workKey);
+					proposals.push(interruptWork(run.workKey, cancelledReason(source)));
+					continue;
+				}
 				if (currentKeys.has(run.workKey)) {
 					if (known !== undefined) runningIds.add(known.id);
 					continue;
 				}
-				if (known !== undefined && currentIds.has(known.id)) {
+				// Undiscovered or superseded while running: drain, never interrupt.
+				// The run finishes its current turn (a run that just made its own
+				// work done must not be shot for succeeding), continueWork stops
+				// continuation turns, and the claim is released on completion.
+				if (known !== undefined) {
 					drainingIds.add(known.id);
 					drainingKeys.add(run.workKey);
 					proposals.push(
@@ -185,6 +201,8 @@ export const makePlotExtensionSourceBundle = (options: {
 					);
 					continue;
 				}
+				// A run whose work was never tracked cannot be described or drained.
+				interruptedThisTick.add(run.workKey);
 				proposals.push(interruptWork(run.workKey, releasedReason(source)));
 			}
 			for (const work of discoveredWorks) {
@@ -214,14 +232,20 @@ export const makePlotExtensionSourceBundle = (options: {
 				);
 			}
 			const workReleasedHooks = [];
-			for (const key of previousKeys) {
+			// Stale records include keys from the previous fact and any leftover
+			// source-owned records (for example a drained run that has completed).
+			const staleKeys = new Set<WorkKey>(previousKeys);
+			for (const [key, record] of snapshot.work)
+				if (record.sourceId === source) staleKeys.add(key);
+			for (const key of staleKeys) {
 				if (currentKeys.has(key) || drainingKeys.has(key)) continue;
+				const running = snapshot.running.has(key);
+				if (running && !interruptedThisTick.has(key)) continue;
 				proposals.push(removeWork(key));
+				if (!running) selectedWork.delete(key);
 				const previous = previousDiscoveredWorks.find(
 					(work) => workKeyForExtensionWork(options.extension, work) === key,
 				);
-				if (!snapshot.running.has(key) && previous !== undefined)
-					selectedWork.delete(key);
 				if (previous !== undefined && options.onWorkReleased !== undefined)
 					workReleasedHooks.push(
 						Promise.resolve(options.onWorkReleased(previous.id)).catch(
@@ -232,15 +256,13 @@ export const makePlotExtensionSourceBundle = (options: {
 			await Promise.all(workReleasedHooks);
 			return proposals;
 		},
-		continueWork: async ({ work, signal }) => {
-			const active = selectedWork.get(work.workKey);
-			if (active === undefined) return false;
-			const discovered = await discover({
-				runtime: options.runtime,
-				source,
-				signal,
-			});
-			return discovered.some(
+		// Continuation consults the current tick's reconciled fact instead of
+		// polling the extension again; staleness is bounded by the tick interval.
+		continueWork: ({ work, snapshot }) => {
+			if (!selectedWork.has(work.workKey)) return false;
+			return decodeStoredWorks(
+				snapshot.facts.get(discoveredFactKey(source)),
+			).some(
 				(candidate) =>
 					!isBlocked(candidate) &&
 					workKeyForExtensionWork(options.extension, candidate) ===
@@ -289,22 +311,27 @@ export const makePlotExtensionSourceBundle = (options: {
 		workFor: (context) => selectedWork.get(context.work.workKey),
 		createOptions: async (context) => {
 			const work = selectedWork.get(context.work.workKey);
-			if (work === undefined || !options.tools?.length)
-				return { customTools: [] };
-			return {
-				customTools: await resolveToolDefinitions({
-					tools: options.tools,
-					workflow: options.workflow,
-					paths: options.paths,
-					config: options.config,
-					work,
-					runId: String(context.run.runId),
-				}),
-			};
+			const cwd = work?.workspace;
+			const customTools =
+				work === undefined || !options.tools?.length
+					? []
+					: await resolveToolDefinitions({
+							tools: options.tools,
+							workflow: options.workflow,
+							paths: options.paths,
+							config: options.config,
+							work,
+							runId: String(context.run.runId),
+						});
+			return { customTools, ...(cwd === undefined ? {} : { cwd }) };
 		},
 		wrapRunner: (runner) => ({
 			run: async (context: WorkRunnerContext) => {
 				const work = selectedWork.get(context.work.workKey);
+				// Workspace creation failure is fatal to the attempt, mirroring
+				// Symphony's workspace-preparation contract.
+				if (work?.workspace !== undefined)
+					await mkdir(work.workspace, { recursive: true });
 				if (work !== undefined) {
 					try {
 						await options.runtime.started?.({

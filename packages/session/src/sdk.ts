@@ -75,7 +75,7 @@ export interface OperatorAction {
 	readonly confirm?: OperatorActionConfirm;
 }
 
-export type PlotExtensionWorkStatus = "pending" | "blocked";
+export type PlotExtensionWorkStatus = "pending" | "blocked" | "cancelled";
 
 export interface PlotExtensionWork {
 	/** Stable domain identity, e.g. github:acme/web:pr:42 or jira:EPIC-123. */
@@ -92,11 +92,18 @@ export interface PlotExtensionWork {
 	 * Source-visible scheduling state. Defaults to pending.
 	 *
 	 * Blocked work keeps its claim and stays visible, but is not dispatched and
-	 * running attempts are not interrupted. Omitting the work from discovery means
-	 * the opposite: the work is released and running attempts are stopped.
+	 * running attempts are not interrupted. Cancelled work is interrupted and
+	 * released immediately. Omitting the work from discovery drains it: an active
+	 * run finishes its current turn without continuation, then the claim is
+	 * released without redispatch.
 	 */
 	readonly status?: PlotExtensionWorkStatus;
 	readonly blockedReason?: string;
+	/**
+	 * Absolute per-work workspace directory. Plot creates the directory before
+	 * the Agent Run starts and uses it as the run's working directory.
+	 */
+	readonly workspace?: string;
 	/** Optional generic display hints. The TUI owns rendering; hints have no scheduling semantics. */
 	readonly display?: WorkDisplay;
 	/** Source-declared choices a human controller may perform on this work item. */
@@ -159,8 +166,26 @@ export interface PlotExtensionRuntimeContext {
 	readonly signal: AbortSignal;
 }
 
+/**
+ * Signals that discovery could not observe the world (network failure, auth,
+ * rate limit). Throwing from discover keeps the last-known Work Items and
+ * retries next tick. Returning an empty array means the opposite: every
+ * previously discovered Work Item is done or gone, so active runs drain and
+ * claims are released. Never catch observation failures into an empty array.
+ */
+export class DiscoveryUnavailableError extends Error {
+	override readonly name = "DiscoveryUnavailableError";
+}
+
 export interface PlotExtensionRuntime {
-	/** Discover eligible domain work. No returned work means this tick is a no-op. */
+	/**
+	 * Discover eligible domain work.
+	 *
+	 * Contract: returning an empty array means every Work Item is done or gone;
+	 * active runs drain and claims are released. If observation itself fails,
+	 * throw (see DiscoveryUnavailableError) so Plot keeps the last-known Work
+	 * Items and retries next tick.
+	 */
 	readonly discover: (
 		context?: PlotExtensionRuntimeContext,
 	) => MaybePromise<readonly PlotExtensionWork[]>;

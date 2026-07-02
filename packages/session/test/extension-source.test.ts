@@ -211,6 +211,207 @@ describe("extension source adapter", () => {
 		).toMatchObject({ status: "blocked", blockedReason: "waiting" });
 	});
 
+	test("work that disappears mid-run drains instead of interrupting", async () => {
+		let discovered = true;
+		const started = deferred<void>();
+		const release = deferred<string>();
+		const lifecycle: string[] = [];
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "drain", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => (discovered ? [{ id: "work:1", version: "v1" }] : []),
+				completed: ({ work }) => {
+					lifecycle.push(`completed:${work.id}`);
+				},
+				interrupted: ({ work }) => {
+					lifecycle.push(`interrupted:${work.id}`);
+				},
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: async () => {
+				started.resolve();
+				return { output: await release.promise };
+			},
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const key = workKey("extension:drain:work:1:v1");
+
+		const first = await agent.tickOnce();
+		await started.promise;
+		discovered = false;
+		const second = await agent.tickOnce();
+		const drainingSnapshot = await agent.snapshot();
+		release.resolve("review posted");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const third = await agent.tickOnce();
+
+		expect(first.started).toHaveLength(1);
+		expect(second.completions).toHaveLength(0);
+		expect(drainingSnapshot.work.get(key)).toMatchObject({
+			status: "draining",
+		});
+		expect(third.completions).toEqual([
+			expect.objectContaining({ status: "succeeded" }),
+		]);
+		expect((await agent.snapshot()).work.has(key)).toBe(false);
+		expect(lifecycle).toEqual(["completed:work:1"]);
+	});
+
+	test("cancelled work interrupts the active run and releases the claim", async () => {
+		let cancelled = false;
+		const started = deferred<void>();
+		const never = deferred<string>();
+		const lifecycle: string[] = [];
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "cancel", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [
+					{
+						id: "work:1",
+						version: "v1",
+						...(cancelled ? { status: "cancelled" as const } : {}),
+					},
+				],
+				interrupted: ({ work }) => {
+					lifecycle.push(`interrupted:${work.id}`);
+				},
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: async () => {
+				started.resolve();
+				return { output: await never.promise };
+			},
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const key = workKey("extension:cancel:work:1:v1");
+
+		const first = await agent.tickOnce();
+		await started.promise;
+		cancelled = true;
+		const second = await agent.tickOnce();
+		const third = await agent.tickOnce();
+
+		expect(first.started).toHaveLength(1);
+		expect(second.completions).toEqual([
+			expect.objectContaining({ status: "interrupted" }),
+		]);
+		expect((await agent.snapshot()).work.has(key)).toBe(false);
+		expect(third.started).toHaveLength(0);
+		expect(lifecycle).toEqual(["interrupted:work:1"]);
+	});
+
+	test("workspace is created before the run and becomes the session cwd", async () => {
+		const dir = await makeTempDir();
+		const workspace = join(dir, "nested", "pr-1");
+		const finished = deferred<void>();
+		let cwd: string | undefined;
+		let workspaceExisted = false;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "ws", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [{ id: "work:1", version: "v1", workspace }],
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: async (context) => {
+				const { stat } = await import("node:fs/promises");
+				workspaceExisted = (await stat(workspace)).isDirectory();
+				cwd = (await bundle.createOptions(context)).cwd;
+				finished.resolve();
+				return {};
+			},
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+
+		expect((await agent.tickOnce()).started).toHaveLength(1);
+		await finished.promise;
+
+		expect(workspaceExisted).toBe(true);
+		expect(cwd).toBe(workspace);
+	});
+
+	test("rejects relative workspace paths at the source boundary", async () => {
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "ws-bad", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [
+					{ id: "work:1", version: "v1", workspace: "relative/path" },
+				],
+			},
+		});
+		const agent = makePlotAgentLayer({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+
+		const result = await agent.tickOnce();
+
+		expect(result.diagnostics[0]?.message).toContain("absolute");
+		expect(result.started).toHaveLength(0);
+	});
+
+	test("discovery is polled once per tick and continuation reads the fact", async () => {
+		let discoverCalls = 0;
+		const started = deferred<void>();
+		const release = deferred<string>();
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "poll", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => {
+					discoverCalls++;
+					return [{ id: "work:1", version: "v1" }];
+				},
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: async () => {
+				started.resolve();
+				return { output: await release.promise };
+			},
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const key = workKey("extension:poll:work:1:v1");
+
+		await agent.tickOnce();
+		await started.promise;
+		const callsAfterFirstTick = discoverCalls;
+		const snapshot = await agent.snapshot();
+		const shouldContinue = await bundle.source.continueWork?.({
+			sourceId: bundle.source.id,
+			tickId: snapshot.tickId,
+			snapshot,
+			signal: new AbortController().signal,
+			run: { runId: "run-0", sourceId: bundle.source.id, workKey: key },
+			work: { workKey: key },
+			turnNumber: 1,
+		});
+		release.resolve("done");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await agent.tickOnce();
+
+		expect(callsAfterFirstTick).toBe(1);
+		expect(shouldContinue).toBe(true);
+		// One observe-driven poll per tick; completion processing does not re-poll.
+		expect(discoverCalls).toBe(2);
+	});
+
 	test("binds registered tools to the current work", async () => {
 		const bundle = makePlotExtensionSourceBundle({
 			workflow,

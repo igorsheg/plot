@@ -80,8 +80,40 @@ Rules:
 - `version`: rerun trigger, such as PR head SHA, issue timestamp, CI attempt, dependency version.
 - `context`: compact facts for the prompt, not a script.
 - `display`: generic dashboard hints. No custom UI.
+- `workspace`: optional absolute directory for the Agent Run. Plot creates it before the run starts and uses it as the run's working directory.
 
 The extension is authoritative for domain state. Done work should stop appearing. Changed work should return with the same `id` and a new `version`.
+
+## Scheduling states
+
+Discovery output drives scheduling. There are exactly four situations:
+
+- **Discovered (`pending`, default)** — eligible for dispatch.
+- **`blocked`** — keeps its claim and stays visible, is not dispatched, and a running attempt is not interrupted.
+- **`cancelled`** — the one state that interrupts a running attempt and releases the claim immediately.
+- **Absent from discovery** — the work drains: an active run finishes its current turn without continuation turns, then the claim is released without redispatch. A run that made its own work done is never interrupted for succeeding.
+
+## Discovery failure contract
+
+Returning an empty array from `discover` means every previously discovered Work Item is done or gone: active runs drain and claims are released.
+
+If observation itself fails (network, auth, rate limit), **throw** — Plot keeps the last-known Work Items and retries next tick. Never catch observation failures into an empty array:
+
+```ts
+import { DiscoveryUnavailableError } from "plot-ai/sdk";
+
+async discover() {
+	try {
+		return await listOpenItems();
+	} catch (error) {
+		throw new DiscoveryUnavailableError(`item listing failed: ${String(error)}`, { cause: error });
+	}
+}
+```
+
+(Any thrown error gets the same treatment; `DiscoveryUnavailableError` just makes the intent explicit.)
+
+Plot polls `discover` once per tick. Continuation checks and completion processing reuse that tick's result instead of re-polling.
 
 ## Config
 
