@@ -284,7 +284,7 @@ const runProjectionResponse = async (
 };
 
 /** The transcript path is derived server-side; clients never name files. */
-const runTranscriptResponse = async (
+export const runTranscriptResponse = async (
 	run: RunRecord,
 	attemptRunId: string,
 	registry: RunRegistryRuntime,
@@ -293,7 +293,18 @@ const runTranscriptResponse = async (
 	const loaded = await loadRunProjection(run, registry, historyDir);
 	if (loaded === undefined)
 		return new Response("run not live", { status: 409 });
-	const path = loaded.projection.attempts.get(attemptRunId)?.transcript?.path;
+	// The live snapshot rebuilds attempts from agent state, which does not
+	// carry the plot_transcript event; the durable history does, even for
+	// live runs, so fall back to a replay before declaring no transcript.
+	const transcriptPathOf = (projection: DashboardProjection) =>
+		projection.attempts.get(attemptRunId)?.transcript?.path;
+	const path =
+		transcriptPathOf(loaded.projection) ??
+		(loaded.replayed
+			? undefined
+			: await replayHistoryProjection(run, historyDir).then((replayed) =>
+					replayed === undefined ? undefined : transcriptPathOf(replayed),
+				));
 	if (path === undefined)
 		return new Response("no transcript recorded", { status: 404 });
 	return text({ entries: await readAgentTranscript(path) });
