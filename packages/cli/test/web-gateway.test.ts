@@ -110,7 +110,7 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("tails run events as SSE", async () => {
+	test("run event SSE is live-only", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const sessionDir = join(dir, ".plot/sessions");
 		const eventLog = await createFileEventLogStore({
@@ -149,14 +149,12 @@ describe("Plot web gateway", () => {
 			);
 			const reader = response.body!.getReader();
 			const decoder = new TextDecoder();
-			let text = "";
-			while (!text.includes("id: 1")) {
-				// eslint-disable-next-line no-await-in-loop -- test reads SSE until the expected event arrives.
-				const chunk = await reader.read();
-				if (chunk.done) break;
-				text += decoder.decode(chunk.value, { stream: true });
-			}
-			expect(text).toContain("session_started");
+			const chunk = await reader.read();
+			const text = chunk.done
+				? ""
+				: decoder.decode(chunk.value, { stream: true });
+			expect(text).toContain(": connected");
+			expect(text).not.toContain("session_started");
 		} finally {
 			clearTimeout(timeout);
 			abort.abort();

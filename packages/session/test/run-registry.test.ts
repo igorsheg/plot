@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
-import { createFileEventLogStore } from "../src/event-log.js";
 import {
 	RunRegistry,
 	createFileRunStore,
@@ -237,41 +236,32 @@ test("runRegistry recovery does not leave stale runs online", async () => {
 	});
 });
 
-test("runRegistry attach replays only durable event log records after a sequence", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-replay-"));
-	const eventLog = await createFileEventLogStore({
-		sessionId: "session-replay",
-		sessionDir: join(cwd, ".plot", "sessions"),
-	});
-	for (let tickId = 1; tickId <= 30; tickId++) {
-		// eslint-disable-next-line no-await-in-loop -- replay fixture needs deterministic sequence order.
-		await eventLog.appendSessionEvent({
-			type: "tick_started",
-			payload: { tickId },
-		});
-	}
+test("runRegistry attach is live-only", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-live-only-"));
 	const runRegistry = new RunRegistry({
 		cwd,
 		store: createMemoryRunStore([
 			{
-				id: "run-replay",
+				id: "run-stopped",
 				status: "stopped",
 				cwd,
 				createdAt: "2026-01-01T00:00:00.000Z",
-				sessionId: "session-replay",
-				eventLogPath: eventLog.path,
+				sessionId: "session-stopped",
+				eventLogPath: join(
+					cwd,
+					".plot",
+					"sessions",
+					"session-stopped",
+					"events.jsonl",
+				),
 			},
 		]),
 	});
 	const records = [];
-	for await (const record of runRegistry.attachRecords("run-replay", 20))
+	for await (const record of runRegistry.attachRecords("run-stopped", 0))
 		records.push(record);
 
-	expect(
-		records.flatMap((record) =>
-			record.kind === "event" ? [record.sequence] : [],
-		),
-	).toEqual([21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
+	expect(records).toEqual([]);
 });
 
 test("runRegistry IPC does not start an in-process registry", async () => {

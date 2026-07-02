@@ -10,7 +10,6 @@ import {
 	type ClientRequest,
 	type ServerRecord,
 } from "./protocol.js";
-import { createFileEventLogStore } from "./event-log.js";
 import {
 	createRunChildProcess,
 	RunProcessInstance,
@@ -210,30 +209,6 @@ const stateUpdates = (data: unknown): Partial<RunRecord> => {
 	}
 	return updates;
 };
-
-async function* replayEventLogRecords(
-	run: RunRecord,
-	afterSequence: number,
-): AsyncIterable<EventServerRecord> {
-	if (run.sessionId === undefined || run.eventLogPath === undefined) return;
-	const log = await createFileEventLogStore({
-		sessionId: run.sessionId,
-		sessionDir: dirname(dirname(run.eventLogPath)),
-		path: run.eventLogPath,
-	});
-	let frontier = afterSequence;
-	const read = await log.readAll();
-	for (const event of read.records) {
-		if (event.sequence <= frontier) continue;
-		frontier = event.sequence;
-		yield {
-			protocol: sessionProtocolVersion,
-			kind: "event",
-			sequence: event.sequence,
-			event,
-		};
-	}
-}
 
 async function* liveEventRecords(
 	live: LiveRun,
@@ -569,14 +544,8 @@ export class RunRegistry implements RunRegistryRuntime {
 		afterSequence = 0,
 	): AsyncIterable<ServerRecord> {
 		const live = this.live.get(id);
-		const run = live?.record ?? (await this.options.store.get(id));
-		if (run === undefined) return;
-		let frontier = afterSequence;
-		for await (const record of replayEventLogRecords(run, frontier)) {
-			frontier = record.sequence;
-			yield record;
-		}
-		if (live !== undefined) yield* liveEventRecords(live, frontier);
+		if (live === undefined) return;
+		yield* liveEventRecords(live, afterSequence);
 	}
 
 	submit(id: string, request: ClientRequest): Promise<ServerRecord> {
