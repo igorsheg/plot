@@ -174,4 +174,12 @@
 /* Cards morph between lanes via native view transitions. */
 ::view-transition-group(*) {
 	animation-duration: 220ms;
+	animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Reduced motion: keep the crossfade (comprehension), drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-group(*) {
+		animation-duration: 0.01ms;
+	}
 }
