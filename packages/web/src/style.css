@@ -171,6 +171,63 @@
 	}
 }
 
+/* Compact markdown for Agent Transcript prose inside the inspector. */
+.transcript-prose > * + * {
+	margin-top: 0.375rem;
+}
+
+.transcript-prose h1,
+.transcript-prose h2,
+.transcript-prose h3,
+.transcript-prose h4 {
+	font-size: 0.8125rem;
+	font-weight: 600;
+}
+
+.transcript-prose ul,
+.transcript-prose ol {
+	padding-left: 1.125rem;
+}
+
+.transcript-prose ul {
+	list-style: disc;
+}
+
+.transcript-prose ol {
+	list-style: decimal;
+}
+
+.transcript-prose code {
+	border-radius: 0.25rem;
+	background: var(--muted);
+	padding: 0.0625rem 0.25rem;
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+}
+
+.transcript-prose pre {
+	overflow-x: auto;
+	border-radius: 0.375rem;
+	background: var(--muted);
+	padding: 0.5rem;
+}
+
+.transcript-prose pre code {
+	background: transparent;
+	padding: 0;
+}
+
+.transcript-prose a {
+	color: var(--info-foreground);
+	text-decoration: underline;
+}
+
+.transcript-prose blockquote {
+	border-left: 2px solid var(--border);
+	padding-left: 0.5rem;
+	color: var(--muted-foreground);
+}
+
 /* Cards morph between lanes via native view transitions. */
 ::view-transition-group(*) {
 	animation-duration: 220ms;

@@ -14,6 +14,7 @@ import {
 	type ProjectableEvent,
 } from "@plot/session/projection";
 import { readRunHistory, runHistoryPath } from "@plot/session/run-registry";
+import { readAgentTranscript } from "@plot/session/transcript";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
 const assets: Record<string, WebAsset> = webAssets;
@@ -216,10 +217,10 @@ const emptyRunProjection = (run: RunRecord): DashboardProjection =>
 	});
 
 /** Post-mortem board: replay durable Session History through the shared reducer. */
-const historyProjectionResponse = async (
+const replayHistoryProjection = async (
 	run: RunRecord,
 	historyDir: string,
-): Promise<Response | undefined> => {
+): Promise<DashboardProjection | undefined> => {
 	let projection: DashboardProjection | undefined;
 	for await (const event of readRunHistory(
 		runHistoryPath(historyDir, run.id),
@@ -230,22 +231,24 @@ const historyProjectionResponse = async (
 			event as ProjectableEvent,
 		);
 	}
-	if (projection === undefined) return undefined;
-	return text({
-		projection: serializeDashboardProjection(projection),
-		replayed: true,
-	});
+	return projection;
 };
 
-const runProjectionResponse = async (
+const loadRunProjection = async (
 	run: RunRecord,
 	registry: RunRegistryRuntime,
 	historyDir: string,
-): Promise<Response> => {
-	const notLive = async (reason: string) =>
-		(await historyProjectionResponse(run, historyDir)) ??
-		new Response(reason, { status: 409 });
-	if (run.sessionId === undefined) return notLive("run not ready");
+): Promise<
+	| { readonly projection: DashboardProjection; readonly replayed: boolean }
+	| undefined
+> => {
+	const replay = async () => {
+		const projection = await replayHistoryProjection(run, historyDir);
+		return projection === undefined
+			? undefined
+			: { projection, replayed: true };
+	};
+	if (run.sessionId === undefined) return replay();
 	const response = await registry
 		.submit(run.id, {
 			protocol: sessionProtocolVersion,
@@ -255,13 +258,45 @@ const runProjectionResponse = async (
 		})
 		.catch(() => undefined);
 	if (response === undefined || response.kind !== "response" || !response.ok)
-		return notLive("run not live");
+		return replay();
 	const data = isRecord(response.data) ? response.data : {};
-	const projection = applySnapshot(emptyRunProjection(run), {
-		snapshot: data["snapshot"],
-		asOfSequence: response.lastSequence ?? data["lastSequence"],
+	return {
+		projection: applySnapshot(emptyRunProjection(run), {
+			snapshot: data["snapshot"],
+			asOfSequence: response.lastSequence ?? data["lastSequence"],
+		}),
+		replayed: false,
+	};
+};
+
+const runProjectionResponse = async (
+	run: RunRecord,
+	registry: RunRegistryRuntime,
+	historyDir: string,
+): Promise<Response> => {
+	const loaded = await loadRunProjection(run, registry, historyDir);
+	if (loaded === undefined)
+		return new Response("run not live", { status: 409 });
+	return text({
+		projection: serializeDashboardProjection(loaded.projection),
+		...(loaded.replayed ? { replayed: true } : {}),
 	});
-	return text({ projection: serializeDashboardProjection(projection) });
+};
+
+/** The transcript path is derived server-side; clients never name files. */
+const runTranscriptResponse = async (
+	run: RunRecord,
+	attemptRunId: string,
+	registry: RunRegistryRuntime,
+	historyDir: string,
+): Promise<Response> => {
+	const loaded = await loadRunProjection(run, registry, historyDir);
+	if (loaded === undefined)
+		return new Response("run not live", { status: 409 });
+	const path = loaded.projection.attempts.get(attemptRunId)?.transcript?.path;
+	if (path === undefined)
+		return new Response("no transcript recorded", { status: 404 });
+	return text({ entries: await readAgentTranscript(path) });
 };
 
 const sessionEventsResponse = (input: {
@@ -410,6 +445,23 @@ export const startPlotWebGateway = async (
 						request,
 						records: runIpc.runRegistry.attachRecords(id, after),
 					});
+				}
+				const transcriptPath =
+					/^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/.exec(
+						url.pathname,
+					);
+				if (transcriptPath !== null) {
+					const run = await runIpc.runRegistry.status(
+						decodeURIComponent(transcriptPath[1] ?? ""),
+					);
+					if (run === undefined)
+						return new Response("run not found", { status: 404 });
+					return runTranscriptResponse(
+						run,
+						decodeURIComponent(transcriptPath[2] ?? ""),
+						runIpc.runRegistry,
+						runIpc.historyDir,
+					);
 				}
 				const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
 					url.pathname,

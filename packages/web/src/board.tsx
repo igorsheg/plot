@@ -389,6 +389,7 @@ export function SessionBoard({
 								window.location.hash = "";
 							}}
 							projection={projection}
+							sessionRunId={run.id}
 							workKey={selectedKey}
 						/>
 					)}

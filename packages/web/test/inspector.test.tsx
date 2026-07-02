@@ -65,6 +65,7 @@ test("inspector renders operator zone, live run, timeline, and history", () => {
 	const html = renderToString(
 		<Inspector
 			onAction={async () => true}
+			sessionRunId="run-web-1"
 			onClose={() => undefined}
 			projection={projection()}
 			workKey="work-1"
@@ -82,6 +83,7 @@ test("inspector renders nothing for an unknown work key", () => {
 	const html = renderToString(
 		<Inspector
 			onAction={async () => true}
+			sessionRunId="run-web-1"
 			onClose={() => undefined}
 			projection={serializeDashboardProjection(emptyProjection("s", "w"))}
 			workKey="missing"

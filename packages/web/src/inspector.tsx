@@ -17,6 +17,7 @@ import {
 } from "./components/ui/scroll-area.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import { cn } from "./lib/utils.js";
+import { TranscriptView } from "./transcript-view.js";
 import {
 	kindGlyph,
 	stageVariant,
@@ -310,11 +311,13 @@ export function Inspector({
 	onAction,
 	onClose,
 	projection,
+	sessionRunId,
 	workKey,
 }: {
 	readonly onAction: (input: ObservationInput) => Promise<boolean>;
 	readonly onClose: () => void;
 	readonly projection: WebDashboardProjection;
+	readonly sessionRunId: string;
 	readonly workKey: string;
 }) {
 	useEffect(() => {
@@ -482,22 +485,12 @@ export function Inspector({
 					)}
 					{current?.transcript?.path !== undefined && (
 						<Section title="Agent transcript">
-							<div className="flex items-center gap-2">
-								<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-									{current.transcript.path}
-								</span>
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={() =>
-										void navigator.clipboard.writeText(
-											current.transcript?.path ?? "",
-										)
-									}
-								>
-									Copy
-								</Button>
-							</div>
+							<TranscriptView
+								key={current.runId}
+								attemptRunId={current.runId}
+								path={current.transcript.path}
+								runId={sessionRunId}
+							/>
 						</Section>
 					)}
 				</div>

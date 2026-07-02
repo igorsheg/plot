@@ -212,6 +212,84 @@ describe("Plot web gateway", () => {
 		}
 	});
 
+	test("transcript endpoint serves entries via the replayed reference", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const { gateway, registryDir, stop } = await startTestGateway(dir);
+		try {
+			const transcriptFile = join(dir, "transcript.jsonl");
+			await writeFile(
+				transcriptFile,
+				`${JSON.stringify({
+					type: "message",
+					timestamp: "t1",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "reviewed the diff" }],
+					},
+				})}\n`,
+			);
+			await writeRuns(registryDir, [
+				{
+					id: "run-1",
+					status: "stopped",
+					cwd: dir,
+					createdAt: new Date().toISOString(),
+					sessionId: "session-1",
+					workflowName: "workflow",
+				},
+			]);
+			await mkdir(join(registryDir, "history"), { recursive: true });
+			const events = [
+				{
+					kind: "session_event",
+					sessionId: "session-1",
+					sequence: 1,
+					timestamp: "2026-01-01T00:00:00.000Z",
+					type: "attempt_started",
+					payload: {
+						run: {
+							sourceId: "source-1",
+							runId: "attempt-1",
+							workKey: "work-1",
+							title: "Work 1",
+						},
+					},
+				},
+				{
+					kind: "agent_event",
+					sessionId: "session-1",
+					sequence: 2,
+					timestamp: "2026-01-01T00:00:01.000Z",
+					runId: "attempt-1",
+					event: { type: "plot_transcript", sessionFile: transcriptFile },
+				},
+			];
+			await writeFile(
+				join(registryDir, "history", "run-1.jsonl"),
+				`${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
+			);
+			const response = await fetch(
+				new URL("/api/runs/run-1/attempts/attempt-1/transcript", gateway.url),
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as {
+				readonly entries?: readonly {
+					readonly role?: string;
+					readonly text?: string;
+				}[];
+			};
+			expect(body.entries).toHaveLength(1);
+			expect(body.entries?.[0]?.text).toBe("reviewed the diff");
+
+			const missing = await fetch(
+				new URL("/api/runs/run-1/attempts/nope/transcript", gateway.url),
+			);
+			expect(missing.status).toBe(404);
+		} finally {
+			await stop();
+		}
+	});
+
 	test("projection endpoint is 409 for runs without history", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const { gateway, registryDir, stop } = await startTestGateway(dir);

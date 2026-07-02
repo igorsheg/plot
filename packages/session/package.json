@@ -40,6 +40,10 @@
 			"types": "./src/pi-runner.ts",
 			"import": "./src/pi-runner.ts"
 		},
+		"./transcript": {
+			"types": "./src/transcript.ts",
+			"import": "./src/transcript.ts"
+		},
 		"./projection": {
 			"types": "./src/projection.ts",
 			"import": "./src/projection.ts"

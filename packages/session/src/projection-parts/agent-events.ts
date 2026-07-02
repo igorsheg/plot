@@ -80,10 +80,27 @@ export const reduceAgentEvent = (
 	const runId = str(payload["runId"]);
 	if (runId === undefined) return p;
 	const rawEvent = isRecord(payload["event"]) ? payload["event"] : {};
-	const activity = piEventDisplay(rawEvent);
-	if (activity === undefined) return p;
 	const prev = p.attempts.get(runId);
 	if (prev === undefined) return p;
+	// Plot's own synthetic event: the Agent Transcript reference.
+	if (rawEvent["type"] === "plot_transcript") {
+		const path = str(rawEvent["sessionFile"]);
+		if (path === undefined) return p;
+		const id = str(rawEvent["sessionId"]);
+		return {
+			...p,
+			attempts: new Map(p.attempts).set(
+				runId,
+				mergeAttempt(
+					prev,
+					{ transcript: { path, ...(id === undefined ? {} : { id }) } },
+					e,
+				),
+			),
+		};
+	}
+	const activity = piEventDisplay(rawEvent);
+	if (activity === undefined) return p;
 	const when = at(e);
 	let appliedUsage: PiUsageDelta | undefined;
 	const handlers = {

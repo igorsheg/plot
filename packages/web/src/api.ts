@@ -1,3 +1,4 @@
+import type { TranscriptEntry } from "@plot/session/transcript";
 import type {
 	ActivityEntry,
 	CompletedWorkProjection,
@@ -213,6 +214,23 @@ export const recordObservation = async (
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
 	const data = (await response.json()) as { readonly accepted?: boolean };
 	return data.accepted === true;
+};
+
+export type { TranscriptEntry };
+
+export const fetchTranscript = async (
+	runId: string,
+	attemptRunId: string,
+): Promise<readonly TranscriptEntry[]> => {
+	const response = await fetch(
+		`/api/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(attemptRunId)}/transcript`,
+	);
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	const data = (await response.json()) as {
+		readonly entries?: readonly unknown[];
+	};
+	// Trusted local gateway; entries render defensively regardless.
+	return (data.entries ?? []) as readonly TranscriptEntry[];
 };
 
 export const stopRun = async (id: string): Promise<void> => {
