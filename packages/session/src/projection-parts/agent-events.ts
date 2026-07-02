@@ -4,7 +4,7 @@ import {
 	piEventDisplay,
 	type PiUsageDelta,
 } from "../pi-event-display.js";
-import { at, cap, str } from "./helpers.js";
+import { at, str } from "./helpers.js";
 import type {
 	ActiveTool,
 	ActivityKind,
@@ -32,7 +32,7 @@ const timeline = (
 	text: string,
 	kind: ActivityKind,
 	when: number,
-) => cap([...a.timeline, { atMs: when, text, kind }], 30);
+) => [...a.timeline, { atMs: when, text, kind }].slice(-30);
 
 const activeTool = (tool: {
 	readonly kind: ActivityKind;
@@ -80,10 +80,27 @@ export const reduceAgentEvent = (
 	const runId = str(payload["runId"]);
 	if (runId === undefined) return p;
 	const rawEvent = isRecord(payload["event"]) ? payload["event"] : {};
-	const activity = piEventDisplay(rawEvent);
-	if (activity === undefined) return p;
 	const prev = p.attempts.get(runId);
 	if (prev === undefined) return p;
+	// Plot's own synthetic event: the Agent Transcript reference.
+	if (rawEvent["type"] === "plot_transcript") {
+		const path = str(rawEvent["sessionFile"]);
+		if (path === undefined) return p;
+		const id = str(rawEvent["sessionId"]);
+		return {
+			...p,
+			attempts: new Map(p.attempts).set(
+				runId,
+				mergeAttempt(
+					prev,
+					{ transcript: { path, ...(id === undefined ? {} : { id }) } },
+					e,
+				),
+			),
+		};
+	}
+	const activity = piEventDisplay(rawEvent);
+	if (activity === undefined) return p;
 	const when = at(e);
 	let appliedUsage: PiUsageDelta | undefined;
 	const handlers = {

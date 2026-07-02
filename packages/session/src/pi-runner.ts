@@ -16,7 +16,13 @@ export interface PiAgentSessionPort {
 	) => () => void;
 	readonly prompt: (text: string, options?: PromptOptions) => Promise<void>;
 	readonly dispose: () => void;
+	/** pi's durable transcript file; present on real sessions. */
+	readonly sessionFile?: string | undefined;
+	readonly sessionId?: string | undefined;
 }
+
+/** Synthetic event carrying the Agent Transcript reference into the stream. */
+export const transcriptEventType = "plot_transcript";
 
 export type CreatePiAgentSession = (
 	options?: CreateAgentSessionOptions,
@@ -157,6 +163,15 @@ async function* promptSession(input: {
 			if (disposed || input.signal.aborted) {
 				disposeSession(session);
 				return;
+			}
+			if (session.sessionFile !== undefined) {
+				queue.offer({
+					type: transcriptEventType,
+					sessionFile: session.sessionFile,
+					...(session.sessionId === undefined
+						? {}
+						: { sessionId: session.sessionId }),
+				} as unknown as AgentSessionEvent);
 			}
 			unsubscribe = session.subscribe((event) => {
 				if (queue.offer(event)) return;

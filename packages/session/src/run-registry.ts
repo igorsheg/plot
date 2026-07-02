@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
 import { errorMessage, hasErrnoCode, isRecord } from "@plot/common/primitives";
 import { Schema } from "effect";
+import { jsonlLines, parseJsonl } from "./jsonl.js";
 import {
 	clientRequestSchema,
 	sessionProtocolVersion,
@@ -24,6 +26,29 @@ import {
 } from "./schema.js";
 
 type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
+
+export const runHistoryPath = (historyDir: string, id: string): string =>
+	join(historyDir, `${id}.jsonl`);
+
+/** Replay a run's durable Session History (empty when none was written). */
+export async function* readRunHistory(path: string): AsyncIterable<unknown> {
+	const exists = await stat(path).then(
+		() => true,
+		() => false,
+	);
+	if (!exists) return;
+	const stream = createReadStream(path);
+	try {
+		for await (const line of jsonlLines(stream, {
+			maxLineBytes: 2 * 1024 * 1024,
+		})) {
+			if (line.trim() === "") continue;
+			yield parseJsonl(line);
+		}
+	} finally {
+		stream.close();
+	}
+}
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export const runStatusSchema = Schema.Literals([
@@ -161,6 +186,8 @@ export interface RunRegistryOptions {
 	readonly spawnDeadlineMs?: number;
 	readonly eventCapacity?: number;
 	readonly stderrLimitBytes?: number;
+	/** Durable Session History: event records append to <historyDir>/<runId>.jsonl. */
+	readonly historyDir?: string;
 }
 
 interface LiveRun {
@@ -168,6 +195,7 @@ interface LiveRun {
 	readonly process: RunProcessInstance;
 	readonly events: EventHub<ServerRecord>;
 	readonly cleanup: () => void;
+	history?: WriteStream | undefined;
 }
 
 const runArraySchema = Schema.Array(runRecordSchema);
@@ -235,11 +263,16 @@ const stripTrailingNuls = (text: string): string => {
 	return text.slice(0, end);
 };
 
-const parseRunStoreJson = (text: string): readonly RunRecord[] =>
-	decodeBoundary(
-		runArraySchema,
-		JSON.parse(stripTrailingNuls(text)) as unknown,
-	);
+const parseRunStoreJson = (text: string): readonly RunRecord[] => {
+	const value = JSON.parse(stripTrailingNuls(text)) as unknown;
+	if (Array.isArray(value)) {
+		for (const row of value) {
+			if (!isRecord(row)) continue;
+			delete row["eventLogPath"];
+		}
+	}
+	return decodeBoundary(runArraySchema, value);
+};
 
 const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 	let text: string;
@@ -399,7 +432,7 @@ export class RunRegistry implements RunRegistryRuntime {
 			record.command === "get_state"
 		)
 			await this.update(live, stateUpdates(record.data));
-		if (record.kind === "event")
+		if (record.kind === "event") {
 			await this.update(live, {
 				lastSequence: record.sequence,
 				lastEventType:
@@ -407,7 +440,34 @@ export class RunRegistry implements RunRegistryRuntime {
 						? record.event.type
 						: "agent_event",
 			});
+			await this.appendHistory(live, record);
+		}
 		live.events.publish(record);
+	}
+
+	private historyPath(id: string): string | undefined {
+		return this.options.historyDir === undefined
+			? undefined
+			: runHistoryPath(this.options.historyDir, id);
+	}
+
+	// ponytail: history grows unboundedly per run; add rotation when a
+	// long-lived session actually hurts (files observed so far are <1MB).
+	private async appendHistory(
+		live: LiveRun,
+		record: EventServerRecord,
+	): Promise<void> {
+		const path = this.historyPath(live.record.id);
+		if (path === undefined) return;
+		if (live.history === undefined) {
+			await mkdir(dirname(path), { recursive: true });
+			live.history = createWriteStream(path, { flags: "a" });
+			live.history.on("error", () => {
+				// History is best-effort; a full disk must not kill the run.
+				live.history = undefined;
+			});
+		}
+		live.history.write(`${JSON.stringify(record.event)}\n`);
 	}
 
 	async recoverAfterRestart(): Promise<void> {
@@ -500,6 +560,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		});
 		live.cleanup();
 		live.events.close();
+		live.history?.end();
 		this.live.delete(live.record.id);
 	}
 
@@ -518,6 +579,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		live.process.kill("SIGTERM");
 		live.cleanup();
 		live.events.close();
+		live.history?.end();
 		this.live.delete(id);
 		await this.update(live, { status: "stopped" });
 		return clone(live.record);

@@ -163,6 +163,18 @@ export const makeAgentSessionRuntime = (
 		pauseDispatch: () => agent.pauseDispatch(),
 		resumeDispatch: () => agent.resumeDispatch(),
 		interruptAgentRun: (input) => agent.interruptAgentRun(input),
+		recordOperatorObservation: async (input) => {
+			const accepted = await agent.offer({
+				type: "observation",
+				observation: {
+					type: "operator_observation",
+					data: { ...input, timestamp: new Date().toISOString() },
+				},
+			});
+			// Reconcile promptly: the operator is watching.
+			if (accepted) await agent.wakeAfter(1, "operator observation");
+			return accepted;
+		},
 		events: () => events.subscribe(),
 		appendAgentEvent: publishAgentEvent,
 		lastEventSequence: async () => liveSequence,

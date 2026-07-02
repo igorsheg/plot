@@ -1,3 +1,4 @@
+import type { TranscriptEntry } from "@plot/session/transcript";
 import type {
 	ActivityEntry,
 	CompletedWorkProjection,
@@ -85,7 +86,7 @@ const emptyRuntime: RuntimeIdentityProjection = {
 };
 
 const parseRuntime = (value: unknown): RuntimeIdentityProjection => {
-	const runtime = decodeOrUndefined(runtimeSchema, value);
+	const runtime = decodeOrUndefined(runtimeSchema, value, "preserve");
 	return runtime === undefined
 		? emptyRuntime
 		: {
@@ -98,7 +99,7 @@ const parseRuntime = (value: unknown): RuntimeIdentityProjection => {
 const parseActivity = (value: unknown): readonly WebActivityEntry[] => {
 	const entries = decodeOrUndefined(Schema.Array(Schema.Unknown), value) ?? [];
 	return entries.flatMap((entry) => {
-		const parsed = decodeOrUndefined(activityEntrySchema, entry);
+		const parsed = decodeOrUndefined(activityEntrySchema, entry, "preserve");
 		return parsed === undefined ? [] : [parsed];
 	});
 };
@@ -130,14 +131,20 @@ export const parseRunCatalogEvent = (
 	return { kind: "runs", runs: parsePlotRuns(parsed.runs) };
 };
 
-const parseProjection = (
+// The projection is produced by trusted @plot/session code and grows fields
+// over time; a watcher must tolerate keys it does not know yet.
+export const parseProjection = (
 	value: unknown,
 ): WebDashboardProjection | undefined => {
 	const envelope = decodeOrUndefined(recordSchema, value);
 	const raw = envelope?.["projection"] ?? value;
 	const record = decodeOrUndefined(recordSchema, raw);
 	if (record === undefined) return undefined;
-	const required = decodeOrUndefined(projectionRequiredSchema, record);
+	const required = decodeOrUndefined(
+		projectionRequiredSchema,
+		record,
+		"preserve",
+	);
 	if (required === undefined) return undefined;
 	return {
 		...required,
@@ -145,6 +152,7 @@ const parseProjection = (
 		usageTotals: decodeOrUndefined(
 			usageTotalsSchema,
 			record["usageTotals"],
+			"preserve",
 		) ?? {
 			tokens: 0,
 		},
@@ -182,22 +190,54 @@ export const fetchRuns = async (): Promise<readonly PlotRun[]> => {
 	return parsePlotRuns(await response.json());
 };
 
-export const createRun = async (input: {
-	readonly cwd?: string;
-	readonly workflowPath?: string;
-}): Promise<PlotRun> => {
-	const response = await fetch("/api/runs", {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(input),
+export interface ObservationInput {
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly actionId: string;
+	readonly actionLabel: string;
+	readonly comment?: string | undefined;
+	readonly clientId?: string | undefined;
+}
+
+export const recordObservation = async (
+	runId: string,
+	input: ObservationInput,
+): Promise<boolean> => {
+	const response = await fetch(
+		`/api/runs/${encodeURIComponent(runId)}/observations`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(input),
+		},
+	);
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	const data = (await response.json()) as { readonly accepted?: boolean };
+	return data.accepted === true;
+};
+
+export type { TranscriptEntry };
+
+export const fetchTranscript = async (
+	runId: string,
+	attemptRunId: string,
+): Promise<readonly TranscriptEntry[]> => {
+	const response = await fetch(
+		`/api/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(attemptRunId)}/transcript`,
+	);
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	const data = (await response.json()) as {
+		readonly entries?: readonly unknown[];
+	};
+	// Trusted local gateway; entries render defensively regardless.
+	return (data.entries ?? []) as readonly TranscriptEntry[];
+};
+
+export const stopRun = async (id: string): Promise<void> => {
+	const response = await fetch(`/api/runs/${encodeURIComponent(id)}`, {
+		method: "DELETE",
 	});
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	const runs = parsePlotRuns({
-		runs: [(await response.json()).run],
-	});
-	const run = runs[0];
-	if (run === undefined) throw new Error("invalid run response");
-	return run;
 };
 
 export const fetchRunProjection = async (

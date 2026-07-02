@@ -243,3 +243,69 @@ test("snapshot clears stale current run ids", () => {
 	expect(repaired.work.get("work-1")?.currentRunId).toBeUndefined();
 	expect(repaired.attempts.size).toBe(0);
 });
+
+test("attempt timeline is a rolling tail, not a frozen head", () => {
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		{
+			kind: "session_event",
+			sessionId: "session-1",
+			sequence: 1,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			type: "attempt_started",
+			payload: {
+				run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+			},
+		},
+	);
+	for (let i = 0; i < 40; i++)
+		projection = reduceProjectableEvent(projection, {
+			kind: "agent_event",
+			sessionId: "session-1",
+			sequence: i + 2,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			runId: "run-1",
+			event: {
+				type: "tool_execution_start",
+				toolCallId: `tool-${i}`,
+				toolName: "bash",
+				args: { command: `step-${i}` },
+			},
+		});
+
+	const timeline = projection.attempts.get("run-1")?.timeline ?? [];
+	expect(timeline).toHaveLength(30);
+	expect(timeline.at(-1)?.text).toContain("step-39");
+});
+
+test("plot_transcript agent event attaches the transcript reference", () => {
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		{
+			kind: "session_event",
+			sessionId: "session-1",
+			sequence: 1,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			type: "attempt_started",
+			payload: {
+				run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+			},
+		},
+	);
+	projection = reduceProjectableEvent(projection, {
+		kind: "agent_event",
+		sessionId: "session-1",
+		sequence: 2,
+		timestamp: "2026-06-29T10:00:01.000Z",
+		runId: "run-1",
+		event: {
+			type: "plot_transcript",
+			sessionFile: "/tmp/transcript.jsonl",
+			sessionId: "pi-1",
+		},
+	});
+	expect(projection.attempts.get("run-1")?.transcript).toEqual({
+		path: "/tmp/transcript.jsonl",
+		id: "pi-1",
+	});
+});

@@ -8,8 +8,13 @@ import { sessionProtocolVersion } from "@plot/session/protocol";
 import {
 	applySnapshot,
 	emptyProjection,
+	reduceProjectableEvent,
 	serializeDashboardProjection,
+	type DashboardProjection,
+	type ProjectableEvent,
 } from "@plot/session/projection";
+import { readRunHistory, runHistoryPath } from "@plot/session/run-registry";
+import { readAgentTranscript } from "@plot/session/transcript";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
 const assets: Record<string, WebAsset> = webAssets;
@@ -116,6 +121,54 @@ const parseSequence = (value: string | null): number | undefined => {
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
+const stringField = (
+	body: Record<string, unknown>,
+	key: string,
+): string | undefined => {
+	const value = body[key];
+	return typeof value === "string" && value.trim() !== "" ? value : undefined;
+};
+
+const parseObservationBody = async (
+	request: Request,
+): Promise<
+	| {
+			readonly sourceId: string;
+			readonly workKey: string;
+			readonly actionId: string;
+			readonly actionLabel: string;
+			readonly comment?: string;
+			readonly clientId?: string;
+	  }
+	| undefined
+> => {
+	const body = (await request.json().catch(() => undefined)) as
+		| Record<string, unknown>
+		| undefined;
+	if (body === undefined) return undefined;
+	const sourceId = stringField(body, "sourceId");
+	const workKey = stringField(body, "workKey");
+	const actionId = stringField(body, "actionId");
+	const actionLabel = stringField(body, "actionLabel");
+	if (
+		sourceId === undefined ||
+		workKey === undefined ||
+		actionId === undefined ||
+		actionLabel === undefined
+	)
+		return undefined;
+	const comment = stringField(body, "comment");
+	const clientId = stringField(body, "clientId");
+	return {
+		sourceId,
+		workKey,
+		actionId,
+		actionLabel,
+		...(comment === undefined ? {} : { comment }),
+		...(clientId === undefined ? {} : { clientId }),
+	};
+};
+
 const parseCreateRunBody = async (
 	request: Request,
 ): Promise<{
@@ -154,12 +207,48 @@ const parseAfterSequence = (input: {
 	return Math.max(header ?? 0, query ?? 0);
 };
 
-const runProjectionResponse = async (
+const emptyRunProjection = (run: RunRecord): DashboardProjection =>
+	emptyProjection(run.sessionId ?? run.id, run.workflowName ?? "workflow", {
+		cwd: run.cwd,
+		cwdName: run.cwdName ?? basename(run.cwd),
+		workflowPath: run.workflowPath ?? "WORKFLOW.md",
+		skills: [],
+		skillPaths: [],
+	});
+
+/** Post-mortem board: replay durable Session History through the shared reducer. */
+const replayHistoryProjection = async (
+	run: RunRecord,
+	historyDir: string,
+): Promise<DashboardProjection | undefined> => {
+	let projection: DashboardProjection | undefined;
+	for await (const event of readRunHistory(
+		runHistoryPath(historyDir, run.id),
+	)) {
+		if (!isRecord(event)) continue;
+		projection = reduceProjectableEvent(
+			projection ?? emptyRunProjection(run),
+			event as ProjectableEvent,
+		);
+	}
+	return projection;
+};
+
+const loadRunProjection = async (
 	run: RunRecord,
 	registry: RunRegistryRuntime,
-): Promise<Response> => {
-	if (run.sessionId === undefined)
-		return new Response("run not ready", { status: 409 });
+	historyDir: string,
+): Promise<
+	| { readonly projection: DashboardProjection; readonly replayed: boolean }
+	| undefined
+> => {
+	const replay = async () => {
+		const projection = await replayHistoryProjection(run, historyDir);
+		return projection === undefined
+			? undefined
+			: { projection, replayed: true };
+	};
+	if (run.sessionId === undefined) return replay();
 	const response = await registry
 		.submit(run.id, {
 			protocol: sessionProtocolVersion,
@@ -169,22 +258,45 @@ const runProjectionResponse = async (
 		})
 		.catch(() => undefined);
 	if (response === undefined || response.kind !== "response" || !response.ok)
-		return new Response("run not live", { status: 409 });
+		return replay();
 	const data = isRecord(response.data) ? response.data : {};
-	const projection = applySnapshot(
-		emptyProjection(run.sessionId, run.workflowName ?? "workflow", {
-			cwd: run.cwd,
-			cwdName: run.cwdName ?? basename(run.cwd),
-			workflowPath: run.workflowPath ?? "WORKFLOW.md",
-			skills: [],
-			skillPaths: [],
-		}),
-		{
+	return {
+		projection: applySnapshot(emptyRunProjection(run), {
 			snapshot: data["snapshot"],
 			asOfSequence: response.lastSequence ?? data["lastSequence"],
-		},
-	);
-	return text({ projection: serializeDashboardProjection(projection) });
+		}),
+		replayed: false,
+	};
+};
+
+const runProjectionResponse = async (
+	run: RunRecord,
+	registry: RunRegistryRuntime,
+	historyDir: string,
+): Promise<Response> => {
+	const loaded = await loadRunProjection(run, registry, historyDir);
+	if (loaded === undefined)
+		return new Response("run not live", { status: 409 });
+	return text({
+		projection: serializeDashboardProjection(loaded.projection),
+		...(loaded.replayed ? { replayed: true } : {}),
+	});
+};
+
+/** The transcript path is derived server-side; clients never name files. */
+const runTranscriptResponse = async (
+	run: RunRecord,
+	attemptRunId: string,
+	registry: RunRegistryRuntime,
+	historyDir: string,
+): Promise<Response> => {
+	const loaded = await loadRunProjection(run, registry, historyDir);
+	if (loaded === undefined)
+		return new Response("run not live", { status: 409 });
+	const path = loaded.projection.attempts.get(attemptRunId)?.transcript?.path;
+	if (path === undefined)
+		return new Response("no transcript recorded", { status: 404 });
+	return text({ entries: await readAgentTranscript(path) });
 };
 
 const sessionEventsResponse = (input: {
@@ -286,6 +398,37 @@ export const startPlotWebGateway = async (
 						? text({ runs: runs.value })
 						: text({ error: String(runs.error) }, { status: 503 });
 				}
+				const observationPath = /^\/api\/runs\/([^/]+)\/observations$/.exec(
+					url.pathname,
+				);
+				if (observationPath !== null && request.method === "POST") {
+					const id = decodeURIComponent(observationPath[1] ?? "");
+					const run = await runIpc.runRegistry.status(id);
+					if (run === undefined)
+						return new Response("run not found", { status: 404 });
+					const body = await parseObservationBody(request);
+					if (body === undefined)
+						return text({ error: "invalid observation body" }, { status: 400 });
+					const response = await runIpc.runRegistry
+						.submit(id, {
+							protocol: sessionProtocolVersion,
+							kind: "request",
+							id: `web_observation_${randomUUID()}`,
+							command: "record_operator_observation",
+							params: { ...body, actor: "web" },
+						})
+						.catch(() => undefined);
+					if (
+						response === undefined ||
+						response.kind !== "response" ||
+						!response.ok
+					)
+						return text({ error: "run not live" }, { status: 409 });
+					return text({
+						accepted:
+							isRecord(response.data) && response.data["accepted"] === true,
+					});
+				}
 				const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
 				if (eventPath !== null) {
 					const after = parseAfterSequence({
@@ -303,6 +446,23 @@ export const startPlotWebGateway = async (
 						records: runIpc.runRegistry.attachRecords(id, after),
 					});
 				}
+				const transcriptPath =
+					/^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/.exec(
+						url.pathname,
+					);
+				if (transcriptPath !== null) {
+					const run = await runIpc.runRegistry.status(
+						decodeURIComponent(transcriptPath[1] ?? ""),
+					);
+					if (run === undefined)
+						return new Response("run not found", { status: 404 });
+					return runTranscriptResponse(
+						run,
+						decodeURIComponent(transcriptPath[2] ?? ""),
+						runIpc.runRegistry,
+						runIpc.historyDir,
+					);
+				}
 				const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
 					url.pathname,
 				);
@@ -312,7 +472,11 @@ export const startPlotWebGateway = async (
 					);
 					if (run === undefined)
 						return new Response("run not found", { status: 404 });
-					return runProjectionResponse(run, runIpc.runRegistry);
+					return runProjectionResponse(
+						run,
+						runIpc.runRegistry,
+						runIpc.historyDir,
+					);
 				}
 				if (url.pathname === "/api/health")
 					return text({ ok: true, socketPath: runIpc.socketPath });

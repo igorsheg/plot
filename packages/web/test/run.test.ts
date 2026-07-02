@@ -16,6 +16,8 @@ describe("web run parser", () => {
 					createdAt: "2026-01-01T00:00:00.000Z",
 					lastSeenAt: "2026-01-01T00:00:01.000Z",
 					lastSequence: 4,
+					pid: 4321,
+					fieldFromTheFuture: true,
 				},
 				{ sessionId: "broken" },
 				{

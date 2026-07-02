@@ -22,6 +22,17 @@ export interface InterruptAgentRunInput {
 	readonly workKey?: string;
 }
 
+/** A human decision on a Work Item, recorded so Sources reconcile with it. */
+export interface OperatorObservationInput {
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly actionId: string;
+	readonly actionLabel: string;
+	readonly comment?: string | undefined;
+	readonly clientId?: string | undefined;
+	readonly actor?: string | undefined;
+}
+
 export interface SessionRuntimeState {
 	readonly sessionId: string;
 	readonly workflowName?: string | undefined;
@@ -42,6 +53,9 @@ export interface SessionRuntime {
 	readonly resumeDispatch: () => Promise<void>;
 	readonly interruptAgentRun: (
 		input: InterruptAgentRunInput,
+	) => Promise<boolean>;
+	readonly recordOperatorObservation: (
+		input: OperatorObservationInput,
 	) => Promise<boolean>;
 	readonly events: () => AsyncIterable<RuntimeEvent>;
 	readonly appendAgentEvent: (input: AgentEventInput) => Promise<RuntimeEvent>;

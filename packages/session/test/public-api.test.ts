@@ -16,6 +16,7 @@ const expectedExports = [
 	"./protocol",
 	"./protocol-codec",
 	"./sdk",
+	"./transcript",
 	"./workflow",
 ] as const;
 

@@ -1,152 +1,137 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
-	createContext,
-	use,
-	useCallback,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
-import type { FormEvent, ReactNode } from "react";
-import {
-	createRun,
 	fetchRunProjection,
 	fetchRuns,
 	parsePlotEventRecord,
+	recordObservation,
 	runEventsUrl,
+	stopRun,
+	type ObservationInput,
 	type WebDashboardProjection,
 } from "./api.js";
+import { SessionBoard, useHeartbeat, type BoardState } from "./board.js";
 import { Alert, AlertDescription } from "./components/ui/alert.js";
-import { Button } from "./components/ui/button.js";
+import { Dot } from "./components/ui/dot.js";
 import {
 	Empty,
-	EmptyContent,
 	EmptyDescription,
 	EmptyHeader,
 	EmptyTitle,
 } from "./components/ui/empty.js";
-import { Group } from "./components/ui/group.js";
-import { PlotCanvas } from "./flow-canvas.js";
-import { useRunLiveEvents, type RunLiveMap } from "./live-events.js";
+import { ScrollArea } from "./components/ui/scroll-area.js";
+import { TooltipProvider } from "./components/ui/tooltip.js";
+import { laneSignature } from "./lanes.js";
+import { cn } from "./lib/utils.js";
+import { useRunLiveEvents } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
 import type { PlotRun } from "./run.js";
+import { ThemeProvider, ThemeToggle } from "./theme.js";
 
-interface PlotDetailEntry {
-	readonly error?: string | undefined;
-	readonly loading: boolean;
-	readonly projection?: WebDashboardProjection | undefined;
-}
+const errorText = (caught: unknown): string =>
+	caught instanceof Error ? caught.message : String(caught);
 
-interface PlotAppState {
-	readonly runs: readonly PlotRun[];
-	readonly live: RunLiveMap;
-	readonly details: Readonly<Record<string, PlotDetailEntry>>;
-	readonly openDetailKeys: readonly string[];
-	readonly error?: string | undefined;
-}
+const isLive = (run: PlotRun): boolean =>
+	run.status === "online" || run.status === "running";
 
-interface PlotAppContextValue {
-	readonly state: PlotAppState;
-	readonly actions: {
-		readonly closeDetail: (key: string) => void;
-		readonly openDetail: (key: string) => void;
-		readonly reload: () => Promise<void>;
-		readonly spawn: (input: {
-			readonly cwd?: string;
-			readonly workflowPath?: string;
-		}) => Promise<void>;
-	};
-	readonly meta: { readonly pollMs: number };
-}
-
-const PlotAppContext = createContext<PlotAppContextValue | null>(null);
-
-const usePlotApp = (): PlotAppContextValue => {
-	const value = use(PlotAppContext);
-	if (value === null) throw new Error("PlotAppContext missing");
-	return value;
-};
-
-const sortRuns = (runs: readonly PlotRun[]) =>
+/** Live sessions first, then most recently seen. */
+const sortRuns = (runs: readonly PlotRun[]): readonly PlotRun[] =>
 	runs.toSorted((left, right) => {
-		const project = left.cwd.localeCompare(right.cwd);
-		if (project !== 0) return project;
+		const alive = Number(isLive(right)) - Number(isLive(left));
+		if (alive !== 0) return alive;
 		return (
 			Date.parse(right.lastSeenAt ?? right.createdAt) -
 			Date.parse(left.lastSeenAt ?? left.createdAt)
 		);
 	});
 
-function PlotAppProvider({ children }: { readonly children: ReactNode }) {
-	const pollMs = 10_000;
+const runDot = (status: string): string | undefined =>
+	status === "online" || status === "running"
+		? "bg-success"
+		: status === "error" || status === "failed"
+			? "bg-destructive"
+			: undefined;
+
+const formatSeen = (run: PlotRun): string => {
+	const ms = Date.parse(run.lastSeenAt ?? run.createdAt);
+	if (!Number.isFinite(ms)) return "";
+	const seconds = Math.max(0, Math.round((Date.now() - ms) / 1000));
+	if (seconds < 60) return `${seconds}s ago`;
+	if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+	return `${Math.round(seconds / 3600)}h ago`;
+};
+
+/** Animate lane moves with native view transitions when available. */
+const commitProjection = (moved: boolean, commit: () => void): void => {
+	if (moved && typeof document.startViewTransition === "function") {
+		document.startViewTransition(() => flushSync(commit));
+	} else {
+		commit();
+	}
+};
+
+function SessionRail({
+	onSelect,
+	runs,
+	selectedId,
+}: {
+	readonly onSelect: (id: string) => void;
+	readonly runs: readonly PlotRun[];
+	readonly selectedId: string | undefined;
+}) {
+	useHeartbeat();
+	return (
+		<aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar">
+			<div className="flex items-center border-b px-4 py-2.5">
+				<span className="font-semibold">Plot</span>
+				<span className="ml-2 text-xs text-muted-foreground">
+					{runs.length} session{runs.length === 1 ? "" : "s"}
+				</span>
+				<div className="ml-auto">
+					<ThemeToggle />
+				</div>
+			</div>
+			<ScrollArea className="min-h-0 flex-1" scrollFade>
+				<nav className="space-y-1 p-2">
+					{runs.map((run) => (
+						<button
+							key={run.id}
+							type="button"
+							onClick={() => onSelect(run.id)}
+							className={cn(
+								"w-full rounded-md px-3 py-2 text-left hover:bg-sidebar-accent",
+								run.id === selectedId && "bg-sidebar-accent",
+							)}
+						>
+							<div className="flex items-center gap-2">
+								<Dot className={cn("size-2", runDot(run.status))} />
+								<span className="truncate text-sm font-medium text-sidebar-accent-foreground">
+									{run.workflowName ?? run.id}
+								</span>
+							</div>
+							<div className="truncate pl-4 text-xs text-muted-foreground">
+								{run.cwdName ?? run.cwd} · {formatSeen(run)}
+							</div>
+						</button>
+					))}
+				</nav>
+			</ScrollArea>
+		</aside>
+	);
+}
+
+export function PlotApp() {
 	const [runs, setRuns] = useState<readonly PlotRun[]>([]);
 	const [error, setError] = useState<string>();
-	const [openDetailKeys, setOpenDetailKeys] = useState<readonly string[]>([]);
-	const [details, setDetails] = useState<
-		Readonly<Record<string, PlotDetailEntry>>
-	>({});
-	const sortedRuns = useMemo(() => sortRuns(runs), [runs]);
+	const [selectedId, setSelectedId] = useState<string>();
+	const [board, setBoard] = useState<BoardState>({ loading: false });
+	const projectionRef = useRef<WebDashboardProjection>(undefined);
+
 	const updateRuns = useCallback(
 		(next: readonly PlotRun[]) => setRuns(sortRuns(next)),
 		[],
 	);
-	const live = useRunLiveEvents(sortedRuns, updateRuns);
-
-	const reload = async () => {
-		try {
-			setRuns(await fetchRuns());
-			setError(undefined);
-		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : String(caught));
-		}
-	};
-
-	const spawn = async (input: {
-		readonly cwd?: string;
-		readonly workflowPath?: string;
-	}) => {
-		try {
-			const run = await createRun(input);
-			setRuns((current) => sortRuns([run, ...current]));
-			setError(undefined);
-		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : String(caught));
-		}
-	};
-
-	const openDetail = (key: string) => {
-		setOpenDetailKeys((keys) => (keys.includes(key) ? keys : [...keys, key]));
-		setDetails((previous) => ({
-			...previous,
-			[key]: { loading: true, projection: previous[key]?.projection },
-		}));
-		void (async () => {
-			try {
-				const projection = await fetchRunProjection(key);
-				setDetails((previous) => ({
-					...previous,
-					[key]: { loading: false, projection },
-				}));
-			} catch (caught) {
-				setDetails((previous) => ({
-					...previous,
-					[key]: {
-						error: caught instanceof Error ? caught.message : String(caught),
-						loading: false,
-						projection: previous[key]?.projection,
-					},
-				}));
-			}
-		})();
-	};
-
-	const closeDetail = (key: string) => {
-		setOpenDetailKeys((keys) => keys.filter((item) => item !== key));
-	};
-
-	const detailStreamSignature = openDetailKeys
-		.filter((key) => details[key]?.projection !== undefined)
-		.toSorted()
-		.join("\0");
+	useRunLiveEvents(runs, updateRuns);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -154,183 +139,145 @@ function PlotAppProvider({ children }: { readonly children: ReactNode }) {
 			try {
 				const next = await fetchRuns();
 				if (!cancelled) {
-					setRuns(next);
+					setRuns(sortRuns(next));
 					setError(undefined);
 				}
 			} catch (caught) {
-				if (!cancelled)
-					setError(caught instanceof Error ? caught.message : String(caught));
+				if (!cancelled) setError(errorText(caught));
 			}
 		};
 		void load();
-		const interval = setInterval(() => void load(), pollMs);
+		const interval = setInterval(() => void load(), 10_000);
 		return () => {
 			cancelled = true;
 			clearInterval(interval);
 		};
 	}, []);
 
+	const effectiveId =
+		selectedId !== undefined && runs.some((run) => run.id === selectedId)
+			? selectedId
+			: runs[0]?.id;
+	const selectedRun = runs.find((run) => run.id === effectiveId);
+	const selectedIsLive = selectedRun !== undefined && isLive(selectedRun);
+
 	useEffect(() => {
-		const sources = openDetailKeys.flatMap((key) => {
-			const projection = details[key]?.projection;
-			if (projection === undefined) return [];
-			const source = new EventSource(runEventsUrl(key, projection.frontier));
-			source.addEventListener("plot", (message) => {
-				const record = parsePlotEventRecord(
-					JSON.parse(message.data) as unknown,
+		projectionRef.current = undefined;
+		if (effectiveId === undefined) {
+			setBoard({ loading: false });
+			return;
+		}
+		let cancelled = false;
+		let source: EventSource | undefined;
+		setBoard({ loading: true });
+		void (async () => {
+			try {
+				const initial = await fetchRunProjection(effectiveId);
+				if (cancelled) return;
+				projectionRef.current = initial;
+				setBoard({ loading: false, live: true, projection: initial });
+				// Ended sessions serve a replayed history board; nothing to stream.
+				if (!selectedIsLive) return;
+				source = new EventSource(runEventsUrl(effectiveId, initial.frontier));
+				source.addEventListener("open", () =>
+					setBoard((previous) => ({ ...previous, live: true })),
 				);
-				if (record === undefined) return;
-				setDetails((previous) => {
-					const current = previous[key];
-					if (current?.projection === undefined) return previous;
-					return {
-						...previous,
-						[key]: {
-							...current,
-							projection: applyProjectionEvent(current.projection, record),
-						},
-					};
+				// EventSource auto-reconnects (resuming via Last-Event-ID); we only
+				// surface the gap so the operator knows the board may lag.
+				source.addEventListener("error", () =>
+					setBoard((previous) => ({ ...previous, live: false })),
+				);
+				source.addEventListener("plot", (message) => {
+					const record = parsePlotEventRecord(
+						JSON.parse(message.data) as unknown,
+					);
+					const current = projectionRef.current;
+					if (record === undefined || current === undefined) return;
+					const next = applyProjectionEvent(current, record);
+					if (next === current) return;
+					projectionRef.current = next;
+					commitProjection(laneSignature(current) !== laneSignature(next), () =>
+						setBoard({ loading: false, projection: next }),
+					);
 				});
-			});
-			return [source];
-		});
+			} catch (caught) {
+				if (!cancelled) setBoard({ loading: false, error: errorText(caught) });
+			}
+		})();
 		return () => {
-			for (const source of sources) source.close();
+			cancelled = true;
+			source?.close();
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- one stream per opened detail; reducer owns frontier movement.
-	}, [detailStreamSignature]);
+	}, [effectiveId, selectedIsLive]);
 
-	return (
-		<PlotAppContext
-			value={{
-				state: {
-					runs: sortedRuns,
-					live,
-					details,
-					openDetailKeys,
-					error,
-				},
-				actions: { closeDetail, openDetail, reload, spawn },
-				meta: { pollMs },
-			}}
-		>
-			{children}
-		</PlotAppContext>
-	);
-}
-
-function PlotToolbar() {
-	const [cwd, setCwd] = useState("");
-	const [workflowPath, setWorkflowPath] = useState("");
-	const {
-		actions: { reload, spawn },
-		state: { runs },
-	} = usePlotApp();
-	const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
-		void spawn({
-			...(cwd.trim() === "" ? {} : { cwd: cwd.trim() }),
-			...(workflowPath.trim() === ""
-				? {}
-				: { workflowPath: workflowPath.trim() }),
-		});
+	const onStop = async (id: string) => {
+		try {
+			await stopRun(id);
+			setRuns(sortRuns(await fetchRuns()));
+		} catch (caught) {
+			setError(errorText(caught));
+		}
 	};
-	return (
-		<header className="toolbar">
-			<div className="plot-app-toolbar">
-				<div className="plot-app-toolbar-title">
-					<strong>Plot Dashboard</strong>
-					<span>{runs.length} run(s)</span>
-				</div>
-				<div className="plot-app-toolbar-actions">
-					<form className="plot-run-spawn-form" onSubmit={onSubmit}>
-						<input
-							aria-label="Project cwd"
-							placeholder="cwd (blank = gateway cwd)"
-							value={cwd}
-							onChange={(event) => setCwd(event.currentTarget.value)}
-						/>
-						<input
-							aria-label="Workflow path"
-							placeholder="workflow (optional)"
-							value={workflowPath}
-							onChange={(event) => setWorkflowPath(event.currentTarget.value)}
-						/>
-						<Button size="sm" type="submit">
-							Spawn
-						</Button>
-					</form>
-					<Group aria-label="Run actions">
-						<Button size="sm" variant="outline" onClick={() => void reload()}>
-							Refresh
-						</Button>
-					</Group>
-				</div>
-			</div>
-		</header>
-	);
-}
 
-function PlotCanvasRegion() {
-	const {
-		actions: { closeDetail, openDetail, reload },
-		state: { details, error, runs, live, openDetailKeys },
-	} = usePlotApp();
-	if (runs.length === 0) {
-		return (
-			<main className="canvas canvas-empty">
-				<Empty>
-					<EmptyHeader>
-						<EmptyTitle>No Plot runs</EmptyTitle>
-						<EmptyDescription>
-							Start one from this dashboard or run `plot tui --workflow
-							WORKFLOW.md`.
-						</EmptyDescription>
-					</EmptyHeader>
-					<EmptyContent>
-						{error ? (
-							<Alert variant="error">
+	const onAction = async (input: ObservationInput): Promise<boolean> => {
+		if (effectiveId === undefined) return false;
+		return recordObservation(effectiveId, input);
+	};
+
+	// Needs You reaches the tab bar; the operator is elsewhere by definition.
+	// ponytail: counts the selected session only; fleet-wide counts need
+	// registry support.
+	const blockedCount =
+		board.projection === undefined
+			? 0
+			: Object.values(board.projection.work).filter(
+					(work) => work.status === "blocked",
+				).length;
+	useEffect(() => {
+		document.title = blockedCount > 0 ? `(${blockedCount}) Plot` : "Plot";
+	}, [blockedCount]);
+
+	return (
+		<ThemeProvider>
+			<TooltipProvider>
+				<div className="flex h-full">
+					<SessionRail
+						runs={runs}
+						selectedId={effectiveId}
+						onSelect={setSelectedId}
+					/>
+					<main className="flex min-w-0 flex-1 flex-col">
+						{error !== undefined && (
+							<Alert
+								variant="error"
+								className="rounded-none border-x-0 border-t-0"
+							>
 								<AlertDescription>{error}</AlertDescription>
 							</Alert>
-						) : null}
-						<Button variant="outline" onClick={() => void reload()}>
-							Refresh
-						</Button>
-					</EmptyContent>
-				</Empty>
-			</main>
-		);
-	}
-	return (
-		<main className="canvas">
-			{error ? (
-				<Alert className="plot-canvas-alert" variant="error">
-					<AlertDescription>{error}</AlertDescription>
-				</Alert>
-			) : null}
-			<PlotCanvas
-				details={details}
-				live={live}
-				onCloseDetail={closeDetail}
-				onOpenDetail={openDetail}
-				openDetailKeys={openDetailKeys}
-				runs={runs}
-			/>
-		</main>
-	);
-}
-
-function PlotAppFrame({ children }: { readonly children: ReactNode }) {
-	return <div className="app">{children}</div>;
-}
-
-export function PlotApp() {
-	return (
-		<PlotAppProvider>
-			<PlotAppFrame>
-				<PlotToolbar />
-				<PlotCanvasRegion />
-			</PlotAppFrame>
-		</PlotAppProvider>
+						)}
+						{effectiveId === undefined || selectedRun === undefined ? (
+							<div className="grid flex-1 place-items-center">
+								<Empty>
+									<EmptyHeader>
+										<EmptyTitle>No Plot sessions</EmptyTitle>
+										<EmptyDescription>
+											Start one with `plot tui --workflow WORKFLOW.md`; it will
+											appear here live.
+										</EmptyDescription>
+									</EmptyHeader>
+								</Empty>
+							</div>
+						) : (
+							<SessionBoard
+								run={selectedRun}
+								state={board}
+								onAction={onAction}
+								onStop={() => void onStop(effectiveId)}
+							/>
+						)}
+					</main>
+				</div>
+			</TooltipProvider>
+		</ThemeProvider>
 	);
 }

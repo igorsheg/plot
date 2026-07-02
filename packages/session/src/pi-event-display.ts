@@ -202,6 +202,8 @@ export const compactPiEvent = (value: unknown): Record<string, unknown> => {
 	);
 	return {
 		...compactStringField("type", event["type"]),
+		...compactStringField("sessionFile", event["sessionFile"]),
+		...compactStringField("sessionId", event["sessionId"]),
 		...compactStringField("toolName", event["toolName"]),
 		...compactStringField("toolCallId", event["toolCallId"]),
 		...compactStringField("text", event["text"]),

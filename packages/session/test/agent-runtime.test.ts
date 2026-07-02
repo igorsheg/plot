@@ -181,3 +181,37 @@ test("runtime shutdown publishes shutdown and is idempotent", async () => {
 	});
 	expect(await runtime.shutdown()).toBe(true);
 });
+
+test("operator observations reach sources on the next tick", async () => {
+	let seen: { readonly type: string; readonly data?: unknown } | undefined;
+	const observingSource: WorkSource = {
+		id: sourceId("obs-test"),
+		reconcile: ({ snapshot }) => {
+			seen ??= snapshot.observations.find(
+				(observation) => observation.type === "operator_observation",
+			);
+			return [];
+		},
+	};
+	const runtime = makeAgentSessionRuntime({
+		id: "session-1",
+		sources: [observingSource],
+		runner,
+	});
+
+	const accepted = await runtime.recordOperatorObservation({
+		sourceId: "obs-test",
+		workKey: "work-1",
+		actionId: "approve",
+		actionLabel: "Approve",
+		actor: "web",
+	});
+	expect(accepted).toBe(true);
+	await runtime.tickOnce();
+	await runtime.shutdown();
+
+	const data = seen?.data as Record<string, unknown>;
+	expect(data["actionId"]).toBe("approve");
+	expect(data["actor"]).toBe("web");
+	expect(typeof data["timestamp"]).toBe("string");
+});

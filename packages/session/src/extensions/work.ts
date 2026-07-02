@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import {
 	sourceId,
 	subjectKey,
@@ -40,8 +41,9 @@ export const extensionWorkSchema = Schema.Struct({
 	title: optional(Schema.String),
 	url: optional(Schema.String),
 	subject: optional(Schema.String),
-	status: optional(Schema.Literals(["pending", "blocked"])),
+	status: optional(Schema.Literals(["pending", "blocked", "cancelled"])),
 	blockedReason: optional(Schema.String),
+	workspace: optional(NonEmptyString),
 	display: optional(displaySchema),
 	operatorActions: optional(Schema.Array(operatorActionSchema)),
 	context: optional(Schema.Unknown),
@@ -105,10 +107,15 @@ export const cleanWork = (work: ParsedExtensionWork): PlotExtensionWork => {
 		"url",
 		"subject",
 		"blockedReason",
+		"workspace",
 	] as const) {
 		const value = work[key];
 		if (value !== undefined) clean[key] = value;
 	}
+	if (work.workspace !== undefined && !isAbsolute(work.workspace))
+		throw new Error(
+			`work ${work.id} workspace must be an absolute path: ${work.workspace}`,
+		);
 	if (work.status !== undefined) clean.status = work.status;
 	if (work.display !== undefined) clean.display = cleanDisplay(work.display);
 	if (work.operatorActions !== undefined)
@@ -137,7 +144,11 @@ export const discoveredFactKey = (source: SourceId) =>
 	`extension.discovered:${source}`;
 export const releasedReason = (source: SourceId) =>
 	`work is no longer discovered by source ${source}`;
+export const cancelledReason = (source: SourceId) =>
+	`work was cancelled by source ${source}`;
 export const isBlocked = (work: PlotExtensionWork) => work.status === "blocked";
+export const isCancelled = (work: PlotExtensionWork) =>
+	work.status === "cancelled";
 export const toSubject = (work: PlotExtensionWork) =>
 	subjectKey(work.subject ?? work.id);
 
@@ -196,7 +207,13 @@ export const templateContextForWork = (
 	const metadata: Record<string, unknown> & { readonly id: string } = {
 		id: work.id,
 	};
-	for (const key of ["version", "title", "url", "subject"] as const) {
+	for (const key of [
+		"version",
+		"title",
+		"url",
+		"subject",
+		"workspace",
+	] as const) {
 		const value = work[key];
 		if (value !== undefined) metadata[key] = value;
 	}

@@ -16,6 +16,22 @@ POST   /api/runs
 DELETE /api/runs/:id
 GET    /api/runs/:id/events
 GET    /api/runs/:id/projection
+GET    /api/runs/:id/attempts/:runId/transcript
+POST   /api/runs/:id/observations
 ```
+
+`GET /api/runs/:id/attempts/:runId/transcript` serves the Agent Transcript of
+one Agent Run as display entries. The transcript file path is derived
+server-side from the projection (live or replayed); clients never name files.
+
+`POST /api/runs/:id/observations` records an Operator Observation for a
+blocked Work Item: `{ sourceId, workKey, actionId, actionLabel, comment? }`.
+The session's Source reconciles with it on the next tick.
+
+`GET /api/runs/:id/projection` serves live sessions from a snapshot. For
+stopped sessions it replays the durable Session History
+(`<runRegistryDir>/history/<runId>.jsonl`, written by the registry daemon)
+through the shared projection reducer and marks the response `replayed: true`,
+so the web shows a post-mortem board instead of an empty state.
 
 Use `plot api --http` when you want the API without opening a browser.

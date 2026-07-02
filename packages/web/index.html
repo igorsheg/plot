@@ -3,7 +3,16 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Plot Canvas</title>
+		<title>Plot</title>
+		<script>
+			// FOUC guard; must mirror src/theme.tsx resolution.
+			const mode = localStorage.getItem("plot:web:theme");
+			if (
+				mode === "dark" ||
+				(mode !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
+			)
+				document.documentElement.classList.add("dark");
+		</script>
 	</head>
 	<body>
 		<div id="root"></div>
