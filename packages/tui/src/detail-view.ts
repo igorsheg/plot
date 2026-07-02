@@ -1,3 +1,4 @@
+import { isRecord } from "@plot/common/primitives";
 import { formatDuration, type WorkRowModel } from "./dashboard-model.js";
 import {
 	asLine,
@@ -48,11 +49,21 @@ const workTrailLines = (
 	);
 };
 
+/** Labels of the Source-declared Operator Actions on a blocked Work Item. */
+const operatorActionLabels = (selected: WorkRowModel): readonly string[] =>
+	(selected.work.operatorActions ?? []).flatMap((action) => {
+		if (!isRecord(action)) return [];
+		const label = action["label"] ?? action["id"];
+		return typeof label === "string" ? [label] : [];
+	});
+
 const attentionLines = (selected: WorkRowModel): readonly DashboardLine[] => {
+	const actions = operatorActionLabels(selected);
 	const lines = [
 		...(selected.work.blockedReason === undefined
 			? []
 			: [selected.work.blockedReason]),
+		...(actions.length === 0 ? [] : [`actions: ${actions.join(" · ")}`]),
 		...(selected.status === "failed" ? [quoteActivity(selected.activity)] : []),
 		...(selected.stale ? [`stale · last event ${selected.lastEventAgo}`] : []),
 	];
