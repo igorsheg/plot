@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -34,8 +34,6 @@ interface GitHubPrReviewerConfig {
 	readonly maxOpenPrs: number;
 	/** Maximum changed-file rows included in the prompt context. */
 	readonly maxContextFiles: number;
-	/** Keep done work visible briefly so a posting run can exit cleanly. */
-	readonly doneGraceMs: number;
 }
 
 interface PullRequestFileInfo {
@@ -65,14 +63,12 @@ interface AnchorMarker {
 	readonly head: string;
 	readonly tier?: ReviewTier;
 	readonly url?: string;
-	readonly updatedAtMs?: number;
 }
 
 interface RawAnchorComment {
 	readonly id: number;
 	readonly body: string;
 	readonly url?: string;
-	readonly updatedAtMs?: number;
 }
 
 interface AnchorComment extends AnchorMarker, RawAnchorComment {}
@@ -165,12 +161,7 @@ const prWorkspacePath = (repo: string, prNumber: number) =>
 
 const parseConfig = (input: unknown): GitHubPrReviewerConfig => {
 	if (!isRecord(input))
-		return {
-			includeDrafts: true,
-			maxOpenPrs: 10,
-			maxContextFiles: 200,
-			doneGraceMs: 60_000,
-		};
+		return { includeDrafts: true, maxOpenPrs: 10, maxContextFiles: 200 };
 	const repo = stringField(input, "repo");
 	return {
 		includeDrafts: booleanField(input, "includeDrafts") ?? true,
@@ -180,7 +171,6 @@ const parseConfig = (input: unknown): GitHubPrReviewerConfig => {
 			numberField(input, "maxContextFiles"),
 			200,
 		),
-		doneGraceMs: positiveInteger(numberField(input, "doneGraceMs"), 60_000),
 	};
 };
 
@@ -353,16 +343,7 @@ const loadAnchorComments = async (
 			const body = stringField(comment, "body");
 			if (id === undefined || body === undefined) return [];
 			const url = stringField(comment, "html_url");
-			const updatedAt = stringField(comment, "updated_at");
-			const updatedAtMs = updatedAt === undefined ? NaN : Date.parse(updatedAt);
-			return [
-				{
-					id,
-					body,
-					...(url === undefined ? {} : { url }),
-					...(Number.isNaN(updatedAtMs) ? {} : { updatedAtMs }),
-				},
-			];
+			return [{ id, body, ...(url === undefined ? {} : { url }) }];
 		});
 };
 
@@ -429,7 +410,7 @@ const reviewStateLabel = (values: {
 }) => {
 	if (values.anchor === undefined) return "fresh";
 	if (values.anchor.head !== values.head) return "new head";
-	return values.anchor.status === "reviewing" ? "resume" : "done grace";
+	return "resume";
 };
 
 const contextBlock = (values: {
@@ -762,33 +743,24 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 				for (const { pr, anchor } of prsWithAnchors) {
 					const draftBlocked = pr.isDraft && !config.includeDrafts;
 					const head = pr.headRefOid ?? pr.headRefName;
-					const workspacePath = prWorkspacePath(repo, pr.number);
-					// eslint-disable-next-line no-await-in-loop -- work records are built sequentially for stable output order.
-					await mkdir(workspacePath, { recursive: true });
 					const headMatches =
 						anchor !== undefined && anchor.head === pr.headRefOid;
-					const doneGraceActive =
-						headMatches &&
-						anchor.status === "done" &&
-						anchor.updatedAtMs !== undefined &&
-						Date.now() - anchor.updatedAtMs <= config.doneGraceMs;
-					if (headMatches && anchor.status === "done" && !doneGraceActive)
-						continue;
+					// Reviewed at this head: stop discovering it. Plot drains the
+					// posting run gracefully; a new head rediscovers as new work.
+					if (headMatches && anchor.status === "done") continue;
 					const labels = [
 						...(draftBlocked ? ["blocked:draft"] : []),
-						...(doneGraceActive ? ["done"] : []),
 						reviewStateLabel({ anchor, head: pr.headRefOid }),
 					];
 					works.push(
 						work({
 							id: `github:${repo}:pr:${pr.number}`,
 							version: head,
-							...(draftBlocked || doneGraceActive
+							workspace: prWorkspacePath(repo, pr.number),
+							...(draftBlocked
 								? {
 										status: "blocked" as const,
-										blockedReason: draftBlocked
-											? "draft pull request"
-											: "review complete; releasing soon",
+										blockedReason: "draft pull request",
 									}
 								: {}),
 							title: `Review ${repo} PR #${pr.number}: ${pr.title}`,
@@ -806,7 +778,6 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 								labels,
 							},
 							context: {
-								workspace: { path: workspacePath },
 								github: {
 									repo,
 									prNumber: pr.number,

@@ -6,7 +6,7 @@ plot:
   queueCapacity: 64
   eventCapacity: 256
   eventBufferCapacity: 512
-  tickIntervalMs: 10000
+  tickIntervalMs: 30000
   maxRunDurationMs: 900000
   stallTimeoutMs: 120000
 agent:
@@ -22,7 +22,6 @@ extension:
     includeDrafts: false
     maxOpenPrs: 10
     maxContextFiles: 200
-    doneGraceMs: 60000
     # repo: owner/name   # optional; inferred once from the launch dir
 resources:
   contextFiles: true
@@ -38,13 +37,7 @@ resources:
       - You own review judgment, code investigation, severity, and final wording.
       - The PR anchor comment is durable review state. Local memory is disposable.
 
-      Core Plot invariants for the code you review:
-      - @plot/agent is provider-free, task-free, domain-free runtime machinery.
-      - The scheduler moat is `tick -> reconcile -> act`; reconciliation happens before dispatch.
-      - Machine API transport (`plot api --stdio`) prints only explicit Plot JSONL protocol records on stdout; logs and telemetry go to stderr.
-      - pi-mono integration belongs under @plot/session agent-session/pi-runner seams, never in @plot/agent.
-      - Auth/provider/model state is pi-native. Secrets never live in WORKFLOW.md.
-      - Avoid generic workflow engines, capability DSLs, barrels, and abstractions that are not earned.
+      Repository-specific review knowledge comes from the repository under review: its AGENTS.md, context files, and code conventions.
 ---
 
 # {{ workflow.name }}
@@ -66,7 +59,7 @@ Use those tools for diff coordinates and GitHub writes. Use normal `bash`, `git`
 ## Run contract
 
 1. Re-fetch PR truth yourself: `gh pr view`, `gh pr diff`, current reviews/comments, and the anchor comment. Treat extension facts as a starting snapshot.
-2. Prepare the extension-owned workspace at `{{ workspace.path }}` and check out the PR head.
+2. Prepare your workspace (your working directory, `{{ work.workspace }}`) and check out the PR head.
 3. Choose a review tier (`trivial`, `lite`, or `full`) and immediately call `upsert_review_anchor` with `status: "reviewing"`.
 4. Call `load_pr_diff_context`, then review the PR using the relevant lenses below. Do not spawn subagents. Do not run a phase machine.
 5. Sweep existing feedback before posting.
@@ -79,7 +72,7 @@ If the anchor already says `done` for this head, report `already done` and stop.
 
 ## Workspace
 
-You are already running inside your own durable per-PR workspace: `{{ workspace.path }}`. It is extension-owned, yours alone, and persists across ticks until the PR closes.
+Your working directory is your own durable per-PR workspace: `{{ work.workspace }}`. Plot created it before this run; it is yours alone and persists across ticks until the PR closes.
 
 - First tick or empty workspace: populate it with a shallow clone checked out at the PR head: `gh repo clone <owner/repo> . -- --depth 50` then `gh pr checkout <number>`.
 - Later ticks: `git fetch` and check out the current head SHA.
