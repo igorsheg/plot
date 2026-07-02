@@ -483,7 +483,9 @@ export function Inspector({
 							))}
 						</Section>
 					)}
-					{current?.transcript?.path !== undefined && (
+					{/* While streaming, the Now pane and timeline already narrate;
+					    the transcript is the retrospective record. */}
+					{current?.transcript?.path !== undefined && !current.streaming && (
 						<Section title="Agent transcript">
 							<TranscriptView
 								key={current.runId}
