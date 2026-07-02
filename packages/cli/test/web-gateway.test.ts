@@ -379,6 +379,7 @@ test("transcript falls back to history when the live snapshot lacks the referenc
 	const registry = {
 		spawn: async () => run,
 		stop: async () => run,
+		prune: async () => [],
 		list: async () => [run],
 		status: async () => run,
 		submit: async () =>
