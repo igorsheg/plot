@@ -9,6 +9,8 @@ import {
 	type WebDashboardProjection,
 } from "./api.js";
 import { SessionBoard, type BoardState } from "./board.js";
+import { Alert, AlertDescription } from "./components/ui/alert.js";
+import { Dot } from "./components/ui/dot.js";
 import {
 	Empty,
 	EmptyDescription,
@@ -38,12 +40,12 @@ const sortRuns = (runs: readonly PlotRun[]): readonly PlotRun[] =>
 		);
 	});
 
-const runDot = (status: string): string =>
+const runDot = (status: string): string | undefined =>
 	status === "online" || status === "running"
 		? "bg-success"
 		: status === "error" || status === "failed"
 			? "bg-destructive"
-			: "bg-muted-foreground/40";
+			: undefined;
 
 const formatSeen = (run: PlotRun): string => {
 	const ms = Date.parse(run.lastSeenAt ?? run.createdAt);
@@ -92,12 +94,7 @@ function SessionRail({
 						)}
 					>
 						<div className="flex items-center gap-2">
-							<span
-								className={cn(
-									"size-2 shrink-0 rounded-full",
-									runDot(run.status),
-								)}
-							/>
+							<Dot className={cn("size-2", runDot(run.status))} />
 							<span className="truncate text-sm font-medium text-sidebar-accent-foreground">
 								{run.workflowName ?? run.id}
 							</span>
@@ -209,9 +206,9 @@ export function PlotApp() {
 			/>
 			<main className="flex min-w-0 flex-1 flex-col">
 				{error !== undefined && (
-					<p className="border-b bg-destructive/8 px-4 py-2 text-xs text-destructive-foreground">
-						{error}
-					</p>
+					<Alert variant="error" className="rounded-none border-x-0 border-t-0">
+						<AlertDescription>{error}</AlertDescription>
+					</Alert>
 				)}
 				{effectiveId === undefined || selectedRun === undefined ? (
 					<div className="grid flex-1 place-items-center">
