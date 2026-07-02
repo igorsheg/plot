@@ -22,6 +22,23 @@ import { kindGlyph, operatorActionLabels, stageVariant } from "./work-card.js";
 const streamTail = (text: string): string =>
 	text.length > 2000 ? `…${text.slice(-2000)}` : text;
 
+/** Follow the tail of a growing log unless the operator scrolled back up. */
+const useTailFollow = (dep: unknown) => {
+	const ref = useRef<HTMLDivElement>(null);
+	const stick = useRef(true);
+	useEffect(() => {
+		const element = ref.current;
+		if (element !== null && stick.current)
+			element.scrollTop = element.scrollHeight;
+	}, [dep]);
+	const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+		const element = event.currentTarget;
+		stick.current =
+			element.scrollTop + element.clientHeight >= element.scrollHeight - 8;
+	};
+	return { ref, onScroll };
+};
+
 function Section({
 	children,
 	title,
@@ -84,16 +101,21 @@ function LiveVoice({
 				: undefined;
 	if (live !== undefined) held.current = live;
 	const shown = live ?? held.current;
+	const follow = useTailFollow(shown.text);
 	return (
 		<div className="space-y-0.5">
 			<div className="text-[10px] tracking-wide text-muted-foreground uppercase">
 				{shown.label}
 				{live === undefined && shown.text !== "" && " · last turn"}
 			</div>
-			{/* ponytail: column-reverse pins a growing turn to its tail for free;
-			    the coss scrollbar stays invisible until the operator scrolls back. */}
+			{/* Top-down prose that follows its own tail; the coss scrollbar
+			    stays invisible until the operator scrolls back. */}
 			<ScrollAreaPrimitive.Root className="min-h-0">
-				<ScrollAreaPrimitive.Viewport className="flex h-40 flex-col-reverse outline-none">
+				<ScrollAreaPrimitive.Viewport
+					ref={follow.ref}
+					onScroll={follow.onScroll}
+					className="h-40 outline-none"
+				>
 					<p
 						className={cn(
 							"font-mono text-xs whitespace-pre-wrap text-muted-foreground",
@@ -112,21 +134,12 @@ function LiveVoice({
 }
 
 function Timeline({ entries }: { readonly entries: readonly TimelineEntry[] }) {
-	const listRef = useRef<HTMLDivElement>(null);
-	const stick = useRef(true);
-	useEffect(() => {
-		const list = listRef.current;
-		if (list !== null && stick.current) list.scrollTop = list.scrollHeight;
-	}, [entries.length]);
+	const follow = useTailFollow(entries.length);
 	return (
 		<ScrollAreaPrimitive.Root className="min-h-0">
 			<ScrollAreaPrimitive.Viewport
-				ref={listRef}
-				onScroll={(event) => {
-					const list = event.currentTarget;
-					stick.current =
-						list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
-				}}
+				ref={follow.ref}
+				onScroll={follow.onScroll}
 				className="h-64 outline-none"
 			>
 				<ol className="space-y-0.5 text-xs">
