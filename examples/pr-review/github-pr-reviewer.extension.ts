@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { definePlotExtension, defineTool } from "plot-ai/sdk";
 import { parseDiffContext } from "./diff-context.ts";
-import { evaluatePr } from "./eligibility.ts";
+import { evaluatePr, firstSeenSeedMs } from "./eligibility.ts";
 import type { PrEligibility } from "./eligibility.ts";
 import type { OperatorAction, PlotExtensionWork } from "plot-ai/sdk";
 
@@ -76,6 +76,7 @@ interface PullRequestInfo {
 	readonly authorLogin?: string;
 	readonly mergeable?: string;
 	readonly checks?: ChecksSummary;
+	readonly updatedAt?: string;
 }
 
 interface AnchorMarker {
@@ -297,6 +298,7 @@ const parsePullRequest = (value: unknown): PullRequestInfo | undefined => {
 	const headRefOid = stringField(value, "headRefOid");
 	const mergeable = stringField(value, "mergeable");
 	const checks = summarizeChecks(value["statusCheckRollup"]);
+	const updatedAt = stringField(value, "updatedAt");
 	return {
 		number,
 		title,
@@ -315,6 +317,7 @@ const parsePullRequest = (value: unknown): PullRequestInfo | undefined => {
 		...(authorLogin === undefined ? {} : { authorLogin }),
 		...(mergeable === undefined ? {} : { mergeable }),
 		...(checks === undefined ? {} : { checks }),
+		...(updatedAt === undefined ? {} : { updatedAt }),
 	};
 };
 
@@ -325,7 +328,7 @@ const loadOpenPullRequests = async (
 	limit: number,
 ): Promise<PullRequestInfo[]> => {
 	const fields =
-		"number,title,body,isDraft,baseRefName,headRefName,url,author,headRefOid,additions,deletions,changedFiles,files,labels,mergeable,statusCheckRollup";
+		"number,title,body,isDraft,baseRefName,headRefName,url,author,headRefOid,additions,deletions,changedFiles,files,labels,mergeable,statusCheckRollup,updatedAt";
 	const listed = parseJson(
 		await command(cwd, "gh", [
 			"pr",
@@ -933,7 +936,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					const head = pr.headRefOid ?? pr.headRefName;
 					const headKey = `${id}@${head}`;
 					if (!headFirstSeenAtMs.has(headKey))
-						headFirstSeenAtMs.set(headKey, now);
+						headFirstSeenAtMs.set(headKey, firstSeenSeedMs(now, pr.updatedAt));
 					const skippedAtHead = skips.get(id);
 					const eligibility = evaluatePr({
 						pr: {

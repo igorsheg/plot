@@ -41,6 +41,16 @@ export type PrEligibility =
 
 const TITLE_OPT_OUT = /\[(?:skip[ -]review|no[ -]review)\]/i;
 
+/**
+ * Seed for the head-first-seen clock. GitHub's updatedAt is an upper bound on
+ * head age (a push bumps it), so settled PRs pass the quiet period immediately
+ * even on a fresh process. The min clamps clock skew back to local now.
+ */
+export const firstSeenSeedMs = (nowMs: number, updatedAt?: string): number => {
+	const parsed = updatedAt === undefined ? NaN : Date.parse(updatedAt);
+	return Number.isNaN(parsed) ? nowMs : Math.min(nowMs, parsed);
+};
+
 export const evaluatePr = (input: {
 	readonly pr: PrEligibilityFacts;
 	readonly anchor?: AnchorFacts;

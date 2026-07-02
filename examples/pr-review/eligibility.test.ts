@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { evaluatePr } from "./eligibility.ts";
+import { evaluatePr, firstSeenSeedMs } from "./eligibility.ts";
 import type { EligibilityConfig, PrEligibilityFacts } from "./eligibility.ts";
 
 const config: EligibilityConfig = {
@@ -22,6 +22,20 @@ const pr = (
 const settled = { headFirstSeenAtMs: 0, nowMs: 100_000 };
 const justPushed = { headFirstSeenAtMs: 0, nowMs: 10_000 };
 const idle = { rereviewRequested: false };
+
+describe("firstSeenSeedMs", () => {
+	test("seeds from updatedAt, clamped to now", () => {
+		const now = Date.parse("2026-07-02T12:00:00Z");
+		// settled PR: old updatedAt passes the quiet period immediately
+		expect(firstSeenSeedMs(now, "2026-06-30T08:00:00Z")).toBe(
+			Date.parse("2026-06-30T08:00:00Z"),
+		);
+		// clock skew or fresh push: never seeds in the future
+		expect(firstSeenSeedMs(now, "2026-07-02T12:05:00Z")).toBe(now);
+		expect(firstSeenSeedMs(now, "not a date")).toBe(now);
+		expect(firstSeenSeedMs(now)).toBe(now);
+	});
+});
 
 describe("evaluatePr", () => {
 	test("gates, holds, and review states", () => {
