@@ -195,6 +195,7 @@ export interface ObservationInput {
 	readonly actionId: string;
 	readonly actionLabel: string;
 	readonly comment?: string | undefined;
+	readonly clientId?: string | undefined;
 }
 
 export const recordObservation = async (

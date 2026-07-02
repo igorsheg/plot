@@ -133,6 +133,7 @@ const parseObservationBody = async (
 			readonly actionId: string;
 			readonly actionLabel: string;
 			readonly comment?: string;
+			readonly clientId?: string;
 	  }
 	| undefined
 > => {
@@ -152,12 +153,14 @@ const parseObservationBody = async (
 	)
 		return undefined;
 	const comment = stringField(body, "comment");
+	const clientId = stringField(body, "clientId");
 	return {
 		sourceId,
 		workKey,
 		actionId,
 		actionLabel,
 		...(comment === undefined ? {} : { comment }),
+		...(clientId === undefined ? {} : { clientId }),
 	};
 };
 

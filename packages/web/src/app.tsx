@@ -10,7 +10,7 @@ import {
 	type ObservationInput,
 	type WebDashboardProjection,
 } from "./api.js";
-import { SessionBoard, type BoardState } from "./board.js";
+import { SessionBoard, useHeartbeat, type BoardState } from "./board.js";
 import { Alert, AlertDescription } from "./components/ui/alert.js";
 import { Dot } from "./components/ui/dot.js";
 import {
@@ -79,6 +79,7 @@ function SessionRail({
 	readonly runs: readonly PlotRun[];
 	readonly selectedId: string | undefined;
 }) {
+	useHeartbeat();
 	return (
 		<aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar">
 			<div className="flex items-center border-b px-4 py-2.5">
@@ -173,8 +174,16 @@ export function PlotApp() {
 				const initial = await fetchRunProjection(effectiveId);
 				if (cancelled) return;
 				projectionRef.current = initial;
-				setBoard({ loading: false, projection: initial });
+				setBoard({ loading: false, live: true, projection: initial });
 				source = new EventSource(runEventsUrl(effectiveId, initial.frontier));
+				source.addEventListener("open", () =>
+					setBoard((previous) => ({ ...previous, live: true })),
+				);
+				// EventSource auto-reconnects (resuming via Last-Event-ID); we only
+				// surface the gap so the operator knows the board may lag.
+				source.addEventListener("error", () =>
+					setBoard((previous) => ({ ...previous, live: false })),
+				);
 				source.addEventListener("plot", (message) => {
 					const record = parsePlotEventRecord(
 						JSON.parse(message.data) as unknown,
@@ -211,6 +220,19 @@ export function PlotApp() {
 		if (effectiveId === undefined) return false;
 		return recordObservation(effectiveId, input);
 	};
+
+	// Needs You reaches the tab bar; the operator is elsewhere by definition.
+	// ponytail: counts the selected session only; fleet-wide counts need
+	// registry support.
+	const blockedCount =
+		board.projection === undefined
+			? 0
+			: Object.values(board.projection.work).filter(
+					(work) => work.status === "blocked",
+				).length;
+	useEffect(() => {
+		document.title = blockedCount > 0 ? `(${blockedCount}) Plot` : "Plot";
+	}, [blockedCount]);
 
 	return (
 		<ThemeProvider>

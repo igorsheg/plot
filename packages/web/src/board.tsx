@@ -29,8 +29,12 @@ import {
 export interface BoardState {
 	readonly loading: boolean;
 	readonly error?: string | undefined;
+	readonly live?: boolean | undefined;
 	readonly projection?: WebDashboardProjection | undefined;
 }
+
+const isRunLive = (run: PlotRun): boolean =>
+	run.status === "online" || run.status === "running";
 
 const statusVariant: Record<DashboardStatus, BadgeProps["variant"]> = {
 	starting: "info",
@@ -48,7 +52,7 @@ const toneDot: Record<string, string> = {
 	info: "bg-info",
 };
 
-const useHeartbeat = () => {
+export const useHeartbeat = () => {
 	const [, setBeat] = useState(0);
 	useEffect(() => {
 		const interval = setInterval(() => setBeat((beat) => beat + 1), 5000);
@@ -163,11 +167,51 @@ function BoardHeader({
 					</div>
 				)}
 			</div>
-			<Button size="sm" variant="outline" onClick={onStop}>
-				Stop
-			</Button>
+			{isRunLive(run) && (
+				<Button
+					size="sm"
+					variant="outline"
+					onClick={() => {
+						if (
+							window.confirm(
+								`Stop session "${projection?.workflowName ?? run.workflowName ?? run.id}"? Running agent work is interrupted.`,
+							)
+						)
+							onStop();
+					}}
+				>
+					Stop
+				</Button>
+			)}
 		</header>
 	);
+}
+
+/** The one thing a live dashboard must never do is silently go stale. */
+function LivenessBanner({
+	run,
+	state,
+}: {
+	readonly run: PlotRun;
+	readonly state: BoardState;
+}) {
+	if (state.projection === undefined) return null;
+	if (!isRunLive(run)) {
+		return (
+			<p className="border-b bg-muted/50 px-4 py-1.5 text-xs text-muted-foreground">
+				This session has ended · showing its last known state.
+			</p>
+		);
+	}
+	if (state.live === false) {
+		return (
+			<p className="border-b bg-warning/8 px-4 py-1.5 text-xs text-warning-foreground">
+				Live stream interrupted · reconnecting… the board may lag behind the
+				session.
+			</p>
+		);
+	}
+	return null;
 }
 
 function ActivityStrip({
@@ -209,6 +253,33 @@ function NoLiveBoard({
 	);
 }
 
+/** An idle board must read as "watching", not as "broken". */
+function WatchingForWork({
+	projection,
+}: {
+	readonly projection: WebDashboardProjection;
+}) {
+	const nextWake = projection.scheduledWakes
+		.map((wake) => wake.dueAtMs)
+		.toSorted((left, right) => left - right)[0];
+	return (
+		<div className="grid flex-1 place-items-center">
+			<Empty>
+				<EmptyHeader>
+					<EmptyTitle>Watching for work</EmptyTitle>
+					<EmptyDescription>
+						Sources scan on every tick; discovered Work Items appear here and
+						flow through the lanes.
+						{nextWake !== undefined && nextWake > Date.now()
+							? ` Next scan in ${formatDuration(nextWake - Date.now())}.`
+							: ""}
+					</EmptyDescription>
+				</EmptyHeader>
+			</Empty>
+		</div>
+	);
+}
+
 function LaneSkeletons() {
 	return (
 		<div className="flex flex-1 gap-3">
@@ -234,12 +305,21 @@ export function SessionBoard({
 	const selectedKey = useSelectedWorkKey();
 	const { projection } = state;
 	const lanes = projection === undefined ? undefined : deriveLanes(projection);
+	const boardEmpty =
+		lanes !== undefined &&
+		lanes.incoming.length === 0 &&
+		lanes.acting.length === 0 &&
+		lanes.needsYou.length === 0 &&
+		lanes.done.length === 0;
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<BoardHeader onStop={onStop} projection={projection} run={run} />
+			<LivenessBanner run={run} state={state} />
 			{projection !== undefined && <ActivityStrip projection={projection} />}
 			{state.error !== undefined && projection === undefined ? (
 				<NoLiveBoard error={state.error} run={run} />
+			) : boardEmpty && projection !== undefined ? (
+				<WatchingForWork projection={projection} />
 			) : (
 				<div className="flex min-h-0 flex-1">
 					{/* min-w-0: without it the lanes' intrinsic width beats the
