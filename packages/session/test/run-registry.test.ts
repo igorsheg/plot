@@ -522,3 +522,53 @@ test("runRegistry persists Session History and replays it after stop", async () 
 		empty.push(event);
 	expect(empty).toHaveLength(0);
 });
+
+test("runRegistry prune removes ended records and history, keeps live runs", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-prune-"));
+	const historyDir = join(cwd, "history");
+	const store = createMemoryRunStore();
+	let child: FakeChild | undefined;
+	const runRegistry = new RunRegistry({
+		cli: { command: "bun", args: ["main.ts"] },
+		cwd,
+		store,
+		id: () => "run-live",
+		now: () => "2026-01-01T00:00:00.000Z",
+		historyDir,
+		spawnChild: () => {
+			child = new FakeChild("session-live");
+			queueMicrotask(() =>
+				child?.emit({
+					protocol: "plot.session.v2",
+					kind: "welcome",
+					sessionId: "session-live",
+					limits: {
+						maxInputLineBytes: 1_000,
+						maxOutputLineBytes: 1_000,
+						maxPendingRequests: 4,
+						maxBufferedEvents: 4,
+					},
+				}),
+			);
+			return child;
+		},
+	});
+	await store.upsert({
+		id: "run-dead",
+		status: "stopped",
+		cwd,
+		createdAt: "2026-01-01T00:00:00.000Z",
+	});
+	await mkdir(historyDir, { recursive: true });
+	await writeFile(runHistoryPath(historyDir, "run-dead"), "{}\n");
+	await runRegistry.spawn();
+
+	const removed = await runRegistry.prune();
+
+	expect(removed.map((record) => record.id)).toEqual(["run-dead"]);
+	expect(existsSync(runHistoryPath(historyDir, "run-dead"))).toBe(false);
+	expect((await runRegistry.list()).map((record) => record.id)).toEqual([
+		"run-live",
+	]);
+	await runRegistry.stop("run-live");
+});
