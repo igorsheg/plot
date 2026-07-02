@@ -12,10 +12,15 @@ import type {
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import type {
-	AgentEventAppendInput,
-	EventLogRecord,
-	EventLogStore,
-} from "./event-log.js";
+	AgentEventInput,
+	SessionEventInput,
+	RuntimeEvent,
+} from "./runtime-event.js";
+import {
+	makeAgentEventRecord,
+	makeSessionEventRecord,
+} from "./runtime-event.js";
+import { compactPiEvent } from "./pi-event-display.js";
 import {
 	startOwnedTask,
 	type SessionRuntime,
@@ -26,13 +31,9 @@ import {
 
 export interface AgentSessionRuntimeOptions {
 	readonly id: string;
-	readonly eventLog: EventLogStore;
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
-	readonly state?: Omit<
-		SessionRuntimeState,
-		"sessionId" | "eventLogPath" | "lastSequence"
-	>;
+	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
 	readonly agent?: Omit<PlotAgentLayerOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
 }
@@ -93,7 +94,7 @@ export const makeAgentSessionRuntime = (
 	options: AgentSessionRuntimeOptions,
 ): SessionRuntime => {
 	const sessionId = nonEmpty(options.id, "session id");
-	const events = new EventHub<EventLogRecord>(options.eventCapacity ?? 256);
+	const events = new EventHub<RuntimeEvent>(options.eventCapacity ?? 256);
 	const agent: PlotAgentShape = makePlotAgentLayer({
 		...options.agent,
 		sources: options.sources,
@@ -101,12 +102,38 @@ export const makeAgentSessionRuntime = (
 	});
 	let shutdownPromise: Promise<boolean> | undefined;
 
-	const appendAndPublish = async (
-		append: () => Promise<EventLogRecord>,
-	): Promise<EventLogRecord> => {
-		const record = await append();
-		events.publish(record);
+	let liveSequence = 0;
+	const publish = (record: RuntimeEvent): RuntimeEvent => {
+		const liveRecord =
+			record.sequence > liveSequence
+				? record
+				: { ...record, sequence: liveSequence + 1 };
+		liveSequence = liveRecord.sequence;
+		events.publish(liveRecord);
+		return liveRecord;
+	};
+	const publishSessionEvent = async (
+		input: SessionEventInput,
+	): Promise<RuntimeEvent> => {
+		const record = publish(
+			makeSessionEventRecord({
+				sessionId,
+				sequence: liveSequence + 1,
+				event: input,
+			}),
+		);
 		return record;
+	};
+	const publishAgentEvent = async (
+		input: AgentEventInput,
+	): Promise<RuntimeEvent> => {
+		return publish(
+			makeAgentEventRecord({
+				sessionId,
+				sequence: liveSequence + 1,
+				event: { ...input, event: compactPiEvent(input.event) },
+			}),
+		);
 	};
 
 	const agentEvents = startOwnedTask({
@@ -114,10 +141,7 @@ export const makeAgentSessionRuntime = (
 		run: async (signal) => {
 			for await (const event of agent.events()) {
 				if (signal.aborted) return;
-				const input = agentEventInput(event);
-				await appendAndPublish(() =>
-					options.eventLog.appendSessionEvent(input),
-				);
+				await publishSessionEvent(agentEventInput(event));
 			}
 		},
 	});
@@ -125,17 +149,14 @@ export const makeAgentSessionRuntime = (
 	return {
 		id: sessionId,
 		start: async () => {
-			await appendAndPublish(() =>
-				options.eventLog.appendSessionEvent({ type: "session_started" }),
-			);
+			await publishSessionEvent({ type: "session_started" });
 			await agent.start();
 		},
 		tickOnce: async () => compactTickResult(await agent.tickOnce()),
 		state: async () => ({
 			sessionId,
 			...options.state,
-			eventLogPath: options.eventLog.path,
-			lastSequence: (await options.eventLog.frontier()).lastSequence,
+			lastSequence: liveSequence,
 		}),
 		snapshot: async () =>
 			snapshotForProtocol(sessionId, await agent.snapshot()),
@@ -143,17 +164,13 @@ export const makeAgentSessionRuntime = (
 		resumeDispatch: () => agent.resumeDispatch(),
 		interruptAgentRun: (input) => agent.interruptAgentRun(input),
 		events: () => events.subscribe(),
-		appendAgentEvent: (input: AgentEventAppendInput) =>
-			appendAndPublish(() => options.eventLog.appendAgentEvent(input)),
-		lastEventSequence: async () =>
-			(await options.eventLog.frontier()).lastSequence,
+		appendAgentEvent: publishAgentEvent,
+		lastEventSequence: async () => liveSequence,
 		shutdown: async () => {
 			shutdownPromise ??= (async () => {
 				const accepted = await agent.shutdown();
 				await agentEvents.done;
-				await appendAndPublish(() =>
-					options.eventLog.appendSessionEvent({ type: "session_shutdown" }),
-				);
+				await publishSessionEvent({ type: "session_shutdown" });
 				events.close();
 				return accepted;
 			})();

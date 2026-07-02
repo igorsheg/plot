@@ -3,11 +3,7 @@ import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent"
 import { setFact, sourceId, subjectKey, workKey } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import {
-	createEventLogSessionId,
-	createFileEventLogStore,
-	type EventLogStore,
-} from "./event-log.js";
+import { createSessionId } from "./runtime-event.js";
 import {
 	makeCreatePiAgentSession,
 	type AgentSessionOverrides,
@@ -37,12 +33,10 @@ export interface SessionHostMetadata {
 	readonly cwd: string;
 	readonly cwdName: string;
 	readonly sessionDir: string;
-	readonly eventLogPath: string;
 }
 
 export interface SessionHost {
 	readonly runtime: SessionRuntime;
-	readonly eventLog: EventLogStore;
 	readonly paths: SessionPaths;
 	readonly workflow: WorkflowDefinition;
 	readonly metadata: SessionHostMetadata;
@@ -191,14 +185,12 @@ const runnerCreateOptions = async (input: {
 const makeMetadata = (input: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
-	readonly eventLog: EventLogStore;
 }): SessionHostMetadata => ({
 	workflowName: workflowName(input.workflow),
 	workflowPath: input.workflow.path ?? "WORKFLOW.md",
 	cwd: input.paths.cwd,
 	cwdName: basename(input.paths.cwd),
 	sessionDir: input.paths.sessionDir,
-	eventLogPath: input.eventLog.path,
 });
 
 export const createSessionHost = async (
@@ -223,11 +215,7 @@ export const createSessionHost = async (
 	const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
 	const maxRunDurationMs = options.maxRunDurationMs ?? plot?.maxRunDurationMs;
 	const stallTimeoutMs = options.stallTimeoutMs ?? plot?.stallTimeoutMs;
-	const sessionId = options.sessionId ?? createEventLogSessionId();
-	const eventLog = await createFileEventLogStore({
-		sessionId,
-		sessionDir: paths.sessionDir,
-	});
+	const sessionId = options.sessionId ?? createSessionId();
 	const extensionBundle = workflow.runtime.extension
 		? await makePlotExtensionSourceBundleFromWorkflow({ workflow, paths })
 		: undefined;
@@ -275,10 +263,9 @@ export const createSessionHost = async (
 		agentOptions.maxRunDurationMs = maxRunDurationMs;
 	if (stallTimeoutMs !== undefined)
 		agentOptions.stallTimeoutMs = stallTimeoutMs;
-	const metadata = makeMetadata({ workflow, paths, eventLog });
+	const metadata = makeMetadata({ workflow, paths });
 	const runtimeOptions: AgentSessionRuntimeOptions = {
 		id: sessionId,
-		eventLog,
 		sources,
 		runner: extensionBundle?.wrapRunner(runner) ?? runner,
 		state: {
@@ -302,7 +289,6 @@ export const createSessionHost = async (
 	});
 	return {
 		runtime,
-		eventLog,
 		paths,
 		workflow,
 		metadata,

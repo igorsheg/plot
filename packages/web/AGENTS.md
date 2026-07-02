@@ -41,8 +41,8 @@ components/ui/*    copied coss primitives only when used
 
 ```text
 runRegistry canvas: /api/runs + SSE after run.lastSequence
-session detail: /api/runs/:id/projection + SSE after projection.frontier
-raw events: durable source of truth, not a default browser replay path
+session detail: /api/runs/:id/projection + live SSE after projection.frontier
+raw events: live transport only, never durable browser replay
 ```
 
-Keep runRegistry O(number of runs), not O(total event log size).
+Keep runRegistry O(number of runs).

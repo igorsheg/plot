@@ -3,6 +3,8 @@ import { defineCommand, type ParsedArgs } from "citty";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
 import { str } from "../options.js";
+import { jsonlLines, stringifyJsonl } from "@plot/session/jsonl";
+import { defaultProtocolLimits } from "@plot/session/protocol";
 import type { RunIpcOptions } from "@plot/session/run-ipc";
 import {
 	resolveRunIpcSocketPath,
@@ -37,37 +39,30 @@ const streamEvents = async (args: ParsedArgs) => {
 	if (runId === undefined) throw new Error("run id required");
 	const after = str(args, "after");
 	const socket = createConnection(resolveRunIpcSocketPath(runIpcOptions(args)));
-	await new Promise<void>((resolve, reject) => {
-		socket.once("connect", resolve);
-		socket.once("error", reject);
-	});
-	socket.write(
-		`${JSON.stringify({
-			type: "protocol_stream",
-			id: runId,
-			...(after === undefined ? {} : { afterSequence: Number(after) }),
-		})}\n`,
-	);
-	let buffer = "";
-	await new Promise<void>((resolve, reject) => {
-		socket.on("error", reject);
-		socket.on("end", resolve);
-		socket.on("data", (chunk: Buffer | string) => {
-			buffer += chunk.toString();
-			void (async () => {
-				for (;;) {
-					const index = buffer.indexOf("\n");
-					if (index === -1) return;
-					const line = buffer.slice(0, index);
-					buffer = buffer.slice(index + 1);
-					if (line.trim() !== "") {
-						// eslint-disable-next-line no-await-in-loop -- preserve streamed run output order.
-						await io.writeStdout(`${line}\n`);
-					}
-				}
-			})().catch(reject);
+	try {
+		await new Promise<void>((resolve, reject) => {
+			socket.once("connect", resolve);
+			socket.once("error", reject);
 		});
-	});
+		socket.write(
+			stringifyJsonl(
+				{
+					type: "protocol_stream",
+					id: runId,
+					...(after === undefined ? {} : { afterSequence: Number(after) }),
+				},
+				{ maxLineBytes: defaultProtocolLimits.maxOutputLineBytes },
+			),
+		);
+		for await (const line of jsonlLines(socket, {
+			maxLineBytes: defaultProtocolLimits.maxOutputLineBytes,
+		})) {
+			// eslint-disable-next-line no-await-in-loop -- preserve streamed run output order.
+			if (line.trim() !== "") await io.writeStdout(`${line}\n`);
+		}
+	} finally {
+		socket.destroy();
+	}
 };
 
 const runIdArg = {

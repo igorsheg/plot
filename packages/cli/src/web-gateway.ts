@@ -1,20 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { open } from "node:fs/promises";
-import { basename, join } from "node:path";
-import {
-	decodeEventLogRecord,
-	type EventLogRecord,
-} from "@plot/session/event-log";
-import {
-	emptyJsonlDecodeState,
-	splitJsonl,
-	type JsonlDecodeState,
-} from "@plot/session/jsonl";
+import { basename } from "node:path";
 import { openOrStartRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
-import type { RunRecord } from "@plot/session/run-registry";
+import type { RunRecord, RunRegistryRuntime } from "@plot/session/run-registry";
+import { isRecord } from "@plot/common/primitives";
+import { sessionProtocolVersion } from "@plot/session/protocol";
 import {
+	applySnapshot,
 	emptyProjection,
-	rebuildProjectionFromEventLog,
 	serializeDashboardProjection,
 } from "@plot/session/projection";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
@@ -161,101 +154,24 @@ const parseAfterSequence = (input: {
 	return Math.max(header ?? 0, query ?? 0);
 };
 
-interface EventLogTailState {
-	readonly decoder: TextDecoder;
-	readonly jsonl: JsonlDecodeState;
-	readonly offset: number;
-}
-
-const initialEventLogTailState = (offset = 0): EventLogTailState => ({
-	decoder: new TextDecoder(),
-	jsonl: emptyJsonlDecodeState,
-	offset,
-});
-
-const parseEventLogLine = (line: string): EventLogRecord | undefined => {
-	try {
-		return decodeEventLogRecord(JSON.parse(line) as unknown);
-	} catch {
-		return undefined;
-	}
-};
-
-const readEventLogTail = async (input: {
-	readonly after: number;
-	readonly path: string;
-	readonly state: EventLogTailState;
-}): Promise<{
-	readonly events: readonly EventLogRecord[];
-	readonly state: EventLogTailState;
-}> => {
-	let file;
-	try {
-		file = await open(input.path, "r");
-	} catch {
-		return { events: [], state: input.state };
-	}
-	try {
-		const stats = await file.stat();
-		let state =
-			stats.size < input.state.offset
-				? initialEventLogTailState()
-				: input.state;
-		const events: EventLogRecord[] = [];
-		const buffer = Buffer.alloc(64 * 1024);
-		while (state.offset < stats.size) {
-			// eslint-disable-next-line no-await-in-loop -- tailer reads sequential file offsets.
-			const { bytesRead } = await file.read(
-				buffer,
-				0,
-				Math.min(buffer.length, stats.size - state.offset),
-				state.offset,
-			);
-			if (bytesRead <= 0) break;
-			const nextOffset = state.offset + bytesRead;
-			const chunk = state.decoder.decode(buffer.subarray(0, bytesRead), {
-				stream: true,
-			});
-			const split = splitJsonl(state.jsonl, chunk, {
-				maxLineBytes: 2 * 1024 * 1024,
-			});
-			state = { ...state, jsonl: split.state, offset: nextOffset };
-			for (const line of split.lines) {
-				const event = parseEventLogLine(line);
-				if (event === undefined || Number(event.sequence) <= input.after)
-					continue;
-				events.push(event);
-			}
-		}
-		return { events, state };
-	} finally {
-		await file.close();
-	}
-};
-
-const readRunEventLog = async (
-	path: string,
-): Promise<readonly EventLogRecord[]> =>
-	(
-		await readEventLogTail({
-			after: -1,
-			path,
-			state: initialEventLogTailState(),
-		})
-	).events;
-
-const runEventLogPath = (run: RunRecord): string | undefined => {
-	if (run.eventLogPath !== undefined) return run.eventLogPath;
-	if (run.sessionId === undefined) return undefined;
-	return join(run.cwd, ".plot", "sessions", run.sessionId, "events.jsonl");
-};
-
-const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
-	const eventLogPath = runEventLogPath(run);
-	if (eventLogPath === undefined || run.sessionId === undefined)
+const runProjectionResponse = async (
+	run: RunRecord,
+	registry: RunRegistryRuntime,
+): Promise<Response> => {
+	if (run.sessionId === undefined)
 		return new Response("run not ready", { status: 409 });
-	const projection = rebuildProjectionFromEventLog(
-		await readRunEventLog(eventLogPath),
+	const response = await registry
+		.submit(run.id, {
+			protocol: sessionProtocolVersion,
+			kind: "request",
+			id: `web_projection_${randomUUID()}`,
+			command: "get_snapshot",
+		})
+		.catch(() => undefined);
+	if (response === undefined || response.kind !== "response" || !response.ok)
+		return new Response("run not live", { status: 409 });
+	const data = isRecord(response.data) ? response.data : {};
+	const projection = applySnapshot(
 		emptyProjection(run.sessionId, run.workflowName ?? "workflow", {
 			cwd: run.cwd,
 			cwdName: run.cwdName ?? basename(run.cwd),
@@ -263,6 +179,10 @@ const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
 			skills: [],
 			skillPaths: [],
 		}),
+		{
+			snapshot: data["snapshot"],
+			asOfSequence: response.lastSequence ?? data["lastSequence"],
+		},
 	);
 	return text({ projection: serializeDashboardProjection(projection) });
 };
@@ -392,7 +312,7 @@ export const startPlotWebGateway = async (
 					);
 					if (run === undefined)
 						return new Response("run not found", { status: 404 });
-					return runProjectionResponse(run);
+					return runProjectionResponse(run, runIpc.runRegistry);
 				}
 				if (url.pathname === "/api/health")
 					return text({ ok: true, socketPath: runIpc.socketPath });

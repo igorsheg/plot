@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { eventLogRecordSchema, type EventLogRecord } from "./event-log.js";
+import { runtimeEventSchema, type RuntimeEvent } from "./runtime-event.js";
 import {
 	NonEmptyString,
 	NonNegativeInteger,
@@ -57,7 +57,7 @@ export const eventRecordSchema = Schema.Struct({
 	protocol: Schema.Literal(sessionProtocolVersion),
 	kind: Schema.Literal("event"),
 	sequence: NonNegativeInteger,
-	event: eventLogRecordSchema,
+	event: runtimeEventSchema,
 });
 
 export const successResponseSchema = Schema.Struct({
@@ -102,7 +102,7 @@ export const serverRecordSchema = Schema.Union([
 export type ClientRequest = typeof clientRequestSchema.Type;
 export type WelcomeRecord = typeof welcomeRecordSchema.Type;
 export type EventRecord = Omit<typeof eventRecordSchema.Type, "event"> & {
-	readonly event: EventLogRecord;
+	readonly event: RuntimeEvent;
 };
 export type SuccessResponse = typeof successResponseSchema.Type;
 export type ErrorResponse = typeof errorResponseSchema.Type;

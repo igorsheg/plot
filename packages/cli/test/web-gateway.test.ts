@@ -1,8 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { createFileEventLogStore } from "@plot/session/event-log";
 import { startRunIpcServer } from "@plot/session/run-ipc";
 import type { RunRecord } from "@plot/session/run-registry";
 import { startPlotWebGateway } from "../src/web-gateway.js";
@@ -110,17 +109,8 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("tails run events as SSE", async () => {
+	test("run event SSE is live-only", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const sessionDir = join(dir, ".plot/sessions");
-		const eventLog = await createFileEventLogStore({
-			sessionDir,
-			sessionId: "default",
-		});
-		await eventLog.appendSessionEvent({
-			type: "session_started",
-			payload: { ok: true },
-		});
 		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		await writeRuns(registryDir, [
 			{
@@ -132,8 +122,6 @@ describe("Plot web gateway", () => {
 				sessionId: "default",
 				workflowName: "workflow",
 				cwdName: "project",
-				sessionDir,
-				eventLogPath: eventLog.path,
 				lastSequence: 1,
 			},
 		]);
@@ -149,14 +137,12 @@ describe("Plot web gateway", () => {
 			);
 			const reader = response.body!.getReader();
 			const decoder = new TextDecoder();
-			let text = "";
-			while (!text.includes("id: 1")) {
-				// eslint-disable-next-line no-await-in-loop -- test reads SSE until the expected event arrives.
-				const chunk = await reader.read();
-				if (chunk.done) break;
-				text += decoder.decode(chunk.value, { stream: true });
-			}
-			expect(text).toContain("session_started");
+			const chunk = await reader.read();
+			const text = chunk.done
+				? ""
+				: decoder.decode(chunk.value, { stream: true });
+			expect(text).toContain(": connected");
+			expect(text).not.toContain("session_started");
 		} finally {
 			clearTimeout(timeout);
 			abort.abort();
@@ -164,18 +150,8 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("serves a projected run snapshot", async () => {
+	test("projection endpoint is live-only", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const sessionDir = join(dir, ".plot/sessions");
-		const eventLog = await createFileEventLogStore({
-			sessionDir,
-			sessionId: "default",
-		});
-		await eventLog.appendSessionEvent({ type: "session_started", payload: {} });
-		await eventLog.appendSessionEvent({
-			type: "session_tick",
-			payload: { tickId: 7 },
-		});
 		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		try {
 			await writeRuns(registryDir, [
@@ -187,23 +163,14 @@ describe("Plot web gateway", () => {
 					lastSeenAt: new Date().toISOString(),
 					sessionId: "default",
 					workflowName: "workflow",
-					sessionDir,
 					lastSequence: 2,
 				},
 			]);
 			const response = await fetch(
 				new URL("/api/runs/run-1/projection", gateway.url),
 			);
-			const body = (await response.json()) as {
-				readonly projection?: {
-					readonly frontier?: number;
-					readonly work?: unknown;
-					readonly runtime?: { readonly cwdName?: string };
-				};
-			};
-			expect(body.projection?.frontier).toBe(2);
-			expect(body.projection?.work).toEqual({});
-			expect(body.projection?.runtime?.cwdName).toBe(basename(dir));
+			expect(response.status).toBe(409);
+			expect(await response.text()).toContain("run not live");
 		} finally {
 			await stop();
 		}

@@ -13,7 +13,6 @@ export interface PlotRun {
 	readonly workflowPath?: string | undefined;
 	readonly cwdName?: string | undefined;
 	readonly sessionDir?: string | undefined;
-	readonly eventLogPath?: string | undefined;
 	readonly lastSequence?: number | undefined;
 	readonly lastEventType?: string | undefined;
 }
@@ -30,7 +29,6 @@ const plotRunSchema = Schema.Struct({
 	workflowPath: optional(Schema.String),
 	cwdName: optional(Schema.String),
 	sessionDir: optional(Schema.String),
-	eventLogPath: optional(Schema.String),
 	lastSequence: optional(Schema.Number),
 	lastEventType: optional(Schema.String),
 });

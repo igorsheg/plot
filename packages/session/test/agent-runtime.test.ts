@@ -1,14 +1,8 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { createFileEventLogStore } from "../src/event-log.js";
 import { makeAgentSessionRuntime } from "../src/agent-runtime.js";
-
-const tempSessionDir = () => mkdtemp(join(tmpdir(), "plot-runtime-"));
 
 const waitForEvent = async <A>(
 	iterable: AsyncIterable<A>,
@@ -45,14 +39,9 @@ const runner: WorkRunner = {
 	run: () => ({ output: "ok" }),
 };
 
-test("runtime projects agent events into the event log", async () => {
-	const eventLog = await createFileEventLogStore({
-		sessionDir: await tempSessionDir(),
-		sessionId: "session-1",
-	});
+test("runtime projects agent events into the live stream", async () => {
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		eventLog,
 		sources: [source],
 		runner,
 	});
@@ -69,28 +58,14 @@ test("runtime projects agent events into the event log", async () => {
 		kind: "session_event",
 		type: "tick_completed",
 	});
-	const persisted = (await eventLog.readAll()).records;
-	expect(persisted.map((record) => record.sequence)).toEqual(
-		persisted.map((_, index) => index + 1),
-	);
-	expect(
-		persisted.some(
-			(record) =>
-				record.kind === "session_event" && record.type === "tick_completed",
-		),
-	).toBe(true);
+	expect(await runtime.lastEventSequence()).toBe(tickCompleted.sequence);
 
 	await runtime.shutdown();
 });
 
 test("runtime publishes appended inner agent events", async () => {
-	const eventLog = await createFileEventLogStore({
-		sessionDir: await tempSessionDir(),
-		sessionId: "session-1",
-	});
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		eventLog,
 		sources: [],
 		runner,
 	});
@@ -117,22 +92,90 @@ test("runtime publishes appended inner agent events", async () => {
 	await runtime.shutdown();
 });
 
-test("runtime shutdown appends shutdown after agent event pump drains", async () => {
-	const eventLog = await createFileEventLogStore({
-		sessionDir: await tempSessionDir(),
-		sessionId: "session-1",
-	});
+test("runtime publishes compact inner agent events", async () => {
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		eventLog,
 		sources: [],
 		runner,
 	});
 
-	await runtime.start();
+	const events = runtime.events();
+	await runtime.appendAgentEvent({
+		sourceId: "runtime-test",
+		runId: "run-1",
+		workKey: "work-1",
+		event: {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "toolcall_delta",
+				contentIndex: 1,
+				delta: "big body",
+				partial: {
+					content: [
+						{
+							type: "thinking",
+							thinking: "reasoning",
+							thinkingSignature: "encrypted-large-payload",
+						},
+						{
+							type: "toolCall",
+							id: "tool-1",
+							name: "upsert_review_anchor",
+							arguments: { body: "large review body", path: "kept.md" },
+						},
+					],
+				},
+			},
+		},
+	});
+
+	const record = await waitForEvent(
+		events,
+		(entry) => entry.kind === "agent_event",
+	);
+	const encoded = JSON.stringify(record);
+	expect(encoded).not.toContain("encrypted-large-payload");
+	expect(encoded).not.toContain("large review body");
+	expect(record).toMatchObject({
+		kind: "agent_event",
+		event: {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "toolcall_delta",
+				partial: {
+					content: [
+						{ type: "thinking", thinking: "reasoning" },
+						{
+							type: "toolCall",
+							id: "tool-1",
+							name: "upsert_review_anchor",
+							arguments: { path: "kept.md" },
+						},
+					],
+				},
+			},
+		},
+	});
+
 	await runtime.shutdown();
-	const records = (await eventLog.readAll()).records;
-	expect(records.at(-1)).toMatchObject({
+});
+
+test("runtime shutdown publishes shutdown and is idempotent", async () => {
+	const runtime = makeAgentSessionRuntime({
+		id: "session-1",
+		sources: [],
+		runner,
+	});
+
+	const events = runtime.events();
+	await runtime.start();
+	const shutdown = waitForEvent(
+		events,
+		(record) =>
+			record.kind === "session_event" && record.type === "session_shutdown",
+	);
+	expect(await runtime.shutdown()).toBe(true);
+	expect(await shutdown).toMatchObject({
 		kind: "session_event",
 		type: "session_shutdown",
 	});
