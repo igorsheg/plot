@@ -86,7 +86,7 @@ const emptyRuntime: RuntimeIdentityProjection = {
 };
 
 const parseRuntime = (value: unknown): RuntimeIdentityProjection => {
-	const runtime = decodeOrUndefined(runtimeSchema, value, "preserve");
+	const runtime = decodeOrUndefined(runtimeSchema, value);
 	return runtime === undefined
 		? emptyRuntime
 		: {
@@ -99,7 +99,7 @@ const parseRuntime = (value: unknown): RuntimeIdentityProjection => {
 const parseActivity = (value: unknown): readonly WebActivityEntry[] => {
 	const entries = decodeOrUndefined(Schema.Array(Schema.Unknown), value) ?? [];
 	return entries.flatMap((entry) => {
-		const parsed = decodeOrUndefined(activityEntrySchema, entry, "preserve");
+		const parsed = decodeOrUndefined(activityEntrySchema, entry);
 		return parsed === undefined ? [] : [parsed];
 	});
 };
@@ -110,7 +110,6 @@ export const parsePlotEventRecord = (
 	const parsed = decodeOrUndefined(
 		Schema.Struct({ kind: Schema.Literal("event"), event: eventSchema }),
 		value,
-		"preserve",
 	);
 	return parsed === undefined
 		? undefined
@@ -140,11 +139,7 @@ export const parseProjection = (
 	const raw = envelope?.["projection"] ?? value;
 	const record = decodeOrUndefined(recordSchema, raw);
 	if (record === undefined) return undefined;
-	const required = decodeOrUndefined(
-		projectionRequiredSchema,
-		record,
-		"preserve",
-	);
+	const required = decodeOrUndefined(projectionRequiredSchema, record);
 	if (required === undefined) return undefined;
 	return {
 		...required,
@@ -152,7 +147,6 @@ export const parseProjection = (
 		usageTotals: decodeOrUndefined(
 			usageTotalsSchema,
 			record["usageTotals"],
-			"preserve",
 		) ?? {
 			tokens: 0,
 		},
