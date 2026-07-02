@@ -163,8 +163,3 @@ export const reduceRecord = (
 	projection: DashboardProjection,
 	input: ProjectableEventRecord,
 ): DashboardProjection => reduceProjectableEvent(projection, input.event);
-
-export const safeParseDashboardProjection = (value: unknown) => ({
-	success: true as const,
-	data: value as DashboardProjection,
-});
