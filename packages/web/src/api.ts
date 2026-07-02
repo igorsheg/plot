@@ -182,22 +182,11 @@ export const fetchRuns = async (): Promise<readonly PlotRun[]> => {
 	return parsePlotRuns(await response.json());
 };
 
-export const createRun = async (input: {
-	readonly cwd?: string;
-	readonly workflowPath?: string;
-}): Promise<PlotRun> => {
-	const response = await fetch("/api/runs", {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(input),
+export const stopRun = async (id: string): Promise<void> => {
+	const response = await fetch(`/api/runs/${encodeURIComponent(id)}`, {
+		method: "DELETE",
 	});
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	const runs = parsePlotRuns({
-		runs: [(await response.json()).run],
-	});
-	const run = runs[0];
-	if (run === undefined) throw new Error("invalid run response");
-	return run;
 };
 
 export const fetchRunProjection = async (

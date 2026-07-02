@@ -16,7 +16,6 @@
 		"@plot/session": "workspace:*",
 		"@tailwindcss/vite": "^4.3.1",
 		"@vitejs/plugin-react": "latest",
-		"@xyflow/react": "^12.10.1",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"effect": "4.0.0-beta.78",
