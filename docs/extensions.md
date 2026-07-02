@@ -93,6 +93,8 @@ Discovery output drives scheduling. There are exactly four situations:
 - **`cancelled`** — the one state that interrupts a running attempt and releases the claim immediately.
 - **Absent from discovery** — the work drains: an active run finishes its current turn without continuation turns, then the claim is released without redispatch. A run that made its own work done is never interrupted for succeeding.
 
+Failed and timed-out runs redispatch with exponential backoff (10s doubling, 5m cap). Success, interruption, or the work disappearing or changing version resets the counter.
+
 ## Discovery failure contract
 
 Returning an empty array from `discover` means every previously discovered Work Item is done or gone: active runs drain and claims are released.

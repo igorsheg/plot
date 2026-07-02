@@ -305,7 +305,60 @@ describe("extension source adapter", () => {
 		]);
 		expect((await agent.snapshot()).work.has(key)).toBe(false);
 		expect(third.started).toHaveLength(0);
+		// Interruption is a deliberate act, not a failure: no retry backoff.
+		expect(
+			third.proposals.filter((p) => p.type === "schedule_wake"),
+		).toHaveLength(0);
 		expect(lifecycle).toEqual(["interrupted:work:1"]);
+	});
+
+	test("failed runs hold redispatch behind exponential retry backoff", async () => {
+		let runs = 0;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "retry", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [{ id: "work:1", version: "v1" }],
+			},
+		});
+		const runner: WorkRunner = bundle.wrapRunner({
+			run: () => {
+				runs++;
+				throw new Error("boom");
+			},
+		});
+		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const key = workKey("extension:retry:work:1:v1");
+
+		const first = await agent.tickOnce();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const second = await agent.tickOnce();
+		const third = await agent.tickOnce();
+		const snapshot = await agent.snapshot();
+
+		expect(first.started).toHaveLength(1);
+		expect(second.completions).toEqual([
+			expect.objectContaining({ status: "failed" }),
+		]);
+		expect(second.proposals).toContainEqual(
+			expect.objectContaining({
+				type: "schedule_wake",
+				delayMs: 10_000,
+				attempt: 1,
+				workKey: key,
+			}),
+		);
+		// Work is rediscovered but held while the retry wake is pending.
+		expect(third.started).toHaveLength(0);
+		expect(runs).toBe(1);
+		expect(snapshot.facts.get("extension.retry:extension:retry")).toEqual({
+			[String(key)]: 1,
+		});
+		expect(snapshot.scheduledWakes).toContainEqual(
+			expect.objectContaining({ workKey: key, attempt: 1 }),
+		);
 	});
 
 	test("workspace is created before the run and becomes the session cwd", async () => {
