@@ -37,10 +37,12 @@ const workTrailLines = (
 		attempt.streaming || attempt.timeline.length === 0
 			? [{ age: "now", text: quoteActivity(selected.activity) }]
 			: [];
+	// Chronological tail: newest entries sit at the bottom, next to the live
+	// row. (toReversed().slice(-n) kept the oldest entries, so the trail froze
+	// once it outgrew the window.)
 	const history = attempt.timeline
-		.toReversed()
-		.map((entry) => ({ age: trailAge(entry.atMs, nowMs), text: entry.text }))
-		.slice(-(trailWindowRows - live.length));
+		.slice(-(trailWindowRows - live.length))
+		.map((entry) => ({ age: trailAge(entry.atMs, nowMs), text: entry.text }));
 	return [...history, ...live].map((entry) =>
 		item(`  ${cell(entry.age, 8, style.dim)} ${entry.text}`),
 	);
