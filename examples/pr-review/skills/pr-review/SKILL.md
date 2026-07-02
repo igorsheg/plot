@@ -1,40 +1,24 @@
 ---
 name: pr-review
-description: High-agency GitHub pull request review. Use for reviewing PRs with bash, git, gh, ripgrep, and repository access. Focuses on dynamic architecture understanding, behavioral path verification, test coverage, evidence-backed findings, and concise GitHub-ready reports.
-version: 1.0.0
+description: Investigation method for high-agency GitHub pull request review with bash, git, gh, ripgrep, and repository access. Covers architecture exploration, behavior-path verification, and test analysis. Templates, severities, posting protocol, and voice are owned by the workflow.
+version: 2.0.0
 ---
 
 # PR Review Skill
 
 You are not a checklist executor. You are a senior reviewer with codebase access. Use the repository, `gh`, `git`, `rg`, tests, and judgment.
 
+This skill owns the **investigation method**. When the active workflow defines tiers, templates, severity rubrics, posting protocol, or voice, the workflow wins — do not substitute the versions from this skill's older revisions or from your own defaults.
+
 ## Core stance
 
 - Build your own understanding before judging.
 - Prefer verified findings over broad advice.
 - Do not flag issues you have not proved in code.
-- Do not pad reports with empty sections.
-- Match review depth to PR risk.
-- Use GitHub review structure well: one concise top-level review body plus inline review threads for line-specific findings. The body should summarize, not repeat inline findings. A single blob comment is a fallback, not the preferred shape.
-- When the workflow registers `load_pr_diff_context`, use it for inline coordinates. When it registers `upsert_review_anchor` or `post_pr_review`, use those for writes instead of hand-rolled `gh api` payloads.
-- Write to the PR author in second person, consequence first, identifiers in backticks, no hedging when you have evidence, no bot phrasing, no emojis. Follow the workflow's Voice section when one exists.
+- Match review depth to PR risk. When in doubt, go deeper for code that owns runtime state, external boundaries, or irreversible side effects.
+- One concise review body plus inline threads for line-specific findings. The body summarizes; it does not repeat inline findings.
 
-## 1. Identify the target
-
-Use one or more:
-
-```bash
-gh pr view --json number,title,isDraft,baseRefName,headRefName,url,author,headRefOid,additions,deletions,changedFiles
-gh pr view <number> --json number,title,isDraft,baseRefName,headRefName,url,author,headRefOid,files,commits,additions,deletions
-git branch --show-current
-gh repo view --json nameWithOwner -q '.nameWithOwner'
-```
-
-Skip draft PRs if the workflow says drafts should be skipped.
-
-## 2. Detect re-review
-
-Check whether you already reviewed this PR:
+## Detect prior reviews
 
 ```bash
 CURRENT_GH_USER=$(gh api user -q '.login')
@@ -44,19 +28,7 @@ gh api repos/<owner>/<repo>/pulls/<number>/reviews \
 
 If an older review exists, fetch its body and comments, inspect commits since then, verify old findings as resolved/still open, and only review new changes for new issues.
 
-## 3. Choose review depth
-
-| Depth            | Use when                                                                       |
-| ---------------- | ------------------------------------------------------------------------------ |
-| Tiny sanity      | One small docs/config/test-only change                                         |
-| Technical        | Normal implementation PR                                                       |
-| Logic deep dive  | State machines, lifecycle, concurrency, retry, protocol, runtime, API behavior |
-| Safety deep dive | Auth, secrets, money, filesystem paths, process/stdout boundary, dependencies  |
-| Full review      | Large, high-risk, cross-package, or unfamiliar architecture                    |
-
-When in doubt, go deeper for code that owns runtime state, external boundaries, or irreversible side effects.
-
-## 4. Build architecture context
+## Build architecture context
 
 Read `references/architecture-exploration.md` for the full method.
 
@@ -67,9 +39,11 @@ At minimum:
 3. Find callers and exported consumers with `rg`.
 4. Inspect related tests.
 5. Search sibling patterns for established conventions.
-6. For protocol/process/API changes, verify both producer and consumer sides.
+6. For boundary changes (APIs, wire formats, schemas, processes), verify both producer and consumer sides.
 
-## 5. Verify behavior paths
+For stacked PRs (base branch is not the main branch), read `references/stacked-prs.md`: review the delta this PR introduces, not the whole stack.
+
+## Verify behavior paths
 
 For each behavior-changing function, think through meaningful paths:
 
@@ -81,9 +55,9 @@ For each behavior-changing function, think through meaningful paths:
 - concurrency/running vs idle
 - old vs new behavior for fixes/refactors
 
-For high-risk paths, trace a concrete example. Do not approve with an unresolved “maybe”.
+For high-risk paths, trace a concrete example. Do not approve with an unresolved "maybe".
 
-## 6. Analyze tests
+## Analyze tests
 
 Read `references/testing-patterns.md`.
 
@@ -92,78 +66,8 @@ Tests are strong when they prove behavior, edge cases, and regressions. Tests ar
 Missing tests are serious for:
 
 - new public API/command
-- protocol/process boundary behavior
+- boundary behavior (protocol, process, persistence)
 - lifecycle/cancellation/shutdown changes
 - bug fixes without regression tests
 - error-handling changes
 - auth/secret/path behavior
-
-## 7. Produce the review
-
-Report size should match PR size.
-
-For small PRs:
-
-```md
-## Review Summary
-
-[What changed, what you verified, verdict.]
-
-No issues found.
-```
-
-For medium/large/high-risk PRs:
-
-```md
-## Review Summary
-
-[Concise summary.]
-
-### Architecture Context
-
-- Packages/modules inspected:
-- Entry points/callers inspected:
-- Tests inspected/run:
-
-### Findings
-
-#### **<sub><sub>![P0 Badge](https://img.shields.io/badge/P0-red?style=flat)</sub></sub> [Finding title: the consequence, not the category]** — `path:line`
-
-**Impact:** [What breaks, when, for whom — consequence first.]
-**Fix:** [The concrete change, named.]
-
-<details><summary>Evidence</summary>
-
-[The code that proves it — quote the conflicting lines with `path:line` references rather than describing them.]
-
-</details>
-
-### Confidence
-
-High/Medium/Low — [why].
-```
-
-Use priority badges/severities. Use raw Shields URLs, not GitHub Camo URLs; GitHub rewrites external images through Camo when rendering Markdown.
-
-- **<sub><sub>![P0 Badge](https://img.shields.io/badge/P0-red?style=flat)</sub></sub> P0**: correctness/security/data loss/boundary issue that should block merging.
-- **<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub> P1**: real issue that should be fixed but may not block.
-- **<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub> P2**: cleanup, maintainability, clarity.
-
-## 8. Post with GitHub tools
-
-When available, use the workflow tools:
-
-1. `upsert_review_anchor` with `status: "reviewing"` before long investigation.
-2. `load_pr_diff_context` before finalizing inline coordinates.
-3. `post_pr_review` once, with a lean body and inline `comments` for line-specific findings. Use `startLine` plus `line` for one nearby multi-line issue instead of scattering comments.
-4. `upsert_review_anchor` with `status: "done"` after the review post succeeds.
-
-For `post_pr_review`, use `event: "COMMENT"` for clean/suggestion/warning reviews and `event: "REQUEST_CHANGES"` only for verified blocking P0 findings. If inline coordinates are rejected, inspect the diff and retry once; if still brittle, post body-only.
-
-Fallback when no write tools exist:
-
-```bash
-gh pr review <number> --comment --body-file /tmp/review.md
-```
-
-When the workflow maintains a durable anchor comment, edit the existing anchor in place and never create a duplicate anchor.
