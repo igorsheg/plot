@@ -41,7 +41,7 @@ const runListObjectSchema = Schema.Struct({
 
 // Registry records grow fields over time; a stale watcher must not go blind.
 const parseRun = (value: unknown): PlotRun | undefined =>
-	decodeOrUndefined(plotRunSchema, value, "preserve");
+	decodeOrUndefined(plotRunSchema, value);
 
 export const parsePlotRuns = (value: unknown): readonly PlotRun[] => {
 	const rows = Array.isArray(value)
