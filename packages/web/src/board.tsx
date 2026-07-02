@@ -11,6 +11,7 @@ import {
 	EmptyHeader,
 	EmptyTitle,
 } from "./components/ui/empty.js";
+import { ScrollArea } from "./components/ui/scroll-area.js";
 import { Skeleton } from "./components/ui/skeleton.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import { Inspector } from "./inspector.js";
@@ -98,13 +99,15 @@ function Lane({
 					{count}
 				</Badge>
 			</header>
-			<div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-				{count === 0 ? (
-					<p className="px-1 py-2 text-xs text-muted-foreground/60">empty</p>
-				) : (
-					children
-				)}
-			</div>
+			<ScrollArea className="min-h-0 flex-1" scrollFade>
+				<div className="space-y-2 p-2">
+					{count === 0 ? (
+						<p className="px-1 py-2 text-xs text-muted-foreground/60">empty</p>
+					) : (
+						children
+					)}
+				</div>
+			</ScrollArea>
 		</section>
 	);
 }

@@ -8,6 +8,11 @@ import { createContext, use } from "react";
 import type { ReactNode } from "react";
 import { Badge, type BadgeProps } from "./components/ui/badge.js";
 import { Dot } from "./components/ui/dot.js";
+import {
+	Tooltip,
+	TooltipPopup,
+	TooltipTrigger,
+} from "./components/ui/tooltip.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import type { CompletedLaneItem, WorkLaneItem } from "./lanes.js";
 import { cn } from "./lib/utils.js";
@@ -153,9 +158,12 @@ function OperatorActions() {
 	return (
 		<div className="flex flex-wrap gap-1">
 			{actions.map((label) => (
-				<Badge key={label} size="sm" variant="warning">
-					{label}
-				</Badge>
+				<Tooltip key={label}>
+					<TooltipTrigger render={<Badge size="sm" variant="warning" />}>
+						{label}
+					</TooltipTrigger>
+					<TooltipPopup>Take this action from plot tui</TooltipPopup>
+				</Tooltip>
 			))}
 		</div>
 	);

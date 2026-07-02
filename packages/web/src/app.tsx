@@ -17,6 +17,8 @@ import {
 	EmptyHeader,
 	EmptyTitle,
 } from "./components/ui/empty.js";
+import { ScrollArea } from "./components/ui/scroll-area.js";
+import { TooltipProvider } from "./components/ui/tooltip.js";
 import { laneSignature } from "./lanes.js";
 import { cn } from "./lib/utils.js";
 import { useRunLiveEvents } from "./live-events.js";
@@ -82,29 +84,31 @@ function SessionRail({
 					{runs.length} session{runs.length === 1 ? "" : "s"}
 				</span>
 			</div>
-			<nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-				{runs.map((run) => (
-					<button
-						key={run.id}
-						type="button"
-						onClick={() => onSelect(run.id)}
-						className={cn(
-							"w-full rounded-md px-3 py-2 text-left hover:bg-sidebar-accent",
-							run.id === selectedId && "bg-sidebar-accent",
-						)}
-					>
-						<div className="flex items-center gap-2">
-							<Dot className={cn("size-2", runDot(run.status))} />
-							<span className="truncate text-sm font-medium text-sidebar-accent-foreground">
-								{run.workflowName ?? run.id}
-							</span>
-						</div>
-						<div className="truncate pl-4 text-xs text-muted-foreground">
-							{run.cwdName ?? run.cwd} · {formatSeen(run)}
-						</div>
-					</button>
-				))}
-			</nav>
+			<ScrollArea className="min-h-0 flex-1" scrollFade>
+				<nav className="space-y-1 p-2">
+					{runs.map((run) => (
+						<button
+							key={run.id}
+							type="button"
+							onClick={() => onSelect(run.id)}
+							className={cn(
+								"w-full rounded-md px-3 py-2 text-left hover:bg-sidebar-accent",
+								run.id === selectedId && "bg-sidebar-accent",
+							)}
+						>
+							<div className="flex items-center gap-2">
+								<Dot className={cn("size-2", runDot(run.status))} />
+								<span className="truncate text-sm font-medium text-sidebar-accent-foreground">
+									{run.workflowName ?? run.id}
+								</span>
+							</div>
+							<div className="truncate pl-4 text-xs text-muted-foreground">
+								{run.cwdName ?? run.cwd} · {formatSeen(run)}
+							</div>
+						</button>
+					))}
+				</nav>
+			</ScrollArea>
 		</aside>
 	);
 }
@@ -198,38 +202,43 @@ export function PlotApp() {
 	};
 
 	return (
-		<div className="flex h-full">
-			<SessionRail
-				runs={runs}
-				selectedId={effectiveId}
-				onSelect={setSelectedId}
-			/>
-			<main className="flex min-w-0 flex-1 flex-col">
-				{error !== undefined && (
-					<Alert variant="error" className="rounded-none border-x-0 border-t-0">
-						<AlertDescription>{error}</AlertDescription>
-					</Alert>
-				)}
-				{effectiveId === undefined || selectedRun === undefined ? (
-					<div className="grid flex-1 place-items-center">
-						<Empty>
-							<EmptyHeader>
-								<EmptyTitle>No Plot sessions</EmptyTitle>
-								<EmptyDescription>
-									Start one with `plot tui --workflow WORKFLOW.md`; it will
-									appear here live.
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
-					</div>
-				) : (
-					<SessionBoard
-						run={selectedRun}
-						state={board}
-						onStop={() => void onStop(effectiveId)}
-					/>
-				)}
-			</main>
-		</div>
+		<TooltipProvider>
+			<div className="flex h-full">
+				<SessionRail
+					runs={runs}
+					selectedId={effectiveId}
+					onSelect={setSelectedId}
+				/>
+				<main className="flex min-w-0 flex-1 flex-col">
+					{error !== undefined && (
+						<Alert
+							variant="error"
+							className="rounded-none border-x-0 border-t-0"
+						>
+							<AlertDescription>{error}</AlertDescription>
+						</Alert>
+					)}
+					{effectiveId === undefined || selectedRun === undefined ? (
+						<div className="grid flex-1 place-items-center">
+							<Empty>
+								<EmptyHeader>
+									<EmptyTitle>No Plot sessions</EmptyTitle>
+									<EmptyDescription>
+										Start one with `plot tui --workflow WORKFLOW.md`; it will
+										appear here live.
+									</EmptyDescription>
+								</EmptyHeader>
+							</Empty>
+						</div>
+					) : (
+						<SessionBoard
+							run={selectedRun}
+							state={board}
+							onStop={() => void onStop(effectiveId)}
+						/>
+					)}
+				</main>
+			</div>
+		</TooltipProvider>
 	);
 }

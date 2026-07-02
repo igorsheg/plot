@@ -8,6 +8,12 @@ import type { WebDashboardProjection } from "./api.js";
 import { Badge } from "./components/ui/badge.js";
 import { Button } from "./components/ui/button.js";
 import { Dot } from "./components/ui/dot.js";
+import { Kbd } from "./components/ui/kbd.js";
+import {
+	ScrollArea,
+	ScrollAreaPrimitive,
+	ScrollBar,
+} from "./components/ui/scroll-area.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import { cn } from "./lib/utils.js";
 import { kindGlyph, operatorActionLabels, stageVariant } from "./work-card.js";
@@ -76,46 +82,56 @@ function LiveStream({
 			<div className="text-[10px] tracking-wide text-muted-foreground uppercase">
 				{label}
 			</div>
-			<p
-				className={cn(
-					"max-h-40 overflow-y-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground",
-					!live && "opacity-50",
-				)}
-			>
-				{streamTail(shown)}
-			</p>
+			{/* ponytail: column-reverse pins a growing turn to its tail for free. */}
+			<div className="flex max-h-40 flex-col-reverse overflow-y-auto">
+				<p
+					className={cn(
+						"font-mono text-xs whitespace-pre-wrap text-muted-foreground",
+						!live && "opacity-50",
+					)}
+				>
+					{streamTail(shown)}
+				</p>
+			</div>
 		</div>
 	);
 }
 
 function Timeline({ entries }: { readonly entries: readonly TimelineEntry[] }) {
-	const listRef = useRef<HTMLOListElement>(null);
+	const listRef = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
 	useEffect(() => {
 		const list = listRef.current;
 		if (list !== null && stick.current) list.scrollTop = list.scrollHeight;
 	}, [entries.length]);
 	return (
-		<ol
-			ref={listRef}
-			onScroll={(event) => {
-				const list = event.currentTarget;
-				stick.current =
-					list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
-			}}
-			className="max-h-64 space-y-0.5 overflow-y-auto text-xs"
-		>
-			{entries.map((entry) => (
-				<li
-					key={`${entry.atMs}:${entry.text}`}
-					className="flex gap-1.5 text-muted-foreground"
-				>
-					<span className="shrink-0 font-mono">{kindGlyph[entry.kind]}</span>
-					<span className="min-w-0 flex-1 truncate">{entry.text}</span>
-					<span className="shrink-0">{formatAgo(entry.atMs)}</span>
-				</li>
-			))}
-		</ol>
+		<ScrollAreaPrimitive.Root className="min-h-0">
+			<ScrollAreaPrimitive.Viewport
+				ref={listRef}
+				onScroll={(event) => {
+					const list = event.currentTarget;
+					stick.current =
+						list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
+				}}
+				className="max-h-64 outline-none"
+			>
+				<ol className="space-y-0.5 text-xs">
+					{entries.map((entry) => (
+						<li
+							key={`${entry.atMs}:${entry.text}`}
+							className="flex gap-1.5 text-muted-foreground"
+						>
+							<span className="shrink-0 font-mono">
+								{kindGlyph[entry.kind]}
+							</span>
+							<span className="min-w-0 flex-1 truncate">{entry.text}</span>
+							<span className="shrink-0">{formatAgo(entry.atMs)}</span>
+						</li>
+					))}
+				</ol>
+			</ScrollAreaPrimitive.Viewport>
+			<ScrollBar orientation="vertical" />
+		</ScrollAreaPrimitive.Root>
 	);
 }
 
@@ -225,129 +241,142 @@ export function Inspector({
 						</span>
 					</div>
 				</div>
-				<Button size="sm" variant="ghost" aria-label="Close" onClick={onClose}>
-					✕
-				</Button>
+				<div className="flex shrink-0 items-center gap-1.5">
+					<Kbd>Esc</Kbd>
+					<Button
+						size="sm"
+						variant="ghost"
+						aria-label="Close"
+						onClick={onClose}
+					>
+						✕
+					</Button>
+				</div>
 			</header>
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				{blocked && (
-					<Section title="Needs you" tone="attention">
-						{work?.blockedReason !== undefined && (
-							<p className="text-xs text-warning-foreground">
-								{work.blockedReason}
-							</p>
-						)}
-						{actions.length > 0 && (
-							<div className="flex flex-wrap gap-1.5">
-								{actions.map((label) => (
-									<Button
-										key={label}
-										size="sm"
-										variant="outline"
-										disabled
-										title="Take this action from plot tui"
-									>
-										{label}
-									</Button>
-								))}
-							</div>
-						)}
-					</Section>
-				)}
-				{current !== undefined && (
-					<Section title="Agent run">
-						<div className="grid grid-cols-3 gap-2">
-							<Fact label="stage">
-								<Badge size="sm" variant={stageVariant[current.stage]}>
-									{current.stage}
-								</Badge>
-							</Fact>
-							{elapsedMs !== undefined && (
-								<Fact label="elapsed">{formatDuration(elapsedMs)}</Fact>
+			<ScrollArea className="min-h-0 flex-1">
+				<div>
+					{blocked && (
+						<Section title="Needs you" tone="attention">
+							{work?.blockedReason !== undefined && (
+								<p className="text-xs text-warning-foreground">
+									{work.blockedReason}
+								</p>
 							)}
-							<Fact label="turns">{current.turnCount}</Fact>
-							{current.tokens?.total !== undefined && (
-								<Fact label="tokens">
-									{formatTokens(current.tokens.total)}
-									{current.tokens.cost !== undefined &&
-										` · $${current.tokens.cost.toFixed(2)}`}
+							{actions.length > 0 && (
+								<>
+									<div className="flex flex-wrap gap-1.5">
+										{actions.map((label) => (
+											<Button key={label} size="sm" variant="outline" disabled>
+												{label}
+											</Button>
+										))}
+									</div>
+									{/* Visible caption beats a hover hint on disabled controls. */}
+									<p className="text-[10px] text-muted-foreground">
+										Take these actions from plot tui; web actions land with the
+										observation endpoint.
+									</p>
+								</>
+							)}
+						</Section>
+					)}
+					{current !== undefined && (
+						<Section title="Agent run">
+							<div className="grid grid-cols-3 gap-2">
+								<Fact label="stage">
+									<Badge size="sm" variant={stageVariant[current.stage]}>
+										{current.stage}
+									</Badge>
 								</Fact>
-							)}
-							<Fact label="check">{current.check}</Fact>
-							{current.streaming && (
-								<Fact label="live">
-									<span className="inline-flex items-center gap-1">
-										<Dot className="animate-pulse bg-success" />
-										streaming
-									</span>
-								</Fact>
-							)}
-						</div>
-						{activeTargets.length > 0 && (
-							<p className="truncate font-mono text-xs text-muted-foreground">
-								{activeTargets.join(" · ")}
-							</p>
-						)}
-					</Section>
-				)}
-				{current !== undefined && (
-					<Section title="Now">
-						<LiveStream label="thinking" text={current.streams.thinking} />
-						<LiveStream label="message" text={current.streams.message} />
-						<LiveStream label="tool" text={current.streams.tool} />
-					</Section>
-				)}
-				{current !== undefined && current.timeline.length > 0 && (
-					<Section title="Timeline">
-						<Timeline entries={current.timeline} />
-					</Section>
-				)}
-				{(history.length > 0 || completed.length > 0) && (
-					<Section title="History">
-						{completed.map((entry) => (
-							<div
-								key={`${entry.workKey}:${entry.atMs}`}
-								className="flex items-center gap-2 text-xs text-muted-foreground"
-							>
-								<Badge
-									size="sm"
-									variant={entry.status === "done" ? "success" : "error"}
-								>
-									{entry.status}
-								</Badge>
-								<span className="min-w-0 flex-1 truncate">{entry.message}</span>
-								{entry.durationMs !== undefined && (
-									<span>{formatDuration(entry.durationMs)}</span>
+								{elapsedMs !== undefined && (
+									<Fact label="elapsed">{formatDuration(elapsedMs)}</Fact>
 								)}
-								<span>{formatAgo(entry.atMs)} ago</span>
+								<Fact label="turns">{current.turnCount}</Fact>
+								{current.tokens?.total !== undefined && (
+									<Fact label="tokens">
+										{formatTokens(current.tokens.total)}
+										{current.tokens.cost !== undefined &&
+											` · $${current.tokens.cost.toFixed(2)}`}
+									</Fact>
+								)}
+								<Fact label="check">{current.check}</Fact>
+								{current.streaming && (
+									<Fact label="live">
+										<span className="inline-flex items-center gap-1">
+											<Dot className="animate-pulse bg-success" />
+											streaming
+										</span>
+									</Fact>
+								)}
 							</div>
-						))}
-						{history.map((attempt) => (
-							<AttemptSummaryRow attempt={attempt} key={attempt.runId} />
-						))}
-					</Section>
-				)}
-				{current?.transcript?.path !== undefined && (
-					<Section title="Agent transcript">
-						<div className="flex items-center gap-2">
-							<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-								{current.transcript.path}
-							</span>
-							<Button
-								size="sm"
-								variant="outline"
-								onClick={() =>
-									void navigator.clipboard.writeText(
-										current.transcript?.path ?? "",
-									)
-								}
-							>
-								Copy
-							</Button>
-						</div>
-					</Section>
-				)}
-			</div>
+							{activeTargets.length > 0 && (
+								<p className="truncate font-mono text-xs text-muted-foreground">
+									{activeTargets.join(" · ")}
+								</p>
+							)}
+						</Section>
+					)}
+					{current !== undefined && (
+						<Section title="Now">
+							<LiveStream label="thinking" text={current.streams.thinking} />
+							<LiveStream label="message" text={current.streams.message} />
+							<LiveStream label="tool" text={current.streams.tool} />
+						</Section>
+					)}
+					{current !== undefined && current.timeline.length > 0 && (
+						<Section title="Timeline">
+							<Timeline entries={current.timeline} />
+						</Section>
+					)}
+					{(history.length > 0 || completed.length > 0) && (
+						<Section title="History">
+							{completed.map((entry) => (
+								<div
+									key={`${entry.workKey}:${entry.atMs}`}
+									className="flex items-center gap-2 text-xs text-muted-foreground"
+								>
+									<Badge
+										size="sm"
+										variant={entry.status === "done" ? "success" : "error"}
+									>
+										{entry.status}
+									</Badge>
+									<span className="min-w-0 flex-1 truncate">
+										{entry.message}
+									</span>
+									{entry.durationMs !== undefined && (
+										<span>{formatDuration(entry.durationMs)}</span>
+									)}
+									<span>{formatAgo(entry.atMs)} ago</span>
+								</div>
+							))}
+							{history.map((attempt) => (
+								<AttemptSummaryRow attempt={attempt} key={attempt.runId} />
+							))}
+						</Section>
+					)}
+					{current?.transcript?.path !== undefined && (
+						<Section title="Agent transcript">
+							<div className="flex items-center gap-2">
+								<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+									{current.transcript.path}
+								</span>
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={() =>
+										void navigator.clipboard.writeText(
+											current.transcript?.path ?? "",
+										)
+									}
+								>
+									Copy
+								</Button>
+							</div>
+						</Section>
+					)}
+				</div>
+			</ScrollArea>
 		</aside>
 	);
 }
