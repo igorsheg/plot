@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { startRunIpcServer } from "@plot/session/run-ipc";
-import type { RunRecord } from "@plot/session/run-registry";
-import { startPlotWebGateway } from "../src/web-gateway.js";
+import type { RunRecord, RunRegistryRuntime } from "@plot/session/run-registry";
+import {
+	runTranscriptResponse,
+	startPlotWebGateway,
+} from "../src/web-gateway.js";
 
 const writeRuns = async (registryDir: string, runs: readonly RunRecord[]) => {
 	await mkdir(registryDir, { recursive: true });
@@ -315,4 +318,104 @@ describe("Plot web gateway", () => {
 			await stop();
 		}
 	});
+});
+
+test("transcript falls back to history when the live snapshot lacks the reference", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-web-transcript-"));
+	const transcriptFile = join(dir, "transcript.jsonl");
+	await writeFile(
+		transcriptFile,
+		`${JSON.stringify({
+			type: "message",
+			timestamp: "t1",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "why I did it" }],
+			},
+		})}\n`,
+	);
+	const historyDir = join(dir, "history");
+	await mkdir(historyDir, { recursive: true });
+	await writeFile(
+		join(historyDir, "run-1.jsonl"),
+		`${[
+			{
+				kind: "session_event",
+				sessionId: "session-1",
+				sequence: 1,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				type: "attempt_started",
+				payload: {
+					run: {
+						sourceId: "source-1",
+						runId: "attempt-1",
+						workKey: "work-1",
+						title: "Work 1",
+					},
+				},
+			},
+			{
+				kind: "agent_event",
+				sessionId: "session-1",
+				sequence: 2,
+				timestamp: "2026-01-01T00:00:01.000Z",
+				runId: "attempt-1",
+				event: { type: "plot_transcript", sessionFile: transcriptFile },
+			},
+		]
+			.map((event) => JSON.stringify(event))
+			.join("\n")}\n`,
+	);
+
+	const run: RunRecord = {
+		id: "run-1",
+		status: "online",
+		cwd: dir,
+		createdAt: "2026-01-01T00:00:00.000Z",
+		sessionId: "session-1",
+		workflowName: "workflow",
+	};
+	// A live registry whose snapshot knows the attempt but not the transcript.
+	const registry = {
+		spawn: async () => run,
+		stop: async () => run,
+		list: async () => [run],
+		status: async () => run,
+		submit: async () =>
+			({
+				protocol: "plot.session.v2",
+				kind: "response",
+				id: "req",
+				command: "get_snapshot",
+				ok: true,
+				lastSequence: 2,
+				data: {
+					snapshot: {
+						work: {},
+						running: {
+							"attempt-1": {
+								runId: "attempt-1",
+								workKey: "work-1",
+								sourceId: "source-1",
+							},
+						},
+					},
+					lastSequence: 2,
+				},
+			}) as Awaited<ReturnType<RunRegistryRuntime["submit"]>>,
+		attachRecords: async function* () {},
+		shutdown: async () => {},
+	};
+
+	const response = await runTranscriptResponse(
+		run,
+		"attempt-1",
+		registry,
+		historyDir,
+	);
+	expect(response.status).toBe(200);
+	const body = (await response.json()) as {
+		readonly entries?: readonly { readonly text?: string }[];
+	};
+	expect(body.entries?.[0]?.text).toBe("why I did it");
 });
