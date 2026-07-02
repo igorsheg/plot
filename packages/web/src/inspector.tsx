@@ -210,9 +210,6 @@ export function Inspector({
 			: (current.streaming
 					? Date.now()
 					: (current.lastEventAtMs ?? Date.now())) - current.startedAtMs;
-	const activeTargets = (current?.activeTools ?? [])
-		.map(([, tool]) => tool.target)
-		.filter((target) => target !== undefined);
 
 	return (
 		<aside
@@ -330,11 +327,6 @@ export function Inspector({
 									)}
 								</Fact>
 							</div>
-							{activeTargets.length > 0 && (
-								<p className="truncate font-mono text-xs text-muted-foreground">
-									{activeTargets.join(" · ")}
-								</p>
-							)}
 						</Section>
 					)}
 					{current !== undefined && (

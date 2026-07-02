@@ -240,7 +240,9 @@ export function SessionBoard({
 				<NoLiveBoard error={state.error} run={run} />
 			) : (
 				<div className="flex min-h-0 flex-1">
-					<ScrollArea className="min-h-0 flex-1" fill>
+					{/* min-w-0: without it the lanes' intrinsic width beats the
+					    inspector and the whole page scrolls horizontally. */}
+					<ScrollArea className="min-h-0 min-w-0 flex-1" fill>
 						<div className="flex h-full gap-3 p-3">
 							{lanes === undefined ? (
 								<LaneSkeletons />
