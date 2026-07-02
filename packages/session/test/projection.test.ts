@@ -243,3 +243,37 @@ test("snapshot clears stale current run ids", () => {
 	expect(repaired.work.get("work-1")?.currentRunId).toBeUndefined();
 	expect(repaired.attempts.size).toBe(0);
 });
+
+test("attempt timeline is a rolling tail, not a frozen head", () => {
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		{
+			kind: "session_event",
+			sessionId: "session-1",
+			sequence: 1,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			type: "attempt_started",
+			payload: {
+				run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+			},
+		},
+	);
+	for (let i = 0; i < 40; i++)
+		projection = reduceProjectableEvent(projection, {
+			kind: "agent_event",
+			sessionId: "session-1",
+			sequence: i + 2,
+			timestamp: "2026-06-29T10:00:00.000Z",
+			runId: "run-1",
+			event: {
+				type: "tool_execution_start",
+				toolCallId: `tool-${i}`,
+				toolName: "bash",
+				args: { command: `step-${i}` },
+			},
+		});
+
+	const timeline = projection.attempts.get("run-1")?.timeline ?? [];
+	expect(timeline).toHaveLength(30);
+	expect(timeline.at(-1)?.text).toContain("step-39");
+});

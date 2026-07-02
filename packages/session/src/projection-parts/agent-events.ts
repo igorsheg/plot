@@ -4,7 +4,7 @@ import {
 	piEventDisplay,
 	type PiUsageDelta,
 } from "../pi-event-display.js";
-import { at, cap, str } from "./helpers.js";
+import { at, str } from "./helpers.js";
 import type {
 	ActiveTool,
 	ActivityKind,
@@ -32,7 +32,7 @@ const timeline = (
 	text: string,
 	kind: ActivityKind,
 	when: number,
-) => cap([...a.timeline, { atMs: when, text, kind }], 30);
+) => [...a.timeline, { atMs: when, text, kind }].slice(-30);
 
 const activeTool = (tool: {
 	readonly kind: ActivityKind;

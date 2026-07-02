@@ -13,6 +13,7 @@ import {
 } from "./components/ui/empty.js";
 import { Skeleton } from "./components/ui/skeleton.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
+import { Inspector } from "./inspector.js";
 import { deriveLanes } from "./lanes.js";
 import { cn } from "./lib/utils.js";
 import type { PlotRun } from "./run.js";
@@ -52,6 +53,22 @@ const useHeartbeat = () => {
 		const interval = setInterval(() => setBeat((beat) => beat + 1), 5000);
 		return () => clearInterval(interval);
 	}, []);
+};
+
+const parseWorkKeyHash = (): string | undefined => {
+	const match = /^#wi=(.+)$/.exec(window.location.hash);
+	return match?.[1] === undefined ? undefined : decodeURIComponent(match[1]);
+};
+
+/** Selection lives in the URL hash: cards are links, back button closes. */
+const useSelectedWorkKey = (): string | undefined => {
+	const [key, setKey] = useState(parseWorkKeyHash);
+	useEffect(() => {
+		const onChange = () => setKey(parseWorkKeyHash());
+		window.addEventListener("hashchange", onChange);
+		return () => window.removeEventListener("hashchange", onChange);
+	}, []);
+	return key;
 };
 
 function Lane({
@@ -209,6 +226,7 @@ export function SessionBoard({
 	readonly state: BoardState;
 }) {
 	useHeartbeat();
+	const selectedKey = useSelectedWorkKey();
 	const { projection } = state;
 	const lanes = projection === undefined ? undefined : deriveLanes(projection);
 	return (
@@ -218,43 +236,71 @@ export function SessionBoard({
 			{state.error !== undefined && projection === undefined ? (
 				<NoLiveBoard error={state.error} run={run} />
 			) : (
-				<div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
-					{lanes === undefined ? (
-						<LaneSkeletons />
-					) : (
-						<>
-							<Lane title="Incoming" count={lanes.incoming.length}>
-								{lanes.incoming.map((item) => (
-									<IncomingCard key={item.work.workKey} item={item} />
-								))}
-							</Lane>
-							<Lane title="Acting" count={lanes.acting.length}>
-								{lanes.acting.map((item) => (
-									<ActingCard key={item.work.workKey} item={item} />
-								))}
-							</Lane>
-							<Lane
-								tone="attention"
-								title="Needs you"
-								count={lanes.needsYou.length}
-							>
-								{lanes.needsYou.map((item) => (
-									<NeedsYouCard key={item.work.workKey} item={item} />
-								))}
-							</Lane>
-							<Lane title="Done" count={lanes.done.length}>
-								{lanes.done.map((item) =>
-									item.kind === "work" ? (
-										<SettledCard key={item.work.workKey} item={item} />
-									) : (
-										<CompletedCard
-											key={`${item.completed.workKey}:${item.completed.atMs}`}
+				<div className="flex min-h-0 flex-1">
+					<div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
+						{lanes === undefined ? (
+							<LaneSkeletons />
+						) : (
+							<>
+								<Lane title="Incoming" count={lanes.incoming.length}>
+									{lanes.incoming.map((item) => (
+										<IncomingCard
+											key={item.work.workKey}
 											item={item}
+											selected={item.work.workKey === selectedKey}
 										/>
-									),
-								)}
-							</Lane>
-						</>
+									))}
+								</Lane>
+								<Lane title="Acting" count={lanes.acting.length}>
+									{lanes.acting.map((item) => (
+										<ActingCard
+											key={item.work.workKey}
+											item={item}
+											selected={item.work.workKey === selectedKey}
+										/>
+									))}
+								</Lane>
+								<Lane
+									tone="attention"
+									title="Needs you"
+									count={lanes.needsYou.length}
+								>
+									{lanes.needsYou.map((item) => (
+										<NeedsYouCard
+											key={item.work.workKey}
+											item={item}
+											selected={item.work.workKey === selectedKey}
+										/>
+									))}
+								</Lane>
+								<Lane title="Done" count={lanes.done.length}>
+									{lanes.done.map((item) =>
+										item.kind === "work" ? (
+											<SettledCard
+												key={item.work.workKey}
+												item={item}
+												selected={item.work.workKey === selectedKey}
+											/>
+										) : (
+											<CompletedCard
+												key={`${item.completed.workKey}:${item.completed.atMs}`}
+												item={item}
+												selected={item.completed.workKey === selectedKey}
+											/>
+										),
+									)}
+								</Lane>
+							</>
+						)}
+					</div>
+					{selectedKey !== undefined && projection !== undefined && (
+						<Inspector
+							onClose={() => {
+								window.location.hash = "";
+							}}
+							projection={projection}
+							workKey={selectedKey}
+						/>
 					)}
 				</div>
 			)}

@@ -169,15 +169,6 @@
 	body {
 		@apply relative bg-background font-sans text-foreground antialiased;
 	}
-
-	/* Work cards use native <details>; the marker is drawn by the card itself. */
-	summary {
-		list-style: none;
-	}
-
-	summary::-webkit-details-marker {
-		display: none;
-	}
 }
 
 /* Cards morph between lanes via native view transitions. */
