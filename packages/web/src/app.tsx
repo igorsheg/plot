@@ -24,6 +24,7 @@ import { cn } from "./lib/utils.js";
 import { useRunLiveEvents } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
 import type { PlotRun } from "./run.js";
+import { ThemeProvider, ThemeToggle } from "./theme.js";
 
 const errorText = (caught: unknown): string =>
 	caught instanceof Error ? caught.message : String(caught);
@@ -78,11 +79,14 @@ function SessionRail({
 }) {
 	return (
 		<aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar">
-			<div className="border-b px-4 py-3">
+			<div className="flex items-center border-b px-4 py-2.5">
 				<span className="font-semibold">Plot</span>
 				<span className="ml-2 text-xs text-muted-foreground">
 					{runs.length} session{runs.length === 1 ? "" : "s"}
 				</span>
+				<div className="ml-auto">
+					<ThemeToggle />
+				</div>
 			</div>
 			<ScrollArea className="min-h-0 flex-1" scrollFade>
 				<nav className="space-y-1 p-2">
@@ -202,43 +206,45 @@ export function PlotApp() {
 	};
 
 	return (
-		<TooltipProvider>
-			<div className="flex h-full">
-				<SessionRail
-					runs={runs}
-					selectedId={effectiveId}
-					onSelect={setSelectedId}
-				/>
-				<main className="flex min-w-0 flex-1 flex-col">
-					{error !== undefined && (
-						<Alert
-							variant="error"
-							className="rounded-none border-x-0 border-t-0"
-						>
-							<AlertDescription>{error}</AlertDescription>
-						</Alert>
-					)}
-					{effectiveId === undefined || selectedRun === undefined ? (
-						<div className="grid flex-1 place-items-center">
-							<Empty>
-								<EmptyHeader>
-									<EmptyTitle>No Plot sessions</EmptyTitle>
-									<EmptyDescription>
-										Start one with `plot tui --workflow WORKFLOW.md`; it will
-										appear here live.
-									</EmptyDescription>
-								</EmptyHeader>
-							</Empty>
-						</div>
-					) : (
-						<SessionBoard
-							run={selectedRun}
-							state={board}
-							onStop={() => void onStop(effectiveId)}
-						/>
-					)}
-				</main>
-			</div>
-		</TooltipProvider>
+		<ThemeProvider>
+			<TooltipProvider>
+				<div className="flex h-full">
+					<SessionRail
+						runs={runs}
+						selectedId={effectiveId}
+						onSelect={setSelectedId}
+					/>
+					<main className="flex min-w-0 flex-1 flex-col">
+						{error !== undefined && (
+							<Alert
+								variant="error"
+								className="rounded-none border-x-0 border-t-0"
+							>
+								<AlertDescription>{error}</AlertDescription>
+							</Alert>
+						)}
+						{effectiveId === undefined || selectedRun === undefined ? (
+							<div className="grid flex-1 place-items-center">
+								<Empty>
+									<EmptyHeader>
+										<EmptyTitle>No Plot sessions</EmptyTitle>
+										<EmptyDescription>
+											Start one with `plot tui --workflow WORKFLOW.md`; it will
+											appear here live.
+										</EmptyDescription>
+									</EmptyHeader>
+								</Empty>
+							</div>
+						) : (
+							<SessionBoard
+								run={selectedRun}
+								state={board}
+								onStop={() => void onStop(effectiveId)}
+							/>
+						)}
+					</main>
+				</div>
+			</TooltipProvider>
+		</ThemeProvider>
 	);
 }

@@ -5,7 +5,12 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Plot</title>
 		<script>
-			if (matchMedia("(prefers-color-scheme: dark)").matches)
+			// FOUC guard; must mirror src/theme.tsx resolution.
+			const mode = localStorage.getItem("plot:web:theme");
+			if (
+				mode === "dark" ||
+				(mode !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
+			)
 				document.documentElement.classList.add("dark");
 		</script>
 	</head>
