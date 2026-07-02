@@ -78,6 +78,14 @@ export const listRunsCommand = defineCommand({
 	run: ({ args }) => request(args, { type: "list" }),
 });
 
+export const pruneRunsCommand = defineCommand({
+	meta: {
+		name: "prune",
+		description: "Remove stopped and errored runs and their history.",
+	},
+	run: ({ args }) => request(args, { type: "prune" }),
+});
+
 export const statusRunCommand = defineCommand({
 	meta: { name: "status", description: "Show one Plot run." },
 	args: runIdArg,

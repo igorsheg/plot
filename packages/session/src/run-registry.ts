@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
 import { errorMessage, hasErrnoCode, isRecord } from "@plot/common/primitives";
@@ -92,6 +92,7 @@ export const runRequestSchema = Schema.Union([
 	Schema.Struct({ type: Schema.Literal("list") }),
 	Schema.Struct({ type: Schema.Literal("status"), id: NonEmptyString }),
 	Schema.Struct({ type: Schema.Literal("stop"), id: NonEmptyString }),
+	Schema.Struct({ type: Schema.Literal("prune") }),
 	Schema.Struct({
 		type: Schema.Literal("protocol_stream"),
 		id: NonEmptyString,
@@ -127,6 +128,11 @@ export const runResponseSchema = Schema.Union([
 		run: optional(runRecordSchema),
 	}),
 	Schema.Struct({
+		type: Schema.Literal("prune_result"),
+		ok: Schema.Literal(true),
+		removed: Schema.Array(runRecordSchema),
+	}),
+	Schema.Struct({
 		type: Schema.Literal("protocol_ready"),
 		ok: Schema.Literal(true),
 		run: optional(runRecordSchema),
@@ -159,6 +165,7 @@ export interface RunStore {
 export interface RunRegistryRuntime {
 	readonly spawn: (input?: RunSpawnOptions) => Promise<RunRecord>;
 	readonly stop: (id: string) => Promise<RunRecord | undefined>;
+	readonly prune: () => Promise<readonly RunRecord[]>;
 	readonly list: () => Promise<readonly RunRecord[]>;
 	readonly status: (id: string) => Promise<RunRecord | undefined>;
 	readonly attachRecords: (
@@ -616,5 +623,19 @@ export class RunRegistry implements RunRegistryRuntime {
 
 	async shutdown(): Promise<void> {
 		await Promise.all([...this.live.keys()].map((id) => this.stop(id)));
+	}
+
+	/** Remove ended run records and their Session History; live runs stay. */
+	async prune(): Promise<readonly RunRecord[]> {
+		const removed: RunRecord[] = [];
+		for (const record of await this.options.store.list()) {
+			if (this.live.has(record.id)) continue;
+			if (record.status !== "stopped" && record.status !== "error") continue;
+			await this.options.store.remove(record.id);
+			const history = this.historyPath(record.id);
+			if (history !== undefined) await rm(history, { force: true });
+			removed.push(clone(record));
+		}
+		return removed;
 	}
 }

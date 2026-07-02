@@ -16,6 +16,7 @@ import { runCommand } from "./commands/run.js";
 import {
 	listRunsCommand,
 	logsRunCommand,
+	pruneRunsCommand,
 	statusRunCommand,
 	stopRunCommand,
 } from "./commands/runs.js";
@@ -73,6 +74,7 @@ const subCommands = {
 	status: statusRunCommand,
 	stop: stopRunCommand,
 	logs: logsRunCommand,
+	prune: pruneRunsCommand,
 };
 
 const rootMeta = {

@@ -79,6 +79,12 @@ const handleRequest = async (runRegistry: RunRegistry, request: RunRequest) => {
 			id: request.id,
 			run: await runRegistry.stop(request.id),
 		};
+	if (request.type === "prune")
+		return {
+			type: "prune_result",
+			ok: true,
+			removed: await runRegistry.prune(),
+		};
 	if (request.type === "protocol_request")
 		return {
 			type: "protocol_response",
@@ -260,6 +266,12 @@ export const createRunIpcClient = (
 			if (response.type !== "stop_result")
 				throw new Error(`unexpected IPC response: ${response.type}`);
 			return response.run;
+		},
+		prune: async (): Promise<readonly RunRecord[]> => {
+			const response = await request({ type: "prune" });
+			if (response.type !== "prune_result")
+				throw new Error(`unexpected IPC response: ${response.type}`);
+			return response.removed;
 		},
 		submit: async (
 			id: string,
