@@ -423,59 +423,67 @@ export function SessionBoard({
 		<div className="flex min-h-0 flex-1 flex-col">
 			<BoardHeader onStop={onStop} projection={projection} run={run} />
 			{projection !== undefined && <ActivityStrip projection={projection} />}
-			{state.error !== undefined && (
-				<p className="border-b px-4 py-2 text-xs text-destructive-foreground">
-					{state.error}
-				</p>
-			)}
-			<div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
-				{lanes === undefined ? (
-					<div className="flex flex-1 gap-3">
-						{[0, 1, 2, 3].map((index) => (
-							<Skeleton key={index} className="h-40 flex-1 rounded-lg" />
-						))}
+			{state.error !== undefined && projection === undefined ? (
+				<div className="grid flex-1 place-items-center p-6 text-center">
+					<div className="space-y-1">
+						<p className="text-sm font-medium">No live board</p>
+						<p className="text-xs text-muted-foreground">
+							{run.status === "online"
+								? state.error
+								: `This session is ${run.status}; projections exist only while it runs.`}
+						</p>
 					</div>
-				) : (
-					<>
-						<Lane
-							title="Incoming"
-							count={lanes.incoming.length}
-							items={lanes.incoming.map((item) => (
-								<WorkCard key={item.work.workKey} item={item} />
+				</div>
+			) : (
+				<div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
+					{lanes === undefined ? (
+						<div className="flex flex-1 gap-3">
+							{[0, 1, 2, 3].map((index) => (
+								<Skeleton key={index} className="h-40 flex-1 rounded-lg" />
 							))}
-						/>
-						<Lane
-							title="Acting"
-							count={lanes.acting.length}
-							items={lanes.acting.map((item) => (
-								<WorkCard key={item.work.workKey} item={item} />
-							))}
-						/>
-						<Lane
-							accent
-							title="Needs you"
-							count={lanes.needsYou.length}
-							items={lanes.needsYou.map((item) => (
-								<WorkCard key={item.work.workKey} item={item} />
-							))}
-						/>
-						<Lane
-							title="Done"
-							count={lanes.done.length}
-							items={lanes.done.map((item) =>
-								item.kind === "work" ? (
+						</div>
+					) : (
+						<>
+							<Lane
+								title="Incoming"
+								count={lanes.incoming.length}
+								items={lanes.incoming.map((item) => (
 									<WorkCard key={item.work.workKey} item={item} />
-								) : (
-									<CompletedCard
-										key={`${item.completed.workKey}:${item.completed.atMs}`}
-										item={item}
-									/>
-								),
-							)}
-						/>
-					</>
-				)}
-			</div>
+								))}
+							/>
+							<Lane
+								title="Acting"
+								count={lanes.acting.length}
+								items={lanes.acting.map((item) => (
+									<WorkCard key={item.work.workKey} item={item} />
+								))}
+							/>
+							<Lane
+								accent
+								title="Needs you"
+								count={lanes.needsYou.length}
+								items={lanes.needsYou.map((item) => (
+									<WorkCard key={item.work.workKey} item={item} />
+								))}
+							/>
+							<Lane
+								title="Done"
+								count={lanes.done.length}
+								items={lanes.done.map((item) =>
+									item.kind === "work" ? (
+										<WorkCard key={item.work.workKey} item={item} />
+									) : (
+										<CompletedCard
+											key={`${item.completed.workKey}:${item.completed.atMs}`}
+											item={item}
+										/>
+									),
+								)}
+							/>
+						</>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }

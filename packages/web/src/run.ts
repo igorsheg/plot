@@ -15,6 +15,7 @@ export interface PlotRun {
 	readonly sessionDir?: string | undefined;
 	readonly lastSequence?: number | undefined;
 	readonly lastEventType?: string | undefined;
+	readonly pid?: number | undefined;
 }
 
 const plotRunSchema = Schema.Struct({
@@ -31,14 +32,16 @@ const plotRunSchema = Schema.Struct({
 	sessionDir: optional(Schema.String),
 	lastSequence: optional(Schema.Number),
 	lastEventType: optional(Schema.String),
+	pid: optional(Schema.Number),
 });
 
 const runListObjectSchema = Schema.Struct({
 	runs: Schema.Array(Schema.Unknown),
 });
 
+// Registry records grow fields over time; a stale watcher must not go blind.
 const parseRun = (value: unknown): PlotRun | undefined =>
-	decodeOrUndefined(plotRunSchema, value);
+	decodeOrUndefined(plotRunSchema, value, "preserve");
 
 export const parsePlotRuns = (value: unknown): readonly PlotRun[] => {
 	const rows = Array.isArray(value)

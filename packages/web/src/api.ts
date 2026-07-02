@@ -85,7 +85,7 @@ const emptyRuntime: RuntimeIdentityProjection = {
 };
 
 const parseRuntime = (value: unknown): RuntimeIdentityProjection => {
-	const runtime = decodeOrUndefined(runtimeSchema, value);
+	const runtime = decodeOrUndefined(runtimeSchema, value, "preserve");
 	return runtime === undefined
 		? emptyRuntime
 		: {
@@ -98,7 +98,7 @@ const parseRuntime = (value: unknown): RuntimeIdentityProjection => {
 const parseActivity = (value: unknown): readonly WebActivityEntry[] => {
 	const entries = decodeOrUndefined(Schema.Array(Schema.Unknown), value) ?? [];
 	return entries.flatMap((entry) => {
-		const parsed = decodeOrUndefined(activityEntrySchema, entry);
+		const parsed = decodeOrUndefined(activityEntrySchema, entry, "preserve");
 		return parsed === undefined ? [] : [parsed];
 	});
 };
@@ -130,14 +130,20 @@ export const parseRunCatalogEvent = (
 	return { kind: "runs", runs: parsePlotRuns(parsed.runs) };
 };
 
-const parseProjection = (
+// The projection is produced by trusted @plot/session code and grows fields
+// over time; a watcher must tolerate keys it does not know yet.
+export const parseProjection = (
 	value: unknown,
 ): WebDashboardProjection | undefined => {
 	const envelope = decodeOrUndefined(recordSchema, value);
 	const raw = envelope?.["projection"] ?? value;
 	const record = decodeOrUndefined(recordSchema, raw);
 	if (record === undefined) return undefined;
-	const required = decodeOrUndefined(projectionRequiredSchema, record);
+	const required = decodeOrUndefined(
+		projectionRequiredSchema,
+		record,
+		"preserve",
+	);
 	if (required === undefined) return undefined;
 	return {
 		...required,
@@ -145,6 +151,7 @@ const parseProjection = (
 		usageTotals: decodeOrUndefined(
 			usageTotalsSchema,
 			record["usageTotals"],
+			"preserve",
 		) ?? {
 			tokens: 0,
 		},

@@ -24,6 +24,20 @@ import type { PlotRun } from "./run.js";
 const errorText = (caught: unknown): string =>
 	caught instanceof Error ? caught.message : String(caught);
 
+const isLive = (run: PlotRun): boolean =>
+	run.status === "online" || run.status === "running";
+
+/** Live sessions first, then most recently seen. */
+const sortRuns = (runs: readonly PlotRun[]): readonly PlotRun[] =>
+	runs.toSorted((left, right) => {
+		const alive = Number(isLive(right)) - Number(isLive(left));
+		if (alive !== 0) return alive;
+		return (
+			Date.parse(right.lastSeenAt ?? right.createdAt) -
+			Date.parse(left.lastSeenAt ?? left.createdAt)
+		);
+	});
+
 const runDot = (status: string): string =>
 	status === "online" || status === "running"
 		? "bg-success"
@@ -106,7 +120,7 @@ export function PlotApp() {
 	const projectionRef = useRef<WebDashboardProjection>(undefined);
 
 	const updateRuns = useCallback(
-		(next: readonly PlotRun[]) => setRuns(next),
+		(next: readonly PlotRun[]) => setRuns(sortRuns(next)),
 		[],
 	);
 	useRunLiveEvents(runs, updateRuns);
@@ -117,7 +131,7 @@ export function PlotApp() {
 			try {
 				const next = await fetchRuns();
 				if (!cancelled) {
-					setRuns(next);
+					setRuns(sortRuns(next));
 					setError(undefined);
 				}
 			} catch (caught) {
@@ -180,7 +194,7 @@ export function PlotApp() {
 	const onStop = async (id: string) => {
 		try {
 			await stopRun(id);
-			setRuns(await fetchRuns());
+			setRuns(sortRuns(await fetchRuns()));
 		} catch (caught) {
 			setError(errorText(caught));
 		}
