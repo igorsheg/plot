@@ -90,19 +90,23 @@ function LiveVoice({
 				{shown.label}
 				{live === undefined && shown.text !== "" && " · last turn"}
 			</div>
-			{/* ponytail: column-reverse pins a growing turn to its tail for free. */}
-			<div className="flex h-40 flex-col-reverse overflow-y-auto [scrollbar-width:none]">
-				<p
-					className={cn(
-						"font-mono text-xs whitespace-pre-wrap text-muted-foreground",
-						live === undefined && "opacity-50",
-					)}
-				>
-					{shown.text === ""
-						? "waiting for the model…"
-						: streamTail(shown.text)}
-				</p>
-			</div>
+			{/* ponytail: column-reverse pins a growing turn to its tail for free;
+			    the coss scrollbar stays invisible until the operator scrolls back. */}
+			<ScrollAreaPrimitive.Root className="min-h-0">
+				<ScrollAreaPrimitive.Viewport className="flex h-40 flex-col-reverse outline-none">
+					<p
+						className={cn(
+							"font-mono text-xs whitespace-pre-wrap text-muted-foreground",
+							live === undefined && "opacity-50",
+						)}
+					>
+						{shown.text === ""
+							? "waiting for the model…"
+							: streamTail(shown.text)}
+					</p>
+				</ScrollAreaPrimitive.Viewport>
+				<ScrollBar orientation="vertical" />
+			</ScrollAreaPrimitive.Root>
 		</div>
 	);
 }

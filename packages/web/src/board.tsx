@@ -240,62 +240,64 @@ export function SessionBoard({
 				<NoLiveBoard error={state.error} run={run} />
 			) : (
 				<div className="flex min-h-0 flex-1">
-					<div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
-						{lanes === undefined ? (
-							<LaneSkeletons />
-						) : (
-							<>
-								<Lane title="Incoming" count={lanes.incoming.length}>
-									{lanes.incoming.map((item) => (
-										<IncomingCard
-											key={item.work.workKey}
-											item={item}
-											selected={item.work.workKey === selectedKey}
-										/>
-									))}
-								</Lane>
-								<Lane title="Acting" count={lanes.acting.length}>
-									{lanes.acting.map((item) => (
-										<ActingCard
-											key={item.work.workKey}
-											item={item}
-											selected={item.work.workKey === selectedKey}
-										/>
-									))}
-								</Lane>
-								<Lane
-									tone="attention"
-									title="Needs you"
-									count={lanes.needsYou.length}
-								>
-									{lanes.needsYou.map((item) => (
-										<NeedsYouCard
-											key={item.work.workKey}
-											item={item}
-											selected={item.work.workKey === selectedKey}
-										/>
-									))}
-								</Lane>
-								<Lane title="Done" count={lanes.done.length}>
-									{lanes.done.map((item) =>
-										item.kind === "work" ? (
-											<SettledCard
+					<ScrollArea className="min-h-0 flex-1" fill>
+						<div className="flex h-full gap-3 p-3">
+							{lanes === undefined ? (
+								<LaneSkeletons />
+							) : (
+								<>
+									<Lane title="Incoming" count={lanes.incoming.length}>
+										{lanes.incoming.map((item) => (
+											<IncomingCard
 												key={item.work.workKey}
 												item={item}
 												selected={item.work.workKey === selectedKey}
 											/>
-										) : (
-											<CompletedCard
-												key={`${item.completed.workKey}:${item.completed.atMs}`}
+										))}
+									</Lane>
+									<Lane title="Acting" count={lanes.acting.length}>
+										{lanes.acting.map((item) => (
+											<ActingCard
+												key={item.work.workKey}
 												item={item}
-												selected={item.completed.workKey === selectedKey}
+												selected={item.work.workKey === selectedKey}
 											/>
-										),
-									)}
-								</Lane>
-							</>
-						)}
-					</div>
+										))}
+									</Lane>
+									<Lane
+										tone="attention"
+										title="Needs you"
+										count={lanes.needsYou.length}
+									>
+										{lanes.needsYou.map((item) => (
+											<NeedsYouCard
+												key={item.work.workKey}
+												item={item}
+												selected={item.work.workKey === selectedKey}
+											/>
+										))}
+									</Lane>
+									<Lane title="Done" count={lanes.done.length}>
+										{lanes.done.map((item) =>
+											item.kind === "work" ? (
+												<SettledCard
+													key={item.work.workKey}
+													item={item}
+													selected={item.work.workKey === selectedKey}
+												/>
+											) : (
+												<CompletedCard
+													key={`${item.completed.workKey}:${item.completed.atMs}`}
+													item={item}
+													selected={item.completed.workKey === selectedKey}
+												/>
+											),
+										)}
+									</Lane>
+								</>
+							)}
+						</div>
+					</ScrollArea>
 					{selectedKey !== undefined && projection !== undefined && (
 						<Inspector
 							onClose={() => {
