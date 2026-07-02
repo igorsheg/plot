@@ -45,14 +45,9 @@ const runner: WorkRunner = {
 	run: () => ({ output: "ok" }),
 };
 
-test("runtime projects agent events into the event log", async () => {
-	const eventLog = await createFileEventLogStore({
-		sessionDir: await tempSessionDir(),
-		sessionId: "session-1",
-	});
+test("runtime projects agent events into the live stream", async () => {
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		eventLog,
 		sources: [source],
 		runner,
 	});
@@ -69,28 +64,14 @@ test("runtime projects agent events into the event log", async () => {
 		kind: "session_event",
 		type: "tick_completed",
 	});
-	const persisted = (await eventLog.readAll()).records;
-	expect(persisted.map((record) => record.sequence)).toEqual(
-		persisted.map((_, index) => index + 1),
-	);
-	expect(
-		persisted.some(
-			(record) =>
-				record.kind === "session_event" && record.type === "tick_completed",
-		),
-	).toBe(true);
+	expect(await runtime.lastEventSequence()).toBe(tickCompleted.sequence);
 
 	await runtime.shutdown();
 });
 
 test("runtime publishes appended inner agent events", async () => {
-	const eventLog = await createFileEventLogStore({
-		sessionDir: await tempSessionDir(),
-		sessionId: "session-1",
-	});
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		eventLog,
 		sources: [],
 		runner,
 	});
@@ -124,7 +105,7 @@ test("runtime publishes compact inner agent events without persisting them", asy
 	});
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		eventLog,
+		traceSessionEvent: eventLog.appendSessionEvent,
 		sources: [],
 		runner,
 	});
@@ -198,7 +179,7 @@ test("runtime shutdown appends shutdown after agent event pump drains", async ()
 	});
 	const runtime = makeAgentSessionRuntime({
 		id: "session-1",
-		eventLog,
+		traceSessionEvent: eventLog.appendSessionEvent,
 		sources: [],
 		runner,
 	});

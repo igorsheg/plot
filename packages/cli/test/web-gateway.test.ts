@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createFileEventLogStore } from "@plot/session/event-log";
 import { startRunIpcServer } from "@plot/session/run-ipc";
@@ -162,18 +162,8 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("serves a projected run snapshot", async () => {
+	test("projection endpoint is live-only", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
-		const sessionDir = join(dir, ".plot/sessions");
-		const eventLog = await createFileEventLogStore({
-			sessionDir,
-			sessionId: "default",
-		});
-		await eventLog.appendSessionEvent({ type: "session_started", payload: {} });
-		await eventLog.appendSessionEvent({
-			type: "session_tick",
-			payload: { tickId: 7 },
-		});
 		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		try {
 			await writeRuns(registryDir, [
@@ -185,23 +175,14 @@ describe("Plot web gateway", () => {
 					lastSeenAt: new Date().toISOString(),
 					sessionId: "default",
 					workflowName: "workflow",
-					sessionDir,
 					lastSequence: 2,
 				},
 			]);
 			const response = await fetch(
 				new URL("/api/runs/run-1/projection", gateway.url),
 			);
-			const body = (await response.json()) as {
-				readonly projection?: {
-					readonly frontier?: number;
-					readonly work?: unknown;
-					readonly runtime?: { readonly cwdName?: string };
-				};
-			};
-			expect(body.projection?.frontier).toBe(2);
-			expect(body.projection?.work).toEqual({});
-			expect(body.projection?.runtime?.cwdName).toBe(basename(dir));
+			expect(response.status).toBe(409);
+			expect(await response.text()).toContain("run not live");
 		} finally {
 			await stop();
 		}

@@ -13,10 +13,10 @@ import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import type {
 	AgentEventAppendInput,
+	EventLogAppendInput,
 	EventLogRecord,
-	EventLogStore,
 } from "./event-log.js";
-import { makeAgentEventRecord } from "./event-log.js";
+import { makeAgentEventRecord, makeSessionEventRecord } from "./event-log.js";
 import { compactPiEvent } from "./pi-event-display.js";
 import {
 	startOwnedTask,
@@ -28,13 +28,12 @@ import {
 
 export interface AgentSessionRuntimeOptions {
 	readonly id: string;
-	readonly eventLog: EventLogStore;
+	readonly traceSessionEvent?: (
+		input: EventLogAppendInput,
+	) => Promise<unknown> | unknown;
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
-	readonly state?: Omit<
-		SessionRuntimeState,
-		"sessionId" | "eventLogPath" | "lastSequence"
-	>;
+	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
 	readonly agent?: Omit<PlotAgentLayerOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
 }
@@ -113,18 +112,22 @@ export const makeAgentSessionRuntime = (
 		events.publish(liveRecord);
 		return liveRecord;
 	};
-	const appendAndPublish = async (
-		append: () => Promise<EventLogRecord>,
+	const publishSessionEvent = async (
+		input: EventLogAppendInput,
 	): Promise<EventLogRecord> => {
-		const record = await append();
-		publish(record);
+		const record = publish(
+			makeSessionEventRecord({
+				sessionId,
+				sequence: liveSequence + 1,
+				event: input,
+			}),
+		);
+		await options.traceSessionEvent?.(input);
 		return record;
 	};
 	const publishAgentEvent = async (
 		input: AgentEventAppendInput,
 	): Promise<EventLogRecord> => {
-		if (liveSequence === 0)
-			liveSequence = (await options.eventLog.frontier()).lastSequence;
 		return publish(
 			makeAgentEventRecord({
 				sessionId,
@@ -139,10 +142,7 @@ export const makeAgentSessionRuntime = (
 		run: async (signal) => {
 			for await (const event of agent.events()) {
 				if (signal.aborted) return;
-				const input = agentEventInput(event);
-				await appendAndPublish(() =>
-					options.eventLog.appendSessionEvent(input),
-				);
+				await publishSessionEvent(agentEventInput(event));
 			}
 		},
 	});
@@ -150,17 +150,14 @@ export const makeAgentSessionRuntime = (
 	return {
 		id: sessionId,
 		start: async () => {
-			await appendAndPublish(() =>
-				options.eventLog.appendSessionEvent({ type: "session_started" }),
-			);
+			await publishSessionEvent({ type: "session_started" });
 			await agent.start();
 		},
 		tickOnce: async () => compactTickResult(await agent.tickOnce()),
 		state: async () => ({
 			sessionId,
 			...options.state,
-			eventLogPath: options.eventLog.path,
-			lastSequence: (await options.eventLog.frontier()).lastSequence,
+			lastSequence: liveSequence,
 		}),
 		snapshot: async () =>
 			snapshotForProtocol(sessionId, await agent.snapshot()),
@@ -169,15 +166,12 @@ export const makeAgentSessionRuntime = (
 		interruptAgentRun: (input) => agent.interruptAgentRun(input),
 		events: () => events.subscribe(),
 		appendAgentEvent: publishAgentEvent,
-		lastEventSequence: async () =>
-			(await options.eventLog.frontier()).lastSequence,
+		lastEventSequence: async () => liveSequence,
 		shutdown: async () => {
 			shutdownPromise ??= (async () => {
 				const accepted = await agent.shutdown();
 				await agentEvents.done;
-				await appendAndPublish(() =>
-					options.eventLog.appendSessionEvent({ type: "session_shutdown" }),
-				);
+				await publishSessionEvent({ type: "session_shutdown" });
 				events.close();
 				return accepted;
 			})();

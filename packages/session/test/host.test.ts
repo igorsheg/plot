@@ -69,7 +69,7 @@ describe("host composition", () => {
 		);
 	});
 
-	test("wires workflow, paths, runtime, pi runner, and event log", async () => {
+	test("wires workflow, paths, runtime, and pi runner", async () => {
 		const cwd = await makeTempDir();
 		await writeFile(
 			join(cwd, "WORKFLOW.md"),
@@ -99,24 +99,16 @@ Hello {{ workflow.name }}
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		await host.runtime.tickOnce();
 		await host.shutdown();
-		const log = await host.eventLog.readAll();
 
 		expect(host.metadata).toMatchObject({
 			workflowName: "host-test",
 			cwd,
 			cwdName: cwd.split("/").at(-1),
 		});
+		expect(host.eventLog).toBeUndefined();
+		expect(host.metadata.eventLogPath).toBeUndefined();
 		expect(createOptions).toMatchObject({ cwd, noTools: "all" });
 		expect(session.prompts).toEqual(["Hello host-test"]);
-		expect(log.records.some((record) => record.kind === "agent_event")).toBe(
-			false,
-		);
-		expect(
-			log.records.some(
-				(record) =>
-					record.kind === "session_event" && record.type === "tick_completed",
-			),
-		).toBe(true);
 		expect(session.disposed).toBe(true);
 	});
 

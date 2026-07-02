@@ -30,6 +30,7 @@ interface BaseRunOptions {
 	readonly eventBufferCapacity?: number;
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
+	readonly traceEvents?: boolean | string;
 	readonly agentSessionOverrides?: AgentSessionOverrides;
 	readonly createAgentSession?: CreatePiAgentSession;
 }

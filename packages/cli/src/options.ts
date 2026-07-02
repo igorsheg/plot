@@ -93,6 +93,8 @@ export const baseOptions = (args: ParsedArgs) => {
 		logLevel: (str(args, "log-level") ?? "warn") as LogLevelFlag,
 	};
 	if (workflowPath !== undefined) Object.assign(options, { workflowPath });
+	const traceEvents = str(args, "trace-events");
+	if (traceEvents !== undefined) Object.assign(options, { traceEvents });
 	for (const [key, option] of [
 		["plot-dir", "plotDir"],
 		["agent-dir", "agentDir"],
