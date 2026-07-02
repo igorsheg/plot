@@ -198,9 +198,14 @@ function LivenessBanner({
 	if (state.projection === undefined) return null;
 	if (!isRunLive(run)) {
 		return (
-			<p className="border-b bg-muted/50 px-4 py-1.5 text-xs text-muted-foreground">
-				This session has ended · showing its last known state.
-			</p>
+			<div className="space-y-1.5 border-b px-4 py-1.5">
+				<p className="text-xs text-muted-foreground">
+					{run.status === "error"
+						? "This session crashed · showing its last known state."
+						: "This session has ended · showing its last known state."}
+				</p>
+				<CrashDiagnostics run={run} />
+			</div>
 		);
 	}
 	if (state.live === false) {
@@ -230,7 +235,17 @@ function ActivityStrip({
 	);
 }
 
-function NoLiveBoard({
+/** A crashed session's last words; runs.json is the only other place they live. */
+export function CrashDiagnostics({ run }: { readonly run: PlotRun }) {
+	if (run.status !== "error" || (run.stderrTail ?? "") === "") return null;
+	return (
+		<pre className="max-h-48 max-w-xl overflow-y-auto rounded-md border border-destructive/30 bg-destructive/4 p-3 text-left font-mono text-xs whitespace-pre-wrap text-destructive-foreground">
+			{run.stderrTail}
+		</pre>
+	);
+}
+
+export function NoLiveBoard({
 	error,
 	run,
 }: {
@@ -241,13 +256,16 @@ function NoLiveBoard({
 		<div className="grid flex-1 place-items-center">
 			<Empty>
 				<EmptyHeader>
-					<EmptyTitle>No live board</EmptyTitle>
+					<EmptyTitle>
+						{run.status === "error" ? "Session crashed" : "No live board"}
+					</EmptyTitle>
 					<EmptyDescription>
 						{run.status === "online"
 							? error
 							: `This session is ${run.status} and left no recorded history.`}
 					</EmptyDescription>
 				</EmptyHeader>
+				<CrashDiagnostics run={run} />
 			</Empty>
 		</div>
 	);
