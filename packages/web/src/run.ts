@@ -16,6 +16,7 @@ export interface PlotRun {
 	readonly lastSequence?: number | undefined;
 	readonly lastEventType?: string | undefined;
 	readonly pid?: number | undefined;
+	readonly stderrTail?: string | undefined;
 }
 
 const plotRunSchema = Schema.Struct({
@@ -33,6 +34,7 @@ const plotRunSchema = Schema.Struct({
 	lastSequence: optional(Schema.Number),
 	lastEventType: optional(Schema.String),
 	pid: optional(Schema.Number),
+	stderrTail: optional(Schema.String),
 });
 
 const runListObjectSchema = Schema.Struct({
