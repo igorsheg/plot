@@ -245,7 +245,7 @@ function NoLiveBoard({
 					<EmptyDescription>
 						{run.status === "online"
 							? error
-							: `This session is ${run.status}; projections exist only while it runs.`}
+							: `This session is ${run.status} and left no recorded history.`}
 					</EmptyDescription>
 				</EmptyHeader>
 			</Empty>

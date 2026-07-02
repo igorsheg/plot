@@ -48,9 +48,14 @@ const makeRunRegistry = (options: RunIpcOptions): RunRegistry => {
 	return new RunRegistry({
 		cwd: options.cwd,
 		store: createFileRunStore(join(runRegistryDir, "runs.json")),
+		historyDir: runHistoryDir(runRegistryDir),
 		...(options.cli === undefined ? {} : { cli: options.cli }),
 	});
 };
+
+/** Session History lives beside the registry store; readers read it directly. */
+export const runHistoryDir = (runRegistryDir: string): string =>
+	join(runRegistryDir, "history");
 
 const handleRequest = async (runRegistry: RunRegistry, request: RunRequest) => {
 	if (request.type === "list")
@@ -310,6 +315,7 @@ export const openRunIpc = async (
 ): Promise<{
 	readonly runRegistry: RunRegistryRuntime;
 	readonly socketPath: string;
+	readonly historyDir: string;
 	readonly owned: boolean;
 	readonly close: () => Promise<void>;
 }> => {
@@ -317,6 +323,7 @@ export const openRunIpc = async (
 	return {
 		runRegistry: createRunIpcClient(options),
 		socketPath: resolveRunIpcSocketPath(options),
+		historyDir: runHistoryDir(resolveRunIpcDir(options)),
 		owned: false,
 		close: async () => {},
 	};
@@ -385,6 +392,7 @@ export const openOrStartRunIpc = async (
 ): Promise<{
 	readonly runRegistry: RunRegistryRuntime;
 	readonly socketPath: string;
+	readonly historyDir: string;
 	readonly owned: boolean;
 	readonly close: () => Promise<void>;
 }> => {

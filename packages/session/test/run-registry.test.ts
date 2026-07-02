@@ -10,6 +10,8 @@ import {
 	createFileRunStore,
 	createMemoryRunStore,
 	decodeRunRequest,
+	readRunHistory,
+	runHistoryPath,
 } from "../src/run-registry.js";
 import type { RunChildProcess } from "../src/run-process.js";
 import {
@@ -452,4 +454,71 @@ test("runRegistry IPC survives a client disconnecting from a protocol stream", a
 		server.server.close();
 		await runRegistry.shutdown();
 	}
+});
+
+test("runRegistry persists Session History and replays it after stop", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-history-"));
+	const historyDir = join(cwd, "history");
+	let child: FakeChild | undefined;
+	const runRegistry = new RunRegistry({
+		cli: { command: "bun", args: ["main.ts"] },
+		cwd,
+		store: createMemoryRunStore(),
+		id: () => "run-history",
+		now: () => "2026-01-01T00:00:00.000Z",
+		historyDir,
+		spawnChild: () => {
+			child = new FakeChild("session-history");
+			queueMicrotask(() =>
+				child?.emit({
+					protocol: "plot.session.v2",
+					kind: "welcome",
+					sessionId: "session-history",
+					limits: {
+						maxInputLineBytes: 1_000,
+						maxOutputLineBytes: 1_000,
+						maxPendingRequests: 4,
+						maxBufferedEvents: 4,
+					},
+				}),
+			);
+			return child;
+		},
+	});
+
+	const spawned = await runRegistry.spawn();
+	child?.emit({
+		protocol: "plot.session.v2",
+		kind: "event",
+		sequence: 1,
+		event: {
+			kind: "session_event",
+			sessionId: "session-history",
+			sequence: 1,
+			timestamp: "2026-01-01T00:00:01.000Z",
+			type: "session_started",
+		},
+	});
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	await runRegistry.stop(spawned.id);
+
+	const replayed = [];
+	for await (const event of readRunHistory(
+		runHistoryPath(historyDir, spawned.id),
+	))
+		replayed.push(event);
+	expect(replayed).toHaveLength(1);
+	expect(replayed[0]).toMatchObject({
+		kind: "session_event",
+		type: "session_started",
+		sequence: 1,
+	});
+
+	// A run that never wrote history replays to nothing.
+	const empty = [];
+	for await (const event of readRunHistory(
+		runHistoryPath(historyDir, "missing"),
+	))
+		empty.push(event);
+	expect(empty).toHaveLength(0);
 });

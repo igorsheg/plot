@@ -23,4 +23,10 @@ POST   /api/runs/:id/observations
 blocked Work Item: `{ sourceId, workKey, actionId, actionLabel, comment? }`.
 The session's Source reconciles with it on the next tick.
 
+`GET /api/runs/:id/projection` serves live sessions from a snapshot. For
+stopped sessions it replays the durable Session History
+(`<runRegistryDir>/history/<runId>.jsonl`, written by the registry daemon)
+through the shared projection reducer and marks the response `replayed: true`,
+so the web shows a post-mortem board instead of an empty state.
+
 Use `plot api --http` when you want the API without opening a browser.

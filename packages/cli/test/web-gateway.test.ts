@@ -150,7 +150,69 @@ describe("Plot web gateway", () => {
 		}
 	});
 
-	test("projection endpoint is live-only", async () => {
+	test("projection endpoint replays durable history for stopped runs", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const { gateway, registryDir, stop } = await startTestGateway(dir);
+		try {
+			await writeRuns(registryDir, [
+				{
+					id: "run-1",
+					status: "stopped",
+					cwd: dir,
+					createdAt: new Date().toISOString(),
+					sessionId: "session-1",
+					workflowName: "workflow",
+				},
+			]);
+			await mkdir(join(registryDir, "history"), { recursive: true });
+			const events = [
+				{
+					kind: "session_event",
+					sessionId: "session-1",
+					sequence: 1,
+					timestamp: "2026-01-01T00:00:00.000Z",
+					type: "session_started",
+				},
+				{
+					kind: "session_event",
+					sessionId: "session-1",
+					sequence: 2,
+					timestamp: "2026-01-01T00:00:01.000Z",
+					type: "attempt_started",
+					payload: {
+						run: {
+							sourceId: "source-1",
+							runId: "run-a",
+							workKey: "work-1",
+							title: "Work 1",
+						},
+					},
+				},
+			];
+			await writeFile(
+				join(registryDir, "history", "run-1.jsonl"),
+				`${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
+			);
+			const response = await fetch(
+				new URL("/api/runs/run-1/projection", gateway.url),
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as {
+				readonly replayed?: boolean;
+				readonly projection?: {
+					readonly frontier?: number;
+					readonly work?: Record<string, { readonly title?: string }>;
+				};
+			};
+			expect(body.replayed).toBe(true);
+			expect(body.projection?.frontier).toBe(2);
+			expect(body.projection?.work?.["work-1"]?.title).toBe("Work 1");
+		} finally {
+			await stop();
+		}
+	});
+
+	test("projection endpoint is 409 for runs without history", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const { gateway, registryDir, stop } = await startTestGateway(dir);
 		try {

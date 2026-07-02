@@ -159,6 +159,7 @@ export function PlotApp() {
 			? selectedId
 			: runs[0]?.id;
 	const selectedRun = runs.find((run) => run.id === effectiveId);
+	const selectedIsLive = selectedRun !== undefined && isLive(selectedRun);
 
 	useEffect(() => {
 		projectionRef.current = undefined;
@@ -175,6 +176,8 @@ export function PlotApp() {
 				if (cancelled) return;
 				projectionRef.current = initial;
 				setBoard({ loading: false, live: true, projection: initial });
+				// Ended sessions serve a replayed history board; nothing to stream.
+				if (!selectedIsLive) return;
 				source = new EventSource(runEventsUrl(effectiveId, initial.frontier));
 				source.addEventListener("open", () =>
 					setBoard((previous) => ({ ...previous, live: true })),
@@ -205,7 +208,7 @@ export function PlotApp() {
 			cancelled = true;
 			source?.close();
 		};
-	}, [effectiveId]);
+	}, [effectiveId, selectedIsLive]);
 
 	const onStop = async (id: string) => {
 		try {

@@ -8,8 +8,12 @@ import { sessionProtocolVersion } from "@plot/session/protocol";
 import {
 	applySnapshot,
 	emptyProjection,
+	reduceProjectableEvent,
 	serializeDashboardProjection,
+	type DashboardProjection,
+	type ProjectableEvent,
 } from "@plot/session/projection";
+import { readRunHistory, runHistoryPath } from "@plot/session/run-registry";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
 const assets: Record<string, WebAsset> = webAssets;
@@ -202,12 +206,46 @@ const parseAfterSequence = (input: {
 	return Math.max(header ?? 0, query ?? 0);
 };
 
+const emptyRunProjection = (run: RunRecord): DashboardProjection =>
+	emptyProjection(run.sessionId ?? run.id, run.workflowName ?? "workflow", {
+		cwd: run.cwd,
+		cwdName: run.cwdName ?? basename(run.cwd),
+		workflowPath: run.workflowPath ?? "WORKFLOW.md",
+		skills: [],
+		skillPaths: [],
+	});
+
+/** Post-mortem board: replay durable Session History through the shared reducer. */
+const historyProjectionResponse = async (
+	run: RunRecord,
+	historyDir: string,
+): Promise<Response | undefined> => {
+	let projection: DashboardProjection | undefined;
+	for await (const event of readRunHistory(
+		runHistoryPath(historyDir, run.id),
+	)) {
+		if (!isRecord(event)) continue;
+		projection = reduceProjectableEvent(
+			projection ?? emptyRunProjection(run),
+			event as ProjectableEvent,
+		);
+	}
+	if (projection === undefined) return undefined;
+	return text({
+		projection: serializeDashboardProjection(projection),
+		replayed: true,
+	});
+};
+
 const runProjectionResponse = async (
 	run: RunRecord,
 	registry: RunRegistryRuntime,
+	historyDir: string,
 ): Promise<Response> => {
-	if (run.sessionId === undefined)
-		return new Response("run not ready", { status: 409 });
+	const notLive = async (reason: string) =>
+		(await historyProjectionResponse(run, historyDir)) ??
+		new Response(reason, { status: 409 });
+	if (run.sessionId === undefined) return notLive("run not ready");
 	const response = await registry
 		.submit(run.id, {
 			protocol: sessionProtocolVersion,
@@ -217,21 +255,12 @@ const runProjectionResponse = async (
 		})
 		.catch(() => undefined);
 	if (response === undefined || response.kind !== "response" || !response.ok)
-		return new Response("run not live", { status: 409 });
+		return notLive("run not live");
 	const data = isRecord(response.data) ? response.data : {};
-	const projection = applySnapshot(
-		emptyProjection(run.sessionId, run.workflowName ?? "workflow", {
-			cwd: run.cwd,
-			cwdName: run.cwdName ?? basename(run.cwd),
-			workflowPath: run.workflowPath ?? "WORKFLOW.md",
-			skills: [],
-			skillPaths: [],
-		}),
-		{
-			snapshot: data["snapshot"],
-			asOfSequence: response.lastSequence ?? data["lastSequence"],
-		},
-	);
+	const projection = applySnapshot(emptyRunProjection(run), {
+		snapshot: data["snapshot"],
+		asOfSequence: response.lastSequence ?? data["lastSequence"],
+	});
 	return text({ projection: serializeDashboardProjection(projection) });
 };
 
@@ -391,7 +420,11 @@ export const startPlotWebGateway = async (
 					);
 					if (run === undefined)
 						return new Response("run not found", { status: 404 });
-					return runProjectionResponse(run, runIpc.runRegistry);
+					return runProjectionResponse(
+						run,
+						runIpc.runRegistry,
+						runIpc.historyDir,
+					);
 				}
 				if (url.pathname === "/api/health")
 					return text({ ok: true, socketPath: runIpc.socketPath });
