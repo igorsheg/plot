@@ -63,34 +63,44 @@ function Fact({
 	);
 }
 
-function LiveStream({
-	label,
-	text,
+/**
+ * The agent's live voice in a fixed-height frame: the frame never resizes
+ * while tokens stream, so nothing below it moves. Message wins over thinking
+ * as the newer voice; the tool line lives in vitals and the timeline.
+ */
+function LiveVoice({
+	streams,
 }: {
-	readonly label: string;
-	readonly text: string | undefined;
+	readonly streams: SerializedAgentAttemptProjection["streams"];
 }) {
 	// ponytail: hold the last turn's text dimmed so the window does not blink
 	// empty at turn_end; bounded to one turn by the reducer's reset.
-	const held = useRef("");
-	const live = text !== undefined && text !== "";
-	if (live) held.current = text;
-	const shown = live ? text : held.current;
-	if (shown === "") return null;
+	const held = useRef({ label: "thinking", text: "" });
+	const live =
+		streams.message !== undefined && streams.message !== ""
+			? { label: "message", text: streams.message }
+			: streams.thinking !== undefined && streams.thinking !== ""
+				? { label: "thinking", text: streams.thinking }
+				: undefined;
+	if (live !== undefined) held.current = live;
+	const shown = live ?? held.current;
 	return (
 		<div className="space-y-0.5">
 			<div className="text-[10px] tracking-wide text-muted-foreground uppercase">
-				{label}
+				{shown.label}
+				{live === undefined && shown.text !== "" && " · last turn"}
 			</div>
 			{/* ponytail: column-reverse pins a growing turn to its tail for free. */}
-			<div className="flex max-h-40 flex-col-reverse overflow-y-auto">
+			<div className="flex h-40 flex-col-reverse overflow-y-auto [scrollbar-width:none]">
 				<p
 					className={cn(
 						"font-mono text-xs whitespace-pre-wrap text-muted-foreground",
-						!live && "opacity-50",
+						live === undefined && "opacity-50",
 					)}
 				>
-					{streamTail(shown)}
+					{shown.text === ""
+						? "waiting for the model…"
+						: streamTail(shown.text)}
 				</p>
 			</div>
 		</div>
@@ -113,7 +123,7 @@ function Timeline({ entries }: { readonly entries: readonly TimelineEntry[] }) {
 					stick.current =
 						list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
 				}}
-				className="max-h-64 outline-none"
+				className="h-64 outline-none"
 			>
 				<ol className="space-y-0.5 text-xs">
 					{entries.map((entry) => (
@@ -125,7 +135,9 @@ function Timeline({ entries }: { readonly entries: readonly TimelineEntry[] }) {
 								{kindGlyph[entry.kind]}
 							</span>
 							<span className="min-w-0 flex-1 truncate">{entry.text}</span>
-							<span className="shrink-0">{formatAgo(entry.atMs)}</span>
+							<span className="shrink-0 tabular-nums">
+								{formatAgo(entry.atMs)}
+							</span>
 						</li>
 					))}
 				</ol>
@@ -282,32 +294,37 @@ export function Inspector({
 					)}
 					{current !== undefined && (
 						<Section title="Agent run">
-							<div className="grid grid-cols-3 gap-2">
+							{/* Fixed six-slot grid: unknown values render "—" so the grid never reflows mid-stream. */}
+							<div className="grid grid-cols-3 gap-2 tabular-nums">
 								<Fact label="stage">
 									<Badge size="sm" variant={stageVariant[current.stage]}>
 										{current.stage}
 									</Badge>
 								</Fact>
-								{elapsedMs !== undefined && (
-									<Fact label="elapsed">{formatDuration(elapsedMs)}</Fact>
-								)}
+								<Fact label="elapsed">
+									{elapsedMs === undefined ? "—" : formatDuration(elapsedMs)}
+								</Fact>
 								<Fact label="turns">{current.turnCount}</Fact>
-								{current.tokens?.total !== undefined && (
-									<Fact label="tokens">
-										{formatTokens(current.tokens.total)}
-										{current.tokens.cost !== undefined &&
-											` · $${current.tokens.cost.toFixed(2)}`}
-									</Fact>
-								)}
+								<Fact label="tokens">
+									{current.tokens?.total === undefined
+										? "—"
+										: `${formatTokens(current.tokens.total)}${
+												current.tokens.cost === undefined
+													? ""
+													: ` · $${current.tokens.cost.toFixed(2)}`
+											}`}
+								</Fact>
 								<Fact label="check">{current.check}</Fact>
-								{current.streaming && (
-									<Fact label="live">
+								<Fact label="live">
+									{current.streaming ? (
 										<span className="inline-flex items-center gap-1">
 											<Dot className="animate-pulse bg-success" />
 											streaming
 										</span>
-									</Fact>
-								)}
+									) : (
+										"idle"
+									)}
+								</Fact>
 							</div>
 							{activeTargets.length > 0 && (
 								<p className="truncate font-mono text-xs text-muted-foreground">
@@ -318,9 +335,7 @@ export function Inspector({
 					)}
 					{current !== undefined && (
 						<Section title="Now">
-							<LiveStream label="thinking" text={current.streams.thinking} />
-							<LiveStream label="message" text={current.streams.message} />
-							<LiveStream label="tool" text={current.streams.tool} />
+							<LiveVoice streams={current.streams} />
 						</Section>
 					)}
 					{current !== undefined && current.timeline.length > 0 && (
