@@ -193,6 +193,27 @@ test("file run store ignores a corrupt final record", async () => {
 	]);
 });
 
+test("file run store drops removed run fields", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-run-store-legacy-"));
+	const path = join(cwd, "runs.json");
+	await writeFile(
+		path,
+		JSON.stringify([
+			{
+				id: "legacy",
+				status: "stopped",
+				cwd,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				eventLogPath: join(cwd, "old.jsonl"),
+			},
+		]),
+	);
+
+	expect(await createFileRunStore(path).list()).toEqual([
+		expect.not.objectContaining({ eventLogPath: expect.anything() }),
+	]);
+});
+
 test("runRegistry recovery does not leave stale runs online", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-recover-"));
 	const store = createFileRunStore(

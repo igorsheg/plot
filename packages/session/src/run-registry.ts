@@ -235,11 +235,16 @@ const stripTrailingNuls = (text: string): string => {
 	return text.slice(0, end);
 };
 
-const parseRunStoreJson = (text: string): readonly RunRecord[] =>
-	decodeBoundary(
-		runArraySchema,
-		JSON.parse(stripTrailingNuls(text)) as unknown,
-	);
+const parseRunStoreJson = (text: string): readonly RunRecord[] => {
+	const value = JSON.parse(stripTrailingNuls(text)) as unknown;
+	if (Array.isArray(value)) {
+		for (const row of value) {
+			if (!isRecord(row)) continue;
+			delete row["eventLogPath"];
+		}
+	}
+	return decodeBoundary(runArraySchema, value);
+};
 
 const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 	let text: string;
