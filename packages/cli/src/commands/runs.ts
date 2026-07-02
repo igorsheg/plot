@@ -11,6 +11,7 @@ import {
 	sendRunIpcRequest,
 } from "@plot/session/run-ipc";
 import type { RunRequest } from "@plot/session/run-registry";
+import { formatRunResponse } from "../run-output.js";
 
 const runIpcOptions = (_args: ParsedArgs): RunIpcOptions => ({
 	cwd: process.cwd(),
@@ -21,17 +22,28 @@ const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 const request = async (args: ParsedArgs, value: RunRequest) => {
 	const io = getCliIo();
 	try {
+		const response = await sendRunIpcRequest(runIpcOptions(args), value);
 		await io.writeStdout(
-			json(await sendRunIpcRequest(runIpcOptions(args), value)),
+			args["json"] === true
+				? json(response)
+				: `${formatRunResponse(response)}\n`,
 		);
 	} catch (error) {
 		await writeCliStderr(
 			io,
-			`Error: ${errorMessage(error)}\nFix: run \`plot web\` or \`plot api --http\`.\n`,
+			`Error: ${errorMessage(error)}\nFix: start the daemon with \`plot registry serve\`, \`plot tui\`, or \`plot web\`.\n`,
 		);
 		throw error;
 	}
 };
+
+const jsonFlag = {
+	json: {
+		type: "boolean",
+		description: "Print the raw IPC response as JSON.",
+		default: false,
+	},
+} as const;
 
 const streamEvents = async (args: ParsedArgs) => {
 	const io = getCliIo();
@@ -75,6 +87,7 @@ const runIdArg = {
 
 export const listRunsCommand = defineCommand({
 	meta: { name: "ls", description: "List Plot runs." },
+	args: jsonFlag,
 	run: ({ args }) => request(args, { type: "list" }),
 });
 
@@ -83,18 +96,19 @@ export const pruneRunsCommand = defineCommand({
 		name: "prune",
 		description: "Remove stopped and errored runs and their history.",
 	},
+	args: jsonFlag,
 	run: ({ args }) => request(args, { type: "prune" }),
 });
 
 export const statusRunCommand = defineCommand({
 	meta: { name: "status", description: "Show one Plot run." },
-	args: runIdArg,
+	args: { ...runIdArg, ...jsonFlag },
 	run: ({ args }) => request(args, { type: "status", id: str(args, "runId")! }),
 });
 
 export const stopRunCommand = defineCommand({
 	meta: { name: "stop", description: "Stop one Plot run." },
-	args: runIdArg,
+	args: { ...runIdArg, ...jsonFlag },
 	run: ({ args }) => request(args, { type: "stop", id: str(args, "runId")! }),
 });
 
