@@ -1,46 +1,46 @@
 # Plot
 
-```txt
-PLOT CONTROL PLANE █  tick -> reconcile -> act
-```
-
-Plot is a control plane for long-running coding agents: find work, start agents, track runs, and show TUI/web dashboards when something needs attention.
+Run coding agents against real work, continuously, without babysitting them.
 
 ```bash
 npm install -g plot-ai
 plot --workflow WORKFLOW.md
 ```
 
-## Why
+## The problem
 
-Agents are useful; running them is awkward. Plot sits between babysitting one prompt and building brittle scripts that over-control the agent.
+You have an agent that can review a PR, triage a failing build, investigate a
+production error.
+
+Now run it against every PR. All day. While you do something else.
+
+Suddenly you're writing the boring parts: a poll loop, a job queue, retry
+backoff, "is that run still alive?", a dashboard, cleanup for the run that died
+mid-write. None of that is agent judgment. All of it is scheduling.
+
+Plot is the scheduling. You keep the judgment.
+
+## The mental model
+
+Three layers. Each stays out of the other two.
 
 ```txt
-workflow finds work -> Plot schedules it -> agent keeps judgment
+your extension finds work     trusted TypeScript that reads GitHub, CI, Sentry, a queue
+Plot schedules Agent Runs     tick -> reconcile -> act
+your prompt teaches judgment  Markdown that says what good work looks like
 ```
 
-Plot handles concurrency, wakeups, stale-run timeouts, history, diagnostics, usage/cost, dashboards, and `plot api --stdio` automation.
+The extension never runs agents. The prompt never schedules. Plot doesn't know
+your domain — it tracks whether work is pending, running, blocked, failed, or
+done.
 
-## Try the PR reviewer
+## What you write
 
-```bash
-plot --workflow examples/pr-review/WORKFLOW.md
-plot run --workflow examples/pr-review/WORKFLOW.md # one pass, no dashboard
-```
-
-Needs: authenticated `gh`, a branch with a PR, and agent provider auth. Optional defaults live in `~/.plot/settings.json` or `.plot/settings.json`:
-
-```json
-{ "defaultProvider": "openai-codex", "defaultModel": "gpt-5.5" }
-```
-
-## Workflows and extensions
-
-A Workflow is Markdown plus config. The extension discovers Work Items; the prompt tells the agent how to handle them.
+A Workflow is one Markdown file:
 
 ```md
 ---
-name: review-current-pr
+name: review-open-prs
 extension: { source: ./github-pr-reviewer.extension.ts }
 agent: { provider: openai-codex, model: gpt-5.5 }
 resources: { contextFiles: true }
@@ -48,30 +48,82 @@ resources: { contextFiles: true }
 
 # Review {{ work.title }}
 
-Use GitHub, tests, and judgment. Post one useful review.
+Use the repository, tests, and judgment. Post one useful review.
 ```
 
-Extensions are trusted TypeScript. They read systems like GitHub, Linear, CI, logs, queues, files, or databases; return Work Items; and register tools for side effects like posting a review.
+An extension is one TypeScript file:
 
-Good fits: PR review, failed-CI investigation, production-error triage, generated docs, dependency checks, and repo maintenance. Plot should only care whether work is running, waiting, blocked, failed, or complete.
+```ts
+import { definePlotExtension } from "plot-ai/sdk";
 
-## Dashboards
+export default definePlotExtension({
+	id: "github-pr-reviewer",
+	create: ({ work }) => ({
+		async discover() {
+			const prs = await listOpenPullRequests();
+			return prs.map((pr) =>
+				work({
+					id: `github:pr:${pr.number}`,
+					version: pr.headSha, // new head = new work, automatically
+					title: pr.title,
+					context: { prNumber: pr.number },
+				}),
+			);
+		},
+	}),
+});
+```
+
+Return the work that exists. Stop returning work that's done. Reruns,
+deduplication, and cleanup fall out of `id` + `version`.
+
+## What you don't write
+
+| When this happens                   | What Plot does                                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| The process dies mid-run            | State reconstructs from your systems on the next tick — there is no database to corrupt |
+| Work disappears while a run is live | The run drains: finishes its turn, never killed for succeeding                          |
+| A run fails repeatedly              | Exponential backoff, visible as a scheduled wake on the dashboard                       |
+| A run goes silent                   | Stall timeout interrupts it                                                             |
+| Twenty items appear at once         | Global and per-source concurrency caps                                                  |
+| A human wants in                    | Operator Actions your extension declares become buttons in the TUI and web              |
+
+## Try the PR reviewer
 
 ```bash
-plot --workflow WORKFLOW.md
-plot web
+plot --workflow examples/pr-review/WORKFLOW.md
 ```
 
-The TUI opens a managed Plot Session. `plot web` can watch the same session. Workflows provide titles, labels, URLs, and short status text; Plot owns rendering.
+Tiered review depth, re-review on push, a quiet period for rapid pushes,
+bot/label/draft gating. One anchor comment per PR holds all review state.
 
-## Docs and development
+Needs an authenticated `gh` and provider auth (`plot auth login`).
 
-Docs: [Quickstart](docs/quickstart.md), [Workflows](docs/workflows.md), [Extensions](docs/extensions.md), [TUI](docs/tui.md), [Web](docs/web.md).
+## Watch it work
+
+```bash
+plot --workflow WORKFLOW.md   # TUI dashboard
+plot web                      # same session, in the browser
+plot api --stdio              # same session, as JSONL for machines
+```
+
+## Write your extension with an agent
 
 ```bash
 plot docs extension-prompt | pbcopy
+```
+
+Paste it into your coding agent and describe your source of work.
+
+## Docs and development
+
+[Quickstart](docs/quickstart.md) · [Workflows](docs/workflows.md) ·
+[Extensions](docs/extensions.md) · [TUI](docs/tui.md) · [Web](docs/web.md)
+
+```bash
 bun install
 bun run check
 ```
 
-Releases are tag-driven from `v*`. Run `bun run release:local --version <version>` before cutting one.
+Releases are tag-driven from `v*`. Run
+`bun run release:local --version <version>` before cutting one.
