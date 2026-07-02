@@ -1,10 +1,11 @@
 import type {
 	SerializedAgentAttemptProjection,
 	TimelineEntry,
+	WorkItemProjection,
 } from "@plot/session/projection";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { WebDashboardProjection } from "./api.js";
+import type { ObservationInput, WebDashboardProjection } from "./api.js";
 import { Badge } from "./components/ui/badge.js";
 import { Button } from "./components/ui/button.js";
 import { Dot } from "./components/ui/dot.js";
@@ -16,7 +17,12 @@ import {
 } from "./components/ui/scroll-area.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import { cn } from "./lib/utils.js";
-import { kindGlyph, operatorActionLabels, stageVariant } from "./work-card.js";
+import {
+	kindGlyph,
+	stageVariant,
+	workOperatorActions,
+	type WorkOperatorAction,
+} from "./work-card.js";
 
 /** Display-side tail of a turn-scoped stream; the reducer owns the real window. */
 const streamTail = (text: string): string =>
@@ -185,11 +191,100 @@ function AttemptSummaryRow({
 	);
 }
 
+const actionVariant = (
+	tone: WorkOperatorAction["tone"],
+): "default" | "outline" => (tone === "primary" ? "default" : "outline");
+
+/** The reason the web exists: record a human decision, let the Source reconcile. */
+function OperatorZone({
+	onAction,
+	work,
+}: {
+	readonly onAction: (input: ObservationInput) => Promise<boolean>;
+	readonly work: WorkItemProjection;
+}) {
+	const [pendingId, setPendingId] = useState<string>();
+	const [status, setStatus] = useState<string>();
+	const actions = workOperatorActions(work);
+	const act = async (action: WorkOperatorAction) => {
+		if (
+			action.confirm !== undefined &&
+			!window.confirm(
+				[action.confirm.title, action.confirm.message]
+					.filter((part) => part !== undefined)
+					.join("\n"),
+			)
+		)
+			return;
+		let comment: string | undefined;
+		if (action.requiresComment === true) {
+			const value = window.prompt(`${action.label} — comment`);
+			if (value === null || value.trim() === "") return;
+			comment = value;
+		}
+		setPendingId(action.id);
+		setStatus(undefined);
+		try {
+			const accepted = await onAction({
+				sourceId: work.sourceId,
+				workKey: work.workKey,
+				actionId: action.id,
+				actionLabel: action.label,
+				...(comment === undefined ? {} : { comment }),
+			});
+			setStatus(
+				accepted
+					? "recorded · the source reconciles on the next tick"
+					: "rejected · session queue is full, try again",
+			);
+		} catch (caught) {
+			setStatus(caught instanceof Error ? caught.message : String(caught));
+		} finally {
+			setPendingId(undefined);
+		}
+	};
+	return (
+		<Section title="Needs you" tone="attention">
+			{work.blockedReason !== undefined && (
+				<p className="text-xs text-warning-foreground">{work.blockedReason}</p>
+			)}
+			{actions.length > 0 && (
+				<div className="flex flex-wrap gap-1.5">
+					{actions.map((action) => (
+						<Button
+							key={action.id}
+							size="sm"
+							variant={actionVariant(action.tone)}
+							className={
+								action.tone === "danger"
+									? "border-destructive/40 text-destructive-foreground"
+									: undefined
+							}
+							disabled={
+								action.disabledReason !== undefined || pendingId !== undefined
+							}
+							title={action.disabledReason}
+							onClick={() => void act(action)}
+						>
+							{pendingId === action.id ? "…" : action.label}
+						</Button>
+					))}
+				</div>
+			)}
+			{status !== undefined && (
+				<p className="text-[10px] text-muted-foreground">{status}</p>
+			)}
+		</Section>
+	);
+}
+
 export function Inspector({
+	onAction,
 	onClose,
 	projection,
 	workKey,
 }: {
+	readonly onAction: (input: ObservationInput) => Promise<boolean>;
 	readonly onClose: () => void;
 	readonly projection: WebDashboardProjection;
 	readonly workKey: string;
@@ -216,7 +311,7 @@ export function Inspector({
 	}
 
 	const blocked = work?.status === "blocked";
-	const actions = work === undefined ? [] : operatorActionLabels(work);
+
 	const elapsedMs =
 		current?.startedAtMs === undefined
 			? undefined
@@ -281,30 +376,8 @@ export function Inspector({
 			</header>
 			<ScrollArea className="min-h-0 flex-1">
 				<div>
-					{blocked && (
-						<Section title="Needs you" tone="attention">
-							{work?.blockedReason !== undefined && (
-								<p className="text-xs text-warning-foreground">
-									{work.blockedReason}
-								</p>
-							)}
-							{actions.length > 0 && (
-								<>
-									<div className="flex flex-wrap gap-1.5">
-										{actions.map((label) => (
-											<Button key={label} size="sm" variant="outline" disabled>
-												{label}
-											</Button>
-										))}
-									</div>
-									{/* Visible caption beats a hover hint on disabled controls. */}
-									<p className="text-[10px] text-muted-foreground">
-										Take these actions from plot tui; web actions land with the
-										observation endpoint.
-									</p>
-								</>
-							)}
-						</Section>
+					{blocked && work !== undefined && (
+						<OperatorZone onAction={onAction} work={work} />
 					)}
 					{current !== undefined && (
 						<Section title="Agent run">

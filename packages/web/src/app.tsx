@@ -4,8 +4,10 @@ import {
 	fetchRunProjection,
 	fetchRuns,
 	parsePlotEventRecord,
+	recordObservation,
 	runEventsUrl,
 	stopRun,
+	type ObservationInput,
 	type WebDashboardProjection,
 } from "./api.js";
 import { SessionBoard, type BoardState } from "./board.js";
@@ -205,6 +207,11 @@ export function PlotApp() {
 		}
 	};
 
+	const onAction = async (input: ObservationInput): Promise<boolean> => {
+		if (effectiveId === undefined) return false;
+		return recordObservation(effectiveId, input);
+	};
+
 	return (
 		<ThemeProvider>
 			<TooltipProvider>
@@ -239,6 +246,7 @@ export function PlotApp() {
 							<SessionBoard
 								run={selectedRun}
 								state={board}
+								onAction={onAction}
 								onStop={() => void onStop(effectiveId)}
 							/>
 						)}

@@ -17,7 +17,7 @@ const projection = (): WebDashboardProjection => ({
 			labels: ["pr"],
 			status: "blocked",
 			blockedReason: "needs approval",
-			operatorActions: [{ label: "Approve" }],
+			operatorActions: [{ id: "approve", label: "Approve" }],
 			currentRunId: "run-1",
 			url: "https://example.com/pr/7",
 		},
@@ -64,6 +64,7 @@ const projection = (): WebDashboardProjection => ({
 test("inspector renders operator zone, live run, timeline, and history", () => {
 	const html = renderToString(
 		<Inspector
+			onAction={async () => true}
 			onClose={() => undefined}
 			projection={projection()}
 			workKey="work-1"
@@ -80,6 +81,7 @@ test("inspector renders operator zone, live run, timeline, and history", () => {
 test("inspector renders nothing for an unknown work key", () => {
 	const html = renderToString(
 		<Inspector
+			onAction={async () => true}
 			onClose={() => undefined}
 			projection={serializeDashboardProjection(emptyProjection("s", "w"))}
 			workKey="missing"

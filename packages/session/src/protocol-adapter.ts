@@ -42,6 +42,16 @@ const interruptParamsSchema = Schema.Struct({
 	workKey: optional(NonEmptyString),
 });
 
+const observationParamsSchema = Schema.Struct({
+	sourceId: NonEmptyString,
+	workKey: NonEmptyString,
+	actionId: NonEmptyString,
+	actionLabel: NonEmptyString,
+	comment: optional(Schema.String),
+	clientId: optional(NonEmptyString),
+	actor: optional(NonEmptyString),
+});
+
 const decodeParams = <S extends Schema.Decoder<unknown>>(
 	schema: S,
 	value: unknown,
@@ -164,6 +174,16 @@ export const makeSessionProtocol = (
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: { resumed: true },
 				});
+			case "record_operator_observation": {
+				const params = decodeParams(observationParamsSchema, request.params);
+				return makeSuccess({
+					request,
+					lastSequence: await options.runtime.lastEventSequence(),
+					data: {
+						accepted: await options.runtime.recordOperatorObservation(params),
+					},
+				});
+			}
 			case "interrupt_agent_run": {
 				const params = decodeParams(interruptParamsSchema, request.params);
 				return makeSuccess({

@@ -38,6 +38,7 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 	pauseDispatch: async () => {},
 	resumeDispatch: async () => {},
 	interruptAgentRun: async () => true,
+	recordOperatorObservation: async () => true,
 	events: async function* () {},
 	appendAgentEvent: async (input) => ({
 		kind: "agent_event",
@@ -76,6 +77,10 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 				calls.push(`interrupt:${runId}`);
 				return true;
 			},
+			recordOperatorObservation: async ({ actionId, workKey }) => {
+				calls.push(`observe:${workKey}:${actionId}`);
+				return true;
+			},
 			shutdown: async () => {
 				calls.push("shutdown");
 				return true;
@@ -87,6 +92,14 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 	await protocol.submit(request("pause_dispatch"));
 	await protocol.submit(request("resume_dispatch"));
 	await protocol.submit(request("interrupt_agent_run", { runId: "run-1" }));
+	await protocol.submit(
+		request("record_operator_observation", {
+			sourceId: "source-1",
+			workKey: "work-1",
+			actionId: "approve",
+			actionLabel: "Approve",
+		}),
+	);
 	await protocol.submit(request("shutdown"));
 	await protocol.close();
 
@@ -95,6 +108,7 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 		"pause",
 		"resume",
 		"interrupt:run-1",
+		"observe:work-1:approve",
 		"shutdown",
 	]);
 });

@@ -189,6 +189,31 @@ export const fetchRuns = async (): Promise<readonly PlotRun[]> => {
 	return parsePlotRuns(await response.json());
 };
 
+export interface ObservationInput {
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly actionId: string;
+	readonly actionLabel: string;
+	readonly comment?: string | undefined;
+}
+
+export const recordObservation = async (
+	runId: string,
+	input: ObservationInput,
+): Promise<boolean> => {
+	const response = await fetch(
+		`/api/runs/${encodeURIComponent(runId)}/observations`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(input),
+		},
+	);
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	const data = (await response.json()) as { readonly accepted?: boolean };
+	return data.accepted === true;
+};
+
 export const stopRun = async (id: string): Promise<void> => {
 	const response = await fetch(`/api/runs/${encodeURIComponent(id)}`, {
 		method: "DELETE",

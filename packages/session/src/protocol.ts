@@ -19,6 +19,7 @@ export const sessionCommandSchema = Schema.Literals([
 	"pause_dispatch",
 	"resume_dispatch",
 	"interrupt_agent_run",
+	"record_operator_observation",
 ]);
 
 export const protocolLimitsSchema = Schema.Struct({

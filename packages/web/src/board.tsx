@@ -1,7 +1,7 @@
 import type { DashboardStatus } from "@plot/session/projection";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { WebDashboardProjection } from "./api.js";
+import type { ObservationInput, WebDashboardProjection } from "./api.js";
 import { Badge, type BadgeProps } from "./components/ui/badge.js";
 import { Button } from "./components/ui/button.js";
 import { Dot } from "./components/ui/dot.js";
@@ -220,10 +220,12 @@ function LaneSkeletons() {
 }
 
 export function SessionBoard({
+	onAction,
 	onStop,
 	run,
 	state,
 }: {
+	readonly onAction: (input: ObservationInput) => Promise<boolean>;
 	readonly onStop: () => void;
 	readonly run: PlotRun;
 	readonly state: BoardState;
@@ -302,6 +304,7 @@ export function SessionBoard({
 					</ScrollArea>
 					{selectedKey !== undefined && projection !== undefined && (
 						<Inspector
+							onAction={onAction}
 							onClose={() => {
 								window.location.hash = "";
 							}}

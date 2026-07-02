@@ -116,6 +116,51 @@ const parseSequence = (value: string | null): number | undefined => {
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
+const stringField = (
+	body: Record<string, unknown>,
+	key: string,
+): string | undefined => {
+	const value = body[key];
+	return typeof value === "string" && value.trim() !== "" ? value : undefined;
+};
+
+const parseObservationBody = async (
+	request: Request,
+): Promise<
+	| {
+			readonly sourceId: string;
+			readonly workKey: string;
+			readonly actionId: string;
+			readonly actionLabel: string;
+			readonly comment?: string;
+	  }
+	| undefined
+> => {
+	const body = (await request.json().catch(() => undefined)) as
+		| Record<string, unknown>
+		| undefined;
+	if (body === undefined) return undefined;
+	const sourceId = stringField(body, "sourceId");
+	const workKey = stringField(body, "workKey");
+	const actionId = stringField(body, "actionId");
+	const actionLabel = stringField(body, "actionLabel");
+	if (
+		sourceId === undefined ||
+		workKey === undefined ||
+		actionId === undefined ||
+		actionLabel === undefined
+	)
+		return undefined;
+	const comment = stringField(body, "comment");
+	return {
+		sourceId,
+		workKey,
+		actionId,
+		actionLabel,
+		...(comment === undefined ? {} : { comment }),
+	};
+};
+
 const parseCreateRunBody = async (
 	request: Request,
 ): Promise<{
@@ -285,6 +330,37 @@ export const startPlotWebGateway = async (
 					return runs.ok
 						? text({ runs: runs.value })
 						: text({ error: String(runs.error) }, { status: 503 });
+				}
+				const observationPath = /^\/api\/runs\/([^/]+)\/observations$/.exec(
+					url.pathname,
+				);
+				if (observationPath !== null && request.method === "POST") {
+					const id = decodeURIComponent(observationPath[1] ?? "");
+					const run = await runIpc.runRegistry.status(id);
+					if (run === undefined)
+						return new Response("run not found", { status: 404 });
+					const body = await parseObservationBody(request);
+					if (body === undefined)
+						return text({ error: "invalid observation body" }, { status: 400 });
+					const response = await runIpc.runRegistry
+						.submit(id, {
+							protocol: sessionProtocolVersion,
+							kind: "request",
+							id: `web_observation_${randomUUID()}`,
+							command: "record_operator_observation",
+							params: { ...body, actor: "web" },
+						})
+						.catch(() => undefined);
+					if (
+						response === undefined ||
+						response.kind !== "response" ||
+						!response.ok
+					)
+						return text({ error: "run not live" }, { status: 409 });
+					return text({
+						accepted:
+							isRecord(response.data) && response.data["accepted"] === true,
+					});
 				}
 				const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
 				if (eventPath !== null) {

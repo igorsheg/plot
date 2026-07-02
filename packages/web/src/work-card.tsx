@@ -8,11 +8,7 @@ import { createContext, use } from "react";
 import type { ReactNode } from "react";
 import { Badge, type BadgeProps } from "./components/ui/badge.js";
 import { Dot } from "./components/ui/dot.js";
-import {
-	Tooltip,
-	TooltipPopup,
-	TooltipTrigger,
-} from "./components/ui/tooltip.js";
+
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import type { CompletedLaneItem, WorkLaneItem } from "./lanes.js";
 import { cn } from "./lib/utils.js";
@@ -37,20 +33,57 @@ export const stageVariant: Record<AttemptStage, BadgeProps["variant"]> = {
 	failed: "error",
 };
 
-const operatorActionLabel = (value: unknown): string | undefined => {
-	if (typeof value === "string") return value;
-	if (!isRecord(value)) return undefined;
-	const label =
-		value["label"] ?? value["title"] ?? value["name"] ?? value["id"];
-	return typeof label === "string" ? label : undefined;
-};
+/** Mirrors the sdk OperatorAction contract; Sources are trusted TypeScript. */
+export interface WorkOperatorAction {
+	readonly id: string;
+	readonly label: string;
+	readonly tone?: "primary" | "secondary" | "danger" | undefined;
+	readonly disabledReason?: string | undefined;
+	readonly requiresComment?: boolean | undefined;
+	readonly confirm?:
+		| { readonly title: string; readonly message?: string | undefined }
+		| undefined;
+}
 
-export const operatorActionLabels = (
+export const workOperatorActions = (
 	work: WorkItemProjection,
-): readonly string[] =>
-	(work.operatorActions ?? [])
-		.map(operatorActionLabel)
-		.filter((label) => label !== undefined);
+): readonly WorkOperatorAction[] =>
+	(work.operatorActions ?? []).flatMap((value) => {
+		if (!isRecord(value)) return [];
+		const id = value["id"];
+		const label = value["label"];
+		if (typeof id !== "string" || typeof label !== "string") return [];
+		const tone = value["tone"];
+		const disabledReason = value["disabledReason"];
+		const confirmValue = value["confirm"];
+		const confirmTitle = isRecord(confirmValue)
+			? confirmValue["title"]
+			: undefined;
+		const confirmMessage = isRecord(confirmValue)
+			? confirmValue["message"]
+			: undefined;
+		return [
+			{
+				id,
+				label,
+				...(tone === "primary" || tone === "secondary" || tone === "danger"
+					? { tone }
+					: {}),
+				...(typeof disabledReason === "string" ? { disabledReason } : {}),
+				...(value["requiresComment"] === true ? { requiresComment: true } : {}),
+				...(typeof confirmTitle === "string"
+					? {
+							confirm: {
+								title: confirmTitle,
+								...(typeof confirmMessage === "string"
+									? { message: confirmMessage }
+									: {}),
+							},
+						}
+					: {}),
+			},
+		];
+	});
 
 /** Stable CSS custom-ident for per-card view transitions. */
 export const viewTransitionName = (key: string): string => {
@@ -153,17 +186,18 @@ function BlockedReason() {
 
 function OperatorActions() {
 	const { work } = useWorkItem();
-	const actions = operatorActionLabels(work);
+	const actions = workOperatorActions(work);
 	if (actions.length === 0) return null;
 	return (
 		<div className="flex flex-wrap gap-1">
-			{actions.map((label) => (
-				<Tooltip key={label}>
-					<TooltipTrigger render={<Badge size="sm" variant="warning" />}>
-						{label}
-					</TooltipTrigger>
-					<TooltipPopup>Take this action from plot tui</TooltipPopup>
-				</Tooltip>
+			{actions.map((action) => (
+				<Badge
+					key={action.id}
+					size="sm"
+					variant={action.tone === "danger" ? "error" : "warning"}
+				>
+					{action.label}
+				</Badge>
 			))}
 		</div>
 	);
