@@ -76,6 +76,26 @@ test("inspector renders operator zone, live run, timeline, and history", () => {
 	expect(html).toContain("planning the change");
 	expect(html).toContain("read board.tsx");
 	expect(html).toContain("checks failed");
+	// While streaming, Now/timeline narrate; the transcript is retrospective.
+	expect(html).not.toContain("/tmp/transcript.jsonl");
+});
+
+test("inspector offers the transcript once the attempt settles", () => {
+	const settled = projection();
+	const html = renderToString(
+		<Inspector
+			onAction={async () => true}
+			onClose={() => undefined}
+			projection={{
+				...settled,
+				attempts: {
+					"run-1": { ...settled.attempts["run-1"]!, streaming: false },
+				},
+			}}
+			sessionRunId="run-web-1"
+			workKey="work-1"
+		/>,
+	);
 	expect(html).toContain("/tmp/transcript.jsonl");
 });
 
