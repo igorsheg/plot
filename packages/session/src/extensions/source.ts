@@ -38,6 +38,8 @@ import {
 	discoveredFactKey,
 	isBlocked,
 	isCancelled,
+	isHeld,
+	isWaiting,
 	releasedReason,
 	sourceIdForExtension,
 	templateContextForWork,
@@ -268,7 +270,9 @@ export const makePlotExtensionSourceBundle = (options: {
 						? "draining"
 						: isBlocked(work)
 							? "blocked"
-							: "pending";
+							: isWaiting(work)
+								? "waiting"
+								: "pending";
 				const currentRunId = [...snapshot.running.values()].find((run) => {
 					if (run.sourceId !== source) return false;
 					return (
@@ -320,7 +324,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				snapshot.facts.get(discoveredFactKey(source)),
 			).some(
 				(candidate) =>
-					!isBlocked(candidate) &&
+					!isHeld(candidate) &&
 					workKeyForExtensionWork(options.extension, candidate) ===
 						work.workKey,
 			);
@@ -347,7 +351,7 @@ export const makePlotExtensionSourceBundle = (options: {
 					snapshot.running.has(key) ||
 					heldKeys.has(key) ||
 					claimedIds.has(extensionWork.id) ||
-					isBlocked(extensionWork)
+					isHeld(extensionWork)
 				)
 					return [];
 				selectedWork.set(key, extensionWork);

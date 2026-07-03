@@ -80,6 +80,31 @@ test("inspector renders operator zone, live run, timeline, and history", () => {
 	expect(html).not.toContain("/tmp/transcript.jsonl");
 });
 
+test("inspector renders waiting work without attention copy", () => {
+	const waiting = projection();
+	const html = renderToString(
+		<Inspector
+			onAction={async () => true}
+			sessionRunId="run-web-1"
+			onClose={() => undefined}
+			projection={{
+				...waiting,
+				work: {
+					"work-1": {
+						...waiting.work["work-1"]!,
+						status: "waiting",
+						blockedReason: "reviewed at this head",
+					},
+				},
+			}}
+			workKey="work-1"
+		/>,
+	);
+	expect(html).toContain("Waiting");
+	expect(html).toContain("reviewed at this head");
+	expect(html).not.toContain("Needs you");
+});
+
 test("inspector offers the transcript once the attempt settles", () => {
 	const settled = projection();
 	const html = renderToString(

@@ -24,6 +24,7 @@ export type DashboardStatus =
 	| "error";
 export type WorkStatus =
 	| "pending"
+	| "waiting"
 	| "running"
 	| "blocked"
 	| "draining"

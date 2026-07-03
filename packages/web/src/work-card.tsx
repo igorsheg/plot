@@ -176,11 +176,24 @@ function Activity() {
 	);
 }
 
-function BlockedReason() {
+function HeldReason() {
 	const { work } = useWorkItem();
 	if (work.blockedReason === undefined) return null;
+	const waiting = work.status === "waiting";
 	return (
-		<p className="text-xs text-warning-foreground">{work.blockedReason}</p>
+		<p
+			className={cn(
+				"text-xs",
+				waiting ? "text-muted-foreground" : "text-warning-foreground",
+			)}
+		>
+			{waiting && (
+				<Badge size="sm" variant="secondary" className="mr-1">
+					waiting
+				</Badge>
+			)}
+			{work.blockedReason}
+		</p>
 	);
 }
 
@@ -246,7 +259,7 @@ const WorkCard = {
 	Header,
 	Subtitle,
 	Activity,
-	BlockedReason,
+	HeldReason,
 	OperatorActions,
 	Meta,
 };
@@ -262,6 +275,8 @@ export function IncomingCard({ item, selected }: WorkCardProps) {
 		<WorkCard.Frame item={item} selected={selected}>
 			<WorkCard.Header />
 			<WorkCard.Subtitle />
+			<WorkCard.HeldReason />
+			{item.work.status === "waiting" && <WorkCard.OperatorActions />}
 			<WorkCard.Meta />
 		</WorkCard.Frame>
 	);
@@ -289,7 +304,7 @@ export function NeedsYouCard({ item, selected }: WorkCardProps) {
 		>
 			<WorkCard.Header />
 			<WorkCard.Subtitle />
-			<WorkCard.BlockedReason />
+			<WorkCard.HeldReason />
 			<WorkCard.OperatorActions />
 			<WorkCard.Meta />
 		</WorkCard.Frame>

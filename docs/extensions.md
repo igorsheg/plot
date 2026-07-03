@@ -174,6 +174,8 @@ registerTool(({ work }) => defineTool({ name: "load_context", ... }));
 
 ## Operator Actions
 
+Use `status: "waiting"` for parked work waiting on the world; use `status: "blocked"` only when a human choice is needed.
+
 Use `operatorActions` when a Work Item needs a human choice.
 
 ```ts

@@ -75,7 +75,11 @@ export interface OperatorAction {
 	readonly confirm?: OperatorActionConfirm;
 }
 
-export type PlotExtensionWorkStatus = "pending" | "blocked" | "cancelled";
+export type PlotExtensionWorkStatus =
+	| "pending"
+	| "waiting"
+	| "blocked"
+	| "cancelled";
 
 export interface PlotExtensionWork {
 	/** Stable domain identity, e.g. github:acme/web:pr:42 or jira:EPIC-123. */
@@ -91,13 +95,15 @@ export interface PlotExtensionWork {
 	/**
 	 * Source-visible scheduling state. Defaults to pending.
 	 *
-	 * Blocked work keeps its claim and stays visible, but is not dispatched and
-	 * running attempts are not interrupted. Cancelled work is interrupted and
-	 * released immediately. Omitting the work from discovery drains it: an active
+	 * Waiting and blocked work keep their claim and stay visible, but are not
+	 * dispatched and running attempts are not interrupted. Waiting means the
+	 * world must move; blocked means a human should act. Cancelled work is
+	 * interrupted and released immediately. Omitting the work from discovery drains it: an active
 	 * run finishes its current turn without continuation, then the claim is
 	 * released without redispatch.
 	 */
 	readonly status?: PlotExtensionWorkStatus;
+	/** Why held work is waiting or blocked. */
 	readonly blockedReason?: string;
 	/**
 	 * Absolute per-work workspace directory. Plot creates the directory before

@@ -383,6 +383,27 @@ export const decodeRunRequest = (value: unknown): RunRequest =>
 	decodeBoundary(runRequestSchema, value);
 export const decodeRunResponse = (value: unknown): RunResponse =>
 	decodeBoundary(runResponseSchema, value);
+
+const historySkippedAgentEventTypes = new Set([
+	"thinking_delta",
+	"text_delta",
+	"message_delta",
+	"message_partial",
+	"toolcall_delta",
+]);
+
+const agentEventType = (event: unknown): string | undefined => {
+	if (!isRecord(event)) return undefined;
+	const update = event["assistantMessageEvent"];
+	const nested = isRecord(update) ? update["type"] : undefined;
+	const type = nested ?? event["type"];
+	return typeof type === "string" ? type : undefined;
+};
+
+const shouldWriteHistory = (record: EventServerRecord): boolean =>
+	record.event.kind !== "agent_event" ||
+	!historySkippedAgentEventTypes.has(agentEventType(record.event.event) ?? "");
+
 export class RunRegistry implements RunRegistryRuntime {
 	private readonly live = new Map<string, LiveRun>();
 	private readonly options: Required<
@@ -458,12 +479,13 @@ export class RunRegistry implements RunRegistryRuntime {
 			: runHistoryPath(this.options.historyDir, id);
 	}
 
-	// ponytail: history grows unboundedly per run; add rotation when a
-	// long-lived session actually hurts (files observed so far are <1MB).
+	// ponytail: history still grows unboundedly per run; add snapshot rotation when
+	// compacted files actually hurt.
 	private async appendHistory(
 		live: LiveRun,
 		record: EventServerRecord,
 	): Promise<void> {
+		if (!shouldWriteHistory(record)) return;
 		const path = this.historyPath(live.record.id);
 		if (path === undefined) return;
 		if (live.history === undefined) {

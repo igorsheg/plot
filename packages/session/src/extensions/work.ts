@@ -41,7 +41,9 @@ export const extensionWorkSchema = Schema.Struct({
 	title: optional(Schema.String),
 	url: optional(Schema.String),
 	subject: optional(Schema.String),
-	status: optional(Schema.Literals(["pending", "blocked", "cancelled"])),
+	status: optional(
+		Schema.Literals(["pending", "waiting", "blocked", "cancelled"]),
+	),
 	blockedReason: optional(Schema.String),
 	workspace: optional(NonEmptyString),
 	display: optional(displaySchema),
@@ -147,6 +149,9 @@ export const releasedReason = (source: SourceId) =>
 export const cancelledReason = (source: SourceId) =>
 	`work was cancelled by source ${source}`;
 export const isBlocked = (work: PlotExtensionWork) => work.status === "blocked";
+export const isWaiting = (work: PlotExtensionWork) => work.status === "waiting";
+export const isHeld = (work: PlotExtensionWork) =>
+	isBlocked(work) || isWaiting(work);
 export const isCancelled = (work: PlotExtensionWork) =>
 	work.status === "cancelled";
 export const toSubject = (work: PlotExtensionWork) =>
