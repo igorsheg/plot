@@ -58,11 +58,12 @@ const operatorActionLabels = (selected: WorkRowModel): readonly string[] =>
 	});
 
 const attentionLines = (selected: WorkRowModel): readonly DashboardLine[] => {
-	const actions = operatorActionLabels(selected);
+	const blocked = selected.status === "blocked";
+	const actions = blocked ? operatorActionLabels(selected) : [];
 	const lines = [
-		...(selected.work.blockedReason === undefined
-			? []
-			: [selected.work.blockedReason]),
+		...(blocked && selected.work.blockedReason !== undefined
+			? [selected.work.blockedReason]
+			: []),
 		...(actions.length === 0 ? [] : [`actions: ${actions.join(" · ")}`]),
 		...(selected.status === "failed" ? [quoteActivity(selected.activity)] : []),
 		...(selected.stale ? [`stale · last event ${selected.lastEventAgo}`] : []),
