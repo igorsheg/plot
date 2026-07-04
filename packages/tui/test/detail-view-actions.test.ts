@@ -35,3 +35,26 @@ test("attention section lists Source-declared operator actions", () => {
 	expect(text).toContain("needs approval");
 	expect(text).toContain("actions: Approve · skip");
 });
+
+test("waiting work does not render as attention", () => {
+	const text = detailBodyLines(
+		{
+			...row,
+			work: {
+				...work,
+				status: "waiting",
+				blockedReason: "reviewed at this head",
+				operatorActions: [{ id: "review-again", label: "Review again" }],
+			},
+			status: "waiting",
+			activity: "idle",
+			attention: false,
+		},
+		2000,
+	)
+		.map((line) => JSON.stringify(line))
+		.join("\n");
+	expect(text).not.toContain("Attention");
+	expect(text).not.toContain("reviewed at this head");
+	expect(text).not.toContain("Review again");
+});

@@ -265,10 +265,22 @@ function OperatorZone({
 			setPendingId(undefined);
 		}
 	};
+	const blocked = work.status === "blocked";
 	return (
-		<Section title="Needs you" tone="attention">
+		<Section
+			title={blocked ? "Needs you" : "Waiting"}
+			tone={blocked ? "attention" : undefined}
+		>
 			{work.blockedReason !== undefined && (
-				<p className="text-xs text-warning-foreground">{work.blockedReason}</p>
+				<p
+					className={
+						blocked
+							? "text-xs text-warning-foreground"
+							: "text-xs text-muted-foreground"
+					}
+				>
+					{work.blockedReason}
+				</p>
 			)}
 			{sent !== undefined ? (
 				<p className="text-xs text-muted-foreground">
@@ -341,7 +353,7 @@ export function Inspector({
 		return null;
 	}
 
-	const blocked = work?.status === "blocked";
+	const held = work?.status === "blocked" || work?.status === "waiting";
 
 	const elapsedMs =
 		current?.startedAtMs === undefined
@@ -407,7 +419,7 @@ export function Inspector({
 			</header>
 			<ScrollArea className="min-h-0 flex-1">
 				<div>
-					{blocked && work !== undefined && (
+					{held && work !== undefined && (
 						<OperatorZone onAction={onAction} work={work} />
 					)}
 					{current !== undefined && (

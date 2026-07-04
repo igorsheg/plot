@@ -129,7 +129,10 @@ const displayActivity = (
 	work: WorkItemProjection,
 	attempt: AgentAttemptProjection | undefined,
 ) => {
-	if (work.status === "blocked" && work.blockedReason)
+	if (
+		(work.status === "blocked" || work.status === "waiting") &&
+		work.blockedReason
+	)
 		return work.blockedReason;
 	if (!attempt) return work.status;
 	return (

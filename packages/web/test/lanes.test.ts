@@ -79,6 +79,7 @@ describe("lanes", () => {
 			projection({
 				work: [
 					work("a", "pending"),
+					work("w", "waiting"),
 					work("b", "running", "run-b"),
 					work("c", "blocked"),
 					work("d", "done"),
@@ -88,7 +89,7 @@ describe("lanes", () => {
 				completed: [completed("d")],
 			}),
 		);
-		expect(lanes.incoming.map((item) => item.work.workKey)).toEqual(["a"]);
+		expect(lanes.incoming.map((item) => item.work.workKey)).toEqual(["a", "w"]);
 		expect(lanes.acting[0]?.attempt?.runId).toBe("run-b");
 		expect(lanes.needsYou.map((item) => item.work.workKey)).toEqual(["c"]);
 		// "d" appears once (completed record wins); "e" has no completed record.

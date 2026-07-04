@@ -153,6 +153,7 @@ export const style = {
 	},
 	stage: {
 		pending: fg("muted"),
+		waiting: fg("muted"),
 		running: fg("success"),
 		blocked: compose(fg("error"), bold),
 		draining: fg("warning"),

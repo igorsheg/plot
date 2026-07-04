@@ -131,6 +131,49 @@ describe("extension source adapter", () => {
 		expect(result.diagnostics[0]?.message).toContain("id");
 	});
 
+	test("waiting work stays visible without dispatch", async () => {
+		let runs = 0;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "waiting", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [
+					{
+						id: "work:1",
+						version: "v1",
+						status: "waiting" as const,
+						blockedReason: "reviewed at this head",
+					},
+				],
+			},
+		});
+		const agent = makePlotAgentLayer({
+			sources: [bundle.source],
+			runner: {
+				run: () => {
+					runs++;
+					return {};
+				},
+			},
+		});
+
+		const first = await agent.tickOnce();
+		const second = await agent.tickOnce();
+		const snapshot = await agent.snapshot();
+
+		expect(first.started).toHaveLength(0);
+		expect(second.started).toHaveLength(0);
+		expect(runs).toBe(0);
+		expect(
+			snapshot.work.get(workKey("extension:waiting:work:1:v1")),
+		).toMatchObject({
+			status: "waiting",
+			blockedReason: "reviewed at this head",
+		});
+	});
+
 	test("superseded versions drain; blocked work holds claim without redispatch", async () => {
 		let version = "sha-1";
 		let blocked = false;

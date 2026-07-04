@@ -499,6 +499,30 @@ test("runRegistry persists Session History and replays it after stop", async () 
 			type: "session_started",
 		},
 	});
+	child?.emit({
+		protocol: "plot.session.v2",
+		kind: "event",
+		sequence: 2,
+		event: {
+			kind: "agent_event",
+			sessionId: "session-history",
+			sequence: 2,
+			timestamp: "2026-01-01T00:00:02.000Z",
+			event: { type: "message_delta", delta: "streaming prose" },
+		},
+	});
+	child?.emit({
+		protocol: "plot.session.v2",
+		kind: "event",
+		sequence: 3,
+		event: {
+			kind: "agent_event",
+			sessionId: "session-history",
+			sequence: 3,
+			timestamp: "2026-01-01T00:00:03.000Z",
+			event: { type: "message_end" },
+		},
+	});
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	await runRegistry.stop(spawned.id);
 
@@ -507,11 +531,19 @@ test("runRegistry persists Session History and replays it after stop", async () 
 		runHistoryPath(historyDir, spawned.id),
 	))
 		replayed.push(event);
-	expect(replayed).toHaveLength(1);
+	expect(replayed).toHaveLength(2);
+	expect(
+		replayed.map((event) => (event as { sequence?: number }).sequence),
+	).toEqual([1, 3]);
 	expect(replayed[0]).toMatchObject({
 		kind: "session_event",
 		type: "session_started",
 		sequence: 1,
+	});
+	expect(replayed[1]).toMatchObject({
+		kind: "agent_event",
+		event: { type: "message_end" },
+		sequence: 3,
 	});
 
 	// A run that never wrote history replays to nothing.

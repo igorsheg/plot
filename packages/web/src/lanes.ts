@@ -31,6 +31,7 @@ export interface Lanes {
 export const laneOf = (status: WorkStatus): LaneId => {
 	switch (status) {
 		case "pending":
+		case "waiting":
 			return "incoming";
 		case "running":
 		case "draining":

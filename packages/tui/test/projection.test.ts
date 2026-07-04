@@ -79,6 +79,43 @@ describe("Plot TUI projection", () => {
 		expect(p.attempts.has("run-1")).toBe(true);
 	});
 
+	test("waiting work is visible but not attention", () => {
+		const p = {
+			...emptyProjection("default", "workflow"),
+			work: new Map([
+				[
+					"waiting",
+					{
+						workKey: "waiting",
+						sourceId: "source",
+						title: "Reviewed PR",
+						labels: [],
+						status: "waiting" as const,
+						blockedReason: "reviewed at this head",
+					},
+				],
+				[
+					"blocked",
+					{
+						workKey: "blocked",
+						sourceId: "source",
+						title: "Needs approval",
+						labels: [],
+						status: "blocked" as const,
+						blockedReason: "needs approval",
+					},
+				],
+			]),
+		};
+
+		const model = dashboardModelFrom(p);
+
+		expect(model.work.find((w) => w.work.workKey === "waiting")?.activity).toBe(
+			"reviewed at this head",
+		);
+		expect(model.attention.map((item) => item.workKey)).toEqual(["blocked"]);
+	});
+
 	test("accepts protocol event records", () => {
 		let p = emptyProjection("default", "workflow");
 		p = reduceRecord(
