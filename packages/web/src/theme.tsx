@@ -1,11 +1,8 @@
-import { createContext, use, useCallback, useEffect, useState } from "react";
+import { Theme } from "@astryxdesign/core";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { createContext, use, useCallback, useState } from "react";
 import type { ReactNode } from "react";
-import { Button } from "./components/ui/button.js";
-import {
-	Tooltip,
-	TooltipPopup,
-	TooltipTrigger,
-} from "./components/ui/tooltip.js";
+import { plotTheme } from "./plot-theme.js";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -20,15 +17,6 @@ export const resolveDark = (
 	systemPrefersDark: boolean,
 ): boolean => mode === "dark" || (mode === "system" && systemPrefersDark);
 
-const systemDark = () => window.matchMedia("(prefers-color-scheme: dark)");
-
-const applyMode = (mode: ThemeMode) => {
-	document.documentElement.classList.toggle(
-		"dark",
-		resolveDark(mode, systemDark().matches),
-	);
-};
-
 interface ThemeContextValue {
 	readonly state: { readonly mode: ThemeMode };
 	readonly actions: { readonly setMode: (mode: ThemeMode) => void };
@@ -42,11 +30,15 @@ export const useTheme = (): ThemeContextValue => {
 	return value;
 };
 
-/** Owns theme state; the only module that touches localStorage/matchMedia. */
+/** Owns theme state and persistence; Astryx Theme owns OS mode tracking. */
 export function ThemeProvider({ children }: { readonly children: ReactNode }) {
-	const [mode, setModeState] = useState<ThemeMode>(() =>
-		parseStoredMode(localStorage.getItem(storageKey)),
-	);
+	const [mode, setModeState] = useState<ThemeMode>(() => {
+		try {
+			return parseStoredMode(localStorage.getItem(storageKey));
+		} catch {
+			return "system";
+		}
+	});
 	const setMode = useCallback((next: ThemeMode) => {
 		setModeState(next);
 		try {
@@ -55,17 +47,11 @@ export function ThemeProvider({ children }: { readonly children: ReactNode }) {
 			// ponytail: persistence is a convenience; theming must keep working.
 		}
 	}, []);
-	useEffect(() => {
-		applyMode(mode);
-		if (mode !== "system") return;
-		const media = systemDark();
-		const onChange = () => applyMode("system");
-		media.addEventListener("change", onChange);
-		return () => media.removeEventListener("change", onChange);
-	}, [mode]);
 	return (
 		<ThemeContext value={{ state: { mode }, actions: { setMode } }}>
-			{children}
+			<Theme theme={plotTheme} mode={mode}>
+				{children}
+			</Theme>
 		</ThemeContext>
 	);
 }
@@ -85,22 +71,13 @@ const modeGlyph: Record<ThemeMode, string> = {
 export function ThemeToggle() {
 	const { state, actions } = useTheme();
 	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						size="sm"
-						variant="ghost"
-						aria-label={`Theme: ${state.mode}`}
-						onClick={() => actions.setMode(nextMode[state.mode])}
-					/>
-				}
-			>
-				{modeGlyph[state.mode]}
-			</TooltipTrigger>
-			<TooltipPopup>
-				theme: {state.mode} · click for {nextMode[state.mode]}
-			</TooltipPopup>
-		</Tooltip>
+		<IconButton
+			label={`Theme: ${state.mode}`}
+			icon={modeGlyph[state.mode]}
+			variant="ghost"
+			size="sm"
+			tooltip={`theme: ${state.mode} · click for ${nextMode[state.mode]}`}
+			onClick={() => actions.setMode(nextMode[state.mode])}
+		/>
 	);
 }

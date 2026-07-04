@@ -1,9 +1,12 @@
+import { Button } from "@astryxdesign/core/Button";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Markdown } from "@astryxdesign/core/Markdown";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { Text } from "@astryxdesign/core/Text";
+import clsx from "clsx";
 import { useState } from "react";
-import Markdown from "react-markdown";
 import { fetchTranscript, type TranscriptEntry } from "./api.js";
-import { Button } from "./components/ui/button.js";
-import { Skeleton } from "./components/ui/skeleton.js";
-import { cn } from "./lib/utils.js";
 
 const roleLabel: Record<TranscriptEntry["role"], string> = {
 	user: "operator prompt",
@@ -11,8 +14,6 @@ const roleLabel: Record<TranscriptEntry["role"], string> = {
 	tool: "tool result",
 };
 
-/** react-markdown is safe by default (no raw HTML); transcripts carry
- *  third-party text such as PR bodies, so that property is load-bearing. */
 function Prose({
 	dimmed,
 	text,
@@ -21,13 +22,10 @@ function Prose({
 	readonly text: string;
 }) {
 	return (
-		<div
-			className={cn(
-				"transcript-prose text-xs",
-				dimmed === true && "text-muted-foreground/80 italic",
-			)}
-		>
-			<Markdown>{text}</Markdown>
+		<div className={clsx(dimmed === true && "plot-dim plot-italic")}>
+			<Markdown density="compact" headingLevelStart={4} contentWidth="100%">
+				{text}
+			</Markdown>
 		</div>
 	);
 }
@@ -35,33 +33,56 @@ function Prose({
 function Entry({ entry }: { readonly entry: TranscriptEntry }) {
 	if (entry.kind === "tool-call") {
 		return (
-			<details className="rounded border bg-muted/30 px-2 py-1">
-				<summary className="cursor-pointer list-none font-mono text-[10px] text-muted-foreground">
-					❯ {entry.name ?? "tool"}
-				</summary>
-				<pre className="mt-1 overflow-x-auto font-mono text-[10px] whitespace-pre-wrap text-muted-foreground">
-					{entry.text}
-				</pre>
-			</details>
+			<div className="plot-entry">
+				<Collapsible
+					defaultIsOpen={false}
+					trigger={
+						<Text type="code" color="secondary">
+							❯ {entry.name ?? "tool"}
+						</Text>
+					}
+				>
+					<CodeBlock
+						code={entry.text}
+						language="plaintext"
+						size="sm"
+						isWrapped
+						width="100%"
+						hasCopyButton={false}
+					/>
+				</Collapsible>
+			</div>
 		);
 	}
 	if (entry.kind === "tool-result") {
 		return (
-			<details className="rounded border bg-muted/30 px-2 py-1">
-				<summary className="cursor-pointer list-none font-mono text-[10px] text-muted-foreground">
-					⌗ {roleLabel[entry.role]} · {entry.text.length} chars
-				</summary>
-				<pre className="mt-1 max-h-48 overflow-y-auto font-mono text-[10px] whitespace-pre-wrap text-muted-foreground">
-					{entry.text}
-				</pre>
-			</details>
+			<div className="plot-entry">
+				<Collapsible
+					defaultIsOpen={false}
+					trigger={
+						<Text type="code" color="secondary">
+							⌗ {roleLabel[entry.role]} · {entry.text.length} chars
+						</Text>
+					}
+				>
+					<CodeBlock
+						code={entry.text}
+						language="plaintext"
+						size="sm"
+						isWrapped
+						width="100%"
+						hasCopyButton={false}
+						maxHeight={192}
+					/>
+				</Collapsible>
+			</div>
 		);
 	}
 	return (
-		<div className="space-y-0.5">
-			<div className="text-[10px] tracking-wide text-muted-foreground uppercase">
+		<div className="plot-stack-tight">
+			<Text type="label" color="secondary" className="plot-lane-title">
 				{entry.kind === "thinking" ? "thinking" : roleLabel[entry.role]}
-			</div>
+			</Text>
 			<Prose text={entry.text} dimmed={entry.kind === "thinking"} />
 		</div>
 	);
@@ -99,11 +120,9 @@ export function TranscriptView({
 
 	if (state.entries !== undefined) {
 		return state.entries.length === 0 ? (
-			<p className="text-xs text-muted-foreground">
-				The transcript file is empty.
-			</p>
+			<Text type="supporting">The transcript file is empty.</Text>
 		) : (
-			<div className="space-y-2">
+			<div className="plot-stack">
 				{state.entries.map((entry, index) => (
 					<Entry key={`${entry.at ?? ""}:${index}`} entry={entry} />
 				))}
@@ -111,23 +130,24 @@ export function TranscriptView({
 		);
 	}
 	return (
-		<div className="space-y-1.5">
-			<div className="flex items-center gap-2">
-				<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+		<div className="plot-stack-tight">
+			<div className="plot-row">
+				<Text type="code" color="secondary" maxLines={1} className="plot-fill">
 					{path}
-				</span>
+				</Text>
 				<Button
+					label="View"
+					isLoading={state.loading}
 					size="sm"
-					variant="outline"
-					disabled={state.loading}
-					onClick={() => void load()}
-				>
-					{state.loading ? "…" : "View"}
-				</Button>
+					variant="secondary"
+					clickAction={load}
+				/>
 			</div>
-			{state.loading && <Skeleton className="h-16 w-full rounded" />}
+			{state.loading && <Skeleton height={64} width="100%" />}
 			{state.error !== undefined && (
-				<p className="text-xs text-destructive-foreground">{state.error}</p>
+				<Text type="supporting" className="plot-error-text">
+					{state.error}
+				</Text>
 			)}
 		</div>
 	);

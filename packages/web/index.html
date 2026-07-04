@@ -8,14 +8,19 @@
 			rel="icon"
 			href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0a0a'/%3E%3Crect x='7' y='8' width='5' height='16' rx='1.5' fill='%23737373'/%3E%3Crect x='14' y='8' width='5' height='10' rx='1.5' fill='%2334d399'/%3E%3Crect x='21' y='8' width='5' height='13' rx='1.5' fill='%23f59e0b'/%3E%3C/svg%3E"
 		/>
+		<style>
+			html {
+				background: light-dark(#fff, #111112);
+			}
+		</style>
 		<script>
 			// FOUC guard; must mirror src/theme.tsx resolution.
 			const mode = localStorage.getItem("plot:web:theme");
-			if (
+			const dark =
 				mode === "dark" ||
-				(mode !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
-			)
-				document.documentElement.classList.add("dark");
+				(mode !== "light" &&
+					matchMedia("(prefers-color-scheme: dark)").matches);
+			document.documentElement.style.colorScheme = dark ? "dark" : "light";
 		</script>
 	</head>
 	<body>

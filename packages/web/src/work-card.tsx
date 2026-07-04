@@ -4,14 +4,17 @@ import type {
 	AttemptStage,
 	WorkItemProjection,
 } from "@plot/session/projection";
+import { Badge } from "@astryxdesign/core/Badge";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { HStack } from "@astryxdesign/core/HStack";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Text } from "@astryxdesign/core/Text";
+import { VStack } from "@astryxdesign/core/VStack";
+import clsx from "clsx";
 import { createContext, use } from "react";
-import type { ReactNode } from "react";
-import { Badge, type BadgeProps } from "./components/ui/badge.js";
-import { Dot } from "./components/ui/dot.js";
-
+import type { ComponentProps, ReactNode } from "react";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import type { CompletedLaneItem, WorkLaneItem } from "./lanes.js";
-import { cn } from "./lib/utils.js";
 
 export const kindGlyph: Record<ActivityKind, string> = {
 	think: "✻",
@@ -25,11 +28,13 @@ export const kindGlyph: Record<ActivityKind, string> = {
 	wait: "◷",
 };
 
-export const stageVariant: Record<AttemptStage, BadgeProps["variant"]> = {
-	starting: "secondary",
-	working: "info",
-	verifying: "warning",
-	finishing: "success",
+type BadgeVariant = NonNullable<ComponentProps<typeof Badge>["variant"]>;
+
+export const stageVariant: Record<AttemptStage, BadgeVariant> = {
+	starting: "neutral",
+	working: "blue",
+	verifying: "yellow",
+	finishing: "green",
 	failed: "error",
 };
 
@@ -103,12 +108,18 @@ const useWorkItem = (): WorkLaneItem => {
 	return item;
 };
 
-export function MetaRow({ children }: { readonly children: ReactNode }) {
+function GrayBadge({ label }: { readonly label: ReactNode }) {
 	return (
-		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-			{children}
-		</div>
+		<Badge
+			variant="neutral"
+			label={<span className="plot-badge-label">{label}</span>}
+			className="plot-badge-gray"
+		/>
 	);
+}
+
+export function MetaRow({ children }: { readonly children: ReactNode }) {
+	return <div className="plot-meta">{children}</div>;
 }
 
 function Frame({
@@ -116,26 +127,33 @@ function Frame({
 	className,
 	item,
 	selected,
+	variant,
 }: {
 	readonly children: ReactNode;
 	readonly className?: string | undefined;
 	readonly item: WorkLaneItem;
 	readonly selected?: boolean | undefined;
+	readonly variant?:
+		| NonNullable<ComponentProps<typeof ClickableCard>["variant"]>
+		| undefined;
 }) {
 	return (
 		<WorkCardContext value={item}>
-			<a
+			<ClickableCard
 				href={workItemHref(item.work.workKey)}
+				label={item.work.title}
+				padding={3}
+				variant={variant ?? "default"}
 				aria-current={selected === true ? "true" : undefined}
-				className={cn(
-					"block space-y-1.5 rounded-md border bg-card p-2.5 shadow-xs hover:border-ring/60",
-					selected === true && "ring-2 ring-ring",
+				className={clsx(
+					"plot-card",
+					selected === true && "plot-card-selected",
 					className,
 				)}
 				style={{ viewTransitionName: viewTransitionName(item.work.workKey) }}
 			>
-				{children}
-			</a>
+				<VStack gap={1.5}>{children}</VStack>
+			</ClickableCard>
 		</WorkCardContext>
 	);
 }
@@ -143,12 +161,17 @@ function Frame({
 function Header() {
 	const { work } = useWorkItem();
 	return (
-		<div className="flex items-start justify-between gap-2">
-			<span className="min-w-0 truncate text-sm font-medium">{work.title}</span>
-			<Badge size="sm" variant="outline" className="shrink-0">
-				{work.sourceId}
-			</Badge>
-		</div>
+		<HStack gap={2} justify="between" align="start">
+			<Text
+				type="body"
+				weight="medium"
+				maxLines={1}
+				className="plot-card-title"
+			>
+				{work.title}
+			</Text>
+			<GrayBadge label={work.sourceId} />
+		</HStack>
 	);
 }
 
@@ -156,7 +179,9 @@ function Subtitle() {
 	const { work } = useWorkItem();
 	if (work.subtitle === undefined) return null;
 	return (
-		<p className="truncate text-xs text-muted-foreground">{work.subtitle}</p>
+		<Text as="p" type="supporting" maxLines={1}>
+			{work.subtitle}
+		</Text>
 	);
 }
 
@@ -164,15 +189,15 @@ function Activity() {
 	const { attempt } = useWorkItem();
 	if (attempt === undefined) return null;
 	return (
-		<div className="flex items-center gap-1.5 text-xs">
-			<Badge size="sm" variant={stageVariant[attempt.stage]}>
-				{attempt.stage}
-			</Badge>
-			{attempt.streaming && <Dot className="animate-pulse bg-success" />}
-			<span className="truncate font-mono text-muted-foreground">
+		<HStack gap={1.5} align="center">
+			<Badge variant={stageVariant[attempt.stage]} label={attempt.stage} />
+			{attempt.streaming && (
+				<StatusDot variant="success" isPulsing label="streaming" />
+			)}
+			<Text type="code" color="secondary" maxLines={1}>
 				{kindGlyph[attempt.activityKind]} {attempt.activity}
-			</span>
-		</div>
+			</Text>
+		</HStack>
 	);
 }
 
@@ -181,19 +206,15 @@ function HeldReason() {
 	if (work.blockedReason === undefined) return null;
 	const waiting = work.status === "waiting";
 	return (
-		<p
-			className={cn(
-				"text-xs",
-				waiting ? "text-muted-foreground" : "text-warning-foreground",
-			)}
-		>
-			{waiting && (
-				<Badge size="sm" variant="secondary" className="mr-1">
-					waiting
-				</Badge>
-			)}
-			{work.blockedReason}
-		</p>
+		<HStack gap={1} align="center">
+			{waiting && <Badge variant="neutral" label="waiting" />}
+			<Text
+				type="supporting"
+				className={waiting ? undefined : "plot-warning-text"}
+			>
+				{work.blockedReason}
+			</Text>
+		</HStack>
 	);
 }
 
@@ -202,17 +223,15 @@ function OperatorActions() {
 	const actions = workOperatorActions(work);
 	if (actions.length === 0) return null;
 	return (
-		<div className="flex flex-wrap gap-1">
+		<HStack gap={1} wrap="wrap">
 			{actions.map((action) => (
 				<Badge
 					key={action.id}
-					size="sm"
 					variant={action.tone === "danger" ? "error" : "warning"}
-				>
-					{action.label}
-				</Badge>
+					label={action.label}
+				/>
 			))}
-		</div>
+		</HStack>
 	);
 }
 
@@ -223,32 +242,26 @@ function Meta() {
 		<MetaRow>
 			{attempt !== undefined && (
 				<>
-					<span className="font-mono">
+					<Text type="code" color="secondary">
 						{attempt.phases.map((phase) => kindGlyph[phase.kind]).join(" ")}
-					</span>
-					<span>{attempt.turnCount} turns</span>
-					{tokens !== undefined && <span>{formatTokens(tokens)} tok</span>}
+					</Text>
+					<Text type="supporting">{attempt.turnCount} turns</Text>
+					{tokens !== undefined && (
+						<Text type="supporting">{formatTokens(tokens)} tok</Text>
+					)}
 					{attempt.check === "running" && (
-						<Badge size="sm" variant="info">
-							checking
-						</Badge>
+						<Badge variant="blue" label="checking" />
 					)}
 					{attempt.check === "passed" && (
-						<Badge size="sm" variant="success">
-							checks ✓
-						</Badge>
+						<Badge variant="green" label="checks ✓" />
 					)}
 					{attempt.check === "failed" && (
-						<Badge size="sm" variant="error">
-							checks ✗
-						</Badge>
+						<Badge variant="error" label="checks ✗" />
 					)}
 				</>
 			)}
 			{work.labels.map((label) => (
-				<Badge key={label} size="sm" variant="secondary">
-					{label}
-				</Badge>
+				<GrayBadge key={label} label={label} />
 			))}
 		</MetaRow>
 	);
@@ -300,7 +313,7 @@ export function NeedsYouCard({ item, selected }: WorkCardProps) {
 		<WorkCard.Frame
 			item={item}
 			selected={selected}
-			className="border-warning/40 bg-warning/4"
+			className="plot-card-attention"
 		>
 			<WorkCard.Header />
 			<WorkCard.Subtitle />
@@ -314,7 +327,11 @@ export function NeedsYouCard({ item, selected }: WorkCardProps) {
 /** Done or failed work item that has no completed record yet. */
 export function SettledCard({ item, selected }: WorkCardProps) {
 	return (
-		<WorkCard.Frame item={item} selected={selected} className="opacity-80">
+		<WorkCard.Frame
+			item={item}
+			selected={selected}
+			className="plot-card-settled"
+		>
 			<WorkCard.Header />
 			<WorkCard.Subtitle />
 			<WorkCard.Meta />
@@ -333,37 +350,51 @@ export function CompletedCard({
 	const { completed } = item;
 	const failed = completed.status !== "done";
 	return (
-		<a
+		<ClickableCard
 			href={workItemHref(completed.workKey)}
+			label={completed.label}
+			padding={3}
 			aria-current={selected === true ? "true" : undefined}
-			className={cn(
-				"block space-y-1.5 rounded-md border bg-card p-2.5 opacity-80 shadow-xs hover:border-ring/60",
-				selected === true && "ring-2 ring-ring",
+			className={clsx(
+				"plot-card plot-card-settled",
+				selected === true && "plot-card-selected",
 			)}
 			style={{ viewTransitionName: viewTransitionName(completed.workKey) }}
 		>
-			<div className="flex items-start justify-between gap-2">
-				<span className="min-w-0 truncate text-sm font-medium">
-					{completed.label}
-				</span>
-				<Badge size="sm" variant={failed ? "error" : "success"}>
-					{completed.status}
-				</Badge>
-			</div>
-			{completed.message !== "" && (
-				<p className="line-clamp-2 text-xs text-muted-foreground">
-					{completed.message}
-				</p>
-			)}
-			<MetaRow>
-				<span>{formatAgo(completed.atMs)} ago</span>
-				{completed.durationMs !== undefined && (
-					<span>{formatDuration(completed.durationMs)}</span>
+			<VStack gap={1.5}>
+				<HStack gap={2} justify="between" align="start">
+					<Text
+						type="body"
+						weight="medium"
+						maxLines={1}
+						className="plot-card-title"
+					>
+						{completed.label}
+					</Text>
+					<Badge
+						variant={failed ? "error" : "green"}
+						label={completed.status}
+					/>
+				</HStack>
+				{completed.message !== "" && (
+					<Text type="supporting" maxLines={2}>
+						{completed.message}
+					</Text>
 				)}
-				{completed.tokens?.total !== undefined && (
-					<span>{formatTokens(completed.tokens.total)} tok</span>
-				)}
-			</MetaRow>
-		</a>
+				<MetaRow>
+					<Text type="supporting">{formatAgo(completed.atMs)} ago</Text>
+					{completed.durationMs !== undefined && (
+						<Text type="supporting">
+							{formatDuration(completed.durationMs)}
+						</Text>
+					)}
+					{completed.tokens?.total !== undefined && (
+						<Text type="supporting">
+							{formatTokens(completed.tokens.total)} tok
+						</Text>
+					)}
+				</MetaRow>
+			</VStack>
+		</ClickableCard>
 	);
 }

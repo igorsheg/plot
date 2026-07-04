@@ -3,20 +3,20 @@ import type {
 	TimelineEntry,
 	WorkItemProjection,
 } from "@plot/session/projection";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Kbd } from "@astryxdesign/core/Kbd";
+import { Link } from "@astryxdesign/core/Link";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Text } from "@astryxdesign/core/Text";
+import { VStack } from "@astryxdesign/core/VStack";
+import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { ObservationInput, WebDashboardProjection } from "./api.js";
-import { Badge } from "./components/ui/badge.js";
-import { Button } from "./components/ui/button.js";
-import { Dot } from "./components/ui/dot.js";
-import { Kbd } from "./components/ui/kbd.js";
-import {
-	ScrollArea,
-	ScrollAreaPrimitive,
-	ScrollBar,
-} from "./components/ui/scroll-area.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
-import { cn } from "./lib/utils.js";
 import { TranscriptView } from "./transcript-view.js";
 import {
 	kindGlyph,
@@ -57,15 +57,17 @@ function Section({
 }) {
 	return (
 		<section
-			className={cn(
-				"space-y-1.5 border-b px-4 py-3",
-				tone === "attention" && "bg-warning/8",
+			className={clsx(
+				"plot-section",
+				tone === "attention" && "plot-section-hot",
 			)}
 		>
-			<h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-				{title}
-			</h3>
-			{children}
+			<VStack gap={1.5}>
+				<Text type="label" color="secondary" className="plot-lane-title">
+					{title}
+				</Text>
+				{children}
+			</VStack>
 		</section>
 	);
 }
@@ -78,12 +80,26 @@ function Fact({
 	readonly children: ReactNode;
 }) {
 	return (
-		<div className="min-w-0">
-			<div className="text-[10px] tracking-wide text-muted-foreground uppercase">
+		<div className="plot-fact">
+			<Text type="supporting" size="3xs" className="plot-fact-label">
 				{label}
-			</div>
-			<div className="truncate text-xs">{children}</div>
+			</Text>
+			<Text type="supporting" maxLines={1} color="primary">
+				{children}
+			</Text>
 		</div>
+	);
+}
+
+type ButtonVariant = NonNullable<ComponentProps<typeof Button>["variant"]>;
+
+function GrayBadge({ label }: { readonly label: ReactNode }) {
+	return (
+		<Badge
+			variant="neutral"
+			label={<span className="plot-badge-label">{label}</span>}
+			className="plot-badge-gray"
+		/>
 	);
 }
 
@@ -110,64 +126,50 @@ function LiveVoice({
 	const shown = live ?? held.current;
 	const follow = useTailFollow(shown.text);
 	return (
-		<div className="space-y-0.5">
-			<div className="text-[10px] tracking-wide text-muted-foreground uppercase">
+		<VStack gap={0.5}>
+			<Text type="label" color="secondary" className="plot-lane-title">
 				{shown.label}
 				{live === undefined && shown.text !== "" && " · last turn"}
-			</div>
-			{/* Top-down prose that follows its own tail; the coss scrollbar
-			    stays invisible until the operator scrolls back. */}
-			<ScrollAreaPrimitive.Root className="min-h-0">
-				<ScrollAreaPrimitive.Viewport
-					ref={follow.ref}
-					onScroll={follow.onScroll}
-					className="h-40 outline-none"
+			</Text>
+			<div
+				ref={follow.ref}
+				onScroll={follow.onScroll}
+				className="plot-tail plot-tail-live"
+			>
+				<Text
+					type="code"
+					color="secondary"
+					className={clsx("plot-stream", live === undefined && "plot-dim")}
 				>
-					<p
-						className={cn(
-							"font-mono text-xs whitespace-pre-wrap text-muted-foreground",
-							live === undefined && "opacity-50",
-						)}
-					>
-						{shown.text === ""
-							? "waiting for the model…"
-							: streamTail(shown.text)}
-					</p>
-				</ScrollAreaPrimitive.Viewport>
-				<ScrollBar orientation="vertical" />
-			</ScrollAreaPrimitive.Root>
-		</div>
+					{shown.text === ""
+						? "waiting for the model…"
+						: streamTail(shown.text)}
+				</Text>
+			</div>
+		</VStack>
 	);
 }
 
 function Timeline({ entries }: { readonly entries: readonly TimelineEntry[] }) {
 	const follow = useTailFollow(entries.length);
 	return (
-		<ScrollAreaPrimitive.Root className="min-h-0">
-			<ScrollAreaPrimitive.Viewport
-				ref={follow.ref}
-				onScroll={follow.onScroll}
-				className="h-64 outline-none"
-			>
-				<ol className="space-y-0.5 text-xs">
-					{entries.map((entry) => (
-						<li
-							key={`${entry.atMs}:${entry.text}`}
-							className="flex gap-1.5 text-muted-foreground"
-						>
-							<span className="shrink-0 font-mono">
-								{kindGlyph[entry.kind]}
-							</span>
-							<span className="min-w-0 flex-1 truncate">{entry.text}</span>
-							<span className="shrink-0 tabular-nums">
-								{formatAgo(entry.atMs)}
-							</span>
-						</li>
-					))}
-				</ol>
-			</ScrollAreaPrimitive.Viewport>
-			<ScrollBar orientation="vertical" />
-		</ScrollAreaPrimitive.Root>
+		<div ref={follow.ref} onScroll={follow.onScroll} className="plot-tail">
+			<ol className="plot-timeline">
+				{entries.map((entry) => (
+					<li key={`${entry.atMs}:${entry.text}`} className="plot-timeline-row">
+						<Text type="code" color="secondary">
+							{kindGlyph[entry.kind]}
+						</Text>
+						<Text type="supporting" maxLines={1} className="plot-fill">
+							{entry.text}
+						</Text>
+						<Text type="supporting" hasTabularNumbers>
+							{formatAgo(entry.atMs)}
+						</Text>
+					</li>
+				))}
+			</ol>
+		</div>
 	);
 }
 
@@ -178,23 +180,28 @@ function AttemptSummaryRow({
 }) {
 	const tokens = attempt.tokens?.total ?? attempt.tokens?.output;
 	return (
-		<div className="flex items-center gap-2 text-xs text-muted-foreground">
-			<Badge size="sm" variant={stageVariant[attempt.stage]}>
-				{attempt.stage}
-			</Badge>
-			<span className="min-w-0 flex-1 truncate">{attempt.lastDisplay}</span>
-			<span>{attempt.turnCount} turns</span>
-			{tokens !== undefined && <span>{formatTokens(tokens)} tok</span>}
-			{attempt.lastEventAtMs !== undefined && (
-				<span>{formatAgo(attempt.lastEventAtMs)} ago</span>
+		<HStack gap={2} align="center">
+			<Badge variant={stageVariant[attempt.stage]} label={attempt.stage} />
+			<Text type="supporting" maxLines={1} className="plot-fill">
+				{attempt.lastDisplay}
+			</Text>
+			<Text type="supporting">{attempt.turnCount} turns</Text>
+			{tokens !== undefined && (
+				<Text type="supporting">{formatTokens(tokens)} tok</Text>
 			)}
-		</div>
+			{attempt.lastEventAtMs !== undefined && (
+				<Text type="supporting">{formatAgo(attempt.lastEventAtMs)} ago</Text>
+			)}
+		</HStack>
 	);
 }
 
-const actionVariant = (
-	tone: WorkOperatorAction["tone"],
-): "default" | "outline" => (tone === "primary" ? "default" : "outline");
+const actionVariant = (tone: WorkOperatorAction["tone"]): ButtonVariant =>
+	tone === "primary"
+		? "primary"
+		: tone === "danger"
+			? "destructive"
+			: "secondary";
 
 interface SentAction {
 	readonly atMs: number;
@@ -272,49 +279,44 @@ function OperatorZone({
 			tone={blocked ? "attention" : undefined}
 		>
 			{work.blockedReason !== undefined && (
-				<p
-					className={
-						blocked
-							? "text-xs text-warning-foreground"
-							: "text-xs text-muted-foreground"
-					}
+				<Text
+					type="supporting"
+					className={blocked ? "plot-warning-text" : undefined}
 				>
 					{work.blockedReason}
-				</p>
+				</Text>
 			)}
 			{sent !== undefined ? (
-				<p className="text-xs text-muted-foreground">
+				<Text type="supporting">
 					✓ {sent.label} recorded {formatAgo(sent.atMs)} ago · waiting for{" "}
-					<span className="font-mono">{work.sourceId}</span> to reconcile…
-				</p>
+					<Text type="code" color="secondary">
+						{work.sourceId}
+					</Text>{" "}
+					to reconcile…
+				</Text>
 			) : (
 				actions.length > 0 && (
-					<div className="flex flex-wrap gap-1.5">
+					<HStack gap={1.5} wrap="wrap">
 						{actions.map((action) => (
 							<Button
 								key={action.id}
+								label={action.label}
 								size="sm"
 								variant={actionVariant(action.tone)}
-								className={
-									action.tone === "danger"
-										? "border-destructive/40 text-destructive-foreground"
-										: undefined
-								}
-								disabled={
+								isLoading={pendingId === action.id}
+								isDisabled={
 									action.disabledReason !== undefined || pendingId !== undefined
 								}
-								title={action.disabledReason}
+								{...(action.disabledReason === undefined
+									? {}
+									: { tooltip: action.disabledReason })}
 								onClick={() => void act(action)}
-							>
-								{pendingId === action.id ? "…" : action.label}
-							</Button>
+							/>
 						))}
-					</div>
+					</HStack>
 				)
 			)}
-			{status !== undefined && (
-				<p className="text-[10px] text-muted-foreground">{status}</p>
-			)}
+			{status !== undefined && <Text type="supporting">{status}</Text>}
 		</Section>
 	);
 }
@@ -361,154 +363,149 @@ export function Inspector({
 			: (current.streaming
 					? Date.now()
 					: (current.lastEventAtMs ?? Date.now())) - current.startedAtMs;
+	const workUrl = work?.url ?? completed[0]?.url;
 
 	return (
 		<aside
 			aria-label="Work item inspector"
-			className="flex w-104 shrink-0 flex-col overflow-hidden border-l bg-background"
+			role="complementary"
+			className="plot-inspector"
 		>
-			<header className="flex items-start gap-2 border-b px-4 py-3">
-				<div className="min-w-0 flex-1 space-y-1">
-					<div className="flex items-center gap-2">
-						<h2 className="truncate text-sm font-semibold">
+			<header className="plot-inspector-header">
+				<div className="plot-fill">
+					<HStack gap={2} align="center">
+						<Text
+							type="body"
+							weight="semibold"
+							maxLines={1}
+							className="plot-card-title"
+						>
 							{work?.title ?? completed[0]?.label ?? workKey}
-						</h2>
-						{work !== undefined && (
-							<Badge size="sm" variant="outline" className="shrink-0">
-								{work.sourceId}
-							</Badge>
-						)}
-					</div>
+						</Text>
+						{work !== undefined && <GrayBadge label={work.sourceId} />}
+					</HStack>
 					{work?.subtitle !== undefined && (
-						<p className="truncate text-xs text-muted-foreground">
+						<Text type="supporting" maxLines={1}>
 							{work.subtitle}
-						</p>
+						</Text>
 					)}
-					<div className="flex flex-wrap items-center gap-1.5">
-						{(work?.url ?? completed[0]?.url) !== undefined && (
-							<a
-								className="text-xs text-info-foreground hover:underline"
-								href={work?.url ?? completed[0]?.url}
-								rel="noreferrer"
-								target="_blank"
-							>
-								open ↗
-							</a>
+					<div className="plot-meta">
+						{workUrl !== undefined && (
+							<Link href={workUrl} isExternalLink isStandalone>
+								open
+							</Link>
 						)}
 						{(work?.labels ?? []).map((label) => (
-							<Badge key={label} size="sm" variant="secondary">
-								{label}
-							</Badge>
+							<GrayBadge key={label} label={label} />
 						))}
-						<span className="truncate font-mono text-[10px] text-muted-foreground">
+						<Text type="code" color="disabled" maxLines={1}>
 							{workKey}
-						</span>
+						</Text>
 					</div>
 				</div>
-				<div className="flex shrink-0 items-center gap-1.5">
-					<Kbd>Esc</Kbd>
-					<Button
-						size="sm"
+				<HStack gap={1.5} align="center">
+					<Kbd keys="escape" />
+					<IconButton
+						label="Close"
+						icon="✕"
 						variant="ghost"
-						aria-label="Close"
+						size="sm"
 						onClick={onClose}
-					>
-						✕
-					</Button>
-				</div>
+					/>
+				</HStack>
 			</header>
-			<ScrollArea className="min-h-0 flex-1">
-				<div>
-					{held && work !== undefined && (
-						<OperatorZone onAction={onAction} work={work} />
-					)}
-					{current !== undefined && (
-						<Section title="Agent run">
-							{/* Fixed six-slot grid: unknown values render "—" so the grid never reflows mid-stream. */}
-							<div className="grid grid-cols-3 gap-2 tabular-nums">
-								<Fact label="stage">
-									<Badge size="sm" variant={stageVariant[current.stage]}>
-										{current.stage}
-									</Badge>
-								</Fact>
-								<Fact label="elapsed">
-									{elapsedMs === undefined ? "—" : formatDuration(elapsedMs)}
-								</Fact>
-								<Fact label="turns">{current.turnCount}</Fact>
-								<Fact label="tokens">
-									{current.tokens?.total === undefined
-										? "—"
-										: `${formatTokens(current.tokens.total)}${
-												current.tokens.cost === undefined
-													? ""
-													: ` · $${current.tokens.cost.toFixed(2)}`
-											}`}
-								</Fact>
-								<Fact label="check">{current.check}</Fact>
-								<Fact label="live">
-									{current.streaming ? (
-										<span className="inline-flex items-center gap-1">
-											<Dot className="animate-pulse bg-success" />
-											streaming
-										</span>
-									) : (
-										"idle"
-									)}
-								</Fact>
-							</div>
-						</Section>
-					)}
-					{current !== undefined && (
-						<Section title="Now">
-							<LiveVoice streams={current.streams} />
-						</Section>
-					)}
-					{current !== undefined && current.timeline.length > 0 && (
-						<Section title="Timeline">
-							<Timeline entries={current.timeline} />
-						</Section>
-					)}
-					{(history.length > 0 || completed.length > 0) && (
-						<Section title="History">
-							{completed.map((entry) => (
-								<div
-									key={`${entry.workKey}:${entry.atMs}`}
-									className="flex items-center gap-2 text-xs text-muted-foreground"
-								>
-									<Badge
-										size="sm"
-										variant={entry.status === "done" ? "success" : "error"}
-									>
-										{entry.status}
-									</Badge>
-									<span className="min-w-0 flex-1 truncate">
-										{entry.message}
-									</span>
-									{entry.durationMs !== undefined && (
-										<span>{formatDuration(entry.durationMs)}</span>
-									)}
-									<span>{formatAgo(entry.atMs)} ago</span>
-								</div>
-							))}
-							{history.map((attempt) => (
-								<AttemptSummaryRow attempt={attempt} key={attempt.runId} />
-							))}
-						</Section>
-					)}
-					{/* While streaming, the Now pane and timeline already narrate;
-					    the transcript is the retrospective record. */}
-					{current?.transcript?.path !== undefined && !current.streaming && (
-						<Section title="Agent transcript">
-							<TranscriptView
-								key={current.runId}
-								attemptRunId={current.runId}
-								path={current.transcript.path}
-								runId={sessionRunId}
-							/>
-						</Section>
-					)}
-				</div>
-			</ScrollArea>
+			<div className="plot-scroll">
+				{held && work !== undefined && (
+					<OperatorZone onAction={onAction} work={work} />
+				)}
+				{current !== undefined && (
+					<Section title="Agent run">
+						{/* Fixed six-slot grid: unknown values render "—" so the grid never reflows mid-stream. */}
+						<div className="plot-facts">
+							<Fact label="stage">
+								<Badge
+									variant={stageVariant[current.stage]}
+									label={current.stage}
+								/>
+							</Fact>
+							<Fact label="elapsed">
+								{elapsedMs === undefined ? "—" : formatDuration(elapsedMs)}
+							</Fact>
+							<Fact label="turns">{current.turnCount}</Fact>
+							<Fact label="tokens">
+								{current.tokens?.total === undefined
+									? "—"
+									: `${formatTokens(current.tokens.total)}${
+											current.tokens.cost === undefined
+												? ""
+												: ` · $${current.tokens.cost.toFixed(2)}`
+										}`}
+							</Fact>
+							<Fact label="check">{current.check}</Fact>
+							<Fact label="live">
+								{current.streaming ? (
+									<HStack gap={1} align="center">
+										<StatusDot variant="success" isPulsing label="streaming" />
+										<Text type="supporting">streaming</Text>
+									</HStack>
+								) : (
+									"idle"
+								)}
+							</Fact>
+						</div>
+					</Section>
+				)}
+				{current !== undefined && (
+					<Section title="Now">
+						<LiveVoice streams={current.streams} />
+					</Section>
+				)}
+				{current !== undefined && current.timeline.length > 0 && (
+					<Section title="Timeline">
+						<Timeline entries={current.timeline} />
+					</Section>
+				)}
+				{(history.length > 0 || completed.length > 0) && (
+					<Section title="History">
+						{completed.map((entry) => (
+							<HStack
+								gap={2}
+								align="center"
+								key={`${entry.workKey}:${entry.atMs}`}
+							>
+								<Badge
+									variant={entry.status === "done" ? "green" : "error"}
+									label={entry.status}
+								/>
+								<Text type="supporting" maxLines={1} className="plot-fill">
+									{entry.message}
+								</Text>
+								{entry.durationMs !== undefined && (
+									<Text type="supporting">
+										{formatDuration(entry.durationMs)}
+									</Text>
+								)}
+								<Text type="supporting">{formatAgo(entry.atMs)} ago</Text>
+							</HStack>
+						))}
+						{history.map((attempt) => (
+							<AttemptSummaryRow attempt={attempt} key={attempt.runId} />
+						))}
+					</Section>
+				)}
+				{/* While streaming, the Now pane and timeline already narrate;
+				    the transcript is the retrospective record. */}
+				{current?.transcript?.path !== undefined && !current.streaming && (
+					<Section title="Agent transcript">
+						<TranscriptView
+							key={current.runId}
+							attemptRunId={current.runId}
+							path={current.transcript.path}
+							runId={sessionRunId}
+						/>
+					</Section>
+				)}
+			</div>
 		</aside>
 	);
 }

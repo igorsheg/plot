@@ -11,10 +11,9 @@ Keep the web app a clean React/TypeScript client over Plot's local file-backed g
 ```text
 api.ts              HTTP/SSE contract parsing, URLs, fetch helpers
 main.tsx           app wiring only
-flow-canvas.tsx    canvas substrate + composed node UI
 live-events.ts     live runRegistry delta hook
-run.ts        runRegistry run DTO parsing
-components/ui/*    copied coss primitives only when used
+run.ts             runRegistry run DTO parsing
+style.css          token-based .plot-* classes only
 ```
 
 ## React rules
@@ -24,18 +23,15 @@ components/ui/*    copied coss primitives only when used
 - Use compound components when a UI surface grows shared state across siblings.
 - Keep state ownership explicit: hooks/providers own data loading and mutation; presentational components receive ready data.
 - Keep API parsing at the edge in `api.ts` / DTO modules. Canvas/cards should not parse raw JSON.
-- React Flow owns canvas mechanics only. Plot UI remains normal React DOM/coss/Tailwind components.
+- Plot UI remains normal React DOM/Astryx components.
 - Do not add global state libraries until prop flow is actually painful.
-- Do not copy more coss components than are rendered.
 
 ## Theme and primitives
 
-- Call sites should use semantic classes or composed primitives, not long Tailwind strings.
-- No arbitrary colors, typography, shadows, or spacing in JSX. Put them in `src/style.css` under a named Plot class.
-- Tailwind utilities are acceptable inside primitive/component definitions, not scattered across feature call sites.
-- Prefer coss primitives first. If a repeated Plot pattern appears, create a small composed component before adding more call-site classes.
+- Use `@astryxdesign/core` primitives first.
+- Call sites should use semantic `.plot-*` classes or composed primitives, not long utility strings.
+- No arbitrary colors, typography, shadows, or spacing in JSX. Put custom styling in `src/style.css` under named `.plot-*` classes using Astryx tokens.
 - Extend `style.css` only for surfaced patterns. Do not create a token dump "for later".
-- Use CSS variables for substrate values that third-party components need, e.g. React Flow grid colors.
 
 ## Product data flow
 

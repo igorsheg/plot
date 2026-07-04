@@ -1,3 +1,12 @@
+import { AppShell } from "@astryxdesign/core/AppShell";
+import { Banner } from "@astryxdesign/core/Banner";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import {
+	SideNav,
+	SideNavHeading,
+	SideNavItem,
+} from "@astryxdesign/core/SideNav";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -11,18 +20,7 @@ import {
 	type WebDashboardProjection,
 } from "./api.js";
 import { SessionBoard, useHeartbeat, type BoardState } from "./board.js";
-import { Alert, AlertDescription } from "./components/ui/alert.js";
-import { Dot } from "./components/ui/dot.js";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "./components/ui/empty.js";
-import { ScrollArea } from "./components/ui/scroll-area.js";
-import { TooltipProvider } from "./components/ui/tooltip.js";
 import { laneSignature } from "./lanes.js";
-import { cn } from "./lib/utils.js";
 import { useRunLiveEvents } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
 import type { PlotRun } from "./run.js";
@@ -45,12 +43,12 @@ const sortRuns = (runs: readonly PlotRun[]): readonly PlotRun[] =>
 		);
 	});
 
-const runDot = (status: string): string | undefined =>
+const statusDotVariant = (status: string): "success" | "error" | "neutral" =>
 	status === "online" || status === "running"
-		? "bg-success"
+		? "success"
 		: status === "error" || status === "failed"
-			? "bg-destructive"
-			: undefined;
+			? "error"
+			: "neutral";
 
 const formatSeen = (run: PlotRun): string => {
 	const ms = Date.parse(run.lastSeenAt ?? run.createdAt);
@@ -81,42 +79,32 @@ function SessionRail({
 }) {
 	useHeartbeat();
 	return (
-		<aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar">
-			<div className="flex items-center border-b px-4 py-2.5">
-				<span className="font-semibold">Plot</span>
-				<span className="ml-2 text-xs text-muted-foreground">
-					{runs.length} session{runs.length === 1 ? "" : "s"}
-				</span>
-				<div className="ml-auto">
-					<ThemeToggle />
-				</div>
-			</div>
-			<ScrollArea className="min-h-0 flex-1" scrollFade>
-				<nav className="space-y-1 p-2">
-					{runs.map((run) => (
-						<button
-							key={run.id}
-							type="button"
-							onClick={() => onSelect(run.id)}
-							className={cn(
-								"w-full rounded-md px-3 py-2 text-left hover:bg-sidebar-accent",
-								run.id === selectedId && "bg-sidebar-accent",
-							)}
-						>
-							<div className="flex items-center gap-2">
-								<Dot className={cn("size-2", runDot(run.status))} />
-								<span className="truncate text-sm font-medium text-sidebar-accent-foreground">
-									{run.workflowName ?? run.id}
-								</span>
-							</div>
-							<div className="truncate pl-4 text-xs text-muted-foreground">
-								{run.cwdName ?? run.cwd} · {formatSeen(run)}
-							</div>
-						</button>
-					))}
-				</nav>
-			</ScrollArea>
-		</aside>
+		<SideNav
+			header={
+				<SideNavHeading
+					heading="Plot"
+					subheading={`${runs.length} session${runs.length === 1 ? "" : "s"}`}
+				/>
+			}
+			footerIcons={<ThemeToggle />}
+		>
+			{runs.map((run) => (
+				<SideNavItem
+					key={run.id}
+					label={run.workflowName ?? run.id}
+					isSelected={run.id === selectedId}
+					onClick={() => onSelect(run.id)}
+					icon={
+						<StatusDot
+							variant={statusDotVariant(run.status)}
+							isPulsing={run.status === "running"}
+							label={run.status}
+						/>
+					}
+					endContent={`${run.cwdName ?? run.cwd} · ${formatSeen(run)}`}
+				/>
+			))}
+		</SideNav>
 	);
 }
 
@@ -239,45 +227,44 @@ export function PlotApp() {
 
 	return (
 		<ThemeProvider>
-			<TooltipProvider>
-				<div className="flex h-full">
+			<AppShell
+				height="fill"
+				variant="elevated"
+				contentPadding={0}
+				sideNav={
 					<SessionRail
 						runs={runs}
 						selectedId={effectiveId}
 						onSelect={setSelectedId}
 					/>
-					<main className="flex min-w-0 flex-1 flex-col">
-						{error !== undefined && (
-							<Alert
-								variant="error"
-								className="rounded-none border-x-0 border-t-0"
-							>
-								<AlertDescription>{error}</AlertDescription>
-							</Alert>
-						)}
-						{effectiveId === undefined || selectedRun === undefined ? (
-							<div className="grid flex-1 place-items-center">
-								<Empty>
-									<EmptyHeader>
-										<EmptyTitle>No Plot sessions</EmptyTitle>
-										<EmptyDescription>
-											Start one with `plot tui --workflow WORKFLOW.md`; it will
-											appear here live.
-										</EmptyDescription>
-									</EmptyHeader>
-								</Empty>
-							</div>
-						) : (
-							<SessionBoard
-								run={selectedRun}
-								state={board}
-								onAction={onAction}
-								onStop={() => void onStop(effectiveId)}
+				}
+			>
+				<div className="plot-app-content">
+					{error !== undefined && (
+						<Banner
+							status="error"
+							container="section"
+							title="Connection error"
+							description={error}
+						/>
+					)}
+					{effectiveId === undefined || selectedRun === undefined ? (
+						<div className="plot-center">
+							<EmptyState
+								title="No Plot sessions"
+								description="Start one with `plot tui --workflow WORKFLOW.md`; it will appear here live."
 							/>
-						)}
-					</main>
+						</div>
+					) : (
+						<SessionBoard
+							run={selectedRun}
+							state={board}
+							onAction={onAction}
+							onStop={() => void onStop(effectiveId)}
+						/>
+					)}
 				</div>
-			</TooltipProvider>
+			</AppShell>
 		</ThemeProvider>
 	);
 }
