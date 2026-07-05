@@ -13,11 +13,15 @@ import {
 } from "./components/ui/empty.js";
 import { ScrollArea } from "./components/ui/scroll-area.js";
 import { Skeleton } from "./components/ui/skeleton.js";
+import { SessionBrief } from "./brief.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
+import { SessionTimeline } from "./timeline.js";
 import { Inspector } from "./inspector.js";
 import { deriveLanes } from "./lanes.js";
 import { cn } from "./lib/utils.js";
 import type { PlotRun } from "./run.js";
+import { useHeartbeat } from "./use-heartbeat.js";
+import { useLastSeen } from "./use-last-seen.js";
 import {
 	ActingCard,
 	CompletedCard,
@@ -32,6 +36,21 @@ export interface BoardState {
 	readonly live?: boolean | undefined;
 	readonly projection?: WebDashboardProjection | undefined;
 }
+
+export type SessionViewMode = "brief" | "timeline" | "board";
+
+const viewStorageKey = "plot:view";
+
+const parseStoredView = (value: string | null): SessionViewMode =>
+	value === "timeline" || value === "board" ? value : "brief";
+
+const readStoredView = (): SessionViewMode => {
+	try {
+		return parseStoredView(localStorage.getItem(viewStorageKey));
+	} catch {
+		return "brief";
+	}
+};
 
 const isRunLive = (run: PlotRun): boolean =>
 	run.status === "online" || run.status === "running";
@@ -50,14 +69,6 @@ const toneDot: Record<string, string> = {
 	ok: "bg-success",
 	bad: "bg-destructive",
 	info: "bg-info",
-};
-
-export const useHeartbeat = () => {
-	const [, setBeat] = useState(0);
-	useEffect(() => {
-		const interval = setInterval(() => setBeat((beat) => beat + 1), 5000);
-		return () => clearInterval(interval);
-	}, []);
 };
 
 const parseWorkKeyHash = (): string | undefined => {
@@ -118,12 +129,16 @@ function Lane({
 
 function BoardHeader({
 	onStop,
+	onViewChange,
 	projection,
 	run,
+	view,
 }: {
 	readonly onStop: () => void;
+	readonly onViewChange: (view: SessionViewMode) => void;
 	readonly projection: WebDashboardProjection | undefined;
 	readonly run: PlotRun;
+	readonly view: SessionViewMode;
 }) {
 	const runtime = projection?.runtime;
 	const nextWake = projection?.scheduledWakes
@@ -150,6 +165,29 @@ function BoardHeader({
 				<p className="truncate text-xs text-muted-foreground">
 					{facts.join(" · ")}
 				</p>
+			</div>
+			<div className="flex shrink-0 rounded-md bg-muted p-0.5">
+				{(["brief", "timeline", "board"] as const).map((option) => (
+					<Button
+						key={option}
+						type="button"
+						size="sm"
+						variant="ghost"
+						className={cn(
+							"h-6 px-2 text-xs capitalize",
+							view === option
+								? "bg-accent text-foreground"
+								: "text-muted-foreground",
+						)}
+						onClick={() => onViewChange(option)}
+					>
+						{option === "brief"
+							? "Brief"
+							: option === "timeline"
+								? "Timeline"
+								: "Board"}
+					</Button>
+				))}
 			</div>
 			<div className="shrink-0 text-right text-xs text-muted-foreground">
 				{projection !== undefined && (
@@ -309,6 +347,85 @@ function LaneSkeletons() {
 }
 
 export function SessionBoard({
+	selectedKey,
+	state,
+}: {
+	readonly selectedKey: string | undefined;
+	readonly state: BoardState;
+}) {
+	const { projection } = state;
+	const lanes = projection === undefined ? undefined : deriveLanes(projection);
+	const boardEmpty =
+		lanes !== undefined &&
+		lanes.incoming.length === 0 &&
+		lanes.acting.length === 0 &&
+		lanes.needsYou.length === 0 &&
+		lanes.done.length === 0;
+	if (boardEmpty && projection !== undefined)
+		return <WatchingForWork projection={projection} />;
+	return (
+		<ScrollArea className="min-h-0 min-w-0 flex-1" fill>
+			<div className="flex h-full gap-3 p-3">
+				{lanes === undefined ? (
+					<LaneSkeletons />
+				) : (
+					<>
+						<Lane title="Incoming" count={lanes.incoming.length}>
+							{lanes.incoming.map((item) => (
+								<IncomingCard
+									key={item.work.workKey}
+									item={item}
+									selected={item.work.workKey === selectedKey}
+								/>
+							))}
+						</Lane>
+						<Lane title="Acting" count={lanes.acting.length}>
+							{lanes.acting.map((item) => (
+								<ActingCard
+									key={item.work.workKey}
+									item={item}
+									selected={item.work.workKey === selectedKey}
+								/>
+							))}
+						</Lane>
+						<Lane
+							tone="attention"
+							title="Needs you"
+							count={lanes.needsYou.length}
+						>
+							{lanes.needsYou.map((item) => (
+								<NeedsYouCard
+									key={item.work.workKey}
+									item={item}
+									selected={item.work.workKey === selectedKey}
+								/>
+							))}
+						</Lane>
+						<Lane title="Done" count={lanes.done.length}>
+							{lanes.done.map((item) =>
+								item.kind === "work" ? (
+									<SettledCard
+										key={item.work.workKey}
+										item={item}
+										selected={item.work.workKey === selectedKey}
+									/>
+								) : (
+									<CompletedCard
+										key={`${item.completed.workKey}:${item.completed.atMs}`}
+										item={item}
+										selected={item.completed.workKey === selectedKey}
+									/>
+								),
+							)}
+						</Lane>
+					</>
+				)}
+			</div>
+		</ScrollArea>
+	);
+}
+
+export function SessionView({
 	onAction,
 	onStop,
 	run,
@@ -321,85 +438,41 @@ export function SessionBoard({
 }) {
 	useHeartbeat();
 	const selectedKey = useSelectedWorkKey();
+	const [view, setViewState] = useState<SessionViewMode>(readStoredView);
+	const setView = (next: SessionViewMode) => {
+		setViewState(next);
+		try {
+			localStorage.setItem(viewStorageKey, next);
+		} catch {
+			// ponytail: view persistence is a convenience; switching must work.
+		}
+	};
 	const { projection } = state;
-	const lanes = projection === undefined ? undefined : deriveLanes(projection);
-	const boardEmpty =
-		lanes !== undefined &&
-		lanes.incoming.length === 0 &&
-		lanes.acting.length === 0 &&
-		lanes.needsYou.length === 0 &&
-		lanes.done.length === 0;
+	const anchorMs = useLastSeen(projection?.sessionId);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<BoardHeader onStop={onStop} projection={projection} run={run} />
+			<BoardHeader
+				onStop={onStop}
+				onViewChange={setView}
+				projection={projection}
+				run={run}
+				view={view}
+			/>
 			<LivenessBanner run={run} state={state} />
-			{projection !== undefined && <ActivityStrip projection={projection} />}
+			{projection !== undefined && view === "board" && (
+				<ActivityStrip projection={projection} />
+			)}
 			{state.error !== undefined && projection === undefined ? (
 				<NoLiveBoard error={state.error} run={run} />
-			) : boardEmpty && projection !== undefined ? (
-				<WatchingForWork projection={projection} />
 			) : (
 				<div className="flex min-h-0 flex-1">
-					{/* min-w-0: without it the lanes' intrinsic width beats the
-					    inspector and the whole page scrolls horizontally. */}
-					<ScrollArea className="min-h-0 min-w-0 flex-1" fill>
-						<div className="flex h-full gap-3 p-3">
-							{lanes === undefined ? (
-								<LaneSkeletons />
-							) : (
-								<>
-									<Lane title="Incoming" count={lanes.incoming.length}>
-										{lanes.incoming.map((item) => (
-											<IncomingCard
-												key={item.work.workKey}
-												item={item}
-												selected={item.work.workKey === selectedKey}
-											/>
-										))}
-									</Lane>
-									<Lane title="Acting" count={lanes.acting.length}>
-										{lanes.acting.map((item) => (
-											<ActingCard
-												key={item.work.workKey}
-												item={item}
-												selected={item.work.workKey === selectedKey}
-											/>
-										))}
-									</Lane>
-									<Lane
-										tone="attention"
-										title="Needs you"
-										count={lanes.needsYou.length}
-									>
-										{lanes.needsYou.map((item) => (
-											<NeedsYouCard
-												key={item.work.workKey}
-												item={item}
-												selected={item.work.workKey === selectedKey}
-											/>
-										))}
-									</Lane>
-									<Lane title="Done" count={lanes.done.length}>
-										{lanes.done.map((item) =>
-											item.kind === "work" ? (
-												<SettledCard
-													key={item.work.workKey}
-													item={item}
-													selected={item.work.workKey === selectedKey}
-												/>
-											) : (
-												<CompletedCard
-													key={`${item.completed.workKey}:${item.completed.atMs}`}
-													item={item}
-													selected={item.completed.workKey === selectedKey}
-												/>
-											),
-										)}
-									</Lane>
-								</>
-							)}
-						</div>
-					</ScrollArea>
+					{view === "brief" ? (
+						<SessionBrief anchorMs={anchorMs} />
+					) : view === "timeline" ? (
+						<SessionTimeline />
+					) : (
+						<SessionBoard selectedKey={selectedKey} state={state} />
+					)}
 					{selectedKey !== undefined && projection !== undefined && (
 						<Inspector
 							onAction={onAction}

@@ -1,9 +1,8 @@
 import type {
 	SerializedAgentAttemptProjection,
 	TimelineEntry,
-	WorkItemProjection,
 } from "@plot/session/projection";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { ObservationInput, WebDashboardProjection } from "./api.js";
 import { Badge } from "./components/ui/badge.js";
@@ -17,13 +16,9 @@ import {
 } from "./components/ui/scroll-area.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import { cn } from "./lib/utils.js";
+import { OperatorZone } from "./operator-zone.js";
 import { TranscriptView } from "./transcript-view.js";
-import {
-	kindGlyph,
-	stageVariant,
-	workOperatorActions,
-	type WorkOperatorAction,
-} from "./work-card.js";
+import { kindGlyph, stageVariant } from "./work-card.js";
 
 /** Display-side tail of a turn-scoped stream; the reducer owns the real window. */
 const streamTail = (text: string): string =>
@@ -192,133 +187,6 @@ function AttemptSummaryRow({
 	);
 }
 
-const actionVariant = (
-	tone: WorkOperatorAction["tone"],
-): "default" | "outline" => (tone === "primary" ? "default" : "outline");
-
-interface SentAction {
-	readonly atMs: number;
-	readonly label: string;
-	/** Work item fingerprint at send time; a change means the Source reconciled. */
-	readonly fingerprint: string;
-}
-
-const workFingerprint = (work: WorkItemProjection): string =>
-	`${work.status}:${work.version ?? ""}:${work.blockedReason ?? ""}`;
-
-/** The reason the web exists: record a human decision, let the Source reconcile. */
-function OperatorZone({
-	onAction,
-	work,
-}: {
-	readonly onAction: (input: ObservationInput) => Promise<boolean>;
-	readonly work: WorkItemProjection;
-}) {
-	const [pendingId, setPendingId] = useState<string>();
-	const [status, setStatus] = useState<string>();
-	const [sent, setSent] = useState<SentAction>();
-	const actions = workOperatorActions(work);
-	// The Source answered (status/version/reason moved): the decision is consumed.
-	if (sent !== undefined && workFingerprint(work) !== sent.fingerprint) {
-		setSent(undefined);
-		setStatus(undefined);
-	}
-	const act = async (action: WorkOperatorAction) => {
-		if (
-			action.confirm !== undefined &&
-			!window.confirm(
-				[action.confirm.title, action.confirm.message]
-					.filter((part) => part !== undefined)
-					.join("\n"),
-			)
-		)
-			return;
-		let comment: string | undefined;
-		if (action.requiresComment === true) {
-			const value = window.prompt(`${action.label} — comment`);
-			if (value === null || value.trim() === "") return;
-			comment = value;
-		}
-		setPendingId(action.id);
-		setStatus(undefined);
-		try {
-			const accepted = await onAction({
-				sourceId: work.sourceId,
-				workKey: work.workKey,
-				actionId: action.id,
-				actionLabel: action.label,
-				clientId: crypto.randomUUID(),
-				...(comment === undefined ? {} : { comment }),
-			});
-			if (accepted) {
-				setSent({
-					atMs: Date.now(),
-					label: action.label,
-					fingerprint: workFingerprint(work),
-				});
-			} else {
-				setStatus("rejected · session queue is full, try again");
-			}
-		} catch (caught) {
-			setStatus(caught instanceof Error ? caught.message : String(caught));
-		} finally {
-			setPendingId(undefined);
-		}
-	};
-	const blocked = work.status === "blocked";
-	return (
-		<Section
-			title={blocked ? "Needs you" : "Waiting"}
-			tone={blocked ? "attention" : undefined}
-		>
-			{work.blockedReason !== undefined && (
-				<p
-					className={
-						blocked
-							? "text-xs text-warning-foreground"
-							: "text-xs text-muted-foreground"
-					}
-				>
-					{work.blockedReason}
-				</p>
-			)}
-			{sent !== undefined ? (
-				<p className="text-xs text-muted-foreground">
-					✓ {sent.label} recorded {formatAgo(sent.atMs)} ago · waiting for{" "}
-					<span className="font-mono">{work.sourceId}</span> to reconcile…
-				</p>
-			) : (
-				actions.length > 0 && (
-					<div className="flex flex-wrap gap-1.5">
-						{actions.map((action) => (
-							<Button
-								key={action.id}
-								size="sm"
-								variant={actionVariant(action.tone)}
-								className={
-									action.tone === "danger"
-										? "border-destructive/40 text-destructive-foreground"
-										: undefined
-								}
-								disabled={
-									action.disabledReason !== undefined || pendingId !== undefined
-								}
-								title={action.disabledReason}
-								onClick={() => void act(action)}
-							>
-								{pendingId === action.id ? "…" : action.label}
-							</Button>
-						))}
-					</div>
-				)
-			)}
-			{status !== undefined && (
-				<p className="text-[10px] text-muted-foreground">{status}</p>
-			)}
-		</Section>
-	);
-}
-
 export function Inspector({
 	onAction,
 	onClose,
@@ -420,7 +288,12 @@ export function Inspector({
 			<ScrollArea className="min-h-0 flex-1">
 				<div>
 					{held && work !== undefined && (
-						<OperatorZone onAction={onAction} work={work} />
+						<Section
+							title={work.status === "blocked" ? "Needs you" : "Waiting"}
+							tone={work.status === "blocked" ? "attention" : undefined}
+						>
+							<OperatorZone onAction={onAction} work={work} />
+						</Section>
 					)}
 					{current !== undefined && (
 						<Section title="Agent run">

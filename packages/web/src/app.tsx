@@ -10,7 +10,7 @@ import {
 	type ObservationInput,
 	type WebDashboardProjection,
 } from "./api.js";
-import { SessionBoard, useHeartbeat, type BoardState } from "./board.js";
+import { SessionView, type BoardState } from "./board.js";
 import { Alert, AlertDescription } from "./components/ui/alert.js";
 import { Dot } from "./components/ui/dot.js";
 import {
@@ -26,6 +26,8 @@ import { cn } from "./lib/utils.js";
 import { useRunLiveEvents } from "./live-events.js";
 import { applyProjectionEvent } from "./projection-live.js";
 import type { PlotRun } from "./run.js";
+import { SessionProvider } from "./session-context.js";
+import { useHeartbeat } from "./use-heartbeat.js";
 import { ThemeProvider, ThemeToggle } from "./theme.js";
 
 const errorText = (caught: unknown): string =>
@@ -268,12 +270,20 @@ export function PlotApp() {
 								</Empty>
 							</div>
 						) : (
-							<SessionBoard
+							<SessionProvider
+								act={onAction}
+								live={board.live}
+								projection={board.projection}
 								run={selectedRun}
-								state={board}
-								onAction={onAction}
-								onStop={() => void onStop(effectiveId)}
-							/>
+								stop={() => void onStop(effectiveId)}
+							>
+								<SessionView
+									run={selectedRun}
+									state={board}
+									onAction={onAction}
+									onStop={() => void onStop(effectiveId)}
+								/>
+							</SessionProvider>
 						)}
 					</main>
 				</div>
