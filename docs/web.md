@@ -15,6 +15,7 @@ GET    /api/runs
 POST   /api/runs
 DELETE /api/runs/:id
 GET    /api/runs/:id/events
+GET    /api/runs/:id/history
 GET    /api/runs/:id/projection
 GET    /api/runs/:id/attempts/:runId/transcript
 POST   /api/runs/:id/observations
@@ -27,6 +28,8 @@ server-side from the projection (live or replayed); clients never name files.
 `POST /api/runs/:id/observations` records an Operator Observation for a
 blocked Work Item: `{ sourceId, workKey, actionId, actionLabel, comment? }`.
 The session's Source reconciles with it on the next tick.
+
+`GET /api/runs/:id/history?after=<sequence>` serves durable Session History event records after that sequence, capped at 20,000 with `truncated` when more remain.
 
 `GET /api/runs/:id/projection` serves live sessions from a snapshot. For
 stopped sessions it replays the durable Session History

@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { Badge, type BadgeProps } from "./components/ui/badge.js";
 import { Dot } from "./components/ui/dot.js";
 
+import { isSettledSuccess } from "./derive-brief.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import type { CompletedLaneItem, WorkLaneItem } from "./lanes.js";
 import { cn } from "./lib/utils.js";
@@ -331,7 +332,7 @@ export function CompletedCard({
 	readonly selected?: boolean | undefined;
 }) {
 	const { completed } = item;
-	const failed = completed.status !== "done";
+	const failed = !isSettledSuccess(completed.status);
 	return (
 		<a
 			href={workItemHref(completed.workKey)}

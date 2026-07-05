@@ -7,9 +7,8 @@ Applies to `packages/web/**`. Prefer this over root guidance when working on the
 ## Product stance
 
 The web app is written for the operator who is _away_, not the one who is
-watching. The default surface per session is the **Brief** — a report
-("what happened since you last looked, what needs you, what's next") — with
-the lanes **Board** as the secondary working view. Anything that makes the
+watching. The default surface is the **Console** — Fleet rail, Masthead,
+and Column — with no view switcher or board. Anything that makes the
 dashboard demand attention it hasn't earned is a regression.
 
 ## Architecture
@@ -19,15 +18,27 @@ Keep the web app a clean React/TypeScript client over Plot's local file-backed g
 ```text
 api.ts               HTTP/SSE contract parsing, URLs, fetch helpers
 main.tsx             app wiring only
-app.tsx              run catalog, session selection, SessionProvider
-session-context.tsx  state/actions/meta context for the selected session
-board.tsx            SessionView (Brief|Board switcher), header, lanes board
-brief.tsx            the Brief: headline, needs-you inbox, coming up, outcomes
+app.tsx              run catalog, stream selection, projection loading, providers
+fleet.tsx            Fleet rail, Fleet Brief home, zero state
+derive-fleet.ts      pure run catalog + live projections -> ordered streams
+masthead.tsx         selected stream sentence, meters, hold-to-stop
+column.tsx           Column shell, Brief composition, hash-addressed inspector, scrub whisper
+brief.tsx            composable Brief parts: headline, needs-you, running, coming up, outcomes
 derive-brief.ts      pure projection -> BriefModel derivation
-lanes.ts             pure projection -> lanes derivation
-work-card.tsx        compound WorkCard parts + lane card variants
-operator-zone.tsx    the one operator-action implementation (confirm/comment/pending)
+floor.tsx            pinned condensed timeline + scrub playhead
+replay.ts            client replay fold/checkpoints over fetchable run events
+palette.tsx          ⌘K overlay, keyboard navigation, command execution
+commands.ts          pure command registry + fuzzy subsequence match
+lanes.ts             pure projection -> lanes derivation used by derivations
+board.tsx            shared shell fallbacks: BoardState, liveness, crash diagnostics
+session-context.tsx  state/actions/meta context for the selected session, swaps active scrub projection
+work-card.tsx        WorkCard helpers, glyphs, operator action parsing, hrefs
+action-queue.ts      optimistic operator action queue, undo/retry state + provider
+undo-rail.tsx        pending action toast stack with undo/retry
+operator-zone.tsx    the one operator-action implementation: optimistic, hold-to-run, inline comments
+use-queue-keys.ts    needs-you keyboard grammar (j/k/e/r/u/Enter), inert while scrubbing
 inspector.tsx        work item detail: attempt timeline, streams, transcript
+use-countdown.ts     1s clock/countdown helpers
 use-last-seen.ts     "since you last looked" anchor (localStorage, per sessionId)
 live-events.ts       live runRegistry delta hook
 run.ts               runRegistry run DTO parsing
@@ -46,7 +57,7 @@ components/ui/*      copied coss primitives only when used
 - React 19 idioms: `use()` not `useContext`, no `forwardRef`.
 - Do not add global state libraries until prop flow is actually painful.
 - Do not copy more coss components than are rendered.
-- Operator actions have exactly one implementation (`operator-zone.tsx`). Never duplicate its confirm/comment/pending logic.
+- Operator actions have exactly one implementation (`operator-zone.tsx`). Never duplicate its action grammar.
 
 ## Theme and primitives
 
@@ -61,8 +72,10 @@ components/ui/*      copied coss primitives only when used
 
 ```text
 runRegistry catalog: /api/runs + SSE after run.lastSequence
+fleet streams: workflowName + cwd, with live projection sweeps for live runs only
 session detail: /api/runs/:id/projection + live SSE after projection.frontier
-raw events: live transport only, never durable browser replay
+operator actions: optimistic client queue, 5s undo window, then recordObservation
+raw events: /api/runs/:id/events is still live transport; scrub replay uses whatever records are fetchable and falls back without inventing server APIs
 "since you last looked": client-only localStorage anchor per sessionId;
   written on pagehide/hidden, never while the operator is watching
 ```

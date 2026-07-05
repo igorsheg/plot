@@ -153,6 +153,74 @@ describe("Plot web gateway", () => {
 		}
 	});
 
+	test("history endpoint pages durable event records", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const { gateway, registryDir, stop } = await startTestGateway(dir);
+		try {
+			await writeRuns(registryDir, [
+				{
+					id: "run-1",
+					status: "stopped",
+					cwd: dir,
+					createdAt: new Date().toISOString(),
+					sessionId: "session-1",
+					workflowName: "workflow",
+				},
+			]);
+			await mkdir(join(registryDir, "history"), { recursive: true });
+			await writeFile(
+				join(registryDir, "history", "run-1.jsonl"),
+				`${Array.from({ length: 20_001 }, (_, index) =>
+					JSON.stringify({
+						kind: "session_event",
+						sessionId: "session-1",
+						sequence: index + 1,
+						timestamp: "2026-01-01T00:00:00.000Z",
+						type: "session_started",
+					}),
+				).join("\n")}\n`,
+			);
+
+			const first = await fetch(
+				new URL("/api/runs/run-1/history?after=0", gateway.url),
+			);
+			expect(first.status).toBe(200);
+			const body = (await first.json()) as {
+				readonly records?: readonly {
+					readonly kind?: string;
+					readonly event?: { readonly sequence?: number };
+				}[];
+				readonly truncated?: boolean;
+			};
+			expect(body.records).toHaveLength(20_000);
+			expect(body.records?.[0]?.kind).toBe("event");
+			expect(body.records?.[0]?.event?.sequence).toBe(1);
+			expect(body.records?.at(-1)?.event?.sequence).toBe(20_000);
+			expect(body.truncated).toBe(true);
+
+			const last = await fetch(
+				new URL("/api/runs/run-1/history?after=20000", gateway.url),
+			);
+			const lastBody = (await last.json()) as {
+				readonly records?: readonly {
+					readonly event?: { readonly sequence?: number };
+				}[];
+				readonly truncated?: boolean;
+			};
+			expect(lastBody.records?.map((record) => record.event?.sequence)).toEqual(
+				[20_001],
+			);
+			expect(lastBody.truncated).toBe(false);
+
+			const missing = await fetch(
+				new URL("/api/runs/missing/history?after=0", gateway.url),
+			);
+			expect(missing.status).toBe(404);
+		} finally {
+			await stop();
+		}
+	});
+
 	test("projection endpoint replays durable history for stopped runs", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const { gateway, registryDir, stop } = await startTestGateway(dir);

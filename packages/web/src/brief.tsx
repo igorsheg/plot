@@ -3,12 +3,16 @@ import type { ReactNode } from "react";
 import { Badge, type BadgeProps } from "./components/ui/badge.js";
 import { Dot } from "./components/ui/dot.js";
 import { ScrollArea } from "./components/ui/scroll-area.js";
-import { deriveBrief, type BriefModel } from "./derive-brief.js";
+import {
+	deriveBrief,
+	isSettledSuccess,
+	type BriefModel,
+} from "./derive-brief.js";
 import { formatAgo, formatDuration, formatTokens } from "./format.js";
 import { cn } from "./lib/utils.js";
 import { OperatorZoneBody } from "./operator-zone.js";
 import { useSession } from "./session-context.js";
-import { useHeartbeat } from "./use-heartbeat.js";
+import { formatClockDuration, useNow } from "./use-countdown.js";
 import { kindGlyph, workItemHref, workOperatorActions } from "./work-card.js";
 
 interface BriefContextValue {
@@ -31,16 +35,15 @@ const useBrief = (): BriefContextValue => {
 const isRunLive = (status: string): boolean =>
 	status === "online" || status === "running";
 
-function BriefProvider({
+export function BriefProvider({
 	anchorMs,
 	children,
 }: {
 	readonly anchorMs: number | undefined;
 	readonly children: ReactNode;
 }) {
-	useHeartbeat();
 	const { state } = useSession();
-	const nowMs = Date.now();
+	const nowMs = useNow();
 	const model = useMemo(
 		() =>
 			state.projection === undefined
@@ -200,35 +203,40 @@ function NeedsYou() {
 	const {
 		state: { model },
 	} = useBrief();
-	const { actions } = useSession();
 	if (model === undefined || model.counts.needsYou === 0) return null;
 	return (
-		<section className="space-y-2">
+		<section className="space-y-2" style={{ viewTransitionName: "needs-you" }}>
 			<SectionHeader
 				title="Needs you"
 				count={model.counts.needsYou}
 				variant="warning"
 			/>
 			<div className="space-y-2">
-				{model.needsYou.map((work) => (
-					<div
-						key={work.workKey}
-						className="space-y-1.5 rounded-md border border-warning/40 bg-warning/4 p-3"
-					>
-						<div className="flex items-start justify-between gap-2">
-							<a
-								href={workItemHref(work.workKey)}
-								className="min-w-0 truncate text-sm font-medium hover:underline"
-							>
-								{work.title}
-							</a>
-							<Badge size="sm" variant="outline" className="shrink-0">
-								{work.sourceId}
-							</Badge>
-						</div>
-						<OperatorZoneBody onAction={actions.act} work={work} />
-					</div>
-				))}
+				{model.needsYou.map((work) => {
+					const href = workItemHref(work.workKey);
+					return (
+						<article
+							key={work.workKey}
+							className="space-y-1.5 rounded-md border border-warning/40 bg-warning/4 p-3 focus-visible:ring-2 focus-visible:ring-ring"
+							data-needs-you-row="true"
+							data-work-href={href}
+							tabIndex={0}
+						>
+							<div className="flex items-start justify-between gap-2">
+								<a
+									href={href}
+									className="min-w-0 truncate text-sm font-medium hover:underline"
+								>
+									{work.title}
+								</a>
+								<Badge size="sm" variant="outline" className="shrink-0">
+									{work.sourceId}
+								</Badge>
+							</div>
+							<OperatorZoneBody work={work} />
+						</article>
+					);
+				})}
 			</div>
 		</section>
 	);
@@ -283,7 +291,6 @@ function ComingUp() {
 	const {
 		state: { live, model, nowMs },
 	} = useBrief();
-	const { actions } = useSession();
 	if (model === undefined || !live || model.comingUp.length === 0) return null;
 	const shown = model.comingUp.slice(0, 6);
 	const overflow = model.comingUp.length - shown.length;
@@ -300,7 +307,7 @@ function ComingUp() {
 							<span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
 								{entry.wake.dueAtMs <= nowMs
 									? "due"
-									: `in ${formatDuration(entry.wake.dueAtMs - nowMs)}`}
+									: `in ${formatClockDuration(entry.wake.dueAtMs - nowMs)}`}
 							</span>
 							<div className="min-w-0 flex-1 text-sm">
 								<span>{entry.wake.reason ?? "tick"}</span>
@@ -330,16 +337,11 @@ function ComingUp() {
 									>
 										{entry.work.title}
 									</a>
-									{entry.work.blockedReason !== undefined && (
-										<p className="truncate text-xs text-muted-foreground">
-											{entry.work.blockedReason}
-										</p>
-									)}
 								</div>
 							</div>
 							{workOperatorActions(entry.work).length > 0 && (
 								<div className="ml-19 space-y-1.5">
-									<OperatorZoneBody onAction={actions.act} work={entry.work} />
+									<OperatorZoneBody work={entry.work} />
 								</div>
 							)}
 						</div>
@@ -353,13 +355,28 @@ function ComingUp() {
 	);
 }
 
+function UnreadLine({ anchorMs }: { readonly anchorMs: number }) {
+	return (
+		<div className="flex items-center gap-2 py-1.5 text-xs text-warning-foreground">
+			<span className="h-px flex-1 bg-warning/40" />
+			<span>since you left · {formatAgo(anchorMs)} ago</span>
+			<span className="h-px flex-1 bg-warning/40" />
+		</div>
+	);
+}
+
 function Outcomes() {
 	const {
-		state: { model },
+		state: { anchorMs, model },
 	} = useBrief();
 	if (model === undefined) return null;
 	const shown = model.outcomes.slice(0, 20);
 	const overflow = model.outcomes.length - shown.length;
+	const unreadAfter =
+		anchorMs === undefined ? -1 : shown.findIndex((entry) => !entry.isNew);
+	const unreadIndex = unreadAfter === -1 ? shown.length : unreadAfter;
+	const showUnread =
+		anchorMs !== undefined && shown.some((entry) => entry.isNew);
 	return (
 		<section className="space-y-2">
 			<SectionHeader title="Outcomes" count={model.outcomes.length} />
@@ -367,7 +384,7 @@ function Outcomes() {
 				<p className="text-xs text-muted-foreground">Nothing settled yet.</p>
 			) : (
 				<div className="divide-y divide-border/60">
-					{shown.map(({ completed, isNew }) => {
+					{shown.map(({ completed }, index) => {
 						const meta = [
 							`${formatAgo(completed.atMs)} ago`,
 							completed.durationMs === undefined
@@ -378,41 +395,41 @@ function Outcomes() {
 								: `${formatTokens(completed.tokens.total)} tok`,
 						].filter((value) => value !== undefined);
 						return (
-							<div
-								key={`${completed.workKey}:${completed.atMs}`}
-								className="flex gap-2 py-1.5"
-							>
-								<Dot
-									className={cn(
-										"mt-1.5 shrink-0 self-start",
-										completed.status === "done"
-											? "bg-success"
-											: "bg-destructive",
-									)}
-								/>
-								<div className="min-w-0 flex-1">
-									<div className="flex min-w-0 items-center gap-1.5">
+							<div key={`${completed.workKey}:${completed.atMs}`}>
+								{showUnread && index === unreadIndex && (
+									<UnreadLine anchorMs={anchorMs} />
+								)}
+								<div className="flex gap-2 py-1.5">
+									<Dot
+										className={cn(
+											"mt-1.5 shrink-0 self-start",
+											isSettledSuccess(completed.status)
+												? "bg-success"
+												: "bg-destructive",
+										)}
+									/>
+									<div className="min-w-0 flex-1">
 										<a
 											href={workItemHref(completed.workKey)}
 											className="truncate text-sm hover:underline"
 										>
 											{completed.label}
 										</a>
-										{isNew && (
-											<Badge size="sm" variant="info">
-												new
-											</Badge>
+										{completed.message !== "" && (
+											<p className="line-clamp-1 text-xs text-muted-foreground">
+												{completed.message}
+											</p>
 										)}
 									</div>
-									{completed.message !== "" && (
-										<p className="line-clamp-1 text-xs text-muted-foreground">
-											{completed.message}
-										</p>
-									)}
+									<span className="shrink-0 text-xs text-muted-foreground">
+										{meta.join(" · ")}
+									</span>
 								</div>
-								<span className="shrink-0 text-xs text-muted-foreground">
-									{meta.join(" · ")}
-								</span>
+								{showUnread &&
+									index === shown.length - 1 &&
+									unreadIndex === shown.length && (
+										<UnreadLine anchorMs={anchorMs} />
+									)}
 							</div>
 						);
 					})}
@@ -427,7 +444,7 @@ function Outcomes() {
 	);
 }
 
-const Brief = {
+export const Brief = {
 	Frame,
 	Headline,
 	NeedsYou,

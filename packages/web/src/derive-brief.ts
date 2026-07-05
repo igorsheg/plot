@@ -37,6 +37,9 @@ export interface OutcomeEntry {
 	readonly isNew: boolean;
 }
 
+export const isSettledSuccess = (status: string): boolean =>
+	status === "succeeded";
+
 const afterAnchor = (atMs: number, anchorMs: number | undefined): boolean =>
 	anchorMs === undefined || atMs > anchorMs;
 
@@ -50,10 +53,12 @@ export const deriveBrief = (
 		afterAnchor(entry.atMs, anchorMs),
 	);
 	const totals = {
-		handled: projection.completed.filter((entry) => entry.status === "done")
-			.length,
-		failed: projection.completed.filter((entry) => entry.status !== "done")
-			.length,
+		handled: projection.completed.filter((entry) =>
+			isSettledSuccess(entry.status),
+		).length,
+		failed: projection.completed.filter(
+			(entry) => !isSettledSuccess(entry.status),
+		).length,
 	};
 	const needsYou = Object.values(projection.work)
 		.filter((work) => laneOf(work.status) === "needs-you")
@@ -75,8 +80,10 @@ export const deriveBrief = (
 		);
 	return {
 		counts: {
-			handled: completedSince.filter((entry) => entry.status === "done").length,
-			failed: completedSince.filter((entry) => entry.status !== "done").length,
+			handled: completedSince.filter((entry) => isSettledSuccess(entry.status))
+				.length,
+			failed: completedSince.filter((entry) => !isSettledSuccess(entry.status))
+				.length,
 			needsYou: needsYou.length,
 			acting: lanes.acting.length,
 			incoming: lanes.incoming.length,

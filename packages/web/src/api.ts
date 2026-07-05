@@ -250,3 +250,6 @@ export const runCatalogEventsUrl = (): string => "/api/runs/events";
 
 export const runEventsUrl = (key: string, after: number): string =>
 	`/api/runs/${encodeURIComponent(key)}/events?after=${after}`;
+
+export const runHistoryUrl = (key: string, after: number): string =>
+	`/api/runs/${encodeURIComponent(key)}/history?after=${after}`;

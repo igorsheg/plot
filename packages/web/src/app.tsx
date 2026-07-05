@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
 	fetchRunProjection,
@@ -10,60 +10,35 @@ import {
 	type ObservationInput,
 	type WebDashboardProjection,
 } from "./api.js";
-import { SessionView, type BoardState } from "./board.js";
-import { Alert, AlertDescription } from "./components/ui/alert.js";
-import { Dot } from "./components/ui/dot.js";
 import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "./components/ui/empty.js";
-import { ScrollArea } from "./components/ui/scroll-area.js";
+	isRunLive,
+	LivenessBanner,
+	NoLiveBoard,
+	type BoardState,
+} from "./board.js";
+import { ActionQueueProvider } from "./action-queue.js";
+import { Alert, AlertDescription } from "./components/ui/alert.js";
+import { Skeleton } from "./components/ui/skeleton.js";
 import { TooltipProvider } from "./components/ui/tooltip.js";
+import { SessionColumn } from "./column.js";
+import { deriveFleet } from "./derive-fleet.js";
+import { FleetBriefHome, FleetRail } from "./fleet.js";
+import { Floor } from "./floor.js";
 import { laneSignature } from "./lanes.js";
-import { cn } from "./lib/utils.js";
 import { useRunLiveEvents } from "./live-events.js";
+import { Masthead } from "./masthead.js";
+import { Palette } from "./palette.js";
 import { applyProjectionEvent } from "./projection-live.js";
 import type { PlotRun } from "./run.js";
 import { SessionProvider } from "./session-context.js";
-import { useHeartbeat } from "./use-heartbeat.js";
-import { ThemeProvider, ThemeToggle } from "./theme.js";
+import { ThemeProvider } from "./theme.js";
+import { UndoRail } from "./undo-rail.js";
+import { useNow } from "./use-countdown.js";
 
 const errorText = (caught: unknown): string =>
 	caught instanceof Error ? caught.message : String(caught);
 
-const isLive = (run: PlotRun): boolean =>
-	run.status === "online" || run.status === "running";
-
-/** Live sessions first, then most recently seen. */
-const sortRuns = (runs: readonly PlotRun[]): readonly PlotRun[] =>
-	runs.toSorted((left, right) => {
-		const alive = Number(isLive(right)) - Number(isLive(left));
-		if (alive !== 0) return alive;
-		return (
-			Date.parse(right.lastSeenAt ?? right.createdAt) -
-			Date.parse(left.lastSeenAt ?? left.createdAt)
-		);
-	});
-
-const runDot = (status: string): string | undefined =>
-	status === "online" || status === "running"
-		? "bg-success"
-		: status === "error" || status === "failed"
-			? "bg-destructive"
-			: undefined;
-
-const formatSeen = (run: PlotRun): string => {
-	const ms = Date.parse(run.lastSeenAt ?? run.createdAt);
-	if (!Number.isFinite(ms)) return "";
-	const seconds = Math.max(0, Math.round((Date.now() - ms) / 1000));
-	if (seconds < 60) return `${seconds}s ago`;
-	if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
-	return `${Math.round(seconds / 3600)}h ago`;
-};
-
-/** Animate lane moves with native view transitions when available. */
+/** Animate work moves with native view transitions when available. */
 const commitProjection = (moved: boolean, commit: () => void): void => {
 	if (moved && typeof document.startViewTransition === "function") {
 		document.startViewTransition(() => flushSync(commit));
@@ -72,65 +47,88 @@ const commitProjection = (moved: boolean, commit: () => void): void => {
 	}
 };
 
-function SessionRail({
-	onSelect,
-	runs,
-	selectedId,
-}: {
-	readonly onSelect: (id: string) => void;
-	readonly runs: readonly PlotRun[];
-	readonly selectedId: string | undefined;
-}) {
-	useHeartbeat();
+const useFleetProjections = (
+	runs: readonly PlotRun[],
+): ReadonlyMap<string, WebDashboardProjection> => {
+	const [projections, setProjections] = useState(
+		() => new Map<string, WebDashboardProjection>(),
+	);
+	const latestRunsRef = useRef(runs);
+	const inFlightRef = useRef(false);
+	const pendingRef = useRef(false);
+	useEffect(() => {
+		let cancelled = false;
+		latestRunsRef.current = runs;
+		const runOnce = async (): Promise<void> => {
+			pendingRef.current = false;
+			const liveRuns = latestRunsRef.current.filter(isRunLive);
+			const entries = await Promise.all(
+				liveRuns.map(async (run) => {
+					try {
+						return [run.id, await fetchRunProjection(run.id)] as const;
+					} catch {
+						return undefined;
+					}
+				}),
+			);
+			if (cancelled) return;
+			const liveIds = new Set(liveRuns.map((run) => run.id));
+			setProjections((previous) => {
+				const next = new Map(
+					[...previous.entries()].filter(([runId]) => liveIds.has(runId)),
+				);
+				for (const entry of entries) {
+					if (entry !== undefined) next.set(entry[0], entry[1]);
+				}
+				return next;
+			});
+			if (pendingRef.current) await runOnce();
+		};
+		const sweep = async () => {
+			if (inFlightRef.current) {
+				pendingRef.current = true;
+				return;
+			}
+			inFlightRef.current = true;
+			try {
+				await runOnce();
+			} finally {
+				inFlightRef.current = false;
+			}
+		};
+		void sweep();
+		return () => {
+			cancelled = true;
+		};
+	}, [runs]);
+	return projections;
+};
+
+function LoadingColumn() {
 	return (
-		<aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar">
-			<div className="flex items-center border-b px-4 py-2.5">
-				<span className="font-semibold">Plot</span>
-				<span className="ml-2 text-xs text-muted-foreground">
-					{runs.length} session{runs.length === 1 ? "" : "s"}
-				</span>
-				<div className="ml-auto">
-					<ThemeToggle />
-				</div>
-			</div>
-			<ScrollArea className="min-h-0 flex-1" scrollFade>
-				<nav className="space-y-1 p-2">
-					{runs.map((run) => (
-						<button
-							key={run.id}
-							type="button"
-							onClick={() => onSelect(run.id)}
-							className={cn(
-								"w-full rounded-md px-3 py-2 text-left hover:bg-sidebar-accent",
-								run.id === selectedId && "bg-sidebar-accent",
-							)}
-						>
-							<div className="flex items-center gap-2">
-								<Dot className={cn("size-2", runDot(run.status))} />
-								<span className="truncate text-sm font-medium text-sidebar-accent-foreground">
-									{run.workflowName ?? run.id}
-								</span>
-							</div>
-							<div className="truncate pl-4 text-xs text-muted-foreground">
-								{run.cwdName ?? run.cwd} · {formatSeen(run)}
-							</div>
-						</button>
-					))}
-				</nav>
-			</ScrollArea>
-		</aside>
+		<div className="mx-auto w-full max-w-2xl space-y-8 px-6 py-8">
+			<Skeleton className="h-16 rounded-lg" />
+			<Skeleton className="h-40 rounded-lg" />
+			<Skeleton className="h-40 rounded-lg" />
+		</div>
 	);
 }
 
 export function PlotApp() {
 	const [runs, setRuns] = useState<readonly PlotRun[]>([]);
 	const [error, setError] = useState<string>();
-	const [selectedId, setSelectedId] = useState<string>();
+	const [selectedStreamKey, setSelectedStreamKey] = useState<string>();
 	const [board, setBoard] = useState<BoardState>({ loading: false });
 	const projectionRef = useRef<WebDashboardProjection>(undefined);
+	const nowMs = useNow();
+	const fleetProjections = useFleetProjections(runs);
+	const [selectedProjection, setSelectedProjection] = useState<
+		WebDashboardProjection | undefined
+	>();
+	const [paletteOpen, setPaletteOpen] = useState(false);
 
 	const updateRuns = useCallback(
-		(next: readonly PlotRun[]) => setRuns(sortRuns(next)),
+		(next: readonly PlotRun[]) => setRuns(next),
 		[],
 	);
 	useRunLiveEvents(runs, updateRuns);
@@ -141,7 +139,7 @@ export function PlotApp() {
 			try {
 				const next = await fetchRuns();
 				if (!cancelled) {
-					setRuns(sortRuns(next));
+					setRuns(next);
 					setError(undefined);
 				}
 			} catch (caught) {
@@ -156,16 +154,30 @@ export function PlotApp() {
 		};
 	}, []);
 
-	const effectiveId =
-		selectedId !== undefined && runs.some((run) => run.id === selectedId)
-			? selectedId
-			: runs[0]?.id;
-	const selectedRun = runs.find((run) => run.id === effectiveId);
-	const selectedIsLive = selectedRun !== undefined && isLive(selectedRun);
+	const streams = useMemo(
+		() => deriveFleet(runs, fleetProjections, nowMs),
+		[runs, fleetProjections, nowMs],
+	);
+	const selectedStream = streams.find(
+		(stream) => stream.key === selectedStreamKey,
+	);
+	const selectedRun = selectedStream?.currentRun;
+	const effectiveId = selectedRun?.id;
+
+	useEffect(() => {
+		if (streams.length === 0) {
+			setSelectedStreamKey(undefined);
+			return;
+		}
+		if (selectedStreamKey !== undefined && selectedStream === undefined) {
+			setSelectedStreamKey(undefined);
+		}
+	}, [selectedStream, selectedStreamKey, streams]);
 
 	useEffect(() => {
 		projectionRef.current = undefined;
-		if (effectiveId === undefined) {
+		setSelectedProjection(undefined);
+		if (effectiveId === undefined || selectedRun === undefined) {
 			setBoard({ loading: false });
 			return;
 		}
@@ -177,15 +189,13 @@ export function PlotApp() {
 				const initial = await fetchRunProjection(effectiveId);
 				if (cancelled) return;
 				projectionRef.current = initial;
+				setSelectedProjection(initial);
 				setBoard({ loading: false, live: true, projection: initial });
-				// Ended sessions serve a replayed history board; nothing to stream.
-				if (!selectedIsLive) return;
+				if (!isRunLive(selectedRun)) return;
 				source = new EventSource(runEventsUrl(effectiveId, initial.frontier));
 				source.addEventListener("open", () =>
 					setBoard((previous) => ({ ...previous, live: true })),
 				);
-				// EventSource auto-reconnects (resuming via Last-Event-ID); we only
-				// surface the gap so the operator knows the board may lag.
 				source.addEventListener("error", () =>
 					setBoard((previous) => ({ ...previous, live: false })),
 				);
@@ -198,8 +208,12 @@ export function PlotApp() {
 					const next = applyProjectionEvent(current, record);
 					if (next === current) return;
 					projectionRef.current = next;
-					commitProjection(laneSignature(current) !== laneSignature(next), () =>
-						setBoard({ loading: false, projection: next }),
+					commitProjection(
+						laneSignature(current) !== laneSignature(next),
+						() => {
+							setSelectedProjection(next);
+							setBoard({ loading: false, projection: next });
+						},
 					);
 				});
 			} catch (caught) {
@@ -210,12 +224,12 @@ export function PlotApp() {
 			cancelled = true;
 			source?.close();
 		};
-	}, [effectiveId, selectedIsLive]);
+	}, [effectiveId, selectedRun]);
 
 	const onStop = async (id: string) => {
 		try {
 			await stopRun(id);
-			setRuns(sortRuns(await fetchRuns()));
+			setRuns(await fetchRuns());
 		} catch (caught) {
 			setError(errorText(caught));
 		}
@@ -226,15 +240,10 @@ export function PlotApp() {
 		return recordObservation(effectiveId, input);
 	};
 
-	// Needs You reaches the tab bar; the operator is elsewhere by definition.
-	// ponytail: counts the selected session only; fleet-wide counts need
-	// registry support.
-	const blockedCount =
-		board.projection === undefined
-			? 0
-			: Object.values(board.projection.work).filter(
-					(work) => work.status === "blocked",
-				).length;
+	const blockedCount = streams.reduce(
+		(sum, stream) => sum + stream.needsYou,
+		0,
+	);
 	useEffect(() => {
 		document.title = blockedCount > 0 ? `(${blockedCount}) Plot` : "Plot";
 	}, [blockedCount]);
@@ -242,51 +251,80 @@ export function PlotApp() {
 	return (
 		<ThemeProvider>
 			<TooltipProvider>
-				<div className="flex h-full">
-					<SessionRail
-						runs={runs}
-						selectedId={effectiveId}
-						onSelect={setSelectedId}
-					/>
-					<main className="flex min-w-0 flex-1 flex-col">
-						{error !== undefined && (
-							<Alert
-								variant="error"
-								className="rounded-none border-x-0 border-t-0"
-							>
-								<AlertDescription>{error}</AlertDescription>
-							</Alert>
-						)}
-						{effectiveId === undefined || selectedRun === undefined ? (
-							<div className="grid flex-1 place-items-center">
-								<Empty>
-									<EmptyHeader>
-										<EmptyTitle>No Plot sessions</EmptyTitle>
-										<EmptyDescription>
-											Start one with `plot tui --workflow WORKFLOW.md`; it will
-											appear here live.
-										</EmptyDescription>
-									</EmptyHeader>
-								</Empty>
-							</div>
-						) : (
-							<SessionProvider
-								act={onAction}
-								live={board.live}
-								projection={board.projection}
-								run={selectedRun}
-								stop={() => void onStop(effectiveId)}
-							>
-								<SessionView
+				<ActionQueueProvider record={onAction}>
+					<div className="flex h-full">
+						<FleetRail
+							onHome={() => setSelectedStreamKey(undefined)}
+							onOpenPalette={() => setPaletteOpen(true)}
+							onSelect={setSelectedStreamKey}
+							selectedKey={selectedStreamKey}
+							streams={streams}
+						/>
+						<main className="flex min-h-0 min-w-0 flex-1 flex-col">
+							{error !== undefined && (
+								<Alert
+									variant="error"
+									className="rounded-none border-x-0 border-t-0"
+								>
+									<AlertDescription>{error}</AlertDescription>
+								</Alert>
+							)}
+							{selectedStream === undefined || selectedRun === undefined ? (
+								<>
+									<FleetBriefHome
+										onSelect={setSelectedStreamKey}
+										projections={fleetProjections}
+										streams={streams}
+									/>
+									<Palette
+										onOpenChange={setPaletteOpen}
+										onSelectStream={setSelectedStreamKey}
+										open={paletteOpen}
+										streams={streams}
+									/>
+								</>
+							) : (
+								<SessionProvider
+									act={onAction}
+									live={board.live}
+									projection={selectedProjection}
 									run={selectedRun}
-									state={board}
-									onAction={onAction}
-									onStop={() => void onStop(effectiveId)}
-								/>
-							</SessionProvider>
-						)}
-					</main>
-				</div>
+									stop={() => void onStop(selectedRun.id)}
+								>
+									<Masthead
+										onStop={() => void onStop(selectedRun.id)}
+										projection={selectedProjection}
+										run={selectedRun}
+										stream={selectedStream}
+									/>
+									<LivenessBanner run={selectedRun} state={board} />
+									{board.error !== undefined &&
+									selectedProjection === undefined ? (
+										<NoLiveBoard error={board.error} run={selectedRun} />
+									) : selectedProjection === undefined ? (
+										<LoadingColumn />
+									) : (
+										<>
+											<SessionColumn
+												paletteOpen={paletteOpen}
+												projection={selectedProjection}
+												run={selectedRun}
+											/>
+											<Floor />
+										</>
+									)}
+									<Palette
+										onOpenChange={setPaletteOpen}
+										onSelectStream={setSelectedStreamKey}
+										open={paletteOpen}
+										streams={streams}
+									/>
+								</SessionProvider>
+							)}
+						</main>
+					</div>
+					<UndoRail />
+				</ActionQueueProvider>
 			</TooltipProvider>
 		</ThemeProvider>
 	);

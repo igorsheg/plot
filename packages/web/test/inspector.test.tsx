@@ -3,9 +3,18 @@ import {
 	emptyProjection,
 	serializeDashboardProjection,
 } from "@plot/session/projection";
+import type { ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import type { WebDashboardProjection } from "../src/api.js";
+import { ActionQueueProvider } from "../src/action-queue.js";
 import { Inspector } from "../src/inspector.js";
+
+const renderInspector = (element: ReactNode): string =>
+	renderToString(
+		<ActionQueueProvider record={async () => true}>
+			{element}
+		</ActionQueueProvider>,
+	);
 
 const projection = (): WebDashboardProjection => ({
 	...serializeDashboardProjection(emptyProjection("session-1", "workflow")),
@@ -62,9 +71,8 @@ const projection = (): WebDashboardProjection => ({
 });
 
 test("inspector renders operator zone, live run, timeline, and history", () => {
-	const html = renderToString(
+	const html = renderInspector(
 		<Inspector
-			onAction={async () => true}
 			sessionRunId="run-web-1"
 			onClose={() => undefined}
 			projection={projection()}
@@ -82,9 +90,8 @@ test("inspector renders operator zone, live run, timeline, and history", () => {
 
 test("inspector renders waiting work without attention copy", () => {
 	const waiting = projection();
-	const html = renderToString(
+	const html = renderInspector(
 		<Inspector
-			onAction={async () => true}
 			sessionRunId="run-web-1"
 			onClose={() => undefined}
 			projection={{
@@ -107,9 +114,8 @@ test("inspector renders waiting work without attention copy", () => {
 
 test("inspector offers the transcript once the attempt settles", () => {
 	const settled = projection();
-	const html = renderToString(
+	const html = renderInspector(
 		<Inspector
-			onAction={async () => true}
 			onClose={() => undefined}
 			projection={{
 				...settled,
@@ -125,9 +131,8 @@ test("inspector offers the transcript once the attempt settles", () => {
 });
 
 test("inspector renders nothing for an unknown work key", () => {
-	const html = renderToString(
+	const html = renderInspector(
 		<Inspector
-			onAction={async () => true}
 			sessionRunId="run-web-1"
 			onClose={() => undefined}
 			projection={serializeDashboardProjection(emptyProjection("s", "w"))}

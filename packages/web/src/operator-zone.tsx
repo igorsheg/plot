@@ -1,8 +1,11 @@
 import type { WorkItemProjection } from "@plot/session/projection";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useActionQueue } from "./action-queue.js";
 import type { ObservationInput } from "./api.js";
 import { Button } from "./components/ui/button.js";
-import { formatAgo } from "./format.js";
+import { cn } from "./lib/utils.js";
+import { useOptionalSession } from "./session-context.js";
+import { useNow } from "./use-countdown.js";
 import { workOperatorActions, type WorkOperatorAction } from "./work-card.js";
 
 export const actionVariant = (
@@ -19,68 +22,181 @@ export interface SentAction {
 export const workFingerprint = (work: WorkItemProjection): string =>
 	`${work.status}:${work.version ?? ""}:${work.blockedReason ?? ""}`;
 
+const secondsLeft = (sendAtMs: number, nowMs: number): number =>
+	Math.max(0, Math.ceil((sendAtMs - nowMs) / 1000));
+
+const actionInput = (
+	work: WorkItemProjection,
+	action: WorkOperatorAction,
+	comment: string | undefined,
+): ObservationInput => ({
+	sourceId: work.sourceId,
+	workKey: work.workKey,
+	actionId: action.id,
+	actionLabel: action.label,
+	...(comment === undefined ? {} : { comment }),
+});
+
+function HoldActionButton({
+	action,
+	disabled,
+	onRun,
+}: {
+	readonly action: WorkOperatorAction;
+	readonly disabled: boolean;
+	readonly onRun: () => void;
+}) {
+	const [holding, setHolding] = useState(false);
+	const timerRef = useRef<number | undefined>(undefined);
+	const cancel = () => {
+		window.clearTimeout(timerRef.current);
+		timerRef.current = undefined;
+		setHolding(false);
+	};
+	const start = () => {
+		if (disabled) return;
+		cancel();
+		setHolding(true);
+		timerRef.current = window.setTimeout(() => {
+			setHolding(false);
+			timerRef.current = undefined;
+			onRun();
+		}, 600);
+	};
+	return (
+		<Button
+			type="button"
+			size="sm"
+			variant={actionVariant(action.tone)}
+			className={cn(
+				"masthead-hold overflow-hidden",
+				action.tone === "danger" &&
+					"border-destructive/40 text-destructive-foreground",
+			)}
+			data-holding={holding ? "true" : "false"}
+			disabled={disabled}
+			title={action.disabledReason ?? action.confirm?.message}
+			onPointerDown={start}
+			onPointerCancel={cancel}
+			onPointerLeave={cancel}
+			onPointerUp={cancel}
+		>
+			<span className="relative z-10">Hold to {action.label}</span>
+		</Button>
+	);
+}
+
+function CommentComposer({
+	action,
+	onCancel,
+	onSend,
+}: {
+	readonly action: WorkOperatorAction;
+	readonly onCancel: () => void;
+	readonly onSend: (comment: string) => void;
+}) {
+	const [comment, setComment] = useState("");
+	const ref = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => ref.current?.focus(), []);
+	const send = () => {
+		const value = comment.trim();
+		if (value !== "") onSend(value);
+	};
+	return (
+		<div className="space-y-1.5">
+			<textarea
+				ref={ref}
+				className="min-h-20 w-full resize-y rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+				placeholder={`${action.label} — comment`}
+				value={comment}
+				onChange={(event) => setComment(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key === "Escape") {
+						event.preventDefault();
+						onCancel();
+					}
+					if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+						event.preventDefault();
+						send();
+					}
+				}}
+			/>
+			<div className="flex items-center gap-1.5">
+				<Button size="sm" onClick={send} disabled={comment.trim() === ""}>
+					Send
+				</Button>
+				<Button size="sm" variant="ghost" onClick={onCancel}>
+					Cancel
+				</Button>
+				<span className="text-xs text-muted-foreground">⌘Enter sends</span>
+			</div>
+		</div>
+	);
+}
+
 /** The reason the web exists: record a human decision, let the Source reconcile. */
 export function OperatorZoneBody({
-	onAction,
 	work,
 }: {
-	readonly onAction: (input: ObservationInput) => Promise<boolean>;
 	readonly work: WorkItemProjection;
 }) {
-	const [pendingId, setPendingId] = useState<string>();
+	const queue = useActionQueue();
+	const session = useOptionalSession()?.state;
+	const scrubbing = session?.scrubbing ?? false;
+	const nowMs = useNow();
+	const [commentAction, setCommentAction] = useState<WorkOperatorAction>();
 	const [status, setStatus] = useState<string>();
-	const [sent, setSent] = useState<SentAction>();
+	const rootRef = useRef<HTMLDivElement>(null);
 	const actions = workOperatorActions(work);
-	// The Source answered (status/version/reason moved): the decision is consumed.
-	if (sent !== undefined && workFingerprint(work) !== sent.fingerprint) {
-		setSent(undefined);
+	const queued = queue.state.items.find(
+		(action) => action.input.workKey === work.workKey,
+	);
+	const runAction = (action: WorkOperatorAction, comment?: string) => {
+		queue.actions.enqueue(actionInput(work, action, comment));
+		setCommentAction(undefined);
 		setStatus(undefined);
-	}
-	const act = async (action: WorkOperatorAction) => {
+	};
+	const startAction = (action: WorkOperatorAction) => {
 		if (
-			action.confirm !== undefined &&
-			!window.confirm(
-				[action.confirm.title, action.confirm.message]
-					.filter((part) => part !== undefined)
-					.join("\n"),
-			)
+			scrubbing ||
+			action.disabledReason !== undefined ||
+			queued !== undefined
 		)
 			return;
-		let comment: string | undefined;
 		if (action.requiresComment === true) {
-			const value = window.prompt(`${action.label} — comment`);
-			if (value === null || value.trim() === "") return;
-			comment = value;
+			setCommentAction(action);
+			return;
 		}
-		setPendingId(action.id);
-		setStatus(undefined);
-		try {
-			const accepted = await onAction({
-				sourceId: work.sourceId,
-				workKey: work.workKey,
-				actionId: action.id,
-				actionLabel: action.label,
-				clientId: crypto.randomUUID(),
-				...(comment === undefined ? {} : { comment }),
-			});
-			if (accepted) {
-				setSent({
-					atMs: Date.now(),
-					label: action.label,
-					fingerprint: workFingerprint(work),
-				});
-			} else {
-				setStatus("rejected · session queue is full, try again");
-			}
-		} catch (caught) {
-			setStatus(caught instanceof Error ? caught.message : String(caught));
-		} finally {
-			setPendingId(undefined);
+		if (action.confirm !== undefined) {
+			// SPEC-GAP: keyboard `e` says fire primary action, but confirm actions
+			// are hold-only deliberate judgment; pointer hold remains the only runner.
+			setStatus("Hold to run.");
+			return;
 		}
+		runAction(action);
 	};
+	useEffect(() => {
+		const element = rootRef.current;
+		if (element === null) return;
+		const onQueueAction = (event: Event) => {
+			const detail = (event as CustomEvent<{ readonly kind?: string }>).detail;
+			const action =
+				detail.kind === "comment"
+					? actions.find(
+							(item) =>
+								item.requiresComment === true &&
+								item.disabledReason === undefined,
+						)
+					: actions.find((item) => item.disabledReason === undefined);
+			if (action !== undefined) startAction(action);
+		};
+		element.addEventListener("plot:queue-action", onQueueAction);
+		return () =>
+			element.removeEventListener("plot:queue-action", onQueueAction);
+	}, [actions, queued]);
 	const blocked = work.status === "blocked";
 	return (
-		<>
+		<div ref={rootRef} className="space-y-1.5" data-operator-zone="true">
 			{work.blockedReason !== undefined && (
 				<p
 					className={
@@ -92,46 +208,80 @@ export function OperatorZoneBody({
 					{work.blockedReason}
 				</p>
 			)}
-			{sent !== undefined ? (
+			{queued !== undefined && queued.status !== "failed" ? (
 				<p className="text-xs text-muted-foreground">
-					✓ {sent.label} recorded {formatAgo(sent.atMs)} ago · waiting for{" "}
-					<span className="font-mono">{work.sourceId}</span> to reconcile…
+					{queued.status === "pending" ? (
+						<>
+							✓ {queued.label} — undo (
+							<span className="font-mono tabular-nums">
+								{secondsLeft(queued.sendAtMs, nowMs)}
+							</span>
+							)
+						</>
+					) : queued.status === "sent" ? (
+						<>
+							✓ {queued.label} recorded · waiting for {work.sourceId} to
+							reconcile…
+						</>
+					) : (
+						<>recording {queued.label}…</>
+					)}
 				</p>
 			) : (
 				actions.length > 0 && (
 					<div className="flex flex-wrap gap-1.5">
-						{actions.map((action) => (
-							<Button
-								key={action.id}
-								size="sm"
-								variant={actionVariant(action.tone)}
-								className={
-									action.tone === "danger"
-										? "border-destructive/40 text-destructive-foreground"
-										: undefined
-								}
-								disabled={
-									action.disabledReason !== undefined || pendingId !== undefined
-								}
-								title={action.disabledReason}
-								onClick={() => void act(action)}
-							>
-								{pendingId === action.id ? "…" : action.label}
-							</Button>
-						))}
+						{actions.map((action) => {
+							const disabled =
+								scrubbing ||
+								action.disabledReason !== undefined ||
+								queued !== undefined;
+							return action.confirm !== undefined ? (
+								<HoldActionButton
+									action={action}
+									disabled={disabled}
+									key={action.id}
+									onRun={() => runAction(action)}
+								/>
+							) : (
+								<Button
+									key={action.id}
+									size="sm"
+									variant={actionVariant(action.tone)}
+									className={
+										action.tone === "danger"
+											? "border-destructive/40 text-destructive-foreground"
+											: undefined
+									}
+									disabled={disabled}
+									title={action.disabledReason}
+									onClick={() => startAction(action)}
+								>
+									{action.label}
+								</Button>
+							);
+						})}
 					</div>
 				)
+			)}
+			{commentAction !== undefined && queued === undefined && (
+				<CommentComposer
+					action={commentAction}
+					onCancel={() => setCommentAction(undefined)}
+					onSend={(comment) => runAction(commentAction, comment)}
+				/>
+			)}
+			{queued?.status === "failed" && (
+				<p className="text-xs text-destructive-foreground">
+					{queued.error ?? "failed"} · Retry from undo rail.
+				</p>
 			)}
 			{status !== undefined && (
 				<p className="text-xs text-muted-foreground">{status}</p>
 			)}
-		</>
+		</div>
 	);
 }
 
-export function OperatorZone(props: {
-	readonly onAction: (input: ObservationInput) => Promise<boolean>;
-	readonly work: WorkItemProjection;
-}) {
+export function OperatorZone(props: { readonly work: WorkItemProjection }) {
 	return <OperatorZoneBody {...props} />;
 }

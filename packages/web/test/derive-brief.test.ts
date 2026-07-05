@@ -28,7 +28,7 @@ const work = (
 
 const completed = (
 	workKey: string,
-	status = "done",
+	status = "succeeded",
 	atMs = 1000,
 ): CompletedWorkProjection => ({
 	workKey,
@@ -89,8 +89,8 @@ describe("deriveBrief", () => {
 		const model = deriveBrief(
 			projection({
 				completed: [
-					completed("old", "done", 1000),
-					completed("new", "done", 3000),
+					completed("old", "succeeded", 1000),
+					completed("new", "succeeded", 3000),
 					completed("bad", "failed", 4000),
 				],
 			}),
@@ -117,7 +117,7 @@ describe("deriveBrief", () => {
 		const model = deriveBrief(
 			projection({
 				completed: [
-					completed("a", "done", 1000),
+					completed("a", "succeeded", 1000),
 					completed("b", "failed", 2000),
 				],
 			}),
@@ -178,7 +178,7 @@ describe("deriveBrief", () => {
 		]);
 	});
 
-	test("counts done versus failed and reuses lane membership", () => {
+	test("counts succeeded versus failed and reuses lane membership", () => {
 		const model = deriveBrief(
 			projection({
 				work: [
@@ -190,7 +190,7 @@ describe("deriveBrief", () => {
 				],
 				attempts: [attempt("run-1", "running", 3000)],
 				completed: [
-					completed("done", "done", 4000),
+					completed("done", "succeeded", 4000),
 					completed("bad", "error", 5000),
 				],
 			}),

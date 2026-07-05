@@ -70,10 +70,15 @@ export function ThemeProvider({ children }: { readonly children: ReactNode }) {
 	);
 }
 
-const nextMode: Record<ThemeMode, ThemeMode> = {
-	system: "light",
-	light: "dark",
-	dark: "system",
+export const nextThemeMode = (mode: ThemeMode): ThemeMode => {
+	switch (mode) {
+		case "system":
+			return "light";
+		case "light":
+			return "dark";
+		case "dark":
+			return "system";
+	}
 };
 
 const modeGlyph: Record<ThemeMode, string> = {
@@ -92,14 +97,14 @@ export function ThemeToggle() {
 						size="sm"
 						variant="ghost"
 						aria-label={`Theme: ${state.mode}`}
-						onClick={() => actions.setMode(nextMode[state.mode])}
+						onClick={() => actions.setMode(nextThemeMode(state.mode))}
 					/>
 				}
 			>
 				{modeGlyph[state.mode]}
 			</TooltipTrigger>
 			<TooltipPopup>
-				theme: {state.mode} · click for {nextMode[state.mode]}
+				theme: {state.mode} · click for {nextThemeMode(state.mode)}
 			</TooltipPopup>
 		</Tooltip>
 	);

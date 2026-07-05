@@ -207,6 +207,8 @@ const parseAfterSequence = (input: {
 	return Math.max(header ?? 0, query ?? 0);
 };
 
+const historyPageLimit = 20_000;
+
 const emptyRunProjection = (run: RunRecord): DashboardProjection =>
 	emptyProjection(run.sessionId ?? run.id, run.workflowName ?? "workflow", {
 		cwd: run.cwd,
@@ -281,6 +283,30 @@ const runProjectionResponse = async (
 		projection: serializeDashboardProjection(loaded.projection),
 		...(loaded.replayed ? { replayed: true } : {}),
 	});
+};
+
+const runHistoryResponse = async (
+	run: RunRecord,
+	historyDir: string,
+	after: number,
+): Promise<Response> => {
+	const records: unknown[] = [];
+	let truncated = false;
+	for await (const event of readRunHistory(
+		runHistoryPath(historyDir, run.id),
+	)) {
+		if (!isRecord(event)) continue;
+		const value = event["sequence"];
+		if (!Number.isInteger(value)) continue;
+		const sequence = value as number;
+		if (sequence <= after) continue;
+		if (records.length === historyPageLimit) {
+			truncated = true;
+			break;
+		}
+		records.push({ kind: "event", sequence, event });
+	}
+	return text({ records, truncated });
 };
 
 /** The transcript path is derived server-side; clients never name files. */
@@ -456,6 +482,20 @@ export const startPlotWebGateway = async (
 						request,
 						records: runIpc.runRegistry.attachRecords(id, after),
 					});
+				}
+				const historyPath = /^\/api\/runs\/([^/]+)\/history$/.exec(
+					url.pathname,
+				);
+				if (historyPath !== null) {
+					const after = parseSequence(url.searchParams.get("after"));
+					if (after === undefined)
+						return text({ error: "invalid after sequence" });
+					const run = await runIpc.runRegistry.status(
+						decodeURIComponent(historyPath[1] ?? ""),
+					);
+					if (run === undefined)
+						return new Response("run not found", { status: 404 });
+					return runHistoryResponse(run, runIpc.historyDir, after);
 				}
 				const transcriptPath =
 					/^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/.exec(

@@ -228,6 +228,49 @@
 	color: var(--muted-foreground);
 }
 
+.masthead-hold::before {
+	content: "";
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: 0;
+	width: 0;
+	background: var(--destructive);
+	opacity: 0.12;
+	transition: width 0ms linear;
+}
+
+.masthead-hold[data-holding="true"]::before {
+	width: 100%;
+	transition-duration: 600ms;
+}
+
+.console-past {
+	filter: saturate(0.85);
+	opacity: 0.92;
+}
+
+.floor-playhead-line,
+.floor-playhead-grabber,
+.floor-playhead-chip {
+	transition: left 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+[data-dragging="true"] .floor-playhead-line,
+[data-dragging="true"] .floor-playhead-grabber,
+[data-dragging="true"] .floor-playhead-chip {
+	transition-duration: 0ms;
+}
+
+.floor-playhead-grabber::before {
+	content: "";
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: 50%;
+	width: 1px;
+	background: var(--foreground);
+	opacity: 0.3;
+}
+
 /* Cards morph between lanes via native view transitions. */
 ::view-transition-group(*) {
 	animation-duration: 220ms;

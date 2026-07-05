@@ -4,10 +4,11 @@ import type {
 } from "@plot/session/projection";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import type { ObservationInput, WebDashboardProjection } from "./api.js";
+import type { WebDashboardProjection } from "./api.js";
 import { Badge } from "./components/ui/badge.js";
 import { Button } from "./components/ui/button.js";
 import { Dot } from "./components/ui/dot.js";
+import { isSettledSuccess } from "./derive-brief.js";
 import { Kbd } from "./components/ui/kbd.js";
 import {
 	ScrollArea,
@@ -188,13 +189,11 @@ function AttemptSummaryRow({
 }
 
 export function Inspector({
-	onAction,
 	onClose,
 	projection,
 	sessionRunId,
 	workKey,
 }: {
-	readonly onAction: (input: ObservationInput) => Promise<boolean>;
 	readonly onClose: () => void;
 	readonly projection: WebDashboardProjection;
 	readonly sessionRunId: string;
@@ -292,7 +291,7 @@ export function Inspector({
 							title={work.status === "blocked" ? "Needs you" : "Waiting"}
 							tone={work.status === "blocked" ? "attention" : undefined}
 						>
-							<OperatorZone onAction={onAction} work={work} />
+							<OperatorZone work={work} />
 						</Section>
 					)}
 					{current !== undefined && (
@@ -350,7 +349,9 @@ export function Inspector({
 								>
 									<Badge
 										size="sm"
-										variant={entry.status === "done" ? "success" : "error"}
+										variant={
+											isSettledSuccess(entry.status) ? "success" : "error"
+										}
 									>
 										{entry.status}
 									</Badge>

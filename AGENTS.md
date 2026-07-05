@@ -16,6 +16,7 @@ Repo-wide instructions. Prefer a closer `AGENTS.md` if one exists.
 - Keep runtime code plain TypeScript: async/await, async iterables, queues/event streams, tagged boundary errors.
 - `@plot/session` owns the pi-mono SDK seam. `@plot/agent` must not depend on provider/SDK details.
 - TUI is generic over Plot concepts. No GitHub PR/review/severity concepts in `@plot/tui`; use `packages/tui/src/terminal-ui.ts` for terminal mechanics.
+- Web Console is Fleet + Masthead + Column + pinned Floor + Palette; scrub replay swaps projection through `session-context.tsx`, `palette.tsx` runs `commands.ts`, and `replay.ts` stays limited to fetchable run events.
 - CLI release shape: Bun single-executable platform packages behind npm package `plot-ai`, binary `plot`, tag-driven from `v*`.
 
 ## Code style

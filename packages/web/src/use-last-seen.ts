@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 const keyFor = (sessionId: string): string => `plot:lastSeen:${sessionId}`;
 
-const readAnchor = (sessionId: string | undefined): number | undefined => {
+export const readLastSeenAnchor = (
+	sessionId: string | undefined,
+): number | undefined => {
 	if (sessionId === undefined) return undefined;
 	try {
 		const value = Number(localStorage.getItem(keyFor(sessionId)));
@@ -24,7 +26,7 @@ export const useLastSeen = (
 	sessionId: string | undefined,
 ): number | undefined => {
 	const [anchorMs, setAnchorMs] = useState<number | undefined>(() =>
-		readAnchor(sessionId),
+		readLastSeenAnchor(sessionId),
 	);
 	const previousSessionIdRef = useRef<string | undefined>(sessionId);
 	useEffect(() => {
@@ -33,7 +35,7 @@ export const useLastSeen = (
 			if (previousSessionId !== undefined) writeSeen(previousSessionId);
 			previousSessionIdRef.current = sessionId;
 		}
-		setAnchorMs(readAnchor(sessionId));
+		setAnchorMs(readLastSeenAnchor(sessionId));
 		if (sessionId === undefined) return;
 		const onPageHide = () => writeSeen(sessionId);
 		const onVisibilityChange = () => {

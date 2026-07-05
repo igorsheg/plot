@@ -1,5 +1,6 @@
 import type { ScheduledWakeProjection } from "@plot/session/projection";
 import type { WebDashboardProjection } from "./api.js";
+import { isSettledSuccess } from "./derive-brief.js";
 import { formatDuration, formatTokens } from "./format.js";
 import { laneOf } from "./lanes.js";
 
@@ -115,9 +116,9 @@ export const deriveTimeline = (
 		).spans.push({
 			startMs,
 			endMs,
-			tone: completed.status === "done" ? "success" : "failed",
+			tone: isSettledSuccess(completed.status) ? "success" : "failed",
 			label: labelWithDuration(
-				completed.status === "done" ? "done" : "failed",
+				isSettledSuccess(completed.status) ? "done" : "failed",
 				durationMs,
 				completed.tokens?.total,
 			),

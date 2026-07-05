@@ -32,7 +32,7 @@ const completed = (
 ): CompletedWorkProjection => ({
 	workKey,
 	label: workKey,
-	status: "done",
+	status: "succeeded",
 	message: "settled",
 	atMs: 1000,
 	...input,

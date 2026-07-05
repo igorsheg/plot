@@ -1,34 +1,11 @@
-import type { DashboardStatus } from "@plot/session/projection";
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
-import type { ObservationInput, WebDashboardProjection } from "./api.js";
-import { Badge, type BadgeProps } from "./components/ui/badge.js";
-import { Button } from "./components/ui/button.js";
-import { Dot } from "./components/ui/dot.js";
+import type { WebDashboardProjection } from "./api.js";
 import {
 	Empty,
 	EmptyDescription,
 	EmptyHeader,
 	EmptyTitle,
 } from "./components/ui/empty.js";
-import { ScrollArea } from "./components/ui/scroll-area.js";
-import { Skeleton } from "./components/ui/skeleton.js";
-import { SessionBrief } from "./brief.js";
-import { formatAgo, formatDuration, formatTokens } from "./format.js";
-import { SessionTimeline } from "./timeline.js";
-import { Inspector } from "./inspector.js";
-import { deriveLanes } from "./lanes.js";
-import { cn } from "./lib/utils.js";
 import type { PlotRun } from "./run.js";
-import { useHeartbeat } from "./use-heartbeat.js";
-import { useLastSeen } from "./use-last-seen.js";
-import {
-	ActingCard,
-	CompletedCard,
-	IncomingCard,
-	NeedsYouCard,
-	SettledCard,
-} from "./work-card.js";
 
 export interface BoardState {
 	readonly loading: boolean;
@@ -37,196 +14,21 @@ export interface BoardState {
 	readonly projection?: WebDashboardProjection | undefined;
 }
 
-export type SessionViewMode = "brief" | "timeline" | "board";
-
-const viewStorageKey = "plot:view";
-
-const parseStoredView = (value: string | null): SessionViewMode =>
-	value === "timeline" || value === "board" ? value : "brief";
-
-const readStoredView = (): SessionViewMode => {
-	try {
-		return parseStoredView(localStorage.getItem(viewStorageKey));
-	} catch {
-		return "brief";
-	}
-};
-
-const isRunLive = (run: PlotRun): boolean =>
+export const isRunLive = (run: PlotRun): boolean =>
 	run.status === "online" || run.status === "running";
 
-const statusVariant: Record<DashboardStatus, BadgeProps["variant"]> = {
-	starting: "info",
-	idle: "secondary",
-	running: "success",
-	shutting_down: "warning",
-	paused: "warning",
-	stopped: "outline",
-	error: "error",
-};
-
-const toneDot: Record<string, string> = {
-	ok: "bg-success",
-	bad: "bg-destructive",
-	info: "bg-info",
-};
-
-const parseWorkKeyHash = (): string | undefined => {
-	const match = /^#wi=(.+)$/.exec(window.location.hash);
-	return match?.[1] === undefined ? undefined : decodeURIComponent(match[1]);
-};
-
-/** Selection lives in the URL hash: cards are links, back button closes. */
-const useSelectedWorkKey = (): string | undefined => {
-	const [key, setKey] = useState(parseWorkKeyHash);
-	useEffect(() => {
-		const onChange = () => setKey(parseWorkKeyHash());
-		window.addEventListener("hashchange", onChange);
-		return () => window.removeEventListener("hashchange", onChange);
-	}, []);
-	return key;
-};
-
-function Lane({
-	children,
-	count,
-	title,
-	tone,
-}: {
-	readonly children: ReactNode;
-	readonly count: number;
-	readonly title: string;
-	readonly tone?: "attention" | undefined;
-}) {
-	const hot = tone === "attention" && count > 0;
+/** A crashed session's last words; runs.json is the only other place they live. */
+export function CrashDiagnostics({ run }: { readonly run: PlotRun }) {
+	if (run.status !== "error" || (run.stderrTail ?? "") === "") return null;
 	return (
-		<section
-			className={cn(
-				"flex min-w-64 flex-1 flex-col rounded-lg border bg-muted/30",
-				hot && "border-warning/50 bg-warning/4",
-			)}
-		>
-			<header className="flex items-center gap-2 border-b px-3 py-2">
-				<h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-					{title}
-				</h2>
-				<Badge size="sm" variant={hot ? "warning" : "secondary"}>
-					{count}
-				</Badge>
-			</header>
-			<ScrollArea className="min-h-0 flex-1" scrollFade>
-				<div className="space-y-2 p-2">
-					{count === 0 ? (
-						<p className="px-1 py-2 text-xs text-muted-foreground/60">empty</p>
-					) : (
-						children
-					)}
-				</div>
-			</ScrollArea>
-		</section>
-	);
-}
-
-function BoardHeader({
-	onStop,
-	onViewChange,
-	projection,
-	run,
-	view,
-}: {
-	readonly onStop: () => void;
-	readonly onViewChange: (view: SessionViewMode) => void;
-	readonly projection: WebDashboardProjection | undefined;
-	readonly run: PlotRun;
-	readonly view: SessionViewMode;
-}) {
-	const runtime = projection?.runtime;
-	const nextWake = projection?.scheduledWakes
-		.map((wake) => wake.dueAtMs)
-		.toSorted((left, right) => left - right)[0];
-	const facts = [
-		runtime?.cwdName ?? run.cwdName ?? run.cwd,
-		runtime?.model,
-		runtime?.provider,
-	].filter((fact) => fact !== undefined && fact !== "");
-	return (
-		<header className="flex items-center gap-3 border-b px-4 py-3">
-			<div className="min-w-0 flex-1">
-				<div className="flex items-center gap-2">
-					<h1 className="truncate font-semibold">
-						{projection?.workflowName ?? run.workflowName ?? run.id}
-					</h1>
-					{projection !== undefined && (
-						<Badge size="sm" variant={statusVariant[projection.status]}>
-							{projection.status}
-						</Badge>
-					)}
-				</div>
-				<p className="truncate text-xs text-muted-foreground">
-					{facts.join(" · ")}
-				</p>
-			</div>
-			<div className="flex shrink-0 rounded-md bg-muted p-0.5">
-				{(["brief", "timeline", "board"] as const).map((option) => (
-					<Button
-						key={option}
-						type="button"
-						size="sm"
-						variant="ghost"
-						className={cn(
-							"h-6 px-2 text-xs capitalize",
-							view === option
-								? "bg-accent text-foreground"
-								: "text-muted-foreground",
-						)}
-						onClick={() => onViewChange(option)}
-					>
-						{option === "brief"
-							? "Brief"
-							: option === "timeline"
-								? "Timeline"
-								: "Board"}
-					</Button>
-				))}
-			</div>
-			<div className="shrink-0 text-right text-xs text-muted-foreground">
-				{projection !== undefined && (
-					<div>
-						{formatTokens(projection.usageTotals.tokens)} tok
-						{projection.usageTotals.cost !== undefined &&
-							` · $${projection.usageTotals.cost.toFixed(2)}`}
-					</div>
-				)}
-				{nextWake !== undefined && (
-					<div>
-						{nextWake <= Date.now()
-							? "wake due"
-							: `next wake in ${formatDuration(nextWake - Date.now())}`}
-					</div>
-				)}
-			</div>
-			{isRunLive(run) && (
-				<Button
-					size="sm"
-					variant="outline"
-					onClick={() => {
-						if (
-							window.confirm(
-								`Stop session "${projection?.workflowName ?? run.workflowName ?? run.id}"? Running agent work is interrupted.`,
-							)
-						)
-							onStop();
-					}}
-				>
-					Stop
-				</Button>
-			)}
-		</header>
+		<pre className="max-h-48 max-w-xl overflow-y-auto rounded-md border border-destructive/30 bg-destructive/4 p-3 text-left font-mono text-xs whitespace-pre-wrap text-destructive-foreground">
+			{run.stderrTail}
+		</pre>
 	);
 }
 
 /** The one thing a live dashboard must never do is silently go stale. */
-function LivenessBanner({
+export function LivenessBanner({
 	run,
 	state,
 }: {
@@ -257,32 +59,6 @@ function LivenessBanner({
 	return null;
 }
 
-function ActivityStrip({
-	projection,
-}: {
-	readonly projection: WebDashboardProjection;
-}) {
-	const latest = projection.activity[0] ?? projection.activity.at(-1);
-	if (latest === undefined) return null;
-	return (
-		<div className="flex items-center gap-2 border-b px-4 py-1.5 text-xs text-muted-foreground">
-			<Dot className={toneDot[latest.tone]} />
-			<span className="truncate">{latest.text}</span>
-			<span className="ml-auto shrink-0">{formatAgo(latest.atMs)} ago</span>
-		</div>
-	);
-}
-
-/** A crashed session's last words; runs.json is the only other place they live. */
-export function CrashDiagnostics({ run }: { readonly run: PlotRun }) {
-	if (run.status !== "error" || (run.stderrTail ?? "") === "") return null;
-	return (
-		<pre className="max-h-48 max-w-xl overflow-y-auto rounded-md border border-destructive/30 bg-destructive/4 p-3 text-left font-mono text-xs whitespace-pre-wrap text-destructive-foreground">
-			{run.stderrTail}
-		</pre>
-	);
-}
-
 export function NoLiveBoard({
 	error,
 	run,
@@ -305,187 +81,6 @@ export function NoLiveBoard({
 				</EmptyHeader>
 				<CrashDiagnostics run={run} />
 			</Empty>
-		</div>
-	);
-}
-
-/** An idle board must read as "watching", not as "broken". */
-function WatchingForWork({
-	projection,
-}: {
-	readonly projection: WebDashboardProjection;
-}) {
-	const nextWake = projection.scheduledWakes
-		.map((wake) => wake.dueAtMs)
-		.toSorted((left, right) => left - right)[0];
-	return (
-		<div className="grid flex-1 place-items-center">
-			<Empty>
-				<EmptyHeader>
-					<EmptyTitle>Watching for work</EmptyTitle>
-					<EmptyDescription>
-						Sources scan on every tick; discovered Work Items appear here and
-						flow through the lanes.
-						{nextWake !== undefined && nextWake > Date.now()
-							? ` Next scan in ${formatDuration(nextWake - Date.now())}.`
-							: ""}
-					</EmptyDescription>
-				</EmptyHeader>
-			</Empty>
-		</div>
-	);
-}
-
-function LaneSkeletons() {
-	return (
-		<div className="flex flex-1 gap-3">
-			{[0, 1, 2, 3].map((index) => (
-				<Skeleton key={index} className="h-40 flex-1 rounded-lg" />
-			))}
-		</div>
-	);
-}
-
-export function SessionBoard({
-	selectedKey,
-	state,
-}: {
-	readonly selectedKey: string | undefined;
-	readonly state: BoardState;
-}) {
-	const { projection } = state;
-	const lanes = projection === undefined ? undefined : deriveLanes(projection);
-	const boardEmpty =
-		lanes !== undefined &&
-		lanes.incoming.length === 0 &&
-		lanes.acting.length === 0 &&
-		lanes.needsYou.length === 0 &&
-		lanes.done.length === 0;
-	if (boardEmpty && projection !== undefined)
-		return <WatchingForWork projection={projection} />;
-	return (
-		<ScrollArea className="min-h-0 min-w-0 flex-1" fill>
-			<div className="flex h-full gap-3 p-3">
-				{lanes === undefined ? (
-					<LaneSkeletons />
-				) : (
-					<>
-						<Lane title="Incoming" count={lanes.incoming.length}>
-							{lanes.incoming.map((item) => (
-								<IncomingCard
-									key={item.work.workKey}
-									item={item}
-									selected={item.work.workKey === selectedKey}
-								/>
-							))}
-						</Lane>
-						<Lane title="Acting" count={lanes.acting.length}>
-							{lanes.acting.map((item) => (
-								<ActingCard
-									key={item.work.workKey}
-									item={item}
-									selected={item.work.workKey === selectedKey}
-								/>
-							))}
-						</Lane>
-						<Lane
-							tone="attention"
-							title="Needs you"
-							count={lanes.needsYou.length}
-						>
-							{lanes.needsYou.map((item) => (
-								<NeedsYouCard
-									key={item.work.workKey}
-									item={item}
-									selected={item.work.workKey === selectedKey}
-								/>
-							))}
-						</Lane>
-						<Lane title="Done" count={lanes.done.length}>
-							{lanes.done.map((item) =>
-								item.kind === "work" ? (
-									<SettledCard
-										key={item.work.workKey}
-										item={item}
-										selected={item.work.workKey === selectedKey}
-									/>
-								) : (
-									<CompletedCard
-										key={`${item.completed.workKey}:${item.completed.atMs}`}
-										item={item}
-										selected={item.completed.workKey === selectedKey}
-									/>
-								),
-							)}
-						</Lane>
-					</>
-				)}
-			</div>
-		</ScrollArea>
-	);
-}
-
-export function SessionView({
-	onAction,
-	onStop,
-	run,
-	state,
-}: {
-	readonly onAction: (input: ObservationInput) => Promise<boolean>;
-	readonly onStop: () => void;
-	readonly run: PlotRun;
-	readonly state: BoardState;
-}) {
-	useHeartbeat();
-	const selectedKey = useSelectedWorkKey();
-	const [view, setViewState] = useState<SessionViewMode>(readStoredView);
-	const setView = (next: SessionViewMode) => {
-		setViewState(next);
-		try {
-			localStorage.setItem(viewStorageKey, next);
-		} catch {
-			// ponytail: view persistence is a convenience; switching must work.
-		}
-	};
-	const { projection } = state;
-	const anchorMs = useLastSeen(projection?.sessionId);
-	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<BoardHeader
-				onStop={onStop}
-				onViewChange={setView}
-				projection={projection}
-				run={run}
-				view={view}
-			/>
-			<LivenessBanner run={run} state={state} />
-			{projection !== undefined && view === "board" && (
-				<ActivityStrip projection={projection} />
-			)}
-			{state.error !== undefined && projection === undefined ? (
-				<NoLiveBoard error={state.error} run={run} />
-			) : (
-				<div className="flex min-h-0 flex-1">
-					{view === "brief" ? (
-						<SessionBrief anchorMs={anchorMs} />
-					) : view === "timeline" ? (
-						<SessionTimeline />
-					) : (
-						<SessionBoard selectedKey={selectedKey} state={state} />
-					)}
-					{selectedKey !== undefined && projection !== undefined && (
-						<Inspector
-							onAction={onAction}
-							onClose={() => {
-								window.location.hash = "";
-							}}
-							projection={projection}
-							sessionRunId={run.id}
-							workKey={selectedKey}
-						/>
-					)}
-				</div>
-			)}
 		</div>
 	);
 }

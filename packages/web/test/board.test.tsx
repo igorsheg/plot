@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
+import {
+	emptyProjection,
+	serializeDashboardProjection,
+} from "@plot/session/projection";
 import { renderToString } from "react-dom/server";
-import { NoLiveBoard } from "../src/board.js";
+import { LivenessBanner, NoLiveBoard, type BoardState } from "../src/board.js";
 import type { PlotRun } from "../src/run.js";
 
 const crashed: PlotRun = {
@@ -12,9 +16,16 @@ const crashed: PlotRun = {
 	stderrTail: "TypeError: boom at agent.ts:1",
 };
 
-test("a crashed session surfaces its stderr tail", () => {
-	const html = renderToString(<NoLiveBoard error="x" run={crashed} />);
-	expect(html).toContain("Session crashed");
+const state: BoardState = {
+	loading: false,
+	projection: serializeDashboardProjection(
+		emptyProjection("session-1", "workflow"),
+	),
+};
+
+test("the console shell surfaces a crashed session's stderr tail", () => {
+	const html = renderToString(<LivenessBanner run={crashed} state={state} />);
+	expect(html).toContain("This session crashed");
 	expect(html).toContain("TypeError: boom at agent.ts:1");
 });
 
