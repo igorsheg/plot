@@ -1,13 +1,13 @@
 {
-	"name": "@plot/cli",
+	"name": "@plot/projection",
 	"private": true,
-	"bin": {
-		"plot": "./src/main.ts"
-	},
 	"type": "module",
+	"sideEffects": false,
 	"exports": {
-		"./cli": "./src/cli.ts",
-		"./runtime": "./src/runtime.ts"
+		".": {
+			"types": "./src/projection.ts",
+			"import": "./src/projection.ts"
+		}
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -15,11 +15,7 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@plot/common": "workspace:*",
-		"@plot/projection": "workspace:*",
-		"@plot/session": "workspace:*",
-		"@plot/tui": "workspace:*",
-		"citty": "^0.1.6"
+		"@plot/common": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

@@ -48,10 +48,6 @@
 			"types": "./src/transcript.ts",
 			"import": "./src/transcript.ts"
 		},
-		"./projection": {
-			"types": "./src/projection.ts",
-			"import": "./src/projection.ts"
-		},
 		"./protocol": {
 			"types": "./src/protocol.ts",
 			"import": "./src/protocol.ts"

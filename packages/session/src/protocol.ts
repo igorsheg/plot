@@ -138,47 +138,44 @@ export class ProtocolBoundaryError extends Error {
 export const makeWelcome = (input: {
 	readonly sessionId: string;
 	readonly limits: ProtocolLimits;
-}): ServerRecord =>
-	decodeBoundary(welcomeRecordSchema, {
-		protocol: sessionProtocolVersion,
-		kind: "welcome",
-		sessionId: input.sessionId,
-		limits: input.limits,
-	});
+}): ServerRecord => ({
+	protocol: sessionProtocolVersion,
+	kind: "welcome",
+	sessionId: input.sessionId,
+	limits: input.limits,
+});
 
 export const makeSuccess = (input: {
 	readonly request: ClientRequest;
 	readonly lastSequence?: number;
 	readonly data?: unknown;
-}): ServerRecord =>
-	decodeBoundary(successResponseSchema, {
-		protocol: sessionProtocolVersion,
-		kind: "response",
-		id: input.request.id,
-		command: input.request.command,
-		ok: true,
-		...(input.lastSequence === undefined
-			? {}
-			: { lastSequence: input.lastSequence }),
-		...(input.data === undefined ? {} : { data: input.data }),
-	});
+}): ServerRecord => ({
+	protocol: sessionProtocolVersion,
+	kind: "response",
+	id: input.request.id,
+	command: input.request.command,
+	ok: true,
+	...(input.lastSequence === undefined
+		? {}
+		: { lastSequence: input.lastSequence }),
+	...(input.data === undefined ? {} : { data: input.data }),
+});
 
 export const makeError = (input: {
 	readonly request?: ClientRequest;
 	readonly code: ProtocolErrorCode;
 	readonly message: string;
 	readonly details?: unknown;
-}): ServerRecord =>
-	decodeBoundary(errorResponseSchema, {
-		protocol: sessionProtocolVersion,
-		kind: "response",
-		...(input.request === undefined
-			? {}
-			: { id: input.request.id, command: input.request.command }),
-		ok: false,
-		error: {
-			code: input.code,
-			message: input.message,
-			...(input.details === undefined ? {} : { details: input.details }),
-		},
-	});
+}): ServerRecord => ({
+	protocol: sessionProtocolVersion,
+	kind: "response",
+	...(input.request === undefined
+		? {}
+		: { id: input.request.id, command: input.request.command }),
+	ok: false,
+	error: {
+		code: input.code,
+		message: input.message,
+		...(input.details === undefined ? {} : { details: input.details }),
+	},
+});

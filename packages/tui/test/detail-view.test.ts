@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type {
 	AgentAttemptProjection,
 	WorkItemProjection,
-} from "@plot/session/projection";
+} from "@plot/projection";
 import type { WorkRowModel } from "../src/dashboard-model.js";
 import { detailBodyLines } from "../src/detail-view.js";
 

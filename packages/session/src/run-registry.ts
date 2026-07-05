@@ -518,7 +518,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		const process = new RunProcessInstance(child, {
 			stderrLimitBytes: this.options.stderrLimitBytes,
 		});
-		const record = decodeBoundary(runRecordSchema, {
+		const record: RunRecord = {
 			id: this.options.id(),
 			status: "starting",
 			cwd,
@@ -531,7 +531,7 @@ export class RunRegistry implements RunRegistryRuntime {
 			...(input.workflowPath === undefined
 				? {}
 				: { workflowPath: input.workflowPath }),
-		});
+		};
 		const events = new EventHub<ServerRecord>(this.options.eventCapacity);
 		let cleanup: () => void = noop;
 		const live: LiveRun = {

@@ -13,7 +13,6 @@ const expectedExports = [
 	"./jsonl",
 	"./paths",
 	"./pi-runner",
-	"./projection",
 	"./protocol",
 	"./protocol-codec",
 	"./sdk",

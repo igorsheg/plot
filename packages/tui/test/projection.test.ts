@@ -17,11 +17,7 @@ interface ProjectionEventRecord {
 	readonly [key: string]: unknown;
 }
 import { dashboardModelFrom } from "../src/dashboard-model.js";
-import {
-	applySnapshot,
-	emptyProjection,
-	reduceRecord,
-} from "@plot/session/projection";
+import { applySnapshot, emptyProjection, reduceRecord } from "@plot/projection";
 
 const eventRecord = (
 	sequence: number,

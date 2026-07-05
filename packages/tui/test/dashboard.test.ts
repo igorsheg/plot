@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PlotDashboard } from "../src/dashboard.js";
-import {
-	emptyProjection,
-	type DashboardProjection,
-} from "@plot/session/projection";
+import { emptyProjection, type DashboardProjection } from "@plot/projection";
 
 const actions = () => {
 	const opened: string[] = [];

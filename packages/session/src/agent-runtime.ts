@@ -20,7 +20,6 @@ import {
 	makeAgentEventRecord,
 	makeSessionEventRecord,
 } from "./runtime-event.js";
-import { compactPiEvent } from "./pi-event-display.js";
 import {
 	startOwnedTask,
 	type SessionRuntime,
@@ -126,15 +125,14 @@ export const makeAgentSessionRuntime = (
 	};
 	const publishAgentEvent = async (
 		input: AgentEventInput,
-	): Promise<RuntimeEvent> => {
-		return publish(
+	): Promise<RuntimeEvent> =>
+		publish(
 			makeAgentEventRecord({
 				sessionId,
 				sequence: liveSequence + 1,
-				event: { ...input, event: compactPiEvent(input.event) },
+				event: input,
 			}),
 		);
-	};
 
 	const agentEvents = startOwnedTask({
 		name: "session.runtime.agent_events",

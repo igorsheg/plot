@@ -12,7 +12,7 @@ import {
 	serializeDashboardProjection,
 	type DashboardProjection,
 	type ProjectableEvent,
-} from "@plot/session/projection";
+} from "@plot/projection";
 import { readRunHistory, runHistoryPath } from "@plot/session/run-registry";
 import { readAgentTranscript } from "@plot/session/transcript";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";

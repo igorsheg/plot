@@ -7,7 +7,7 @@ import type {
 	SerializedDashboardProjection,
 	TokenSample,
 	WorkItemProjection,
-} from "@plot/session/projection";
+} from "@plot/projection";
 import {
 	asNumber,
 	asRecord,

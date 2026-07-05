@@ -12,6 +12,7 @@
 	},
 	"dependencies": {
 		"@plot/common": "workspace:*",
+		"@plot/projection": "workspace:*",
 		"@plot/session": "workspace:*",
 		"get-east-asian-width": "1.6.0"
 	},

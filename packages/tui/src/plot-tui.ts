@@ -16,7 +16,7 @@ import {
 	emptyProjection,
 	reduceRecord,
 	type DashboardProjection,
-} from "@plot/session/projection";
+} from "@plot/projection";
 
 export interface PlotTuiOptions extends CreateSessionHostOptions {
 	readonly mode?: "watch" | "oneshot";

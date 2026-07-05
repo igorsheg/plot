@@ -24,6 +24,14 @@ class FakePiSession implements PiAgentSessionPort {
 	readonly listeners = new Set<(event: AgentSessionEvent) => void>();
 	disposed = false;
 
+	constructor(
+		private readonly event: AgentSessionEvent = {
+			type: "queue_update",
+			steering: [],
+			followUp: [],
+		},
+	) {}
+
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -31,8 +39,7 @@ class FakePiSession implements PiAgentSessionPort {
 
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
 		this.prompts.push({ text, ...(options === undefined ? {} : { options }) });
-		for (const listener of this.listeners)
-			listener({ type: "queue_update", steering: [], followUp: [] });
+		for (const listener of this.listeners) listener(this.event);
 	}
 
 	dispose(): void {
@@ -98,7 +105,7 @@ test("pi runner renders prompt, streams events, and disposes", async () => {
 	expect(session.prompts).toEqual([
 		{ text: "Hello Ada", options: { expandPromptTemplates: false } },
 	]);
-	expect(events.map((event) => event.type)).toEqual(["queue_update"]);
+	expect(events.map((event) => event["type"])).toEqual(["queue_update"]);
 	expect(observations).toBe(1);
 	expect(session.disposed).toBe(true);
 });

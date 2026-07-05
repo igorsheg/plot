@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { WorkItemProjection } from "@plot/session/projection";
+import type { WorkItemProjection } from "@plot/projection";
 import type { WorkRowModel } from "../src/dashboard-model.js";
 import { detailBodyLines } from "../src/detail-view.js";
 

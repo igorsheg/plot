@@ -1,6 +1,6 @@
 import { nanoquery, type Fetcher, type KeyInput } from "@nanostores/query";
 import { atom, computed } from "nanostores";
-import { workLabel } from "@plot/session/projection";
+import { workLabel } from "@plot/projection";
 import {
 	fetchRunProjectionUrl,
 	fetchRuns,
