@@ -3,8 +3,6 @@ import {
 	sourceId,
 	subjectKey,
 	workKey,
-	type SourceId,
-	type WorkKey,
 	type WorkRecord,
 } from "@plot/agent/model";
 import { errorMessage, isRecord } from "@plot/common/primitives";
@@ -131,22 +129,22 @@ const sanitizeIdentifier = (value: string): string => {
 	return sanitized.length === 0 ? "extension" : sanitized;
 };
 
-export const sourceIdForExtension = (extension: PlotExtension): SourceId =>
+export const sourceIdForExtension = (extension: PlotExtension): string =>
 	sourceId(`extension:${sanitizeIdentifier(extension.id)}`);
 
 export const workKeyForExtensionWork = (
 	extension: PlotExtension,
 	work: PlotExtensionWork,
-): WorkKey =>
+): string =>
 	workKey(
 		`extension:${extension.id}:${work.id}:${work.version ?? "unversioned"}`,
 	);
 
-export const discoveredFactKey = (source: SourceId) =>
+export const discoveredFactKey = (source: string) =>
 	`extension.discovered:${source}`;
-export const releasedReason = (source: SourceId) =>
+export const releasedReason = (source: string) =>
 	`work is no longer discovered by source ${source}`;
-export const cancelledReason = (source: SourceId) =>
+export const cancelledReason = (source: string) =>
 	`work was cancelled by source ${source}`;
 export const isBlocked = (work: PlotExtensionWork) => work.status === "blocked";
 export const isWaiting = (work: PlotExtensionWork) => work.status === "waiting";
@@ -179,7 +177,7 @@ export const decodeStoredWorks = (
 
 export const workRecordFor = (
 	extension: PlotExtension,
-	source: SourceId,
+	source: string,
 	work: PlotExtensionWork,
 	status: WorkRecord["status"],
 	currentRunId?: string,
@@ -202,7 +200,7 @@ export const workRecordFor = (
 export const currentWorkKeys = (
 	extension: PlotExtension,
 	works: readonly PlotExtensionWork[],
-): ReadonlySet<WorkKey> =>
+): ReadonlySet<string> =>
 	new Set(works.map((work) => workKeyForExtensionWork(extension, work)));
 
 export const templateContextForWork = (

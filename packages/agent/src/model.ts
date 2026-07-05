@@ -1,12 +1,10 @@
-export type PositiveInt = number;
-export const positiveInt = (value: number): PositiveInt => {
+export const positiveInt = (value: number): number => {
 	if (!Number.isInteger(value) || value < 1)
 		throw new Error("expected positive integer");
 	return value;
 };
 
-export type TickId = number;
-export const tickId = (value: number): TickId => {
+export const tickId = (value: number): number => {
 	if (!Number.isInteger(value) || value < 0)
 		throw new Error("expected non-negative integer");
 	return value;
@@ -29,16 +27,12 @@ const nonEmpty = (value: string, name: string): string => {
 	return value;
 };
 
-export type SourceId = string;
-export const sourceId = (value: string): SourceId =>
+export const sourceId = (value: string): string =>
 	identifier(value, "SourceId");
-export type SubjectKey = string;
-export const subjectKey = (value: string): SubjectKey =>
+export const subjectKey = (value: string): string =>
 	nonEmpty(value, "SubjectKey");
-export type WorkKey = string;
-export const workKey = (value: string): WorkKey => nonEmpty(value, "WorkKey");
-export type RunId = string;
-export const runId = (value: string): RunId => identifier(value, "RunId");
+export const workKey = (value: string): string => nonEmpty(value, "WorkKey");
+export const runId = (value: string): string => identifier(value, "RunId");
 
 export type AgentPhase =
 	| "setup"
@@ -51,11 +45,11 @@ export type HookPhase = "observe" | "reconcile" | "select";
 
 export class PlotAgentError extends Error {
 	readonly phase: AgentPhase;
-	readonly source_id?: SourceId;
+	readonly source_id?: string;
 	constructor(input: {
 		readonly phase: AgentPhase;
 		readonly message: string;
-		readonly source_id?: SourceId;
+		readonly source_id?: string;
 	}) {
 		super(input.message);
 		this.name = "PlotAgentError";
@@ -66,7 +60,7 @@ export class PlotAgentError extends Error {
 
 export interface Observation {
 	readonly type: string;
-	readonly subject?: SubjectKey;
+	readonly subject?: string;
 	readonly data?: unknown;
 }
 export interface SetFactProposal {
@@ -89,11 +83,11 @@ export const removeFact = (key: string): RemoveFactProposal => ({
 });
 export interface InterruptWorkProposal {
 	readonly type: "interrupt_work";
-	readonly workKey: WorkKey;
+	readonly workKey: string;
 	readonly reason?: string;
 }
 export const interruptWork = (
-	key: WorkKey,
+	key: string,
 	reason?: string,
 ): InterruptWorkProposal => ({
 	type: "interrupt_work",
@@ -102,15 +96,15 @@ export const interruptWork = (
 });
 export interface ScheduleWakeOptions {
 	readonly reason?: string;
-	readonly workKey?: WorkKey;
-	readonly attempt?: PositiveInt;
+	readonly workKey?: string;
+	readonly attempt?: number;
 }
 export interface ScheduleWakeProposal {
 	readonly type: "schedule_wake";
-	readonly delayMs: PositiveInt;
+	readonly delayMs: number;
 	readonly reason?: string;
-	readonly workKey?: WorkKey;
-	readonly attempt?: PositiveInt;
+	readonly workKey?: string;
+	readonly attempt?: number;
 }
 export const scheduleWake = (
 	delayMs: number,
@@ -162,14 +156,14 @@ export type WorkStatus =
 	| "failed";
 
 export interface WorkRecord {
-	readonly workKey: WorkKey;
-	readonly sourceId: SourceId;
+	readonly workKey: string;
+	readonly sourceId: string;
 	readonly status: WorkStatus;
-	readonly subject?: SubjectKey;
+	readonly subject?: string;
 	readonly display?: WorkDisplay;
 	readonly blockedReason?: string;
 	readonly operatorActions?: readonly OperatorAction[];
-	readonly currentRunId?: RunId;
+	readonly currentRunId?: string;
 }
 
 export interface UpsertWorkProposal {
@@ -183,9 +177,9 @@ export const upsertWork = (work: WorkRecord): UpsertWorkProposal => ({
 
 export interface RemoveWorkProposal {
 	readonly type: "remove_work";
-	readonly workKey: WorkKey;
+	readonly workKey: string;
 }
-export const removeWork = (key: WorkKey): RemoveWorkProposal => ({
+export const removeWork = (key: string): RemoveWorkProposal => ({
 	type: "remove_work",
 	workKey: key,
 });
@@ -199,17 +193,17 @@ export type ReconcileProposal =
 	| RemoveWorkProposal;
 
 export interface WorkItem {
-	readonly workKey: WorkKey;
-	readonly subject?: SubjectKey;
+	readonly workKey: string;
+	readonly subject?: string;
 	readonly templateContext?: unknown;
 	readonly display?: WorkDisplay;
 	readonly operatorActions?: readonly OperatorAction[];
 }
 export interface WorkRun {
-	readonly runId: RunId;
-	readonly sourceId: SourceId;
-	readonly workKey: WorkKey;
-	readonly subject?: SubjectKey;
+	readonly runId: string;
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly subject?: string;
 	readonly display?: WorkDisplay;
 }
 export interface WorkResult {
@@ -221,11 +215,11 @@ export type CompletionStatus =
 	| "interrupted"
 	| "timed_out";
 export interface Completion {
-	readonly runId: RunId;
-	readonly sourceId: SourceId;
-	readonly workKey: WorkKey;
+	readonly runId: string;
+	readonly sourceId: string;
+	readonly workKey: string;
 	readonly status: CompletionStatus;
-	readonly subject?: SubjectKey;
+	readonly subject?: string;
 	readonly output?: unknown;
 	readonly error?: string;
 }
@@ -233,16 +227,16 @@ export interface Diagnostic {
 	readonly level: "info" | "warning" | "error";
 	readonly phase: HookPhase | "act" | "policy";
 	readonly message: string;
-	readonly sourceId?: SourceId;
-	readonly runId?: RunId;
-	readonly workKey?: WorkKey;
+	readonly sourceId?: string;
+	readonly runId?: string;
+	readonly workKey?: string;
 }
 export interface ScheduledWake {
 	readonly dueAtMs: number;
-	readonly delayMs: PositiveInt;
+	readonly delayMs: number;
 	readonly reason?: string;
-	readonly workKey?: WorkKey;
-	readonly attempt?: PositiveInt;
+	readonly workKey?: string;
+	readonly attempt?: number;
 }
 export type WorkSkipReason =
 	| "already_running"
@@ -251,23 +245,23 @@ export type WorkSkipReason =
 	| "capacity_exhausted"
 	| "source_concurrency";
 export interface SkippedWork {
-	readonly workKey: WorkKey;
-	readonly sourceId: SourceId;
+	readonly workKey: string;
+	readonly sourceId: string;
 	readonly reason: WorkSkipReason;
 	readonly detail?: string;
 }
 export interface RuntimeSnapshot {
-	readonly tickId: TickId;
+	readonly tickId: number;
 	readonly facts: ReadonlyMap<string, unknown>;
 	readonly observations: readonly Observation[];
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
-	readonly work: ReadonlyMap<WorkKey, WorkRecord>;
-	readonly running: ReadonlyMap<WorkKey, WorkRun>;
+	readonly work: ReadonlyMap<string, WorkRecord>;
+	readonly running: ReadonlyMap<string, WorkRun>;
 	readonly scheduledWakes?: readonly ScheduledWake[];
 }
 export interface TickResult {
-	readonly tickId: TickId;
+	readonly tickId: number;
 	readonly observations: readonly Observation[];
 	readonly proposals: readonly ReconcileProposal[];
 	readonly selected: readonly WorkItem[];
@@ -278,16 +272,16 @@ export interface TickResult {
 	readonly snapshot: RuntimeSnapshot;
 }
 export type PlotAgentEvent =
-	| { readonly type: "tick_started"; readonly tickId: TickId }
+	| { readonly type: "tick_started"; readonly tickId: number }
 	| { readonly type: "tick_completed"; readonly result: TickResult }
 	| { readonly type: "work_observed"; readonly work: WorkRecord }
-	| { readonly type: "work_removed"; readonly workKey: WorkKey }
+	| { readonly type: "work_removed"; readonly workKey: string }
 	| {
 			readonly type: "wake_scheduled";
-			readonly delayMs: PositiveInt;
+			readonly delayMs: number;
 			readonly reason?: string;
-			readonly workKey?: WorkKey;
-			readonly attempt?: PositiveInt;
+			readonly workKey?: string;
+			readonly attempt?: number;
 	  }
 	| { readonly type: "attempt_started"; readonly run: WorkRun }
 	| { readonly type: "attempt_completed"; readonly completion: Completion };

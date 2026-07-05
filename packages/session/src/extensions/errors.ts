@@ -1,4 +1,3 @@
-import type { SourceId } from "@plot/agent/model";
 import { logWideEvent } from "@plot/common/observability";
 import { errorMessage } from "@plot/common/primitives";
 import type { MaybePromise } from "../sdk.js";
@@ -35,7 +34,7 @@ export const runMaybePromise = async <A>(
 	}
 };
 
-export const logHookError = (error: unknown, hook: string, source: SourceId) =>
+export const logHookError = (error: unknown, hook: string, source: string) =>
 	logWideEvent(
 		{
 			operation: "plot_extension.hook",

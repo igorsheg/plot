@@ -6,8 +6,6 @@ import {
 	setFact,
 	upsertWork,
 	workKey,
-	type SourceId,
-	type WorkKey,
 	type WorkRecord,
 } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
@@ -68,7 +66,7 @@ const RETRY_BASE_DELAY_MS = 10_000;
 const RETRY_MAX_DELAY_MS = 300_000;
 const retryDelayMs = (attempt: number) =>
 	Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS);
-const retryFactKey = (source: SourceId) => `extension.retry:${source}`;
+const retryFactKey = (source: string) => `extension.retry:${source}`;
 const decodeRetryState = (value: unknown): Record<string, number> => {
 	if (!isRecord(value)) return {};
 	const state: Record<string, number> = {};
@@ -89,7 +87,7 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
-	const selectedWork = new Map<WorkKey, PlotExtensionWork>();
+	const selectedWork = new Map<string, PlotExtensionWork>();
 	const workSource: WorkSource = {
 		id: source,
 		...(options.maxConcurrentRuns === undefined
@@ -150,7 +148,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				);
 			}
 			await Promise.all(operatorActionHooks);
-			const completedThisTickKeys = new Set<WorkKey>();
+			const completedThisTickKeys = new Set<string>();
 			const completionHooks = [];
 			const retryState = decodeRetryState(
 				snapshot.facts.get(retryFactKey(source)),
@@ -225,8 +223,8 @@ export const makePlotExtensionSourceBundle = (options: {
 			);
 			const drainingIds = new Set<string>();
 			const runningIds = new Set<string>();
-			const drainingKeys = new Set<WorkKey>();
-			const interruptedThisTick = new Set<WorkKey>();
+			const drainingKeys = new Set<string>();
+			const interruptedThisTick = new Set<string>();
 			for (const run of snapshot.running.values()) {
 				if (run.sourceId !== source) continue;
 				const known = selectedWork.get(run.workKey);
@@ -294,7 +292,7 @@ export const makePlotExtensionSourceBundle = (options: {
 			const workReleasedHooks = [];
 			// Stale records include keys from the previous fact and any leftover
 			// source-owned records (for example a drained run that has completed).
-			const staleKeys = new Set<WorkKey>(previousKeys);
+			const staleKeys = new Set<string>(previousKeys);
 			for (const [key, record] of snapshot.work)
 				if (record.sourceId === source) staleKeys.add(key);
 			for (const key of staleKeys) {

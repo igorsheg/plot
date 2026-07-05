@@ -1,8 +1,8 @@
 import { EventHub } from "@plot/common/event-stream";
 import {
 	makePlotAgentLayer,
+	type PlotAgent,
 	type PlotAgentLayerOptions,
-	type PlotAgentShape,
 } from "@plot/agent/agent";
 import type {
 	PlotAgentEvent,
@@ -94,7 +94,7 @@ export const makeAgentSessionRuntime = (
 ): SessionRuntime => {
 	const sessionId = nonEmpty(options.id, "session id");
 	const events = new EventHub<RuntimeEvent>(options.eventCapacity ?? 256);
-	const agent: PlotAgentShape = makePlotAgentLayer({
+	const agent: PlotAgent = makePlotAgentLayer({
 		...options.agent,
 		sources: options.sources,
 		runner: options.runner,

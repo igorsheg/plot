@@ -1,11 +1,11 @@
-import type { Completion, SourceId } from "@plot/agent/model";
+import type { Completion } from "@plot/agent/model";
 import type { PlotExtensionRuntime, PlotExtensionWork } from "../sdk.js";
 import { logHookError, runMaybePromise } from "./errors.js";
 import { decodeDiscoveredWorks } from "./work.js";
 
 export const discover = async (input: {
 	readonly runtime: PlotExtensionRuntime;
-	readonly source: SourceId;
+	readonly source: string;
 	readonly signal: AbortSignal;
 }): Promise<readonly PlotExtensionWork[]> =>
 	decodeDiscoveredWorks(
@@ -17,7 +17,7 @@ export const discover = async (input: {
 
 export const invokeOperatorActionHook = async (
 	runtime: PlotExtensionRuntime,
-	source: SourceId,
+	source: string,
 	work: PlotExtensionWork,
 	data: Record<string, unknown>,
 ) => {
@@ -51,7 +51,7 @@ export const invokeOperatorActionHook = async (
 
 export const invokeCompletionHook = async (
 	runtime: PlotExtensionRuntime,
-	source: SourceId,
+	source: string,
 	work: PlotExtensionWork,
 	completion: Completion,
 ) => {

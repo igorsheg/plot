@@ -15,12 +15,9 @@ import type {
 	RuntimeSnapshot,
 	ScheduleWakeProposal,
 	SkippedWork,
-	SourceId,
 	WorkRecord,
-	SubjectKey,
 	TickResult,
 	WorkItem,
-	WorkKey,
 	WorkResult,
 	WorkRun,
 } from "./model.js";
@@ -28,13 +25,13 @@ import type { WorkRunner } from "./work-runner.js";
 import type { AgentPolicy, WorkSource } from "./work-source.js";
 
 interface RuntimeState {
-	readonly tickId: Domain.TickId;
+	readonly tickId: number;
 	readonly facts: ReadonlyMap<string, unknown>;
 	readonly observations: readonly Observation[];
 	readonly completions: readonly Completion[];
 	readonly diagnostics: readonly Diagnostic[];
-	readonly work: ReadonlyMap<WorkKey, WorkRecord>;
-	readonly running: ReadonlyMap<WorkKey, WorkRun>;
+	readonly work: ReadonlyMap<string, WorkRecord>;
+	readonly running: ReadonlyMap<string, WorkRun>;
 	readonly scheduledWakes: readonly Domain.ScheduledWake[];
 	readonly nextRunIndex: number;
 }
@@ -57,8 +54,8 @@ type InternalMessage =
 	| { readonly type: "run_timeout"; readonly run: WorkRun }
 	| {
 			readonly type: "interrupt_run";
-			readonly runId: Domain.RunId;
-			readonly workKey?: WorkKey;
+			readonly runId: string;
+			readonly workKey?: string;
 	  };
 interface DrainedMessages {
 	readonly observations: readonly Observation[];
@@ -68,8 +65,8 @@ interface DrainedMessages {
 	}[];
 	readonly timedOutRuns: readonly WorkRun[];
 	readonly interruptions: readonly {
-		readonly runId: Domain.RunId;
-		readonly workKey?: WorkKey;
+		readonly runId: string;
+		readonly workKey?: string;
 	}[];
 	readonly requestedWakes: readonly Domain.ScheduledWake[];
 	readonly shutdownRequested: boolean;
@@ -83,7 +80,7 @@ interface RunHandle {
 	readonly controller: AbortController;
 }
 
-export interface PlotAgentShape {
+export interface PlotAgent {
 	readonly start: () => Promise<void>;
 	readonly run: () => Promise<void>;
 	readonly tickOnce: () => Promise<TickResult>;
@@ -92,14 +89,13 @@ export interface PlotAgentShape {
 	readonly offer: (message: PlotAgentMessage) => Promise<boolean>;
 	readonly wakeAfter: (delayMs: number, reason?: string) => Promise<void>;
 	readonly interruptAgentRun: (input: {
-		readonly runId: Domain.RunId;
-		readonly workKey?: WorkKey;
+		readonly runId: string;
+		readonly workKey?: string;
 	}) => Promise<boolean>;
 	readonly pauseDispatch: () => Promise<void>;
 	readonly resumeDispatch: () => Promise<void>;
 	readonly shutdown: () => Promise<boolean>;
 }
-export type PlotAgent = PlotAgentShape;
 export const PlotAgent = Symbol("PlotAgent");
 export interface PlotAgentLayerOptions {
 	readonly sources: readonly WorkSource[];
@@ -126,7 +122,7 @@ const initialState: RuntimeState = {
 	scheduledWakes: [],
 	nextRunIndex: 0,
 };
-const optionalSubject = (subject: SubjectKey | undefined) =>
+const optionalSubject = (subject: string | undefined) =>
 	subject === undefined ? {} : { subject };
 const optionalOutput = (output: unknown) =>
 	output === undefined ? {} : { output };
@@ -143,7 +139,7 @@ const boundStateHistory = (
 });
 const hookDiagnostic = (
 	phase: HookPhase,
-	sourceId: SourceId,
+	sourceId: string,
 	error: unknown,
 ): Diagnostic => ({
 	level: "error",
@@ -213,7 +209,7 @@ const drainMessages = (
 	const observations: Observation[] = [],
 		completions: { run: WorkRun; completion: Completion }[] = [],
 		timedOutRuns: WorkRun[] = [],
-		interruptions: { runId: Domain.RunId; workKey?: WorkKey }[] = [],
+		interruptions: { runId: string; workKey?: string }[] = [],
 		requestedWakes: Domain.ScheduledWake[] = [];
 	let shutdownRequested = false;
 	for (const message of messages) {
@@ -275,8 +271,8 @@ const activeWorkRecord = (
 	currentRunId: run.runId,
 });
 const applyWorkProposals = (
-	work: ReadonlyMap<WorkKey, WorkRecord>,
-	running: ReadonlyMap<WorkKey, WorkRun>,
+	work: ReadonlyMap<string, WorkRecord>,
+	running: ReadonlyMap<string, WorkRun>,
 	proposals: readonly ReconcileProposal[],
 ) => {
 	const next = new Map(work);
@@ -506,7 +502,7 @@ const interruptRunningWork = (
 		completions: Completion[] = [],
 		diagnostics: Diagnostic[] = [],
 		interruptedRuns: WorkRun[] = [],
-		interruptedKeys = new Set<WorkKey>();
+		interruptedKeys = new Set<string>();
 	for (const proposal of proposals) {
 		const run = running.get(proposal.workKey);
 		if (!run) continue;
@@ -557,8 +553,8 @@ const interruptRunningWork = (
 		interruptedKeys,
 	};
 };
-const runningCountBySource = (running: ReadonlyMap<WorkKey, WorkRun>) => {
-	const counts = new Map<SourceId, number>();
+const runningCountBySource = (running: ReadonlyMap<string, WorkRun>) => {
+	const counts = new Map<string, number>();
 	for (const run of running.values())
 		counts.set(run.sourceId, (counts.get(run.sourceId) ?? 0) + 1);
 	return counts;
@@ -581,14 +577,14 @@ const startEligibleRuns = (
 	state: RuntimeState,
 	selected: readonly WorkSelection[],
 	maxConcurrentRuns: number,
-	blockedThisTick: ReadonlySet<WorkKey> = new Set(),
+	blockedThisTick: ReadonlySet<string> = new Set(),
 ) => {
 	const running = new Map(state.running),
 		workRecords = new Map(state.work),
 		runningBySource = runningCountBySource(running),
 		started: { run: WorkRun; selection: WorkSelection }[] = [],
 		skipped: SkippedWork[] = [],
-		seen = new Set<WorkKey>();
+		seen = new Set<string>();
 	let nextRunIndex = state.nextRunIndex;
 	const capacity = Math.max(0, maxConcurrentRuns - running.size);
 	const skip = (
@@ -671,11 +667,11 @@ const startEligibleRuns = (
 
 export const makePlotAgentLayer = (
 	options: PlotAgentLayerOptions,
-): PlotAgentShape => {
+): PlotAgent => {
 	const sources = options.sources,
 		runner = options.runner,
 		policy = options.policy ?? {};
-	const seen = new Set<SourceId>();
+	const seen = new Set<string>();
 	for (const source of sources) {
 		if (seen.has(source.id))
 			throw new Domain.PlotAgentError({
@@ -747,11 +743,11 @@ export const makePlotAgentLayer = (
 		tickChain = Promise.resolve();
 	const mailbox = new AsyncQueue<InternalMessage>({ capacity: queueCapacity }),
 		events = new EventHub<PlotAgentEvent>(eventCapacity),
-		runHandles = new Map<WorkKey, RunHandle>(),
+		runHandles = new Map<string, RunHandle>(),
 		timers = new Set<AbortController>(),
-		stallTimers = new Map<Domain.RunId, AbortController>(),
+		stallTimers = new Map<string, AbortController>(),
 		// Last emitObservation per active run; drives stall detection.
-		lastActivityAt = new Map<Domain.RunId, number>();
+		lastActivityAt = new Map<string, number>();
 	const stoppingOrStopped = () =>
 		lifecycle === "stopping" || lifecycle === "stopped";
 	const publishSnapshot = (s: RuntimeState) => {
@@ -1018,7 +1014,7 @@ export const makePlotAgentLayer = (
 			const signal = controller.signal;
 			const aborted = () => signal.aborted || stoppingOrStopped();
 			const noDispatchResult = (
-				tickId: Domain.TickId,
+				tickId: number,
 				input: {
 					readonly observations?: readonly Observation[];
 					readonly proposals?: readonly ReconcileProposal[];
@@ -1367,7 +1363,7 @@ export const makePlotAgentLayer = (
 				}
 			},
 		);
-	const api: PlotAgentShape = {
+	const api: PlotAgent = {
 		start: async () => {
 			if (lifecycle === "stopped" || lifecycle === "stopping") return;
 			void api.run();

@@ -1,18 +1,15 @@
 import type {
 	Diagnostic,
 	Observation,
-	SourceId,
 	ReconcileProposal,
 	RuntimeSnapshot,
-	TickId,
 	WorkItem,
 	WorkRun,
 } from "./model.js";
-import type { MaybePromise } from "./work-runner.js";
 
 export interface PhaseContext {
-	readonly sourceId: SourceId;
-	readonly tickId: TickId;
+	readonly sourceId: string;
+	readonly tickId: number;
 	readonly snapshot: RuntimeSnapshot;
 	readonly signal: AbortSignal;
 }
@@ -28,25 +25,25 @@ export interface ContinuationContext extends PhaseContext {
 }
 
 export interface WorkSource {
-	readonly id: SourceId;
+	readonly id: string;
 	readonly policy?: WorkSourcePolicy;
 	readonly observeTick?: (
 		context: PhaseContext,
-	) => MaybePromise<readonly Observation[]>;
+	) => readonly Observation[] | Promise<readonly Observation[]>;
 	readonly reconcile?: (
 		context: PhaseContext,
-	) => MaybePromise<readonly ReconcileProposal[]>;
+	) => readonly ReconcileProposal[] | Promise<readonly ReconcileProposal[]>;
 	readonly selectWork?: (
 		context: PhaseContext,
-	) => MaybePromise<readonly WorkItem[]>;
+	) => readonly WorkItem[] | Promise<readonly WorkItem[]>;
 	readonly continueWork?: (
 		context: ContinuationContext,
-	) => MaybePromise<boolean>;
+	) => boolean | Promise<boolean>;
 }
 
 export interface AgentPolicy {
 	readonly maxConcurrentRuns?: number;
 	readonly validate?: (
 		snapshot: RuntimeSnapshot,
-	) => MaybePromise<readonly Diagnostic[]>;
+	) => readonly Diagnostic[] | Promise<readonly Diagnostic[]>;
 }
