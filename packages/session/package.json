@@ -20,6 +20,10 @@
 			"types": "./src/run-registry.ts",
 			"import": "./src/run-registry.ts"
 		},
+		"./run-record": {
+			"types": "./src/run-record.ts",
+			"import": "./src/run-record.ts"
+		},
 		"./run-ipc": {
 			"types": "./src/run-ipc.ts",
 			"import": "./src/run-ipc.ts"

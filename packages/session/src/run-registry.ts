@@ -18,12 +18,25 @@ import {
 	type RunChildProcess,
 } from "./run-process.js";
 import {
+	decodeRunRecords,
+	runRecordSchema,
+	type RunRecord,
+	type RunStatus,
+} from "./run-record.js";
+import {
 	NonEmptyString,
 	NonNegativeInteger,
-	PositiveInteger,
 	decodeBoundary,
 	optional,
 } from "./schema.js";
+
+export {
+	decodeRunRecord,
+	runRecordSchema,
+	runStatusSchema,
+	type RunRecord,
+	type RunStatus,
+} from "./run-record.js";
 
 type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
 
@@ -50,32 +63,6 @@ export async function* readRunHistory(path: string): AsyncIterable<unknown> {
 	}
 }
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-
-export const runStatusSchema = Schema.Literals([
-	"starting",
-	"online",
-	"stopping",
-	"stopped",
-	"error",
-]);
-
-export const runRecordSchema = Schema.Struct({
-	id: NonEmptyString,
-	status: runStatusSchema,
-	cwd: NonEmptyString,
-	cwdName: optional(NonEmptyString),
-	createdAt: NonEmptyString,
-	lastSeenAt: optional(NonEmptyString),
-	label: optional(NonEmptyString),
-	pid: optional(PositiveInteger),
-	sessionId: optional(NonEmptyString),
-	workflowName: optional(NonEmptyString),
-	workflowPath: optional(NonEmptyString),
-	sessionDir: optional(NonEmptyString),
-	lastSequence: optional(PositiveInteger),
-	lastEventType: optional(NonEmptyString),
-	stderrTail: optional(Schema.String),
-});
 
 export const runSpawnOptionsSchema = Schema.Struct({
 	cwd: optional(NonEmptyString),
@@ -148,8 +135,6 @@ export const runResponseSchema = Schema.Union([
 	}),
 ]);
 
-export type RunStatus = typeof runStatusSchema.Type;
-export type RunRecord = typeof runRecordSchema.Type;
 export type RunSpawnOptions = typeof runSpawnOptionsSchema.Type;
 export type RunRequest = typeof runRequestSchema.Type;
 export type RunResponse = typeof runResponseSchema.Type;
@@ -203,9 +188,8 @@ interface LiveRun {
 	readonly events: EventHub<ServerRecord>;
 	readonly cleanup: () => void;
 	history?: WriteStream | undefined;
+	historyWrite: Promise<void>;
 }
-
-const runArraySchema = Schema.Array(runRecordSchema);
 
 const clone = (record: RunRecord): RunRecord => ({
 	...record,
@@ -278,7 +262,7 @@ const parseRunStoreJson = (text: string): readonly RunRecord[] => {
 			delete row["eventLogPath"];
 		}
 	}
-	return decodeBoundary(runArraySchema, value);
+	return decodeRunRecords(value);
 };
 
 const readJson = async (path: string): Promise<readonly RunRecord[]> => {
@@ -377,8 +361,6 @@ export const createMemoryRunStore = (
 	};
 };
 
-export const decodeRunRecord = (value: unknown): RunRecord =>
-	decodeBoundary(runRecordSchema, value);
 export const decodeRunRequest = (value: unknown): RunRequest =>
 	decodeBoundary(runRequestSchema, value);
 export const decodeRunResponse = (value: unknown): RunResponse =>
@@ -488,15 +470,33 @@ export class RunRegistry implements RunRegistryRuntime {
 		if (!shouldWriteHistory(record)) return;
 		const path = this.historyPath(live.record.id);
 		if (path === undefined) return;
-		if (live.history === undefined) {
-			await mkdir(dirname(path), { recursive: true });
-			live.history = createWriteStream(path, { flags: "a" });
-			live.history.on("error", () => {
-				// History is best-effort; a full disk must not kill the run.
-				live.history = undefined;
-			});
-		}
-		live.history.write(`${JSON.stringify(record.event)}\n`);
+		live.historyWrite = live.historyWrite
+			.then(async () => {
+				if (live.history === undefined) {
+					await mkdir(dirname(path), { recursive: true });
+					live.history = createWriteStream(path, { flags: "a" });
+					live.history.on("error", () => {
+						// History is best-effort; a full disk must not kill the run.
+						live.history = undefined;
+					});
+				}
+				const history = live.history;
+				if (history === undefined) return;
+				await new Promise<void>((resolve) => {
+					history.write(`${JSON.stringify(record.event)}\n`, () => resolve());
+				});
+				return undefined;
+			})
+			.catch(noop);
+		await live.historyWrite;
+	}
+
+	private async closeHistory(live: LiveRun): Promise<void> {
+		await live.historyWrite.catch(noop);
+		const history = live.history;
+		if (history === undefined) return;
+		await new Promise<void>((resolve) => history.end(resolve));
+		live.history = undefined;
 	}
 
 	async recoverAfterRestart(): Promise<void> {
@@ -539,6 +539,7 @@ export class RunRegistry implements RunRegistryRuntime {
 			process,
 			events,
 			cleanup: () => cleanup(),
+			historyWrite: Promise.resolve(),
 		};
 		const unsubscribes = [
 			process.onRecord((serverRecord) =>
@@ -589,7 +590,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		});
 		live.cleanup();
 		live.events.close();
-		live.history?.end();
+		await this.closeHistory(live);
 		this.live.delete(live.record.id);
 	}
 
@@ -608,7 +609,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		live.process.kill("SIGTERM");
 		live.cleanup();
 		live.events.close();
-		live.history?.end();
+		await this.closeHistory(live);
 		this.live.delete(id);
 		await this.update(live, { status: "stopped" });
 		return clone(live.record);

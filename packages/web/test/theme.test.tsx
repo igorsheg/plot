@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseStoredMode, resolveDark } from "../src/theme.js";
+import { parseStoredMode, resolveDark } from "../src/theme/theme.js";
 
 describe("theme", () => {
 	test("stored mode parsing falls back to system for unknown values", () => {

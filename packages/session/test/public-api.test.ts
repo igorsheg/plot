@@ -7,6 +7,7 @@ const expectedExports = [
 	"./auth",
 	"./runtime-event",
 	"./run-registry",
+	"./run-record",
 	"./run-ipc",
 	"./host",
 	"./jsonl",

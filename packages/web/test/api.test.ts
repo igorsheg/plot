@@ -3,7 +3,7 @@ import {
 	emptyProjection,
 	serializeDashboardProjection,
 } from "@plot/session/projection";
-import { parseProjection } from "../src/api.js";
+import { parseProjection } from "../src/data/api.js";
 
 test("parseProjection accepts a real serialized projection envelope", () => {
 	const projection = serializeDashboardProjection(
