@@ -32,6 +32,10 @@
 			"types": "./src/runtime.ts",
 			"import": "./src/runtime.ts"
 		},
+		"./serve": {
+			"types": "./src/serve.ts",
+			"import": "./src/serve.ts"
+		},
 		"./transcript": {
 			"types": "./src/transcript.ts",
 			"import": "./src/transcript.ts"

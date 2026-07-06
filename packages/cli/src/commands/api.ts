@@ -49,7 +49,7 @@ export const apiCommand = defineCommand({
 					? {}
 					: { createAgentSession: io.createAgentSession }),
 				stdin: io.stdin,
-				writeStdout: io.writeStdout,
+				writeLine: io.writeStdout,
 			});
 		}
 		const options: Mutable<Parameters<typeof runPlotWebGateway>[0]> = {
