@@ -1,4 +1,4 @@
-import { isRecord } from "@plot/common/primitives";
+import { isRecord, type Mutable } from "@plot/common/primitives";
 import type {
 	ActivityKind,
 	AttemptStage,
@@ -86,13 +86,12 @@ const usageDelta = (
 		(typeof message?.["timestamp"] === "number"
 			? String(message["timestamp"])
 			: undefined);
-	return {
-		...(key === undefined ? {} : { key }),
-		...(input === undefined ? {} : { input }),
-		...(output === undefined ? {} : { output }),
-		total,
-		...(cost === undefined ? {} : { cost }),
-	};
+	const delta: Mutable<PiUsageDelta> = { total };
+	if (key !== undefined) delta.key = key;
+	if (input !== undefined) delta.input = input;
+	if (output !== undefined) delta.output = output;
+	if (cost !== undefined) delta.cost = cost;
+	return delta;
 };
 const ansiPattern = new RegExp(
 	`[${String.fromCharCode(27)}\u009B][[\\]()#;?]*(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><]`,
@@ -227,14 +226,15 @@ export const piEventDisplay = (
 		return { type: "turn_start", summary: "turn started" };
 	if (type === "turn_end" || type === "agent_end" || type === "message_end") {
 		const usage = usageDelta(event);
-		return {
+		const display: Mutable<Extract<PiDisplayEvent, { type: "turn_end" }>> = {
 			type: "turn_end",
 			summary:
 				usage === undefined
 					? "turn completed"
 					: `turn completed (${usage.total} tokens)`,
-			...(usage === undefined ? {} : { usage }),
 		};
+		if (usage !== undefined) display.usage = usage;
+		return display;
 	}
 	if (type === "thinking_delta")
 		return {

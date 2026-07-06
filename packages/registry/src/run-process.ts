@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
+import type { Mutable } from "@plot/common/primitives";
 import { decodeServerRecordLine } from "@plot/session/protocol";
 import {
 	defaultProtocolLimits,
@@ -52,8 +53,7 @@ export const createRunChildProcess = (input: {
 	process.once("exit", killOnParentExit);
 	child.once("exit", () => process.off("exit", killOnParentExit));
 	child.once("error", () => process.off("exit", killOnParentExit));
-	return {
-		...(child.pid === undefined ? {} : { pid: child.pid }),
+	const runChild: Mutable<RunChildProcess> = {
 		stdout: child.stdout ?? emptyAsyncIterable(),
 		stderr: child.stderr ?? emptyAsyncIterable(),
 		write: (line) =>
@@ -71,6 +71,8 @@ export const createRunChildProcess = (input: {
 			child.once("error", () => resolveExit());
 		}),
 	};
+	if (child.pid !== undefined) runChild.pid = child.pid;
+	return runChild;
 };
 
 export class RunProcessInstance {

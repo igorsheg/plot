@@ -18,7 +18,7 @@ import type {
 	WorkRecord,
 	WorkRun,
 } from "./model.js";
-import type { PlotAgent, PlotAgentLayerOptions } from "./agent.js";
+import type { PlotAgent, PlotAgentOptions } from "./agent.js";
 import type { WorkRunnerContext } from "./work-runner.js";
 import type { WorkSource } from "./work-source.js";
 import {
@@ -90,9 +90,7 @@ const waitForAbort = (signal: AbortSignal) => {
 	});
 	return { promise, cleanup };
 };
-export const makePlotAgentRuntime = (
-	options: PlotAgentLayerOptions,
-): PlotAgent => {
+export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 	const sources = options.sources,
 		runner = options.runner,
 		policy = options.policy ?? {};

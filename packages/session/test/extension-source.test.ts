@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { makePlotAgentLayer } from "@plot/agent/agent";
+import { makePlotAgent } from "@plot/agent/agent";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { loadPlotExtensionRuntimeFromWorkflow } from "../src/extension-loader.js";
 import { makePlotExtensionSourceBundle } from "../src/extension-source.js";
@@ -97,7 +97,7 @@ describe("extension source adapter", () => {
 			},
 		});
 
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
 		const first = await agent.tickOnce();
 		await Promise.resolve();
 		const second = await agent.tickOnce();
@@ -120,7 +120,7 @@ describe("extension source adapter", () => {
 			extension: { id: "bad", create: () => ({ discover: () => [] }) },
 			runtime: { discover: () => [{ version: "v1" }] as never },
 		});
-		const agent = makePlotAgentLayer({
+		const agent = makePlotAgent({
 			sources: [bundle.source],
 			runner: { run: () => ({}) },
 		});
@@ -148,7 +148,7 @@ describe("extension source adapter", () => {
 				],
 			},
 		});
-		const agent = makePlotAgentLayer({
+		const agent = makePlotAgent({
 			sources: [bundle.source],
 			runner: {
 				run: () => {
@@ -211,7 +211,7 @@ describe("extension source adapter", () => {
 				return { output: await releaseSecond.promise };
 			},
 		});
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
 
 		const first = await agent.tickOnce();
 		await firstStarted.promise;
@@ -273,7 +273,7 @@ describe("extension source adapter", () => {
 				return { output: await release.promise };
 			},
 		});
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
 		const key = "extension:drain:work:1:v1";
 
 		const first = await agent.tickOnce();
@@ -326,7 +326,7 @@ describe("extension source adapter", () => {
 				return { output: await never.promise };
 			},
 		});
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
 		const key = "extension:cancel:work:1:v1";
 
 		const first = await agent.tickOnce();
@@ -365,7 +365,7 @@ describe("extension source adapter", () => {
 				throw new Error("boom");
 			},
 		});
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
 		const key = "extension:retry:work:1:v1";
 
 		const first = await agent.tickOnce();
@@ -421,7 +421,7 @@ describe("extension source adapter", () => {
 				return {};
 			},
 		});
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
 
 		expect((await agent.tickOnce()).started).toHaveLength(1);
 		await finished.promise;
@@ -442,7 +442,7 @@ describe("extension source adapter", () => {
 				],
 			},
 		});
-		const agent = makePlotAgentLayer({
+		const agent = makePlotAgent({
 			sources: [bundle.source],
 			runner: { run: () => ({}) },
 		});
@@ -475,7 +475,7 @@ describe("extension source adapter", () => {
 				return { output: await release.promise };
 			},
 		});
-		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
 		const key = "extension:poll:work:1:v1";
 
 		await agent.tickOnce();
@@ -569,7 +569,7 @@ describe("extension source adapter", () => {
 			},
 		};
 
-		const agent = makePlotAgentLayer({
+		const agent = makePlotAgent({
 			sources: [bundle.source],
 			runner,
 		});

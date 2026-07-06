@@ -4,6 +4,7 @@ import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
 import { str } from "../options.js";
 import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
+import type { Mutable } from "@plot/common/primitives";
 import { defaultProtocolLimits } from "@plot/session/protocol";
 import type { RunIpcOptions } from "@plot/registry/ipc";
 import { resolveRunIpcSocketPath, sendRunIpcRequest } from "@plot/registry/ipc";
@@ -53,15 +54,15 @@ const streamEvents = async (args: ParsedArgs) => {
 			socket.once("connect", resolve);
 			socket.once("error", reject);
 		});
+		const streamRequest: Mutable<RunRequest> = {
+			type: "protocol_stream",
+			id: runId,
+		};
+		if (after !== undefined) streamRequest.afterSequence = Number(after);
 		socket.write(
-			stringifyJsonl(
-				{
-					type: "protocol_stream",
-					id: runId,
-					...(after === undefined ? {} : { afterSequence: Number(after) }),
-				},
-				{ maxLineBytes: defaultProtocolLimits.maxOutputLineBytes },
-			),
+			stringifyJsonl(streamRequest, {
+				maxLineBytes: defaultProtocolLimits.maxOutputLineBytes,
+			}),
 		);
 		for await (const line of jsonlLines(socket, {
 			maxLineBytes: defaultProtocolLimits.maxOutputLineBytes,

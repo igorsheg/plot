@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { basename } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
 import {
 	sessionProtocolVersion,
 	type ClientRequest,
@@ -23,8 +23,6 @@ import {
 	type RunChildProcess,
 } from "./run-process.js";
 import type { RunStore } from "./store.js";
-
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export interface RunSpawnOptions {
 	readonly cwd?: string;
@@ -233,20 +231,19 @@ export class RunRegistry implements RunRegistryRuntime {
 		const process = new RunProcessInstance(child, {
 			stderrLimitBytes: this.options.stderrLimitBytes,
 		});
-		const record: RunRecord = {
+		const record: Mutable<RunRecord> = {
 			id: this.options.id(),
 			status: "starting",
 			cwd,
 			cwdName: basename(cwd),
 			createdAt: now,
 			lastSeenAt: now,
-			...(input.label === undefined ? {} : { label: input.label }),
-			...(child.pid === undefined ? {} : { pid: child.pid }),
-			...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
-			...(input.workflowPath === undefined
-				? {}
-				: { workflowPath: input.workflowPath }),
 		};
+		if (input.label !== undefined) record.label = input.label;
+		if (child.pid !== undefined) record.pid = child.pid;
+		if (input.sessionId !== undefined) record.sessionId = input.sessionId;
+		if (input.workflowPath !== undefined)
+			record.workflowPath = input.workflowPath;
 		const events = new EventHub<ServerRecord>(this.options.eventCapacity);
 		let cleanup: () => void = noop;
 		const live: LiveRun = {

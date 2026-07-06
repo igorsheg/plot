@@ -1,3 +1,4 @@
+import type { Mutable } from "@plot/common/primitives";
 import {
 	workLabel,
 	type ActivityTone,
@@ -164,9 +165,8 @@ const workRow = (
 	const stale =
 		attempt?.lastEventAtMs !== undefined &&
 		nowMs - attempt.lastEventAtMs > 120_000;
-	return {
+	const row: Mutable<WorkRowModel> = {
 		work,
-		...(attempt ? { attempt } : {}),
 		label: workLabel(work),
 		status: work.status,
 		meta: [age, tokens, check].filter(Boolean).join(" · "),
@@ -178,6 +178,8 @@ const workRow = (
 		stale,
 		attention: work.status === "blocked" || work.status === "failed",
 	};
+	if (attempt) row.attempt = attempt;
+	return row;
 };
 const shortRunId = (runId: string | undefined) =>
 	runId === undefined
@@ -212,53 +214,44 @@ export const dashboardModelFrom = (
 			.map((c) => c.label)
 			.filter((label, _i, xs) => xs.filter((x) => x === label).length > 1),
 	);
+	const pulse: Mutable<PulseModel> = {
+		runningCount: projection.attempts.size,
+		totalTokens: formatTokens(projection.usageTotals.tokens),
+		throughput: `${formatTokens(Math.round(tokenThroughput.rate))} tok/s`,
+		throughputGraph: tokenThroughput.graph,
+	};
+	if (projection.pulse)
+		pulse.tick = {
+			id: projection.pulse.tickId,
+			ago: formatAgo(nowMs - projection.pulse.atMs),
+			found: projection.pulse.found,
+			started: projection.pulse.started,
+		};
+	if (
+		projection.pulse &&
+		tickIntervalMs !== undefined &&
+		projection.status !== "stopped" &&
+		projection.status !== "shutting_down"
+	)
+		pulse.nextTick = {
+			inSeconds: Math.ceil(
+				Math.max(0, projection.pulse.atMs + tickIntervalMs - nowMs) / 1000,
+			),
+		};
+	if (nextWake) {
+		const wakeModel: Mutable<PulseNextWakeModel> = {
+			inSeconds: Math.ceil(Math.max(0, nextWake.dueAtMs - nowMs) / 1000),
+			kind: nextWake.workKey ? ("retry" as const) : ("wake" as const),
+		};
+		if (nextWake.reason) wakeModel.reason = nextWake.reason;
+		pulse.nextWake = wakeModel;
+	}
+	if (projection.runtime.maxConcurrentRuns !== undefined)
+		pulse.maxConcurrentRuns = projection.runtime.maxConcurrentRuns;
+	if (projection.usageTotals.cost !== undefined)
+		pulse.totalCost = formatCost(projection.usageTotals.cost);
 	return {
-		pulse: {
-			...(projection.pulse
-				? {
-						tick: {
-							id: projection.pulse.tickId,
-							ago: formatAgo(nowMs - projection.pulse.atMs),
-							found: projection.pulse.found,
-							started: projection.pulse.started,
-						},
-					}
-				: {}),
-			...(projection.pulse &&
-			tickIntervalMs !== undefined &&
-			projection.status !== "stopped" &&
-			projection.status !== "shutting_down"
-				? {
-						nextTick: {
-							inSeconds: Math.ceil(
-								Math.max(0, projection.pulse.atMs + tickIntervalMs - nowMs) /
-									1000,
-							),
-						},
-					}
-				: {}),
-			...(nextWake
-				? {
-						nextWake: {
-							inSeconds: Math.ceil(
-								Math.max(0, nextWake.dueAtMs - nowMs) / 1000,
-							),
-							kind: nextWake.workKey ? ("retry" as const) : ("wake" as const),
-							...(nextWake.reason ? { reason: nextWake.reason } : {}),
-						},
-					}
-				: {}),
-			runningCount: projection.attempts.size,
-			...(projection.runtime.maxConcurrentRuns === undefined
-				? {}
-				: { maxConcurrentRuns: projection.runtime.maxConcurrentRuns }),
-			totalTokens: formatTokens(projection.usageTotals.tokens),
-			...(projection.usageTotals.cost === undefined
-				? {}
-				: { totalCost: formatCost(projection.usageTotals.cost) }),
-			throughput: `${formatTokens(Math.round(tokenThroughput.rate))} tok/s`,
-			throughputGraph: tokenThroughput.graph,
-		},
+		pulse,
 		attention: [
 			...work
 				.filter((w) => w.attention)
@@ -275,19 +268,19 @@ export const dashboardModelFrom = (
 			...projection.diagnostics.map((text) => ({ text })),
 		],
 		work,
-		scheduled: projection.scheduledWakes.slice(0, 5).map((wake) => ({
-			inSeconds: Math.ceil(Math.max(0, wake.dueAtMs - nowMs) / 1000),
-			...(wake.reason ? { reason: wake.reason } : {}),
-			...(wake.workKey
-				? {
-						workKey: wake.workKey,
-						label: projection.work.get(wake.workKey)
-							? workLabel(projection.work.get(wake.workKey)!)
-							: undefined,
-					}
-				: {}),
-			...(wake.attempt === undefined ? {} : { attempt: wake.attempt }),
-		})),
+		scheduled: projection.scheduledWakes.slice(0, 5).map((wake) => {
+			const row: Mutable<ScheduledRowModel> = {
+				inSeconds: Math.ceil(Math.max(0, wake.dueAtMs - nowMs) / 1000),
+			};
+			if (wake.reason) row.reason = wake.reason;
+			if (wake.workKey) {
+				row.workKey = wake.workKey;
+				const item = projection.work.get(wake.workKey);
+				if (item !== undefined) row.label = workLabel(item);
+			}
+			if (wake.attempt !== undefined) row.attempt = wake.attempt;
+			return row;
+		}),
 		completed: projection.completed.slice(0, 5).map((entry) => {
 			const meta = [
 				entry.durationMs === undefined
@@ -300,15 +293,16 @@ export const dashboardModelFrom = (
 			]
 				.filter(Boolean)
 				.join(" · ");
-			return {
+			const row: Mutable<CompletedRowModel> = {
 				label: entry.label,
 				status: entry.status,
 				message: entry.message,
 				ago: formatAgo(nowMs - entry.atMs),
-				...(meta ? { meta } : {}),
 				tone: entry.status === "succeeded" ? ("ok" as const) : ("bad" as const),
-				...(entry.url ? { url: entry.url } : {}),
 			};
+			if (meta) row.meta = meta;
+			if (entry.url) row.url = entry.url;
+			return row;
 		}),
 	};
 };

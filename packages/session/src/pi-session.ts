@@ -8,7 +8,11 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage, hasErrnoCode } from "@plot/common/primitives";
+import {
+	errorMessage,
+	hasErrnoCode,
+	type Mutable,
+} from "@plot/common/primitives";
 import type {
 	CreatePiAgentSession,
 	PiAgentSessionRunOptions,
@@ -19,7 +23,6 @@ import type { WorkflowRuntimeConfig } from "./workflow.js";
 
 type AgentConfig = NonNullable<WorkflowRuntimeConfig["agent"]>;
 type ResourcesConfig = NonNullable<WorkflowRuntimeConfig["resources"]>;
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 type AgentToolMode = NonNullable<AgentConfig["noTools"]>;
 
 export interface AgentSessionOverrides {

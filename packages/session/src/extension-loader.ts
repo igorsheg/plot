@@ -2,7 +2,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createJiti } from "jiti/static";
 import { logWideEvent } from "@plot/common/observability";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
 import type { SessionPaths } from "./paths.js";
 import type {
 	MaybePromise,
@@ -25,7 +25,7 @@ export class PlotExtensionSourceError extends Error {
 	constructor(input: {
 		readonly phase: PlotExtensionSourceError["phase"];
 		readonly message: string;
-		readonly source?: string;
+		readonly source?: string | undefined;
 	}) {
 		super(input.message);
 		this.phase = input.phase;
@@ -44,7 +44,7 @@ export const runMaybePromise = async <A>(
 		throw new PlotExtensionSourceError({
 			phase,
 			message: errorMessage(error),
-			...(source === undefined ? {} : { source }),
+			source,
 		});
 	}
 };
@@ -234,13 +234,13 @@ export const resolveToolDefinitions = async (options: {
 	readonly work: PlotExtensionWork;
 	readonly runId?: string;
 }): Promise<ToolDefinition[]> => {
-	const context: PlotToolContext = {
+	const context: Mutable<PlotToolContext> = {
 		workflow: options.workflow,
 		paths: options.paths,
 		config: options.config,
 		work: options.work,
-		...(options.runId === undefined ? {} : { runId: options.runId }),
 	};
+	if (options.runId !== undefined) context.runId = options.runId;
 	const resolved = await Promise.all(
 		options.tools.map((tool) =>
 			typeof tool === "function" ? Promise.resolve(tool(context)) : tool,

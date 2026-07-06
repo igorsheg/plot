@@ -10,6 +10,7 @@ import {
 	errorMessage,
 	isPositiveInteger,
 	isRecord,
+	type Mutable,
 } from "@plot/common/primitives";
 import type { WorkResult } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
@@ -179,13 +180,17 @@ async function* promptSession(input: {
 				return;
 			}
 			if (session.sessionFile !== undefined) {
-				queue.offer({
+				const event: Mutable<{
+					readonly type: typeof transcriptEventType;
+					readonly sessionFile: string;
+					readonly sessionId?: string | undefined;
+				}> = {
 					type: transcriptEventType,
 					sessionFile: session.sessionFile,
-					...(session.sessionId === undefined
-						? {}
-						: { sessionId: session.sessionId }),
-				} as unknown as AgentSessionEvent);
+				};
+				if (session.sessionId !== undefined)
+					event.sessionId = session.sessionId;
+				queue.offer(event as unknown as AgentSessionEvent);
 			}
 			unsubscribe = session.subscribe((event) => {
 				if (queue.offer(event)) return;
@@ -250,19 +255,19 @@ export const makePiWorkRunner = (config: PiWorkRunnerConfig): WorkRunner => ({
 			"eventCapacity",
 		);
 		let lastActivityPingMs = 0;
-		for await (const event of promptSession({
+		const sessionInput: Mutable<Parameters<typeof promptSession>[0]> = {
 			createAgentSession:
 				config.createAgentSession ?? defaultCreateAgentSession,
-			...(create === undefined ? {} : { create }),
 			prompt,
-			...(promptOptions === undefined ? {} : { promptOptions }),
 			signal: context.signal,
 			maxTurns,
 			eventCapacity,
-			...(context.shouldContinue === undefined
-				? {}
-				: { shouldContinue: context.shouldContinue }),
-		})) {
+		};
+		if (create !== undefined) sessionInput.create = create;
+		if (promptOptions !== undefined) sessionInput.promptOptions = promptOptions;
+		if (context.shouldContinue !== undefined)
+			sessionInput.shouldContinue = context.shouldContinue;
+		for await (const event of promptSession(sessionInput)) {
 			const now = Date.now();
 			if (now - lastActivityPingMs >= 10_000) {
 				lastActivityPingMs = now;

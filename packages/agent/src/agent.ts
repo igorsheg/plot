@@ -25,7 +25,7 @@ export interface PlotAgent {
 	shutdown: () => Promise<boolean>;
 }
 export const PlotAgent = Symbol("PlotAgent");
-export interface PlotAgentLayerOptions {
+export interface PlotAgentOptions {
 	sources: WorkSource[];
 	runner: WorkRunner;
 	policy?: AgentPolicy;
@@ -39,5 +39,5 @@ export interface PlotAgentLayerOptions {
 	stallTimeoutMs?: number;
 }
 
-export const makePlotAgentLayer = (options: PlotAgentLayerOptions): PlotAgent =>
+export const makePlotAgent = (options: PlotAgentOptions): PlotAgent =>
 	makePlotAgentRuntime(options);

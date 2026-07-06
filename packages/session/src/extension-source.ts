@@ -11,10 +11,12 @@ import {
 } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
 	PlotExtension,
+	PlotExtensionCompletedEvent,
+	PlotExtensionOperatorActionEvent,
 	PlotExtensionRuntime,
 	PlotExtensionTool,
 	PlotExtensionWork,
@@ -162,19 +164,16 @@ export const invokeOperatorActionHook = async (
 			typeof timestamp !== "string"
 		)
 			return;
-		await runtime.operatorAction?.({
+		const event: Mutable<PlotExtensionOperatorActionEvent> = {
 			work,
 			actionId,
 			actionLabel,
 			timestamp,
-			...(typeof data["comment"] === "string"
-				? { comment: data["comment"] }
-				: {}),
-			...(typeof data["clientId"] === "string"
-				? { clientId: data["clientId"] }
-				: {}),
-			...(data["actor"] === undefined ? {} : { actor: data["actor"] }),
-		});
+		};
+		if (typeof data["comment"] === "string") event.comment = data["comment"];
+		if (typeof data["clientId"] === "string") event.clientId = data["clientId"];
+		if (data["actor"] !== undefined) event.actor = data["actor"];
+		await runtime.operatorAction?.(event);
 	} catch (error) {
 		await logHookError(error, "operator_action", source);
 	}
@@ -188,15 +187,11 @@ export const invokeCompletionHook = async (
 ) => {
 	const runId = String(completion.runId);
 	try {
-		if (completion.status === "succeeded")
-			await runtime.completed?.({
-				work,
-				runId,
-				...(completion.output === undefined
-					? {}
-					: { output: completion.output }),
-			});
-		else if (completion.status === "failed")
+		if (completion.status === "succeeded") {
+			const event: Mutable<PlotExtensionCompletedEvent> = { work, runId };
+			if (completion.output !== undefined) event.output = completion.output;
+			await runtime.completed?.(event);
+		} else if (completion.status === "failed")
 			await runtime.failed?.({
 				work,
 				runId,

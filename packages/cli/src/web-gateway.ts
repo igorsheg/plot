@@ -5,7 +5,7 @@ import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
 import { readRunHistory, runHistoryPath } from "@plot/registry/history";
 import type { RunRecord } from "@plot/registry/record";
 import type { RunRegistryRuntime } from "@plot/registry/supervisor";
-import { isRecord } from "@plot/common/primitives";
+import { isRecord, type Mutable } from "@plot/common/primitives";
 import { sessionProtocolVersion } from "@plot/session/protocol";
 import {
 	applySnapshot,
@@ -160,14 +160,22 @@ const parseObservationBody = async (
 		return undefined;
 	const comment = stringField(body, "comment");
 	const clientId = stringField(body, "clientId");
-	return {
+	const action: Mutable<{
+		readonly sourceId: string;
+		readonly workKey: string;
+		readonly actionId: string;
+		readonly actionLabel: string;
+		readonly comment?: string;
+		readonly clientId?: string;
+	}> = {
 		sourceId,
 		workKey,
 		actionId,
 		actionLabel,
-		...(comment === undefined ? {} : { comment }),
-		...(clientId === undefined ? {} : { clientId }),
 	};
+	if (comment !== undefined) action.comment = comment;
+	if (clientId !== undefined) action.clientId = clientId;
+	return action;
 };
 
 const parseCreateRunBody = async (
@@ -183,18 +191,17 @@ const parseCreateRunBody = async (
 		string,
 		unknown
 	>;
-	return {
-		...(typeof body["cwd"] === "string" && body["cwd"].trim() !== ""
-			? { cwd: body["cwd"] }
-			: {}),
-		...(typeof body["workflowPath"] === "string" &&
+	const result: Mutable<Awaited<ReturnType<typeof parseCreateRunBody>>> = {};
+	if (typeof body["cwd"] === "string" && body["cwd"].trim() !== "")
+		result.cwd = body["cwd"];
+	if (
+		typeof body["workflowPath"] === "string" &&
 		body["workflowPath"].trim() !== ""
-			? { workflowPath: body["workflowPath"] }
-			: {}),
-		...(typeof body["label"] === "string" && body["label"].trim() !== ""
-			? { label: body["label"] }
-			: {}),
-	};
+	)
+		result.workflowPath = body["workflowPath"];
+	if (typeof body["label"] === "string" && body["label"].trim() !== "")
+		result.label = body["label"];
+	return result;
 };
 
 const parseAfterSequence = (input: {
@@ -280,10 +287,12 @@ const runProjectionResponse = async (
 	const loaded = await loadRunProjection(run, registry, historyDir);
 	if (loaded === undefined)
 		return new Response("run not live", { status: 409 });
-	return text({
-		projection: serializeDashboardProjection(loaded.projection),
-		...(loaded.replayed ? { replayed: true } : {}),
-	});
+	const body: Mutable<{
+		readonly projection: ReturnType<typeof serializeDashboardProjection>;
+		readonly replayed?: true;
+	}> = { projection: serializeDashboardProjection(loaded.projection) };
+	if (loaded.replayed) body.replayed = true;
+	return text(body);
 };
 
 const runHistoryResponse = async (
@@ -386,13 +395,11 @@ const sessionEventsResponse = (input: {
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const runIpc = await openOrStartRunIpc({
-		cwd: options.cwd,
-		...(options.registryDir === undefined
-			? {}
-			: { runRegistryDir: options.registryDir }),
-		...(options.cli === undefined ? {} : { cli: options.cli }),
-	});
+	const runIpcOptions: Mutable<RunIpcOptions> = { cwd: options.cwd };
+	if (options.registryDir !== undefined)
+		runIpcOptions.runRegistryDir = options.registryDir;
+	if (options.cli !== undefined) runIpcOptions.cli = options.cli;
+	const runIpc = await openOrStartRunIpc(runIpcOptions);
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
 		port: options.port ?? 0,
@@ -407,15 +414,17 @@ export const startPlotWebGateway = async (
 					});
 				if (url.pathname === "/api/runs" && request.method === "POST") {
 					const body = await parseCreateRunBody(request);
-					const run = await runIpc.runRegistry.spawn({
+					const spawnInput: Mutable<
+						Parameters<typeof runIpc.runRegistry.spawn>[0]
+					> = {
 						cwd: body.cwd ?? options.cwd,
-						...(body.workflowPath !== undefined
-							? { workflowPath: body.workflowPath }
-							: options.workflowPath === undefined
-								? {}
-								: { workflowPath: options.workflowPath }),
-						...(body.label === undefined ? {} : { label: body.label }),
-					});
+					};
+					if (body.workflowPath !== undefined)
+						spawnInput.workflowPath = body.workflowPath;
+					else if (options.workflowPath !== undefined)
+						spawnInput.workflowPath = options.workflowPath;
+					if (body.label !== undefined) spawnInput.label = body.label;
+					const run = await runIpc.runRegistry.spawn(spawnInput);
 					return text({ run });
 				}
 				const stopPath = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);

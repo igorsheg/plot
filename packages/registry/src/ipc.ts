@@ -12,7 +12,7 @@ import {
 import { createFileRunStore } from "./store.js";
 import type { RunRecord } from "./record.js";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
 import {
 	defaultProtocolLimits,
 	type ClientRequest,
@@ -138,12 +138,14 @@ const write = (socket: { write: (text: string) => void }, response: unknown) =>
 
 const makeRunRegistry = (options: RunIpcOptions): RunRegistry => {
 	const runRegistryDir = resolveRunIpcDir(options);
-	return new RunRegistry({
-		cwd: options.cwd,
-		store: createFileRunStore(join(runRegistryDir, "runs.json")),
-		historyDir: runHistoryDir(runRegistryDir),
-		...(options.cli === undefined ? {} : { cli: options.cli }),
-	});
+	const registryOptions: Mutable<ConstructorParameters<typeof RunRegistry>[0]> =
+		{
+			cwd: options.cwd,
+			store: createFileRunStore(join(runRegistryDir, "runs.json")),
+			historyDir: runHistoryDir(runRegistryDir),
+		};
+	if (options.cli !== undefined) registryOptions.cli = options.cli;
+	return new RunRegistry(registryOptions);
 };
 
 /** Session History lives beside the registry store; readers read it directly. */

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Mutable } from "@plot/common/primitives";
 import type { AgentSessionOverrides } from "@plot/session/pi-session";
 import { createSessionAuth } from "@plot/session/auth";
 import type { ParsedArgs } from "citty";
@@ -34,8 +35,6 @@ const splitCommaList = (value: string): readonly string[] =>
 		.split(",")
 		.map((p) => p.trim())
 		.filter(Boolean);
-
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export const makeAuth = (options: {
 	cwd: string;

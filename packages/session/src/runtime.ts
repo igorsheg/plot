@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { EventHub } from "@plot/common/event-stream";
 import {
-	makePlotAgentLayer,
+	makePlotAgent,
 	type PlotAgent,
-	type PlotAgentLayerOptions,
+	type PlotAgentOptions,
 } from "@plot/agent/agent";
 import type {
 	Completion,
@@ -156,7 +156,7 @@ export interface SessionRuntimeOptions {
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
 	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
-	readonly agent?: Omit<PlotAgentLayerOptions, "sources" | "runner">;
+	readonly agent?: Omit<PlotAgentOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
 }
 
@@ -183,7 +183,7 @@ export const makeSessionRuntime = (
 	if (options.id.length === 0) throw new Error("session id must be non-empty");
 	const sessionId = options.id;
 	const events = new EventHub<RuntimeEvent>(options.eventCapacity ?? 256);
-	const agent: PlotAgent = makePlotAgentLayer({
+	const agent: PlotAgent = makePlotAgent({
 		...options.agent,
 		sources: [...options.sources],
 		runner: options.runner,

@@ -1,4 +1,4 @@
-import { isRecord } from "@plot/common/primitives";
+import { isRecord, type Mutable } from "@plot/common/primitives";
 import {
 	appendStreamDelta,
 	piEventDisplay,
@@ -12,8 +12,6 @@ import type {
 	DashboardProjection,
 	ProjectableEvent,
 } from "./types.js";
-
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 const mergeAttempt = (
 	a: AgentAttemptProjection,
@@ -87,15 +85,15 @@ export const reduceAgentEvent = (
 		const path = str(rawEvent["sessionFile"]);
 		if (path === undefined) return p;
 		const id = str(rawEvent["sessionId"]);
+		const transcript: Mutable<
+			NonNullable<AgentAttemptProjection["transcript"]>
+		> = { path };
+		if (id !== undefined) transcript.id = id;
 		return {
 			...p,
 			attempts: new Map(p.attempts).set(
 				runId,
-				mergeAttempt(
-					prev,
-					{ transcript: { path, ...(id === undefined ? {} : { id }) } },
-					e,
-				),
+				mergeAttempt(prev, { transcript }, e),
 			),
 		};
 	}

@@ -7,10 +7,7 @@ import {
 	upsertWork,
 	setFact,
 } from "../src/model.js";
-import {
-	makePlotAgentLayer,
-	type PlotAgentLayerOptions,
-} from "../src/agent.js";
+import { makePlotAgent, type PlotAgentOptions } from "../src/agent.js";
 import type { WorkRunner } from "../src/work-runner.js";
 import type { WorkSource } from "../src/work-source.js";
 
@@ -70,8 +67,8 @@ const succeedRunner = (calls: string[] = []): WorkRunner => ({
 const makeAgent = (
 	sources: WorkSource[],
 	runner: WorkRunner = succeedRunner(),
-	options: Omit<PlotAgentLayerOptions, "sources" | "runner"> = {},
-) => makePlotAgentLayer({ ...options, sources, runner });
+	options: Omit<PlotAgentOptions, "sources" | "runner"> = {},
+) => makePlotAgent({ ...options, sources, runner });
 
 const makeWorkSource = (id: string, key: string): WorkSource => ({
 	id: id,

@@ -1,8 +1,6 @@
-import { isRecord } from "@plot/common/primitives";
+import { isRecord, type Mutable } from "@plot/common/primitives";
 import { str } from "./helpers.js";
 import type { WorkItemProjection, WorkStatus } from "./types.js";
-
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 const display = (v: unknown) => (isRecord(v) ? v : {});
 

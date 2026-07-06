@@ -1,5 +1,7 @@
 const encoder = new TextEncoder();
 
+export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 

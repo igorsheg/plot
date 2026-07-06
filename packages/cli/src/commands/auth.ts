@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { defineCommand } from "citty";
+import type { Mutable } from "@plot/common/primitives";
 import { authPathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { runHumanCommand, writeProcessStderr } from "../io.js";
@@ -95,11 +96,10 @@ const makeAuthFromArgs = (args: Record<string, unknown>) => {
 	const cwd = str(args, "cwd") ?? process.cwd();
 	const plotDir = str(args, "plot-dir");
 	const agentDir = str(args, "agent-dir");
-	return makeAuth({
-		cwd,
-		...(plotDir === undefined ? {} : { plotDir }),
-		...(agentDir === undefined ? {} : { agentDir }),
-	});
+	const options: Mutable<Parameters<typeof makeAuth>[0]> = { cwd };
+	if (plotDir !== undefined) options.plotDir = plotDir;
+	if (agentDir !== undefined) options.agentDir = agentDir;
+	return makeAuth(options);
 };
 
 export const authCommand = defineCommand({

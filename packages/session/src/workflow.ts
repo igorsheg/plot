@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { errorMessage } from "@plot/common/primitives";
+import { errorMessage, type Mutable } from "@plot/common/primitives";
 
 export class WorkflowBoundaryError extends Error {
 	override readonly name = "WorkflowBoundaryError";
@@ -11,7 +11,7 @@ export class WorkflowBoundaryError extends Error {
 	constructor(input: {
 		readonly phase: "read" | "parse";
 		readonly message: string;
-		readonly path?: string;
+		readonly path?: string | undefined;
 	}) {
 		super(input.message);
 		this.phase = input.phase;
@@ -367,14 +367,14 @@ const parseFrontMatter = (
 		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
 			throw new WorkflowBoundaryError({
 				phase: "parse",
-				...(path === undefined ? {} : { path }),
+				path,
 				message: "workflow front matter must be a YAML mapping",
 			});
 		return parsed as Record<string, unknown>;
 	} catch (error) {
 		throw new WorkflowBoundaryError({
 			phase: "parse",
-			...(path === undefined ? {} : { path }),
+			path,
 			message: errorMessage(error),
 		});
 	}
@@ -412,7 +412,7 @@ const decodeRuntime = (
 	} catch (error) {
 		throw new WorkflowBoundaryError({
 			phase: "parse",
-			...(path === undefined ? {} : { path }),
+			path,
 			message: errorMessage(error),
 		});
 	}
@@ -426,12 +426,12 @@ export const parseWorkflowText = (
 	const frontMatter = match?.[1] ?? "";
 	const prompt = match ? text.slice(match[0].length).trim() : text.trim();
 	const config = parseFrontMatter(frontMatter, path);
-	const workflow: WorkflowDefinition = {
+	const workflow: Mutable<WorkflowDefinition> = {
 		config,
 		runtime: decodeRuntime(config, path),
 		prompt,
-		...(path === undefined ? {} : { path }),
 	};
+	if (path !== undefined) workflow.path = path;
 	return workflow;
 };
 
