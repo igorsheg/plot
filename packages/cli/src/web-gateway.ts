@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
-import { openOrStartRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
-import type { RunRecord, RunRegistryRuntime } from "@plot/session/run-registry";
+import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
+import { readRunHistory, runHistoryPath } from "@plot/registry/history";
+import type { RunRecord } from "@plot/registry/record";
+import type { RunRegistryRuntime } from "@plot/registry/supervisor";
 import { isRecord } from "@plot/common/primitives";
 import { sessionProtocolVersion } from "@plot/session/protocol";
 import {
@@ -13,7 +15,6 @@ import {
 	type DashboardProjection,
 	type ProjectableEvent,
 } from "@plot/projection";
-import { readRunHistory, runHistoryPath } from "@plot/session/run-registry";
 import { readAgentTranscript } from "@plot/session/transcript";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 

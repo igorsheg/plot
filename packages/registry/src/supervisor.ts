@@ -1,150 +1,36 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { rm } from "node:fs/promises";
+import { basename } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
-import { errorMessage, hasErrnoCode, isRecord } from "@plot/common/primitives";
-import { Schema } from "effect";
-import { jsonlLines, parseJsonl } from "@plot/common/jsonl";
+import { errorMessage, isRecord } from "@plot/common/primitives";
 import {
-	clientRequestSchema,
 	sessionProtocolVersion,
 	type ClientRequest,
 	type ServerRecord,
-} from "./protocol.js";
+} from "@plot/session/protocol";
 import {
-	createRunChildProcess,
+	createRunHistoryWriter,
+	runHistoryPath,
+	shouldWriteHistory,
+	type EventServerRecord,
+	type RunHistoryWriter,
+} from "./history.js";
+import { cloneRunRecord, type RunRecord, type RunStatus } from "./record.js";
+import {
 	RunProcessInstance,
+	createRunChildProcess,
+	trimTail,
 	type RunChildProcess,
 } from "./run-process.js";
-import {
-	decodeRunRecords,
-	runRecordSchema,
-	type RunRecord,
-	type RunStatus,
-} from "./run-record.js";
-import {
-	NonEmptyString,
-	NonNegativeInteger,
-	decodeBoundary,
-	optional,
-} from "./schema.js";
+import type { RunStore } from "./store.js";
 
-export {
-	decodeRunRecord,
-	runRecordSchema,
-	runStatusSchema,
-	type RunRecord,
-	type RunStatus,
-} from "./run-record.js";
-
-type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
-
-export const runHistoryPath = (historyDir: string, id: string): string =>
-	join(historyDir, `${id}.jsonl`);
-
-/** Replay a run's durable Session History (empty when none was written). */
-export async function* readRunHistory(path: string): AsyncIterable<unknown> {
-	const exists = await stat(path).then(
-		() => true,
-		() => false,
-	);
-	if (!exists) return;
-	const stream = createReadStream(path);
-	try {
-		for await (const line of jsonlLines(stream, {
-			maxLineBytes: 2 * 1024 * 1024,
-		})) {
-			if (line.trim() === "") continue;
-			yield parseJsonl(line);
-		}
-	} finally {
-		stream.close();
-	}
-}
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
-export const runSpawnOptionsSchema = Schema.Struct({
-	cwd: optional(NonEmptyString),
-	label: optional(NonEmptyString),
-	sessionId: optional(NonEmptyString),
-	workflowPath: optional(NonEmptyString),
-});
-
-export const runRequestSchema = Schema.Union([
-	Schema.Struct({
-		type: Schema.Literal("spawn"),
-		options: optional(runSpawnOptionsSchema),
-	}),
-	Schema.Struct({ type: Schema.Literal("list") }),
-	Schema.Struct({ type: Schema.Literal("status"), id: NonEmptyString }),
-	Schema.Struct({ type: Schema.Literal("stop"), id: NonEmptyString }),
-	Schema.Struct({ type: Schema.Literal("prune") }),
-	Schema.Struct({
-		type: Schema.Literal("protocol_stream"),
-		id: NonEmptyString,
-		afterSequence: optional(NonNegativeInteger),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("protocol_request"),
-		id: NonEmptyString,
-		request: clientRequestSchema,
-	}),
-]);
-
-export const runResponseSchema = Schema.Union([
-	Schema.Struct({
-		type: Schema.Literal("spawn_result"),
-		ok: Schema.Literal(true),
-		run: runRecordSchema,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("list_result"),
-		ok: Schema.Literal(true),
-		runs: Schema.Array(runRecordSchema),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("status_result"),
-		ok: Schema.Literal(true),
-		run: optional(runRecordSchema),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("stop_result"),
-		ok: Schema.Literal(true),
-		id: Schema.String,
-		run: optional(runRecordSchema),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("prune_result"),
-		ok: Schema.Literal(true),
-		removed: Schema.Array(runRecordSchema),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("protocol_ready"),
-		ok: Schema.Literal(true),
-		run: optional(runRecordSchema),
-	}),
-	Schema.Struct({
-		type: Schema.Literal("protocol_response"),
-		record: Schema.Unknown,
-	}),
-	Schema.Struct({
-		type: Schema.Literal("error"),
-		ok: Schema.Literal(false),
-		error: Schema.String,
-	}),
-]);
-
-export type RunSpawnOptions = typeof runSpawnOptionsSchema.Type;
-export type RunRequest = typeof runRequestSchema.Type;
-export type RunResponse = typeof runResponseSchema.Type;
-
-export interface RunStore {
-	readonly list: () => Promise<readonly RunRecord[]>;
-	readonly get: (id: string) => Promise<RunRecord | undefined>;
-	readonly upsert: (record: RunRecord) => Promise<void>;
-	readonly remove: (id: string) => Promise<void>;
-	readonly recoverAfterRestart: () => Promise<void>;
+export interface RunSpawnOptions {
+	readonly cwd?: string;
+	readonly label?: string;
+	readonly sessionId?: string;
+	readonly workflowPath?: string;
 }
 
 export interface RunRegistryRuntime {
@@ -187,21 +73,10 @@ interface LiveRun {
 	readonly process: RunProcessInstance;
 	readonly events: EventHub<ServerRecord>;
 	readonly cleanup: () => void;
-	history?: WriteStream | undefined;
-	historyWrite: Promise<void>;
+	historyWriter?: RunHistoryWriter | undefined;
 }
 
-const clone = (record: RunRecord): RunRecord => ({
-	...record,
-});
-
 const noop = () => {};
-
-const trimTail = (value: string, maxBytes: number): string => {
-	const bytes = new TextEncoder().encode(value);
-	if (bytes.length <= maxBytes) return value;
-	return new TextDecoder().decode(bytes.slice(bytes.length - maxBytes));
-};
 
 const makeRequest = (command: ClientRequest["command"]): ClientRequest => ({
 	protocol: sessionProtocolVersion,
@@ -247,144 +122,6 @@ const childArgs = (options: RunSpawnOptions): readonly string[] => {
 		args.push("--workflow", options.workflowPath);
 	return args;
 };
-
-const stripTrailingNuls = (text: string): string => {
-	let end = text.length;
-	while (end > 0 && text.charCodeAt(end - 1) === 0) end--;
-	return text.slice(0, end);
-};
-
-const parseRunStoreJson = (text: string): readonly RunRecord[] => {
-	const value = JSON.parse(stripTrailingNuls(text)) as unknown;
-	if (Array.isArray(value)) {
-		for (const row of value) {
-			if (!isRecord(row)) continue;
-			delete row["eventLogPath"];
-		}
-	}
-	return decodeRunRecords(value);
-};
-
-const readJson = async (path: string): Promise<readonly RunRecord[]> => {
-	let text: string;
-	try {
-		text = await readFile(path, "utf8");
-	} catch (error) {
-		if (hasErrnoCode(error, "ENOENT")) return [];
-		throw error;
-	}
-	try {
-		return parseRunStoreJson(text);
-	} catch (error) {
-		const lastCompleteRecord = stripTrailingNuls(text).lastIndexOf("\n  }");
-		if (lastCompleteRecord === -1) throw error;
-		return parseRunStoreJson(`${text.slice(0, lastCompleteRecord + 4)}\n]\n`);
-	}
-};
-
-export const createFileRunStore = (path: string): RunStore => {
-	let pendingWrite: Promise<void> = Promise.resolve();
-	const mutate = async (work: () => Promise<void>) => {
-		const next = pendingWrite.then(work, work);
-		pendingWrite = next.catch(() => undefined);
-		await next;
-	};
-	const writeRecords = async (records: readonly RunRecord[]) => {
-		await mkdir(dirname(path), { recursive: true });
-		const tmp = `${path}.${process.pid}.tmp`;
-		await writeFile(tmp, `${JSON.stringify(records, null, 2)}\n`);
-		await rename(tmp, path);
-	};
-	return {
-		list: async () => readJson(path),
-		get: async (id) =>
-			(await readJson(path)).find((record) => record.id === id),
-		upsert: (record) =>
-			mutate(async () => {
-				const records = [...(await readJson(path))];
-				const index = records.findIndex((item) => item.id === record.id);
-				if (index === -1) records.push(record);
-				else records[index] = record;
-				await writeRecords(records);
-			}),
-		remove: (id) =>
-			mutate(async () => {
-				await writeRecords(
-					(await readJson(path)).filter((record) => record.id !== id),
-				);
-			}),
-		recoverAfterRestart: () =>
-			mutate(async () => {
-				const recoveredAt = new Date().toISOString();
-				await writeRecords(
-					(await readJson(path)).map((record) => ({
-						...record,
-						status:
-							record.status === "online" || record.status === "starting"
-								? "stopped"
-								: record.status,
-						lastSeenAt: recoveredAt,
-					})),
-				);
-			}),
-	};
-};
-
-export const createMemoryRunStore = (
-	initial: readonly RunRecord[] = [],
-): RunStore => {
-	const records = new Map(initial.map((record) => [record.id, clone(record)]));
-	return {
-		list: async () => [...records.values()].map(clone),
-		get: async (id) => {
-			const record = records.get(id);
-			return record === undefined ? undefined : clone(record);
-		},
-		upsert: async (record) => {
-			records.set(record.id, clone(record));
-		},
-		remove: async (id) => {
-			records.delete(id);
-		},
-		recoverAfterRestart: async () => {
-			const lastSeenAt = new Date().toISOString();
-			for (const [id, record] of records)
-				records.set(id, {
-					...record,
-					status:
-						record.status === "online" || record.status === "starting"
-							? "stopped"
-							: record.status,
-					lastSeenAt,
-				});
-		},
-	};
-};
-
-export const decodeRunRequest = (value: unknown): RunRequest =>
-	decodeBoundary(runRequestSchema, value);
-export const decodeRunResponse = (value: unknown): RunResponse =>
-	decodeBoundary(runResponseSchema, value);
-
-const historySkippedAgentEventTypes = new Set([
-	"thinking_delta",
-	"text_delta",
-	"message_delta",
-	"message_partial",
-	"toolcall_delta",
-]);
-
-const agentEventType = (event: unknown): string | undefined => {
-	if (!isRecord(event)) return undefined;
-	const update = event["assistantMessageEvent"];
-	const nested = isRecord(update) ? update["type"] : undefined;
-	const type = nested ?? event["type"];
-	return typeof type === "string" ? type : undefined;
-};
-
-const shouldWriteHistory = (record: EventServerRecord): boolean =>
-	record.event.kind !== "agent_event" ||
-	!historySkippedAgentEventTypes.has(agentEventType(record.event.event) ?? "");
 
 export class RunRegistry implements RunRegistryRuntime {
 	private readonly live = new Map<string, LiveRun>();
@@ -461,8 +198,6 @@ export class RunRegistry implements RunRegistryRuntime {
 			: runHistoryPath(this.options.historyDir, id);
 	}
 
-	// ponytail: history still grows unboundedly per run; add snapshot rotation when
-	// compacted files actually hurt.
 	private async appendHistory(
 		live: LiveRun,
 		record: EventServerRecord,
@@ -470,33 +205,13 @@ export class RunRegistry implements RunRegistryRuntime {
 		if (!shouldWriteHistory(record)) return;
 		const path = this.historyPath(live.record.id);
 		if (path === undefined) return;
-		live.historyWrite = live.historyWrite
-			.then(async () => {
-				if (live.history === undefined) {
-					await mkdir(dirname(path), { recursive: true });
-					live.history = createWriteStream(path, { flags: "a" });
-					live.history.on("error", () => {
-						// History is best-effort; a full disk must not kill the run.
-						live.history = undefined;
-					});
-				}
-				const history = live.history;
-				if (history === undefined) return;
-				await new Promise<void>((resolve) => {
-					history.write(`${JSON.stringify(record.event)}\n`, () => resolve());
-				});
-				return undefined;
-			})
-			.catch(noop);
-		await live.historyWrite;
+		live.historyWriter ??= createRunHistoryWriter(path);
+		await live.historyWriter.append(record.event);
 	}
 
 	private async closeHistory(live: LiveRun): Promise<void> {
-		await live.historyWrite.catch(noop);
-		const history = live.history;
-		if (history === undefined) return;
-		await new Promise<void>((resolve) => history.end(resolve));
-		live.history = undefined;
+		await live.historyWriter?.close();
+		live.historyWriter = undefined;
 	}
 
 	async recoverAfterRestart(): Promise<void> {
@@ -539,7 +254,6 @@ export class RunRegistry implements RunRegistryRuntime {
 			process,
 			events,
 			cleanup: () => cleanup(),
-			historyWrite: Promise.resolve(),
 		};
 		const unsubscribes = [
 			process.onRecord((serverRecord) =>
@@ -562,7 +276,7 @@ export class RunRegistry implements RunRegistryRuntime {
 			await this.send(live, makeRequest("start"));
 			await this.syncRunRecord(live);
 			await this.setStatus(live, "online");
-			return clone(live.record);
+			return cloneRunRecord(live.record);
 		} catch (error) {
 			await this.markError(live, error);
 			throw error;
@@ -612,7 +326,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		await this.closeHistory(live);
 		this.live.delete(id);
 		await this.update(live, { status: "stopped" });
-		return clone(live.record);
+		return cloneRunRecord(live.record);
 	}
 
 	async list(): Promise<readonly RunRecord[]> {
@@ -621,12 +335,14 @@ export class RunRegistry implements RunRegistryRuntime {
 		);
 		for (const live of this.live.values())
 			records.set(live.record.id, live.record);
-		return [...records.values()].map(clone);
+		return [...records.values()].map(cloneRunRecord);
 	}
 
 	async status(id: string): Promise<RunRecord | undefined> {
 		const live = this.live.get(id);
-		return live === undefined ? this.options.store.get(id) : clone(live.record);
+		return live === undefined
+			? this.options.store.get(id)
+			: cloneRunRecord(live.record);
 	}
 
 	async *attachRecords(
@@ -657,7 +373,7 @@ export class RunRegistry implements RunRegistryRuntime {
 			await this.options.store.remove(record.id);
 			const history = this.historyPath(record.id);
 			if (history !== undefined) await rm(history, { force: true });
-			removed.push(clone(record));
+			removed.push(cloneRunRecord(record));
 		}
 		return removed;
 	}

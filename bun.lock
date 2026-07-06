@@ -34,6 +34,7 @@
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/projection": "workspace:*",
+        "@plot/registry": "workspace:*",
         "@plot/session": "workspace:*",
         "@plot/tui": "workspace:*",
         "citty": "^0.1.6",
@@ -52,6 +53,16 @@
       "name": "@plot/projection",
       "dependencies": {
         "@plot/common": "workspace:*",
+      },
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
+    "packages/registry": {
+      "name": "@plot/registry",
+      "dependencies": {
+        "@plot/common": "workspace:*",
+        "@plot/session": "workspace:*",
       },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
@@ -85,6 +96,7 @@
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/projection": "workspace:*",
+        "@plot/registry": "workspace:*",
         "@plot/session": "workspace:*",
         "get-east-asian-width": "1.6.0",
       },
@@ -100,7 +112,7 @@
         "@nanostores/react": "^1.1.0",
         "@phosphor-icons/react": "^2.1.10",
         "@plot/projection": "workspace:*",
-        "@plot/session": "workspace:*",
+        "@plot/registry": "workspace:*",
         "@tailwindcss/vite": "^4.3.1",
         "@vitejs/plugin-react": "latest",
         "clsx": "^2.1.1",
@@ -336,6 +348,8 @@
     "@plot/common": ["@plot/common@workspace:packages/common"],
 
     "@plot/projection": ["@plot/projection@workspace:packages/projection"],
+
+    "@plot/registry": ["@plot/registry@workspace:packages/registry"],
 
     "@plot/sdk": ["@plot/sdk@workspace:packages/sdk"],
 

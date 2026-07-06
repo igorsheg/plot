@@ -6,23 +6,116 @@ import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import {
 	RunRegistry,
-	createFileRunStore,
-	decodeRunRequest,
-	decodeRunResponse,
-	type RunRecord,
 	type RunRegistryRuntime,
-	type RunRequest,
-	type RunResponse,
 	type RunSpawnOptions,
-} from "./run-registry.js";
+} from "./supervisor.js";
+import { createFileRunStore } from "./store.js";
+import type { RunRecord } from "./record.js";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
-import { errorMessage } from "@plot/common/primitives";
+import { errorMessage, isRecord } from "@plot/common/primitives";
 import {
-	decodeServerRecord,
 	defaultProtocolLimits,
 	type ClientRequest,
 	type ServerRecord,
-} from "./protocol.js";
+} from "@plot/session/protocol";
+
+export type RunRequest =
+	| { readonly type: "spawn"; readonly options?: RunSpawnOptions }
+	| { readonly type: "list" }
+	| { readonly type: "status"; readonly id: string }
+	| { readonly type: "stop"; readonly id: string }
+	| { readonly type: "prune" }
+	| {
+			readonly type: "protocol_stream";
+			readonly id: string;
+			readonly afterSequence?: number;
+	  }
+	| {
+			readonly type: "protocol_request";
+			readonly id: string;
+			readonly request: ClientRequest;
+	  };
+
+export type RunResponse =
+	| {
+			readonly type: "spawn_result";
+			readonly ok: true;
+			readonly run: RunRecord;
+	  }
+	| {
+			readonly type: "list_result";
+			readonly ok: true;
+			readonly runs: readonly RunRecord[];
+	  }
+	| {
+			readonly type: "status_result";
+			readonly ok: true;
+			readonly run?: RunRecord;
+	  }
+	| {
+			readonly type: "stop_result";
+			readonly ok: true;
+			readonly id: string;
+			readonly run?: RunRecord;
+	  }
+	| {
+			readonly type: "prune_result";
+			readonly ok: true;
+			readonly removed: readonly RunRecord[];
+	  }
+	| {
+			readonly type: "protocol_ready";
+			readonly ok: true;
+			readonly run?: RunRecord;
+	  }
+	| { readonly type: "protocol_response"; readonly record: unknown }
+	| { readonly type: "error"; readonly ok: false; readonly error: string };
+
+const runRequestTypes = new Set([
+	"spawn",
+	"list",
+	"status",
+	"stop",
+	"prune",
+	"protocol_stream",
+	"protocol_request",
+]);
+
+const runResponseTypes = new Set([
+	"spawn_result",
+	"list_result",
+	"status_result",
+	"stop_result",
+	"prune_result",
+	"protocol_ready",
+	"protocol_response",
+	"error",
+]);
+
+/** The registry socket is a trusted local boundary: discriminant check, then cast. */
+export const decodeRunRequest = (value: unknown): RunRequest => {
+	if (
+		!isRecord(value) ||
+		typeof value["type"] !== "string" ||
+		!runRequestTypes.has(value["type"])
+	)
+		throw new Error(
+			`unknown run request: ${JSON.stringify(value)?.slice(0, 200)}`,
+		);
+	return value as unknown as RunRequest;
+};
+
+export const decodeRunResponse = (value: unknown): RunResponse => {
+	if (
+		!isRecord(value) ||
+		typeof value["type"] !== "string" ||
+		!runResponseTypes.has(value["type"])
+	)
+		throw new Error(
+			`unknown run response: ${JSON.stringify(value)?.slice(0, 200)}`,
+		);
+	return value as unknown as RunResponse;
+};
 
 export interface RunIpcOptions {
 	readonly cwd: string;
@@ -284,7 +377,7 @@ export const createRunIpcClient = (
 			});
 			if (response.type !== "protocol_response")
 				throw new Error(`unexpected IPC response: ${response.type}`);
-			return decodeServerRecord(response.record);
+			return response.record as ServerRecord;
 		},
 		attachRecords: async function* (
 			id: string,
@@ -312,7 +405,7 @@ export const createRunIpcClient = (
 						continue;
 					}
 					if (response.type === "protocol_response")
-						yield decodeServerRecord(response.record);
+						yield response.record as ServerRecord;
 				}
 			} finally {
 				socket.end();

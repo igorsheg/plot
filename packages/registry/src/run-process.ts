@@ -1,12 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
-import { decodeServerRecordLine } from "./protocol-codec.js";
+import { decodeServerRecordLine } from "@plot/session/protocol-codec";
 import {
 	defaultProtocolLimits,
 	type ClientRequest,
 	type ServerRecord,
-} from "./protocol.js";
+} from "@plot/session/protocol";
 
 export interface RunChildProcess {
 	readonly pid?: number;
@@ -27,7 +27,7 @@ async function* emptyAsyncIterable(): AsyncIterable<string | Uint8Array> {}
 const toError = (error: unknown): Error =>
 	error instanceof Error ? error : new Error(String(error));
 
-const trimTail = (value: string, maxBytes: number): string => {
+export const trimTail = (value: string, maxBytes: number): string => {
 	const bytes = new TextEncoder().encode(value);
 	if (bytes.length <= maxBytes) return value;
 	return new TextDecoder().decode(bytes.slice(bytes.length - maxBytes));

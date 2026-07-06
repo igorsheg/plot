@@ -5,12 +5,9 @@ import { errorMessage, writeCliStderr } from "../io.js";
 import { str } from "../options.js";
 import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
 import { defaultProtocolLimits } from "@plot/session/protocol";
-import type { RunIpcOptions } from "@plot/session/run-ipc";
-import {
-	resolveRunIpcSocketPath,
-	sendRunIpcRequest,
-} from "@plot/session/run-ipc";
-import type { RunRequest } from "@plot/session/run-registry";
+import type { RunIpcOptions } from "@plot/registry/ipc";
+import { resolveRunIpcSocketPath, sendRunIpcRequest } from "@plot/registry/ipc";
+import type { RunRequest } from "@plot/registry/ipc";
 import { formatRunResponse } from "../run-output.js";
 
 const runIpcOptions = (_args: ParsedArgs): RunIpcOptions => ({

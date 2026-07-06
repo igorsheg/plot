@@ -4,7 +4,7 @@ import { pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
-import { startRunIpcServer } from "@plot/session/run-ipc";
+import { startRunIpcServer } from "@plot/registry/ipc";
 
 const serveRegistry = async (input: {
 	readonly cwd: string;

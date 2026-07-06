@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { startRunIpcServer } from "@plot/session/run-ipc";
-import type { RunRecord, RunRegistryRuntime } from "@plot/session/run-registry";
+import { startRunIpcServer } from "@plot/registry/ipc";
+import type { RunRecord } from "@plot/registry/record";
+import type { RunRegistryRuntime } from "@plot/registry/supervisor";
 import {
 	runTranscriptResponse,
 	startPlotWebGateway,

@@ -1,13 +1,14 @@
 {
-	"name": "@plot/cli",
+	"name": "@plot/registry",
 	"private": true,
-	"bin": {
-		"plot": "./src/main.ts"
-	},
 	"type": "module",
+	"sideEffects": false,
 	"exports": {
-		"./cli": "./src/cli.ts",
-		"./runtime": "./src/runtime.ts"
+		"./history": "./src/history.ts",
+		"./ipc": "./src/ipc.ts",
+		"./record": "./src/record.ts",
+		"./store": "./src/store.ts",
+		"./supervisor": "./src/supervisor.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -16,11 +17,7 @@
 	},
 	"dependencies": {
 		"@plot/common": "workspace:*",
-		"@plot/projection": "workspace:*",
-		"@plot/registry": "workspace:*",
-		"@plot/session": "workspace:*",
-		"@plot/tui": "workspace:*",
-		"citty": "^0.1.6"
+		"@plot/session": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

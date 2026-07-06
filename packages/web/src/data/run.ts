@@ -1,13 +1,16 @@
-import { runRecordSchema, type RunRecord } from "@plot/session/run-record";
-import { Option, Schema } from "effect";
+import type { RunRecord } from "@plot/registry/record";
 import { asRecord } from "./parse.js";
 
 export type PlotRun = RunRecord;
 
-const decodeRun = Schema.decodeUnknownOption(runRecordSchema);
-
-const parseRun = (value: unknown): PlotRun | undefined =>
-	Option.getOrUndefined(decodeRun(value));
+const parseRun = (value: unknown): PlotRun | undefined => {
+	const record = asRecord(value);
+	if (record === undefined) return undefined;
+	if (typeof record["id"] !== "string") return undefined;
+	if (typeof record["status"] !== "string") return undefined;
+	if (typeof record["cwd"] !== "string") return undefined;
+	return record as unknown as PlotRun;
+};
 
 export const parsePlotRuns = (value: unknown): readonly PlotRun[] => {
 	const record = asRecord(value);

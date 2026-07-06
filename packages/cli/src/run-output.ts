@@ -1,4 +1,5 @@
-import type { RunRecord, RunResponse } from "@plot/session/run-registry";
+import type { RunResponse } from "@plot/registry/ipc";
+import type { RunRecord } from "@plot/registry/record";
 
 const agoOf = (record: RunRecord, nowMs: number): string => {
 	const ms = Date.parse(record.lastSeenAt ?? record.createdAt);

@@ -5,14 +5,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
-import {
-	RunRegistry,
-	createFileRunStore,
-	createMemoryRunStore,
-	decodeRunRequest,
-	readRunHistory,
-	runHistoryPath,
-} from "../src/run-registry.js";
+import { readRunHistory, runHistoryPath } from "../src/history.js";
+import { decodeRunRequest } from "../src/ipc.js";
+import { RunRegistry } from "../src/supervisor.js";
+import { createFileRunStore, createMemoryRunStore } from "../src/store.js";
 import type { RunChildProcess } from "../src/run-process.js";
 import {
 	openRunIpc,
@@ -20,12 +16,12 @@ import {
 	startRunIpcDaemon,
 	sendRunIpcRequest,
 	startRunIpcServer,
-} from "../src/run-ipc.js";
+} from "../src/ipc.js";
 import {
 	decodeClientRequestLine,
 	encodeServerRecordLine,
-} from "../src/protocol-codec.js";
-import type { ServerRecord } from "../src/protocol.js";
+} from "@plot/session/protocol-codec";
+import type { ServerRecord } from "@plot/session/protocol";
 
 class FakeChild implements RunChildProcess {
 	readonly pid = 123;
@@ -81,8 +77,8 @@ class FakeChild implements RunChildProcess {
 	}
 }
 
-test("runRegistry rejects invalid IPC shapes at the boundary", () => {
-	expect(() => decodeRunRequest({ type: "status" })).toThrow();
+test("runRegistry rejects invalid IPC discriminants at the boundary", () => {
+	expect(() => decodeRunRequest({ type: "wat" })).toThrow();
 	expect(() => decodeRunRequest({ type: "status", id: "run-1" })).not.toThrow();
 });
 
