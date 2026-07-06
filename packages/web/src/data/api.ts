@@ -8,28 +8,8 @@ import type {
 	TokenSample,
 	WorkItemProjection,
 } from "@plot/projection";
-import {
-	asNumber,
-	asRecord,
-	asString,
-	asStringArray,
-	type UnknownRecord,
-} from "./parse.js";
+import { asNumber, asRecord, asString, asStringArray } from "./parse.js";
 import { parsePlotRuns, type PlotRun } from "./run.js";
-
-export interface PlotEventRecord {
-	readonly kind: "event";
-	readonly event: UnknownRecord & {
-		readonly sequence: number;
-		readonly timestamp: string;
-		readonly type?: string | undefined;
-	};
-}
-
-export interface RunCatalogEvent {
-	readonly kind: "runs";
-	readonly runs: readonly PlotRun[];
-}
 
 export type WebActivityEntry = ActivityEntry;
 export type WebDashboardProjection = SerializedDashboardProjection;
@@ -88,35 +68,6 @@ const parseActivity = (value: unknown): readonly WebActivityEntry[] =>
 					: [];
 			})
 		: [];
-
-export const parsePlotEventRecord = (
-	value: unknown,
-): PlotEventRecord | undefined => {
-	const record = asRecord(value);
-	if (record?.["kind"] !== "event") return undefined;
-	const event = asRecord(record["event"]);
-	const sequence = asNumber(event?.["sequence"]);
-	const timestamp = asString(event?.["timestamp"]);
-	if (
-		event === undefined ||
-		sequence === undefined ||
-		timestamp === undefined
-	) {
-		return undefined;
-	}
-	return {
-		kind: "event",
-		event: { ...event, sequence, timestamp, type: asString(event["type"]) },
-	};
-};
-
-export const parseRunCatalogEvent = (
-	value: unknown,
-): RunCatalogEvent | undefined => {
-	const record = asRecord(value);
-	if (record?.["kind"] !== "runs") return undefined;
-	return { kind: "runs", runs: parsePlotRuns(record["runs"]) };
-};
 
 export const parseProjection = (
 	value: unknown,
@@ -224,8 +175,3 @@ export const fetchRunProjection = async (
 	key: string,
 ): Promise<WebDashboardProjection> =>
 	fetchRunProjectionUrl(`/api/runs/${encodeURIComponent(key)}/projection`);
-
-export const runCatalogEventsUrl = (): string => "/api/runs/events";
-
-export const runEventsUrl = (key: string, after: number): string =>
-	`/api/runs/${encodeURIComponent(key)}/events?after=${after}`;
