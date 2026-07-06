@@ -64,42 +64,26 @@ export const renderAuthStatus = (statuses: readonly AuthStatusInfo[]) =>
 				]),
 			])}\n`;
 
-const textFromContent = (content: unknown): string =>
-	typeof content === "string"
-		? content
-		: Array.isArray(content)
-			? content
-					.flatMap((b) =>
-						isRecord(b) && b["type"] === "text" && typeof b["text"] === "string"
-							? [b["text"]]
-							: [],
-					)
-					.join("\n")
-			: "";
-
-const collectTextBlocks = (value: unknown): readonly string[] => {
-	if (isRecord(value)) {
-		if (value["type"] === "text" && typeof value["text"] === "string")
-			return [value["text"]];
-		return Object.values(value).flatMap(collectTextBlocks);
-	}
-	return Array.isArray(value) ? value.flatMap(collectTextBlocks) : [];
-};
-
 const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
-	if (!isRecord(event)) return undefined;
-	if (!Array.isArray(event["messages"])) {
-		const fallback = collectTextBlocks(event).join("\n").trim();
-		return fallback.length ? fallback : undefined;
-	}
+	if (!isRecord(event) || !Array.isArray(event["messages"])) return undefined;
 	const assistant = event["messages"].findLast(
 		(m) => isRecord(m) && m["role"] === "assistant",
 	);
 	if (!isRecord(assistant)) return undefined;
-	const text = textFromContent(assistant["content"]).trim();
-	if (text.length) return text;
-	const fallback = collectTextBlocks(assistant).join("\n").trim();
-	return fallback.length ? fallback : undefined;
+	const content = assistant["content"];
+	if (typeof content === "string") return content.trim() || undefined;
+	if (!Array.isArray(content)) return undefined;
+	const text = content
+		.flatMap((block) =>
+			isRecord(block) &&
+			block["type"] === "text" &&
+			typeof block["text"] === "string"
+				? [block["text"]]
+				: [],
+		)
+		.join("\n")
+		.trim();
+	return text.length ? text : undefined;
 };
 
 export const renderRunEvent = (record: RuntimeEvent): string | undefined => {

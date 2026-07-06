@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runPlotCli } from "../src/cli.js";
 import { selectOptionId } from "../src/commands/auth.js";
-import { renderModels } from "../src/render.js";
+import { renderModels, renderRunEvent } from "../src/render.js";
 import {
 	flushRawStdout,
 	restoreStdout,
@@ -401,6 +401,21 @@ describe("plot CLI", () => {
 		expect(output).toContain("plot-ai/sdk");
 		expect(output).toContain("definePlotExtension");
 		expect(output).toContain("Do not import Plot internals");
+	});
+
+	test("run output renders only the last assistant message content", () => {
+		expect(
+			renderRunEvent({
+				kind: "agent_event",
+				event: {
+					type: "agent_end",
+					messages: [
+						{ role: "assistant", content: "old" },
+						{ role: "assistant", content: [{ type: "text", text: "done" }] },
+					],
+				},
+			} as never),
+		).toBe("\nFinal assistant message:\ndone\n\nInner agent finished.\n");
 	});
 
 	test("serves session protocol over API stdio with telemetry on stderr", async () => {
