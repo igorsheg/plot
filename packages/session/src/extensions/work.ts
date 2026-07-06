@@ -1,9 +1,8 @@
 import { isAbsolute } from "node:path";
-import {
-	sourceId,
-	subjectKey,
-	workKey,
-	type WorkRecord,
+import type {
+	OperatorAction,
+	WorkDisplay,
+	WorkRecord,
 } from "@plot/agent/model";
 import { errorMessage, isRecord } from "@plot/common/primitives";
 import { Schema } from "effect";
@@ -130,15 +129,13 @@ const sanitizeIdentifier = (value: string): string => {
 };
 
 export const sourceIdForExtension = (extension: PlotExtension): string =>
-	sourceId(`extension:${sanitizeIdentifier(extension.id)}`);
+	`extension:${sanitizeIdentifier(extension.id)}`;
 
 export const workKeyForExtensionWork = (
 	extension: PlotExtension,
 	work: PlotExtensionWork,
 ): string =>
-	workKey(
-		`extension:${extension.id}:${work.id}:${work.version ?? "unversioned"}`,
-	);
+	`extension:${extension.id}:${work.id}:${work.version ?? "unversioned"}`;
 
 export const discoveredFactKey = (source: string) =>
 	`extension.discovered:${source}`;
@@ -152,8 +149,7 @@ export const isHeld = (work: PlotExtensionWork) =>
 	isBlocked(work) || isWaiting(work);
 export const isCancelled = (work: PlotExtensionWork) =>
 	work.status === "cancelled";
-export const toSubject = (work: PlotExtensionWork) =>
-	subjectKey(work.subject ?? work.id);
+export const toSubject = (work: PlotExtensionWork) => work.subject ?? work.id;
 
 export const decodeDiscoveredWorks = (
 	value: unknown,
@@ -175,6 +171,41 @@ export const decodeStoredWorks = (
 ): readonly PlotExtensionWork[] =>
 	value === undefined ? [] : decodeDiscoveredWorks(value, undefined);
 
+export const agentDisplayFor = (
+	display: NonNullable<PlotExtensionWork["display"]>,
+): WorkDisplay => {
+	const clean: WorkDisplay = {};
+	if (display.kind !== undefined) clean.kind = display.kind;
+	if (display.primary !== undefined) clean.primary = display.primary;
+	if (display.title !== undefined) clean.title = display.title;
+	if (display.subtitle !== undefined) clean.subtitle = display.subtitle;
+	if (display.url !== undefined) clean.url = display.url;
+	if (display.version !== undefined) clean.version = display.version;
+	if (display.labels !== undefined) clean.labels = [...display.labels];
+	return clean;
+};
+
+export const agentOperatorActionsFor = (
+	actions: NonNullable<PlotExtensionWork["operatorActions"]>,
+): OperatorAction[] =>
+	actions.map((action) => {
+		const clean: OperatorAction = { id: action.id, label: action.label };
+		if (action.tone !== undefined) clean.tone = action.tone;
+		if (action.disabledReason !== undefined)
+			clean.disabledReason = action.disabledReason;
+		if (action.requiresComment !== undefined)
+			clean.requiresComment = action.requiresComment;
+		if (action.confirm !== undefined) {
+			const confirm: NonNullable<OperatorAction["confirm"]> = {
+				title: action.confirm.title,
+			};
+			if (action.confirm.message !== undefined)
+				confirm.message = action.confirm.message;
+			clean.confirm = confirm;
+		}
+		return clean;
+	});
+
 export const workRecordFor = (
 	extension: PlotExtension,
 	source: string,
@@ -188,11 +219,12 @@ export const workRecordFor = (
 		status,
 		subject: toSubject(work),
 	};
-	if (work.display !== undefined) record.display = work.display;
+	if (work.display !== undefined)
+		record.display = agentDisplayFor(work.display);
 	if (work.blockedReason !== undefined)
 		record.blockedReason = work.blockedReason;
 	if (work.operatorActions !== undefined)
-		record.operatorActions = work.operatorActions;
+		record.operatorActions = agentOperatorActionsFor(work.operatorActions);
 	if (currentRunId !== undefined) record.currentRunId = currentRunId;
 	return record;
 };

@@ -1,6 +1,6 @@
 import { basename, resolve } from "node:path";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import { setFact, sourceId, subjectKey, workKey } from "@plot/agent/model";
+import { setFact } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { createSessionId } from "./runtime-event.js";
@@ -82,9 +82,9 @@ export class SessionHostError extends Error {
 	}
 }
 
-const workflowSourceId = sourceId("workflow");
-const workflowSubject = subjectKey("workflow");
-const workflowWorkKey = workKey("workflow:default");
+const workflowSourceId = "workflow";
+const workflowSubject = "workflow";
+const workflowWorkKey = "workflow:default";
 const workflowCompletedFact = "workflow:default:completed";
 
 const positiveInteger = (value: number, field: string): number => {

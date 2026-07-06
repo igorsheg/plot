@@ -3,12 +3,9 @@ import {
 	interruptWork,
 	removeWork,
 	scheduleWake,
-	sourceId,
 	PlotAgentError,
 	upsertWork,
 	setFact,
-	subjectKey,
-	workKey,
 } from "../src/model.js";
 import {
 	makePlotAgentLayer,
@@ -71,14 +68,14 @@ const succeedRunner = (calls: string[] = []): WorkRunner => ({
 });
 
 const makeAgent = (
-	sources: readonly WorkSource[],
+	sources: WorkSource[],
 	runner: WorkRunner = succeedRunner(),
 	options: Omit<PlotAgentLayerOptions, "sources" | "runner"> = {},
 ) => makePlotAgentLayer({ ...options, sources, runner });
 
 const makeWorkSource = (id: string, key: string): WorkSource => ({
-	id: sourceId(id),
-	selectWork: () => [{ workKey: workKey(key) }],
+	id: id,
+	selectWork: () => [{ workKey: key }],
 });
 
 describe("task-agnostic Plot agent", () => {
@@ -97,10 +94,10 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("reconciles observations before selecting work, and completions apply on the next reconciliation", async () => {
-		const subject = subjectKey("work-1");
-		const key = workKey("review:work-1:v1");
+		const subject = "work-1";
+		const key = "review:work-1:v1";
 		const source: WorkSource = {
-			id: sourceId("demo"),
+			id: "demo",
 			observeTick: () => [{ type: "seen", subject }],
 			reconcile: ({ snapshot }) => [
 				...snapshot.observations.map((observation) =>
@@ -137,9 +134,9 @@ describe("task-agnostic Plot agent", () => {
 
 	test("tickOnce starts long runner work without waiting for completion", async () => {
 		const release = deferred<string>();
-		const key = workKey("slow:1");
+		const key = "slow:1";
 		const source: WorkSource = {
-			id: sourceId("slow-source"),
+			id: "slow-source",
 			selectWork: () => [{ workKey: key }],
 		};
 		const runner: WorkRunner = {
@@ -162,10 +159,10 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("runner observations reenter the mailbox for source reconciliation", async () => {
-		const subject = subjectKey("agent:turn:1");
-		const key = workKey("agent:turn:1");
+		const subject = "agent:turn:1";
+		const key = "agent:turn:1";
 		const source: WorkSource = {
-			id: sourceId("agent-source"),
+			id: "agent-source",
 			reconcile: ({ snapshot }) =>
 				snapshot.observations.map((observation) =>
 					setFact(
@@ -200,7 +197,7 @@ describe("task-agnostic Plot agent", () => {
 		let observations = 0;
 		const secondTick = deferred<number>();
 		const source: WorkSource = {
-			id: sourceId("cadence-source"),
+			id: "cadence-source",
 			observeTick: () => {
 				observations += 1;
 				if (observations === 2) secondTick.resolve(observations);
@@ -218,7 +215,7 @@ describe("task-agnostic Plot agent", () => {
 		let ticks = 0;
 		const secondTick = deferred<number>();
 		const source: WorkSource = {
-			id: sourceId("wake-source"),
+			id: "wake-source",
 			observeTick: () => {
 				ticks += 1;
 				if (ticks === 2) secondTick.resolve(ticks);
@@ -229,7 +226,7 @@ describe("task-agnostic Plot agent", () => {
 					? [
 							scheduleWake(50, {
 								reason: "retry later",
-								workKey: workKey("wake-source:item:1"),
+								workKey: "wake-source:item:1",
 								attempt: 4,
 							}),
 						]
@@ -262,9 +259,9 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("actor run consumes queued wake sources and owns the agent", async () => {
-		const subject = subjectKey("actor:1");
+		const subject = "actor:1";
 		const source: WorkSource = {
-			id: sourceId("actor-source"),
+			id: "actor-source",
 			observeTick: () => [{ type: "actor-seen", subject }],
 			reconcile: ({ snapshot }) =>
 				snapshot.observations.map((o) => setFact(`seen:${o.subject}`, true)),
@@ -285,11 +282,11 @@ describe("task-agnostic Plot agent", () => {
 
 	test("sources select work while the runner owns inner agent execution", async () => {
 		const ready = { provider: "anthropic", model: "claude-opus-4-8" };
-		const pr = subjectKey("github:acme/web:pr:42");
-		const key = workKey("review:github:acme/web:pr:42:sha-1");
+		const pr = "github:acme/web:pr:42";
+		const key = "review:github:acme/web:pr:42:sha-1";
 		const calls: unknown[] = [];
 		const source: WorkSource = {
-			id: sourceId("github"),
+			id: "github",
 			reconcile: () => [setFact("ready", ready)],
 			selectWork: ({ snapshot }) =>
 				snapshot.facts.get("ready")
@@ -334,15 +331,15 @@ describe("task-agnostic Plot agent", () => {
 
 	test("per-source concurrency caps dispatch independently of global capacity", async () => {
 		const release = deferred<void>();
-		const slow = workKey("aaa-slow");
-		const fast = workKey("fast");
+		const slow = "aaa-slow";
+		const fast = "fast";
 		const sourceA: WorkSource = {
-			id: sourceId("a"),
+			id: "a",
 			policy: { maxConcurrentRuns: 1 },
-			selectWork: () => [{ workKey: slow }, { workKey: workKey("blocked") }],
+			selectWork: () => [{ workKey: slow }, { workKey: "blocked" }],
 		};
 		const sourceB: WorkSource = {
-			id: sourceId("b"),
+			id: "b",
 			selectWork: () => [{ workKey: fast }],
 		};
 		const runner: WorkRunner = {
@@ -360,9 +357,7 @@ describe("task-agnostic Plot agent", () => {
 	test("setup rejects invalid per-source concurrency caps", async () => {
 		let error: unknown;
 		try {
-			makeAgent([
-				{ id: sourceId("bad-source"), policy: { maxConcurrentRuns: 0 } },
-			]);
+			makeAgent([{ id: "bad-source", policy: { maxConcurrentRuns: 0 } }]);
 		} catch (e) {
 			error = e;
 		}
@@ -372,9 +367,9 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("completion does not make work terminal; sources own rerun semantics", async () => {
-		const key = workKey("rerun:1");
+		const key = "rerun:1";
 		const source: WorkSource = {
-			id: sourceId("rerun"),
+			id: "rerun",
 			selectWork: () => [{ workKey: key }],
 		};
 		const agent = makeAgent([source]);
@@ -386,12 +381,12 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("sources can interrupt running work without owning runner fibers", async () => {
-		const key = workKey("interrupt:1");
+		const key = "interrupt:1";
 		const started = deferred<void>();
 		const interrupted = deferred<void>();
 		let shouldInterrupt = false;
 		const source: WorkSource = {
-			id: sourceId("interrupt-source"),
+			id: "interrupt-source",
 			reconcile: () => (shouldInterrupt ? [interruptWork(key, "stop")] : []),
 			selectWork: () => [{ workKey: key }],
 		};
@@ -418,17 +413,17 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("reconciliation cannot erase active running claims", async () => {
-		const subject = subjectKey("claim:1");
-		const key = workKey("claim:1");
+		const subject = "claim:1";
+		const key = "claim:1";
 		let discovered = true;
 		const source: WorkSource = {
-			id: sourceId("claim-source"),
+			id: "claim-source",
 			reconcile: () =>
 				discovered
 					? [
 							upsertWork({
 								workKey: key,
-								sourceId: sourceId("claim-source"),
+								sourceId: "claim-source",
 								status: "pending",
 								subject,
 							}),
@@ -471,10 +466,10 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("reconciliation can release active work when interrupting it", async () => {
-		const key = workKey("release:1");
+		const key = "release:1";
 		let release = false;
 		const source: WorkSource = {
-			id: sourceId("release-source"),
+			id: "release-source",
 			reconcile: () =>
 				release ? [interruptWork(key, "gone"), removeWork(key)] : [],
 			selectWork: ({ snapshot }) =>
@@ -495,14 +490,14 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("reconciliation can mark active superseded work as draining", async () => {
-		const key = workKey("drain:1");
+		const key = "drain:1";
 		let draining = false;
 		const source: WorkSource = {
-			id: sourceId("drain-source"),
+			id: "drain-source",
 			reconcile: () => [
 				upsertWork({
 					workKey: key,
-					sourceId: sourceId("drain-source"),
+					sourceId: "drain-source",
 					status: draining ? "draining" : "pending",
 				}),
 			],
@@ -528,7 +523,7 @@ describe("task-agnostic Plot agent", () => {
 
 	test("runtime snapshot keeps bounded diagnostics history", async () => {
 		const source: WorkSource = {
-			id: sourceId("diagnostic-source"),
+			id: "diagnostic-source",
 			selectWork: () => {
 				throw new Error("too loud");
 			},
@@ -545,10 +540,10 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("run watchdog times out active runner work", async () => {
-		const key = workKey("timeout:1");
+		const key = "timeout:1";
 		const started = deferred<void>();
 		const source: WorkSource = {
-			id: sourceId("timeout-source"),
+			id: "timeout-source",
 			selectWork: ({ snapshot }) =>
 				snapshot.running.has(key) ? [] : [{ workKey: key }],
 		};
@@ -576,9 +571,9 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("status subscribers receive operator-visible agent events", async () => {
-		const key = workKey("status:1");
+		const key = "status:1";
 		const source: WorkSource = {
-			id: sourceId("status-source"),
+			id: "status-source",
 			selectWork: () => [{ workKey: key }],
 		};
 		const agent = makeAgent([source]);
@@ -597,7 +592,7 @@ describe("task-agnostic Plot agent", () => {
 		const entered = deferred<void>();
 		const aborted = deferred<void>();
 		const source: WorkSource = {
-			id: sourceId("shutdown-hook"),
+			id: "shutdown-hook",
 			observeTick: ({ signal }) => {
 				entered.resolve();
 				return new Promise<[]>((resolve) => {
@@ -633,7 +628,7 @@ describe("task-agnostic Plot agent", () => {
 	test("shutdown does not wait for hooks that ignore abort", async () => {
 		const entered = deferred<void>();
 		const source: WorkSource = {
-			id: sourceId("shutdown-stuck-hook"),
+			id: "shutdown-stuck-hook",
 			observeTick: () => {
 				entered.resolve();
 				return never();
@@ -657,11 +652,11 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("shutdown interrupts active runner work and clears running claims", async () => {
-		const key = workKey("shutdown:1");
+		const key = "shutdown:1";
 		const started = deferred<void>();
 		const interrupted = deferred<void>();
 		const source: WorkSource = {
-			id: sourceId("shutdown-source"),
+			id: "shutdown-source",
 			selectWork: () => [{ workKey: key }],
 		};
 		const runner: WorkRunner = {
@@ -688,9 +683,9 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("failed runner work becomes a completion and diagnostic", async () => {
-		const key = workKey("fail:1");
+		const key = "fail:1";
 		const source: WorkSource = {
-			id: sourceId("fail-source"),
+			id: "fail-source",
 			selectWork: () => [{ workKey: key }],
 		};
 		const runner: WorkRunner = {
@@ -711,10 +706,10 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("run lifecycle messages survive a saturated mailbox", async () => {
-		const key = workKey("chatty:1");
+		const key = "chatty:1";
 		const doneFact = "chatty:done";
 		const source: WorkSource = {
-			id: sourceId("chatty"),
+			id: "chatty",
 			reconcile: ({ snapshot }) =>
 				snapshot.completions.some((completion) => completion.workKey === key)
 					? [setFact(doneFact, true)]
@@ -744,13 +739,13 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("sources own retry and backoff decisions from completions", async () => {
-		const key = workKey("flaky:1");
+		const key = "flaky:1";
 		const failedFact = "flaky:failed";
 		const doneFact = "flaky:done";
 		let retryAllowed = false;
 		let runs = 0;
 		const source: WorkSource = {
-			id: sourceId("flaky"),
+			id: "flaky",
 			reconcile: ({ snapshot }) =>
 				snapshot.completions.flatMap((completion) => {
 					if (completion.workKey !== key) return [];
@@ -805,10 +800,10 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("stalled runs are interrupted after the inactivity timeout", async () => {
-		const key = workKey("stalls:1");
+		const key = "stalls:1";
 		let selected = false;
 		const source: WorkSource = {
-			id: sourceId("stalls"),
+			id: "stalls",
 			selectWork: ({ snapshot }) => {
 				if (selected || snapshot.running.has(key)) return [];
 				selected = true;
@@ -831,9 +826,9 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("stall timeout wakes the actor instead of waiting for poll cadence", async () => {
-		const key = workKey("stall-wake:1");
+		const key = "stall-wake:1";
 		const source: WorkSource = {
-			id: sourceId("stall-wake"),
+			id: "stall-wake",
 			selectWork: ({ snapshot }) =>
 				snapshot.running.has(key) ? [] : [{ workKey: key }],
 		};
@@ -862,9 +857,9 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("emitted observations keep an active run alive past the stall timeout", async () => {
-		const key = workKey("alive:1");
+		const key = "alive:1";
 		const source: WorkSource = {
-			id: sourceId("alive"),
+			id: "alive",
 			selectWork: ({ snapshot }) =>
 				snapshot.running.has(key) ? [] : [{ workKey: key }],
 		};
@@ -889,14 +884,14 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("tick result records why selected work was not started", async () => {
-		const slow = workKey("skip:slow");
-		const other = workKey("skip:other");
+		const slow = "skip:slow";
+		const other = "skip:other";
 		const sources: WorkSource[] = [
 			{
-				id: sourceId("skip-a"),
+				id: "skip-a",
 				selectWork: () => [{ workKey: slow }, { workKey: slow }],
 			},
-			{ id: sourceId("skip-b"), selectWork: () => [{ workKey: other }] },
+			{ id: "skip-b", selectWork: () => [{ workKey: other }] },
 		];
 		const runner: WorkRunner = { run: () => never() };
 		const agent = makeAgent(sources, runner, {

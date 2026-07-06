@@ -5,7 +5,7 @@ import {
 	scheduleWake,
 	setFact,
 	upsertWork,
-	workKey,
+	type WorkItem,
 	type WorkRecord,
 } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
@@ -29,6 +29,8 @@ import {
 import { loadPlotExtensionRuntimeFromWorkflow } from "./loader.js";
 import { resolveToolDefinitions } from "./tools.js";
 import {
+	agentDisplayFor,
+	agentOperatorActionsFor,
 	cancelledReason,
 	currentWorkKeys,
 	decodeDiscoveredWorks,
@@ -136,7 +138,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				if (observation.data["sourceId"] !== source) continue;
 				const observedWorkKey = observation.data["workKey"];
 				if (typeof observedWorkKey !== "string") continue;
-				const work = selectedWork.get(workKey(observedWorkKey));
+				const work = selectedWork.get(observedWorkKey);
 				if (work === undefined) continue;
 				operatorActionHooks.push(
 					invokeOperatorActionHook(
@@ -199,7 +201,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				discoveredWorks,
 			);
 			for (const key of Object.keys(retryState))
-				if (!discoveredKeys.has(workKey(key))) {
+				if (!discoveredKeys.has(key)) {
 					delete retryState[key];
 					retryChanged = true;
 				}
@@ -353,22 +355,21 @@ export const makePlotExtensionSourceBundle = (options: {
 				)
 					return [];
 				selectedWork.set(key, extensionWork);
-				return [
-					{
-						workKey: key,
-						subject: toSubject(extensionWork),
-						templateContext: templateContextForWork(
-							options.workflow,
-							extensionWork,
-						),
-						...(extensionWork.display === undefined
-							? {}
-							: { display: extensionWork.display }),
-						...(extensionWork.operatorActions === undefined
-							? {}
-							: { operatorActions: extensionWork.operatorActions }),
-					},
-				];
+				const item: WorkItem = {
+					workKey: key,
+					subject: toSubject(extensionWork),
+					templateContext: templateContextForWork(
+						options.workflow,
+						extensionWork,
+					),
+				};
+				if (extensionWork.display !== undefined)
+					item.display = agentDisplayFor(extensionWork.display);
+				if (extensionWork.operatorActions !== undefined)
+					item.operatorActions = agentOperatorActionsFor(
+						extensionWork.operatorActions,
+					);
+				return [item];
 			});
 		},
 	};
@@ -389,7 +390,11 @@ export const makePlotExtensionSourceBundle = (options: {
 							work,
 							runId: String(context.run.runId),
 						});
-			return { customTools, ...(cwd === undefined ? {} : { cwd }) };
+			const createOptions: { customTools: ToolDefinition[]; cwd?: string } = {
+				customTools,
+			};
+			if (cwd !== undefined) createOptions.cwd = cwd;
+			return createOptions;
 		},
 		wrapRunner: (runner) => ({
 			run: async (context: WorkRunnerContext) => {

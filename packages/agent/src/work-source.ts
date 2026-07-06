@@ -8,42 +8,38 @@ import type {
 } from "./model.js";
 
 export interface PhaseContext {
-	readonly sourceId: string;
-	readonly tickId: number;
-	readonly snapshot: RuntimeSnapshot;
-	readonly signal: AbortSignal;
+	sourceId: string;
+	tickId: number;
+	snapshot: RuntimeSnapshot;
+	signal: AbortSignal;
 }
 
 export interface WorkSourcePolicy {
-	readonly maxConcurrentRuns?: number;
+	maxConcurrentRuns?: number;
 }
 
 export interface ContinuationContext extends PhaseContext {
-	readonly run: WorkRun;
-	readonly work: WorkItem;
-	readonly turnNumber: number;
+	run: WorkRun;
+	work: WorkItem;
+	turnNumber: number;
 }
 
 export interface WorkSource {
-	readonly id: string;
-	readonly policy?: WorkSourcePolicy;
-	readonly observeTick?: (
+	id: string;
+	policy?: WorkSourcePolicy;
+	observeTick?: (
 		context: PhaseContext,
-	) => readonly Observation[] | Promise<readonly Observation[]>;
-	readonly reconcile?: (
+	) => Observation[] | Promise<Observation[]>;
+	reconcile?: (
 		context: PhaseContext,
-	) => readonly ReconcileProposal[] | Promise<readonly ReconcileProposal[]>;
-	readonly selectWork?: (
-		context: PhaseContext,
-	) => readonly WorkItem[] | Promise<readonly WorkItem[]>;
-	readonly continueWork?: (
-		context: ContinuationContext,
-	) => boolean | Promise<boolean>;
+	) => ReconcileProposal[] | Promise<ReconcileProposal[]>;
+	selectWork?: (context: PhaseContext) => WorkItem[] | Promise<WorkItem[]>;
+	continueWork?: (context: ContinuationContext) => boolean | Promise<boolean>;
 }
 
 export interface AgentPolicy {
-	readonly maxConcurrentRuns?: number;
-	readonly validate?: (
+	maxConcurrentRuns?: number;
+	validate?: (
 		snapshot: RuntimeSnapshot,
-	) => readonly Diagnostic[] | Promise<readonly Diagnostic[]>;
+	) => Diagnostic[] | Promise<Diagnostic[]>;
 }

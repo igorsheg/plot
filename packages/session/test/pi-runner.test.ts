@@ -3,12 +3,7 @@ import type {
 	AgentSessionEvent,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import {
-	runId,
-	sourceId,
-	workKey,
-	type RuntimeSnapshot,
-} from "@plot/agent/model";
+import type { RuntimeSnapshot } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import {
 	PiWorkRunnerError,
@@ -64,12 +59,12 @@ const context = (
 		readonly emitObservation?: WorkRunnerContext["emitObservation"];
 	} = {},
 ): WorkRunnerContext => {
-	const source = sourceId("source");
-	const key = workKey("work-1");
+	const source = "source";
+	const key = "work-1";
 	return {
 		sourceId: source,
 		tickId: 1,
-		run: { runId: runId("run-1"), sourceId: source, workKey: key },
+		run: { runId: "run-1", sourceId: source, workKey: key },
 		work: { workKey: key, templateContext: { name: "Ada" } },
 		snapshot,
 		signal: input.signal ?? new AbortController().signal,

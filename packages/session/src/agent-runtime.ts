@@ -96,7 +96,7 @@ export const makeAgentSessionRuntime = (
 	const events = new EventHub<RuntimeEvent>(options.eventCapacity ?? 256);
 	const agent: PlotAgent = makePlotAgentLayer({
 		...options.agent,
-		sources: options.sources,
+		sources: [...options.sources],
 		runner: options.runner,
 	});
 	let shutdownPromise: Promise<boolean> | undefined;

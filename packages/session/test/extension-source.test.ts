@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { makePlotAgentLayer } from "@plot/agent/agent";
-import { workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import { loadPlotExtensionRuntimeFromWorkflow } from "../src/extensions/loader.js";
 import { makePlotExtensionSourceBundle } from "../src/extensions/source.js";
@@ -166,9 +165,7 @@ describe("extension source adapter", () => {
 		expect(first.started).toHaveLength(0);
 		expect(second.started).toHaveLength(0);
 		expect(runs).toBe(0);
-		expect(
-			snapshot.work.get(workKey("extension:waiting:work:1:v1")),
-		).toMatchObject({
+		expect(snapshot.work.get("extension:waiting:work:1:v1")).toMatchObject({
 			status: "waiting",
 			blockedReason: "reviewed at this head",
 		});
@@ -233,23 +230,19 @@ describe("extension source adapter", () => {
 
 		expect(first.started).toEqual([
 			expect.objectContaining({
-				workKey: workKey(
-					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
-				),
+				workKey: "extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
 			}),
 		]);
 		expect(second.started).toHaveLength(0);
 		expect(third.started).toEqual([
 			expect.objectContaining({
-				workKey: workKey(
-					"extension:github-pr-reviewer:github:acme/web:pr:42:sha-2",
-				),
+				workKey: "extension:github-pr-reviewer:github:acme/web:pr:42:sha-2",
 			}),
 		]);
 		expect(fourth.started).toHaveLength(0);
 		expect(
 			snapshot.work.get(
-				workKey("extension:github-pr-reviewer:github:acme/web:pr:42:sha-2"),
+				"extension:github-pr-reviewer:github:acme/web:pr:42:sha-2",
 			),
 		).toMatchObject({ status: "blocked", blockedReason: "waiting" });
 	});
@@ -281,7 +274,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
-		const key = workKey("extension:drain:work:1:v1");
+		const key = "extension:drain:work:1:v1";
 
 		const first = await agent.tickOnce();
 		await started.promise;
@@ -334,7 +327,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
-		const key = workKey("extension:cancel:work:1:v1");
+		const key = "extension:cancel:work:1:v1";
 
 		const first = await agent.tickOnce();
 		await started.promise;
@@ -373,7 +366,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
-		const key = workKey("extension:retry:work:1:v1");
+		const key = "extension:retry:work:1:v1";
 
 		const first = await agent.tickOnce();
 		await new Promise((resolve) => setTimeout(resolve, 0));
@@ -483,7 +476,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgentLayer({ sources: [bundle.source], runner });
-		const key = workKey("extension:poll:work:1:v1");
+		const key = "extension:poll:work:1:v1";
 
 		await agent.tickOnce();
 		await started.promise;

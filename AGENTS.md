@@ -22,6 +22,7 @@ Repo-wide instructions. Prefer a closer `AGENTS.md` if one exists.
 ## Code style
 
 - Import symbols from the module that owns them. No barrel modules that only re-export.
+- Do not use conditional object-spread soup to omit optional fields (`...(x === undefined ? {} : { x })`). Build the object, then assign optional fields with plain `if` statements.
 - Directories are earned. Start with `module.ts`; create `module/` only for a real multi-file boundary.
 - Prefer deletion and small seams over speculative abstraction.
 

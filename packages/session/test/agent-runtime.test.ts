@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { sourceId, workKey } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { makeAgentSessionRuntime } from "../src/agent-runtime.js";
@@ -31,8 +30,8 @@ const waitForEvent = async <A>(
 };
 
 const source: WorkSource = {
-	id: sourceId("runtime-test"),
-	selectWork: () => [{ workKey: workKey("work-1") }],
+	id: "runtime-test",
+	selectWork: () => [{ workKey: "work-1" }],
 };
 
 const runner: WorkRunner = {
@@ -117,7 +116,7 @@ test("runtime shutdown publishes shutdown and is idempotent", async () => {
 test("operator observations reach sources on the next tick", async () => {
 	let seen: { readonly type: string; readonly data?: unknown } | undefined;
 	const observingSource: WorkSource = {
-		id: sourceId("obs-test"),
+		id: "obs-test",
 		reconcile: ({ snapshot }) => {
 			seen ??= snapshot.observations.find(
 				(observation) => observation.type === "operator_observation",
