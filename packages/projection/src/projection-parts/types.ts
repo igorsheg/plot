@@ -1,13 +1,6 @@
-export interface ProjectableEvent {
-	readonly kind?: string;
-	readonly sessionId: string;
-	readonly sequence?: number;
-	readonly timestamp: string;
-	readonly type?: string;
-	readonly payload?: unknown;
-	readonly event?: unknown;
-	readonly [key: string]: unknown;
-}
+import type { RuntimeEvent } from "@plot/session/runtime";
+
+export type ProjectableEvent = RuntimeEvent;
 
 export interface ProjectableEventRecord {
 	readonly kind: string;

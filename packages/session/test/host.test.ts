@@ -122,7 +122,7 @@ Hello {{ workflow.name }}
 		const welcome = await host.protocol.welcome();
 		await host.shutdown();
 		const accepted = await host.protocol.submit({
-			protocol: "plot.session.v2",
+			protocol: "plot.session.v3",
 			kind: "request",
 			id: "after-close",
 			command: "ping",

@@ -177,7 +177,7 @@ describe("Plot web gateway", () => {
 						sessionId: "session-1",
 						sequence: index + 1,
 						timestamp: "2026-01-01T00:00:00.000Z",
-						type: "session_started",
+						event: { type: "session_started" },
 					}),
 				).join("\n")}\n`,
 			);
@@ -243,15 +243,15 @@ describe("Plot web gateway", () => {
 					sessionId: "session-1",
 					sequence: 1,
 					timestamp: "2026-01-01T00:00:00.000Z",
-					type: "session_started",
+					event: { type: "session_started" },
 				},
 				{
 					kind: "session_event",
 					sessionId: "session-1",
 					sequence: 2,
 					timestamp: "2026-01-01T00:00:01.000Z",
-					type: "attempt_started",
-					payload: {
+					event: {
+						type: "attempt_started",
 						run: {
 							sourceId: "source-1",
 							runId: "run-a",
@@ -317,8 +317,8 @@ describe("Plot web gateway", () => {
 					sessionId: "session-1",
 					sequence: 1,
 					timestamp: "2026-01-01T00:00:00.000Z",
-					type: "attempt_started",
-					payload: {
+					event: {
+						type: "attempt_started",
 						run: {
 							sourceId: "source-1",
 							runId: "attempt-1",
@@ -332,7 +332,9 @@ describe("Plot web gateway", () => {
 					sessionId: "session-1",
 					sequence: 2,
 					timestamp: "2026-01-01T00:00:01.000Z",
+					sourceId: "source-1",
 					runId: "attempt-1",
+					workKey: "work-1",
 					event: { type: "plot_transcript", sessionFile: transcriptFile },
 				},
 			];
@@ -413,8 +415,8 @@ test("transcript falls back to history when the live snapshot lacks the referenc
 				sessionId: "session-1",
 				sequence: 1,
 				timestamp: "2026-01-01T00:00:00.000Z",
-				type: "attempt_started",
-				payload: {
+				event: {
+					type: "attempt_started",
 					run: {
 						sourceId: "source-1",
 						runId: "attempt-1",
@@ -428,7 +430,9 @@ test("transcript falls back to history when the live snapshot lacks the referenc
 				sessionId: "session-1",
 				sequence: 2,
 				timestamp: "2026-01-01T00:00:01.000Z",
+				sourceId: "source-1",
 				runId: "attempt-1",
+				workKey: "work-1",
 				event: { type: "plot_transcript", sessionFile: transcriptFile },
 			},
 		]
@@ -453,7 +457,7 @@ test("transcript falls back to history when the live snapshot lacks the referenc
 		status: async () => run,
 		submit: async () =>
 			({
-				protocol: "plot.session.v2",
+				protocol: "plot.session.v3",
 				kind: "response",
 				id: "req",
 				command: "get_snapshot",

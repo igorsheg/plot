@@ -3,7 +3,7 @@ import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent"
 import { setFact } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { createSessionId } from "./runtime-event.js";
+import { createSessionId } from "./runtime.js";
 import {
 	makeCreatePiAgentSession,
 	type AgentSessionOverrides,
@@ -15,14 +15,8 @@ import {
 import { resolveSessionPaths, type SessionPaths } from "./paths.js";
 import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
 import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";
-import {
-	makeSessionProtocol,
-	type SessionProtocol,
-} from "./protocol-adapter.js";
-import {
-	makeAgentSessionRuntime,
-	type AgentSessionRuntimeOptions,
-} from "./agent-runtime.js";
+import { makeSessionProtocol, type SessionProtocol } from "./protocol.js";
+import { makeSessionRuntime, type SessionRuntimeOptions } from "./runtime.js";
 import type { SessionRuntime } from "./runtime.js";
 import { loadDiscoveredWorkflow, type WorkflowDefinition } from "./workflow.js";
 import type { WorkflowRuntimeConfig } from "./workflow-config.js";
@@ -257,9 +251,7 @@ export const createSessionHost = async (
 			});
 		},
 	});
-	const agentOptions: Mutable<
-		NonNullable<AgentSessionRuntimeOptions["agent"]>
-	> = {
+	const agentOptions: Mutable<NonNullable<SessionRuntimeOptions["agent"]>> = {
 		queueCapacity: requestQueueCapacity,
 	};
 	if (tickIntervalMs !== undefined)
@@ -269,7 +261,7 @@ export const createSessionHost = async (
 	if (stallTimeoutMs !== undefined)
 		agentOptions.stallTimeoutMs = stallTimeoutMs;
 	const metadata = makeMetadata({ workflow, paths });
-	const runtimeOptions: AgentSessionRuntimeOptions = {
+	const runtimeOptions: SessionRuntimeOptions = {
 		id: sessionId,
 		sources,
 		runner: extensionBundle?.wrapRunner(runner) ?? runner,
@@ -283,7 +275,7 @@ export const createSessionHost = async (
 		eventCapacity,
 		agent: agentOptions,
 	};
-	runtime = makeAgentSessionRuntime(runtimeOptions);
+	runtime = makeSessionRuntime(runtimeOptions);
 	const parts: SessionHostPart[] = [];
 	if (extensionBundle !== undefined)
 		parts.push({ shutdown: () => extensionBundle.shutdown() });

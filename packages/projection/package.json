@@ -15,7 +15,9 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@plot/common": "workspace:*"
+		"@plot/agent": "workspace:*",
+		"@plot/common": "workspace:*",
+		"@plot/session": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

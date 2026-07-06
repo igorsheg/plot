@@ -20,7 +20,7 @@ import {
 import {
 	decodeClientRequestLine,
 	encodeServerRecordLine,
-} from "@plot/session/protocol-codec";
+} from "@plot/session/protocol";
 import type { ServerRecord } from "@plot/session/protocol";
 
 class FakeChild implements RunChildProcess {
@@ -45,7 +45,7 @@ class FakeChild implements RunChildProcess {
 		this.writes.push(line);
 		const request = decodeClientRequestLine(line);
 		this.emit({
-			protocol: "plot.session.v2",
+			protocol: "plot.session.v3",
 			kind: "response",
 			id: request.id,
 			command: request.command,
@@ -114,7 +114,7 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 			});
 			queueMicrotask(() =>
 				child?.emit({
-					protocol: "plot.session.v2",
+					protocol: "plot.session.v3",
 					kind: "welcome",
 					sessionId: "session-runRegistry",
 					limits: {
@@ -334,7 +334,7 @@ test("runRegistry IPC opens the existing shared run registry", async () => {
 		spawnChild: () => {
 			queueMicrotask(() =>
 				child.emit({
-					protocol: "plot.session.v2",
+					protocol: "plot.session.v3",
 					kind: "welcome",
 					sessionId: "session-shared",
 					limits: {
@@ -365,7 +365,7 @@ test("runRegistry IPC opens the existing shared run registry", async () => {
 		});
 		expect(
 			await opened.runRegistry.submit("run-shared", {
-				protocol: "plot.session.v2",
+				protocol: "plot.session.v3",
 				kind: "request",
 				id: "client-1",
 				command: "ping",
@@ -409,7 +409,7 @@ test("runRegistry IPC survives a client disconnecting from a protocol stream", a
 			const child = new FakeChild("session-stream");
 			queueMicrotask(() =>
 				child.emit({
-					protocol: "plot.session.v2",
+					protocol: "plot.session.v3",
 					kind: "welcome",
 					sessionId: "session-stream",
 					limits: {
@@ -467,7 +467,7 @@ test("runRegistry persists Session History and replays it after stop", async () 
 			child = new FakeChild("session-history");
 			queueMicrotask(() =>
 				child?.emit({
-					protocol: "plot.session.v2",
+					protocol: "plot.session.v3",
 					kind: "welcome",
 					sessionId: "session-history",
 					limits: {
@@ -484,38 +484,41 @@ test("runRegistry persists Session History and replays it after stop", async () 
 
 	const spawned = await runRegistry.spawn();
 	child?.emit({
-		protocol: "plot.session.v2",
+		protocol: "plot.session.v3",
 		kind: "event",
-		sequence: 1,
 		event: {
 			kind: "session_event",
 			sessionId: "session-history",
 			sequence: 1,
 			timestamp: "2026-01-01T00:00:01.000Z",
-			type: "session_started",
+			event: { type: "session_started" },
 		},
 	});
 	child?.emit({
-		protocol: "plot.session.v2",
+		protocol: "plot.session.v3",
 		kind: "event",
-		sequence: 2,
 		event: {
 			kind: "agent_event",
 			sessionId: "session-history",
 			sequence: 2,
 			timestamp: "2026-01-01T00:00:02.000Z",
+			sourceId: "source-1",
+			runId: "run-1",
+			workKey: "work-1",
 			event: { type: "message_delta", delta: "streaming prose" },
 		},
 	});
 	child?.emit({
-		protocol: "plot.session.v2",
+		protocol: "plot.session.v3",
 		kind: "event",
-		sequence: 3,
 		event: {
 			kind: "agent_event",
 			sessionId: "session-history",
 			sequence: 3,
 			timestamp: "2026-01-01T00:00:03.000Z",
+			sourceId: "source-1",
+			runId: "run-1",
+			workKey: "work-1",
 			event: { type: "message_end" },
 		},
 	});
@@ -533,7 +536,7 @@ test("runRegistry persists Session History and replays it after stop", async () 
 	).toEqual([1, 3]);
 	expect(replayed[0]).toMatchObject({
 		kind: "session_event",
-		type: "session_started",
+		event: { type: "session_started" },
 		sequence: 1,
 	});
 	expect(replayed[1]).toMatchObject({
@@ -549,6 +552,38 @@ test("runRegistry persists Session History and replays it after stop", async () 
 	))
 		empty.push(event);
 	expect(empty).toHaveLength(0);
+});
+
+test("history reader skips unreadable and pre-v3 records", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-history-reader-"));
+	const path = join(dir, "history.jsonl");
+	const v3 = {
+		kind: "session_event",
+		sessionId: "s",
+		sequence: 2,
+		timestamp: "2026-01-01T00:00:01.000Z",
+		event: { type: "session_started" },
+	} as const;
+	await writeFile(
+		path,
+		[
+			"not json",
+			JSON.stringify({
+				kind: "session_event",
+				sessionId: "s",
+				sequence: 1,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				type: "tick_completed",
+				payload: {},
+			}),
+			JSON.stringify(v3),
+		].join("\n"),
+	);
+
+	const records = [];
+	for await (const record of readRunHistory(path)) records.push(record);
+	expect(records).toHaveLength(1);
+	expect(records[0]).toEqual(v3);
 });
 
 test("runRegistry prune removes ended records and history, keeps live runs", async () => {
@@ -567,7 +602,7 @@ test("runRegistry prune removes ended records and history, keeps live runs", asy
 			child = new FakeChild("session-live");
 			queueMicrotask(() =>
 				child?.emit({
-					protocol: "plot.session.v2",
+					protocol: "plot.session.v3",
 					kind: "welcome",
 					sessionId: "session-live",
 					limits: {

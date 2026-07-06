@@ -5,12 +5,11 @@ import { describe, expect, test } from "bun:test";
 const expectedExports = [
 	"./agent-session",
 	"./auth",
-	"./runtime-event",
+	"./runtime",
 	"./host",
 	"./paths",
 	"./pi-runner",
 	"./protocol",
-	"./protocol-codec",
 	"./transcript",
 	"./workflow",
 ] as const;

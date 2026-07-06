@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { makeSessionProtocol } from "../src/protocol-adapter.js";
+import { makeSessionProtocol } from "../src/protocol.js";
 import {
 	ProtocolBoundaryError,
 	sessionProtocolVersion,
@@ -7,8 +7,10 @@ import {
 } from "../src/protocol.js";
 import {
 	decodeClientRequestLine,
+	decodeServerRecordLine,
 	encodeServerRecordLine,
-} from "../src/protocol-codec.js";
+	type ServerRecord,
+} from "../src/protocol.js";
 import type { SessionRuntime } from "../src/runtime.js";
 
 const request = (
@@ -27,14 +29,19 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 	start: async () => {},
 	tickOnce: async () => ({
 		tickId: 1,
-		selectedCount: 0,
-		startedCount: 0,
-		runningCount: 0,
-		completionCount: 0,
-		diagnosticCount: 0,
+		selected: 0,
+		started: 0,
+		running: 0,
+		completions: 0,
+		diagnostics: [],
 	}),
 	state: async () => ({ sessionId: "session-1" }),
-	snapshot: async () => ({ sessionId: "session-1" }),
+	snapshot: async () => ({
+		sessionId: "session-1",
+		work: {},
+		running: {},
+		facts: {},
+	}),
 	pauseDispatch: async () => {},
 	resumeDispatch: async () => {},
 	interruptAgentRun: async () => true,
@@ -45,6 +52,9 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 		sessionId: "session-1",
 		sequence: 1,
 		timestamp: "2026-01-01T00:00:00.000Z",
+		sourceId: input.sourceId,
+		runId: input.runId,
+		workKey: input.workKey,
 		event: input.event,
 	}),
 	lastEventSequence: async () => 0,
@@ -155,4 +165,41 @@ test("protocol encodes server records as JSONL", async () => {
 	const line = encodeServerRecordLine(await protocol.welcome());
 	expect(line.endsWith("\n")).toBe(true);
 	await protocol.close();
+});
+
+test("server record round trip", () => {
+	const record: ServerRecord = {
+		protocol: sessionProtocolVersion,
+		kind: "event",
+		event: {
+			kind: "session_event",
+			sessionId: "s",
+			sequence: 3,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			event: {
+				type: "attempt_completed",
+				completion: {
+					runId: "r1",
+					sourceId: "src",
+					workKey: "w1",
+					status: "succeeded",
+				},
+			},
+		},
+	};
+	expect(decodeServerRecordLine(encodeServerRecordLine(record))).toEqual(
+		record,
+	);
+});
+
+test("rejects pre-v3 protocol lines", () => {
+	const line =
+		'{"protocol":"plot.session.v2","kind":"event","sequence":1,"event":{}}';
+	expect(() => decodeServerRecordLine(line)).toThrow(ProtocolBoundaryError);
+	try {
+		decodeServerRecordLine(line);
+	} catch (error) {
+		expect(error).toBeInstanceOf(ProtocolBoundaryError);
+		expect((error as Error).message).toContain("plot.session.v2");
+	}
 });

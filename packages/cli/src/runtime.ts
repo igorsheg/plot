@@ -5,8 +5,8 @@ import type { CreatePiAgentSession } from "@plot/session/pi-runner";
 import {
 	decodeClientRequestLine,
 	encodeServerRecordLine,
-} from "@plot/session/protocol-codec";
-import type { RuntimeEvent } from "@plot/session/runtime-event";
+} from "@plot/session/protocol";
+import type { RuntimeEvent } from "@plot/session/runtime";
 import { resolveWorkflowPath } from "@plot/session/workflow";
 
 export type LogLevelFlag =

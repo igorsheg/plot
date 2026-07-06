@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
 import { isRecord } from "@plot/common/primitives";
 import type { ServerRecord } from "@plot/session/protocol";
+import type { RuntimeEvent } from "@plot/session/runtime";
 
 export type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
 
@@ -11,7 +12,9 @@ export const runHistoryPath = (historyDir: string, id: string): string =>
 	join(historyDir, `${id}.jsonl`);
 
 /** Replay a run's durable Session History (empty when none was written). */
-export async function* readRunHistory(path: string): AsyncIterable<unknown> {
+export async function* readRunHistory(
+	path: string,
+): AsyncIterable<RuntimeEvent> {
 	const exists = await stat(path).then(
 		() => true,
 		() => false,
@@ -19,11 +22,24 @@ export async function* readRunHistory(path: string): AsyncIterable<unknown> {
 	if (!exists) return;
 	const stream = createReadStream(path);
 	try {
-		for await (const line of jsonlLines(stream, {
-			maxLineBytes: 2 * 1024 * 1024,
-		})) {
+		for await (const line of jsonlLines(stream, historyLimits)) {
 			if (line.trim() === "") continue;
-			yield parseJsonl(line);
+			let record: unknown;
+			try {
+				record = parseJsonl(line);
+			} catch {
+				continue; // unreadable line: skip, never fatal
+			}
+			if (!isRecord(record)) continue;
+			if (
+				record["kind"] !== "session_event" &&
+				record["kind"] !== "agent_event"
+			)
+				continue;
+			if (typeof record["sequence"] !== "number") continue;
+			// v2 session_event records carried {type, payload} instead of a typed event: skip them.
+			if (!isRecord(record["event"])) continue;
+			yield record as unknown as RuntimeEvent;
 		}
 	} finally {
 		stream.close();

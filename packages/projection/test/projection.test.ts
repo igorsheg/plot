@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { RuntimeEvent } from "@plot/session/runtime";
 import {
 	applySnapshot,
 	emptyProjection,
@@ -6,6 +7,32 @@ import {
 	reduceProjectableEvent,
 	serializeDashboardProjection,
 } from "../src/projection.js";
+
+const sessionEvent = (
+	sequence: number,
+	event: Extract<RuntimeEvent, { kind: "session_event" }>["event"],
+): RuntimeEvent => ({
+	kind: "session_event",
+	sessionId: "session-1",
+	sequence,
+	timestamp: "2026-06-29T10:00:00.000Z",
+	event,
+});
+
+const agentEvent = (
+	sequence: number,
+	runId: string,
+	event: unknown,
+): RuntimeEvent => ({
+	kind: "agent_event",
+	sessionId: "session-1",
+	sequence,
+	timestamp: "2026-06-29T10:00:00.000Z",
+	sourceId: "source-1",
+	runId,
+	workKey: "work-1",
+	event,
+});
 
 test("projection JSON helpers round-trip map fields", () => {
 	const projection = emptyProjection("session-1", "workflow");
@@ -69,29 +96,19 @@ test("projection JSON helpers round-trip map fields", () => {
 test("projection caps token throughput samples", () => {
 	let projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),
-		{
-			kind: "session_event",
-			sessionId: "session-1",
-			sequence: 1,
-			timestamp: "2026-06-29T10:00:00.000Z",
+		sessionEvent(1, {
 			type: "attempt_started",
-			payload: {
-				run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
-			},
-		},
+			run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+		}),
 	);
 	for (let i = 0; i < 130; i++)
-		projection = reduceProjectableEvent(projection, {
-			kind: "agent_event",
-			sessionId: "session-1",
-			sequence: i + 2,
-			timestamp: "2026-06-29T10:00:00.000Z",
-			runId: "run-1",
-			event: {
+		projection = reduceProjectableEvent(
+			projection,
+			agentEvent(i + 2, "run-1", {
 				type: "message_end",
 				message: { responseId: `response-${i}`, usage: { totalTokens: 1 } },
-			},
-		});
+			}),
+		);
 
 	expect(projection.tokenSamples).toHaveLength(120);
 	expect(projection.tokenSamples[0]?.tokens).toBe(11);
@@ -140,52 +157,32 @@ test("projection hydration ignores malformed active tool entries", () => {
 	);
 });
 
-test("malformed event sequence does not poison the projection frontier", () => {
-	const projection = reduceProjectableEvent(
-		emptyProjection("session-1", "workflow"),
-		{
-			kind: "session_event",
-			sessionId: "session-1",
-			timestamp: "2026-06-29T10:00:00.000Z",
-			type: "session_started",
-		},
-	);
-
-	expect(projection.status).toBe("running");
-	expect(projection.frontier).toBe(0);
-});
-
 test("completed work keeps source display labels", () => {
 	const base = emptyProjection("session-1", "workflow");
-	const started = reduceProjectableEvent(base, {
-		kind: "session_event",
-		sessionId: "session-1",
-		sequence: 1,
-		timestamp: "2026-06-29T10:00:00.000Z",
-		type: "attempt_started",
-		payload: {
+	const started = reduceProjectableEvent(
+		base,
+		sessionEvent(1, {
+			type: "attempt_started",
 			run: {
 				runId: "run-1",
 				workKey: "work-1",
 				sourceId: "source-1",
 				display: { title: "Work 1", labels: ["done"] },
 			},
-		},
-	});
-	const completed = reduceProjectableEvent(started, {
-		kind: "session_event",
-		sessionId: "session-1",
-		sequence: 2,
-		timestamp: "2026-06-29T10:00:01.000Z",
-		type: "attempt_completed",
-		payload: {
+		}),
+	);
+	const completed = reduceProjectableEvent(
+		started,
+		sessionEvent(2, {
+			type: "attempt_completed",
 			completion: {
 				runId: "run-1",
 				workKey: "work-1",
+				sourceId: "source-1",
 				status: "succeeded",
 			},
-		},
-	});
+		}),
+	);
 
 	expect(completed.completed[0]?.labels).toEqual(["done"]);
 });
@@ -193,14 +190,7 @@ test("completed work keeps source display labels", () => {
 test("debug events name agent event payloads", () => {
 	const projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),
-		{
-			kind: "agent_event",
-			sessionId: "session-1",
-			sequence: 1,
-			timestamp: "2026-06-29T10:00:00.000Z",
-			runId: "run-1",
-			event: { type: "turn_start" },
-		},
+		agentEvent(1, "run-1", { type: "turn_start" }),
 	);
 
 	expect(projection.debugEvents[0]).toBe("1 agent_event:turn_start");
@@ -247,31 +237,21 @@ test("snapshot clears stale current run ids", () => {
 test("attempt timeline is a rolling tail, not a frozen head", () => {
 	let projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),
-		{
-			kind: "session_event",
-			sessionId: "session-1",
-			sequence: 1,
-			timestamp: "2026-06-29T10:00:00.000Z",
+		sessionEvent(1, {
 			type: "attempt_started",
-			payload: {
-				run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
-			},
-		},
+			run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+		}),
 	);
 	for (let i = 0; i < 40; i++)
-		projection = reduceProjectableEvent(projection, {
-			kind: "agent_event",
-			sessionId: "session-1",
-			sequence: i + 2,
-			timestamp: "2026-06-29T10:00:00.000Z",
-			runId: "run-1",
-			event: {
+		projection = reduceProjectableEvent(
+			projection,
+			agentEvent(i + 2, "run-1", {
 				type: "tool_execution_start",
 				toolCallId: `tool-${i}`,
 				toolName: "bash",
 				args: { command: `step-${i}` },
-			},
-		});
+			}),
+		);
 
 	const timeline = projection.attempts.get("run-1")?.timeline ?? [];
 	expect(timeline).toHaveLength(30);
@@ -281,29 +261,19 @@ test("attempt timeline is a rolling tail, not a frozen head", () => {
 test("plot_transcript agent event attaches the transcript reference", () => {
 	let projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),
-		{
-			kind: "session_event",
-			sessionId: "session-1",
-			sequence: 1,
-			timestamp: "2026-06-29T10:00:00.000Z",
+		sessionEvent(1, {
 			type: "attempt_started",
-			payload: {
-				run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
-			},
-		},
+			run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+		}),
 	);
-	projection = reduceProjectableEvent(projection, {
-		kind: "agent_event",
-		sessionId: "session-1",
-		sequence: 2,
-		timestamp: "2026-06-29T10:00:01.000Z",
-		runId: "run-1",
-		event: {
+	projection = reduceProjectableEvent(
+		projection,
+		agentEvent(2, "run-1", {
 			type: "plot_transcript",
 			sessionFile: "/tmp/transcript.jsonl",
 			sessionId: "pi-1",
-		},
-	});
+		}),
+	);
 	expect(projection.attempts.get("run-1")?.transcript).toEqual({
 		path: "/tmp/transcript.jsonl",
 		id: "pi-1",

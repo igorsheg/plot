@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
-import { decodeServerRecordLine } from "@plot/session/protocol-codec";
+import { decodeServerRecordLine } from "@plot/session/protocol";
 import {
 	defaultProtocolLimits,
 	type ClientRequest,

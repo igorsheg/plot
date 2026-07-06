@@ -1,6 +1,6 @@
 import { isRecord } from "@plot/common/primitives";
 import type { AuthStatusInfo, ModelInfo } from "@plot/session/auth";
-import type { RuntimeEvent } from "@plot/session/runtime-event";
+import type { RuntimeEvent } from "@plot/session/runtime";
 
 const formatTokenCount = (count: number): string =>
 	count >= 1_000_000
@@ -98,31 +98,27 @@ const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
 	return fallback.length ? fallback : undefined;
 };
 
-export const renderRunEvent = (event: RuntimeEvent): string | undefined => {
-	if (event.kind !== "session_event") return undefined;
-	if (event.type === "session_started")
-		return `Started session ${event.sessionId}.\n`;
-	if (event.type === "session_shutdown")
-		return `Shutdown session ${event.sessionId}.\n`;
-	if (!isRecord(event.payload)) return undefined;
-	if (event.type === "agent_run_event") {
-		if (event.payload["eventType"] === "agent_start")
-			return "Inner agent started.\n";
-		if (event.payload["eventType"] === "agent_end") {
-			const text = finalAssistantTextFromAgentEnd(event.payload["event"]);
+export const renderRunEvent = (record: RuntimeEvent): string | undefined => {
+	if (record.kind === "agent_event") {
+		const event = record.event;
+		if (!isRecord(event)) return undefined;
+		if (event["type"] === "agent_start") return "Inner agent started.\n";
+		if (event["type"] === "agent_end") {
+			const text = finalAssistantTextFromAgentEnd(event);
 			return text === undefined
 				? "Inner agent finished.\n"
 				: `\nFinal assistant message:\n${text}\n\nInner agent finished.\n`;
 		}
+		return undefined;
 	}
-	if (event.type === "attempt_started" && isRecord(event.payload["run"]))
-		return `Started work ${String(event.payload["run"]["workKey"] ?? "work")}.\n`;
-	if (
-		event.type === "attempt_completed" &&
-		isRecord(event.payload["completion"])
-	)
-		return `Completed work ${String(
-			event.payload["completion"]["workKey"] ?? "work",
-		)}: ${String(event.payload["completion"]["status"] ?? "unknown")}.\n`;
+	const event = record.event;
+	if (event.type === "session_started")
+		return `Started session ${record.sessionId}.\n`;
+	if (event.type === "session_shutdown")
+		return `Shutdown session ${record.sessionId}.\n`;
+	if (event.type === "attempt_started")
+		return `Started work ${event.run.workKey}.\n`;
+	if (event.type === "attempt_completed")
+		return `Completed work ${event.completion.workKey}: ${event.completion.status}.\n`;
 	return undefined;
 };

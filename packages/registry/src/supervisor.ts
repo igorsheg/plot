@@ -108,8 +108,8 @@ async function* liveEventRecords(
 ): AsyncIterable<EventServerRecord> {
 	let frontier = afterSequence;
 	for await (const record of live.events.subscribe()) {
-		if (record.kind !== "event" || record.sequence <= frontier) continue;
-		frontier = record.sequence;
+		if (record.kind !== "event" || record.event.sequence <= frontier) continue;
+		frontier = record.event.sequence;
 		yield record;
 	}
 }
@@ -181,10 +181,10 @@ export class RunRegistry implements RunRegistryRuntime {
 			await this.update(live, stateUpdates(record.data));
 		if (record.kind === "event") {
 			await this.update(live, {
-				lastSequence: record.sequence,
+				lastSequence: record.event.sequence,
 				lastEventType:
 					record.event.kind === "session_event"
-						? record.event.type
+						? record.event.event.type
 						: "agent_event",
 			});
 			await this.appendHistory(live, record);

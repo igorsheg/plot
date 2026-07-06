@@ -1,6 +1,6 @@
 import { isRecord } from "@plot/common/primitives";
 import { reduceAgentEvent } from "./agent-events.js";
-import { at, cap, num, str } from "./helpers.js";
+import { at, cap, str } from "./helpers.js";
 import type {
 	AgentAttemptProjection,
 	CompletedWorkProjection,
@@ -9,10 +9,10 @@ import type {
 } from "./types.js";
 import { displayWork, workLabel } from "./work.js";
 
-const debugEventName = (e: ProjectableEvent) => {
-	const inner = isRecord(e.event) ? str(e.event["type"]) : undefined;
-	return [str(e.kind), str(e.type) ?? inner].filter(Boolean).join(":");
-};
+const debugEventName = (e: ProjectableEvent) =>
+	e.kind === "session_event"
+		? `session_event:${e.event.type}`
+		: `agent_event:${isRecord(e.event) ? (str(e.event["type"]) ?? "unknown") : "unknown"}`;
 
 const debug = (p: DashboardProjection, e: ProjectableEvent) => ({
 	...p,
@@ -26,11 +26,11 @@ export const reduceEvent = (
 	p0: DashboardProjection,
 	e: ProjectableEvent,
 ): DashboardProjection => {
-	let p = debug(p0, e);
-	const payload = isRecord(e.payload) ? e.payload : {};
-	if (e.kind === "agent_event" || e.kind === "agent_session_event")
-		return reduceAgentEvent(p, e, e as Record<string, unknown>);
-	if (e.type === "session_started")
+	const p = debug(p0, e);
+	if (e.kind === "agent_event")
+		return reduceAgentEvent(p, e, e as unknown as Record<string, unknown>);
+	const event = e.event;
+	if (event.type === "session_started")
 		return {
 			...p,
 			status: "running",
@@ -44,57 +44,52 @@ export const reduceEvent = (
 			scheduledWakes: [],
 			activity: [],
 		};
-	if (e.type === "session_paused") return { ...p, status: "paused" };
-	if (e.type === "session_resumed") return { ...p, status: "running" };
-	if (e.type === "session_close_requested")
-		return { ...p, status: "shutting_down" };
-	if (e.type === "session_shutdown" || e.type === "session_close_completed")
-		return { ...p, status: "stopped" };
-	if (e.type === "tick_completed") {
-		const r = isRecord(payload["result"]) ? payload["result"] : payload;
-		const selected = num(r["selectedCount"]) ?? 0;
-		const started = num(r["startedCount"]) ?? 0;
+	if (event.type === "session_shutdown") return { ...p, status: "stopped" };
+	if (event.type === "tick_completed") {
+		const r = event.result;
 		return {
 			...p,
-			status: p.attempts.size > 0 || started > 0 ? "running" : "idle",
+			status: p.attempts.size > 0 || r.started > 0 ? "running" : "idle",
 			pulse: {
-				tickId: num(r["tickId"]) ?? 0,
+				tickId: r.tickId,
 				atMs: at(e),
-				found: selected,
-				started,
+				found: r.selected,
+				started: r.started,
 			},
-			diagnostics: Array.isArray(r["diagnostics"])
-				? r["diagnostics"].filter((x): x is string => typeof x === "string")
-				: p.diagnostics,
+			diagnostics: r.diagnostics.map((d) => d.message),
 		};
 	}
-	if (e.type === "work_observed") {
-		const w = isRecord(payload["work"]) ? payload["work"] : {};
-		const item = displayWork(w, p.work.get(String(w["workKey"])));
+	if (event.type === "work_observed") {
+		const item = displayWork(
+			event.work as unknown as Record<string, unknown>,
+			p.work.get(event.work.workKey),
+		);
 		return { ...p, work: new Map(p.work).set(item.workKey, item) };
 	}
-	if (e.type === "work_removed") {
-		const key = str(payload["workKey"]);
-		if (!key) return p;
+	if (event.type === "work_removed") {
 		const work = new Map(p.work);
-		work.delete(key);
+		work.delete(event.workKey);
 		return {
 			...p,
 			work,
-			scheduledWakes: p.scheduledWakes.filter((w) => w.workKey !== key),
+			scheduledWakes: p.scheduledWakes.filter(
+				(w) => w.workKey !== event.workKey,
+			),
 		};
 	}
-	if (e.type === "attempt_started") {
-		const run = isRecord(payload["run"]) ? payload["run"] : {};
-		const runId = String(run["runId"] ?? "run");
-		const key = String(run["workKey"] ?? "work");
+	if (event.type === "attempt_started") {
+		const run = event.run;
 		const item = displayWork(
-			{ ...run, status: "running", currentRunId: runId },
-			p.work.get(key),
+			{
+				...run,
+				status: "running",
+				currentRunId: run.runId,
+			} as unknown as Record<string, unknown>,
+			p.work.get(run.workKey),
 		);
 		const attempt: AgentAttemptProjection = {
-			runId,
-			workKey: key,
+			runId: run.runId,
+			workKey: run.workKey,
 			sourceId: item.sourceId,
 			subject: item.subject,
 			stage: "starting",
@@ -121,40 +116,50 @@ export const reduceEvent = (
 		return {
 			...p,
 			status: "running",
-			work: new Map(p.work).set(key, item),
-			attempts: new Map(p.attempts).set(runId, attempt),
+			work: new Map(p.work).set(run.workKey, item),
+			attempts: new Map(p.attempts).set(run.runId, attempt),
 		};
 	}
-	if (e.type === "agent_run_event") return reduceAgentEvent(p, e, payload);
-	if (e.type === "attempt_completed") {
-		const c = isRecord(payload["completion"]) ? payload["completion"] : {};
-		const key = String(c["workKey"] ?? "work");
-		const runId = str(c["runId"]);
+	if (event.type === "attempt_completed") {
+		const c = event.completion;
+		const key = c.workKey;
+		const runId = c.runId;
 		const attempts = new Map(p.attempts);
-		const a = runId ? attempts.get(runId) : undefined;
-		if (runId) attempts.delete(runId);
+		const a = attempts.get(runId);
+		attempts.delete(runId);
 		const work = new Map(p.work);
 		const item = work.get(key);
 		if (item)
 			work.set(key, {
 				...item,
-				status: c["status"] === "succeeded" ? "done" : "failed",
+				status: c.status === "succeeded" ? "done" : "failed",
 				currentRunId: undefined,
 			});
-		const completed: CompletedWorkProjection = {
+		const completedMutable: {
+			workKey: string;
+			runId: string;
+			label: string;
+			status: string;
+			message: string;
+			atMs: number;
+			durationMs?: number;
+			url?: string;
+			labels?: readonly string[];
+			tokens?: NonNullable<CompletedWorkProjection["tokens"]>;
+		} = {
 			workKey: key,
-			...(runId ? { runId } : {}),
+			runId,
 			label: item ? workLabel(item) : key,
-			status: str(c["status"]) ?? "completed",
-			message: str(c["error"]) ?? "completed",
+			status: c.status,
+			message: c.error ?? "completed",
 			atMs: at(e),
-			...(a?.startedAtMs === undefined
-				? {}
-				: { durationMs: at(e) - a.startedAtMs }),
-			...(item?.url ? { url: item.url } : {}),
-			...(item?.labels.length ? { labels: item.labels } : {}),
-			...(a?.tokens ? { tokens: a.tokens } : {}),
 		};
+		if (a?.startedAtMs !== undefined)
+			completedMutable.durationMs = at(e) - a.startedAtMs;
+		if (item?.url) completedMutable.url = item.url;
+		if (item?.labels.length) completedMutable.labels = item.labels;
+		if (a?.tokens) completedMutable.tokens = a.tokens;
+		const completed: CompletedWorkProjection = completedMutable;
 		return {
 			...p,
 			status: attempts.size > 0 ? "running" : "idle",
@@ -174,19 +179,17 @@ export const reduceEvent = (
 			),
 		};
 	}
-	if (e.type === "wake_scheduled") {
-		const delayMs = num(payload["delayMs"]);
-		if (delayMs === undefined) return p;
+	if (event.type === "wake_scheduled") {
 		return {
 			...p,
 			scheduledWakes: [
 				...p.scheduledWakes,
 				{
-					delayMs,
-					dueAtMs: at(e) + delayMs,
-					reason: str(payload["reason"]),
-					workKey: str(payload["workKey"]),
-					attempt: num(payload["attempt"]),
+					delayMs: event.delayMs,
+					dueAtMs: at(e) + event.delayMs,
+					reason: event.reason,
+					workKey: event.workKey,
+					attempt: event.attempt,
 				},
 			].toSorted((a, b) => a.dueAtMs - b.dueAtMs),
 		};

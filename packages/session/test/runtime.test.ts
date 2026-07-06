@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { makeAgentSessionRuntime } from "../src/agent-runtime.js";
+import { makeSessionRuntime } from "../src/runtime.js";
 
 const waitForEvent = async <A>(
 	iterable: AsyncIterable<A>,
@@ -39,7 +39,7 @@ const runner: WorkRunner = {
 };
 
 test("runtime projects agent events into the live stream", async () => {
-	const runtime = makeAgentSessionRuntime({
+	const runtime = makeSessionRuntime({
 		id: "session-1",
 		sources: [source],
 		runner,
@@ -51,19 +51,53 @@ test("runtime projects agent events into the live stream", async () => {
 	const tickCompleted = await waitForEvent(
 		events,
 		(record) =>
-			record.kind === "session_event" && record.type === "tick_completed",
+			record.kind === "session_event" && record.event.type === "tick_completed",
 	);
 	expect(tickCompleted).toMatchObject({
 		kind: "session_event",
-		type: "tick_completed",
+		event: { type: "tick_completed" },
 	});
 	expect(await runtime.lastEventSequence()).toBe(tickCompleted.sequence);
 
 	await runtime.shutdown();
 });
 
+test("runtime emits typed attempt completion events", async () => {
+	let release!: () => void;
+	const done = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const runtime = makeSessionRuntime({
+		id: "session-1",
+		sources: [source],
+		runner: { run: async () => ({ output: await done }) },
+	});
+
+	const events = runtime.events();
+	await runtime.tickOnce();
+	release();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await runtime.tickOnce();
+
+	const completed = await waitForEvent(
+		events,
+		(record) =>
+			record.kind === "session_event" &&
+			record.event.type === "attempt_completed" &&
+			record.event.completion.workKey === "work-1",
+	);
+	expect(completed.kind).toBe("session_event");
+	if (completed.kind === "session_event") {
+		expect(completed.event.type).toBe("attempt_completed");
+		if (completed.event.type === "attempt_completed")
+			expect(completed.event.completion.workKey).toBe("work-1");
+	}
+
+	await runtime.shutdown();
+});
+
 test("runtime publishes appended inner agent events", async () => {
-	const runtime = makeAgentSessionRuntime({
+	const runtime = makeSessionRuntime({
 		id: "session-1",
 		sources: [],
 		runner,
@@ -92,7 +126,7 @@ test("runtime publishes appended inner agent events", async () => {
 });
 
 test("runtime shutdown publishes shutdown and is idempotent", async () => {
-	const runtime = makeAgentSessionRuntime({
+	const runtime = makeSessionRuntime({
 		id: "session-1",
 		sources: [],
 		runner,
@@ -103,12 +137,13 @@ test("runtime shutdown publishes shutdown and is idempotent", async () => {
 	const shutdown = waitForEvent(
 		events,
 		(record) =>
-			record.kind === "session_event" && record.type === "session_shutdown",
+			record.kind === "session_event" &&
+			record.event.type === "session_shutdown",
 	);
 	expect(await runtime.shutdown()).toBe(true);
 	expect(await shutdown).toMatchObject({
 		kind: "session_event",
-		type: "session_shutdown",
+		event: { type: "session_shutdown" },
 	});
 	expect(await runtime.shutdown()).toBe(true);
 });
@@ -124,7 +159,7 @@ test("operator observations reach sources on the next tick", async () => {
 			return [];
 		},
 	};
-	const runtime = makeAgentSessionRuntime({
+	const runtime = makeSessionRuntime({
 		id: "session-1",
 		sources: [observingSource],
 		runner,

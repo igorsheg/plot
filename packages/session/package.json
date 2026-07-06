@@ -12,10 +12,6 @@
 			"types": "./src/auth.ts",
 			"import": "./src/auth.ts"
 		},
-		"./runtime-event": {
-			"types": "./src/runtime-event.ts",
-			"import": "./src/runtime-event.ts"
-		},
 		"./host": {
 			"types": "./src/host.ts",
 			"import": "./src/host.ts"
@@ -36,9 +32,9 @@
 			"types": "./src/protocol.ts",
 			"import": "./src/protocol.ts"
 		},
-		"./protocol-codec": {
-			"types": "./src/protocol-codec.ts",
-			"import": "./src/protocol-codec.ts"
+		"./runtime": {
+			"types": "./src/runtime.ts",
+			"import": "./src/runtime.ts"
 		},
 		"./workflow": {
 			"types": "./src/workflow.ts",
