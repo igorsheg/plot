@@ -4,33 +4,13 @@
 	"type": "module",
 	"sideEffects": false,
 	"exports": {
-		"./agent-session": {
-			"types": "./src/agent-session.ts",
-			"import": "./src/agent-session.ts"
-		},
 		"./auth": {
 			"types": "./src/auth.ts",
 			"import": "./src/auth.ts"
 		},
-		"./runtime-event": {
-			"types": "./src/runtime-event.ts",
-			"import": "./src/runtime-event.ts"
-		},
-		"./run-registry": {
-			"types": "./src/run-registry.ts",
-			"import": "./src/run-registry.ts"
-		},
-		"./run-ipc": {
-			"types": "./src/run-ipc.ts",
-			"import": "./src/run-ipc.ts"
-		},
 		"./host": {
 			"types": "./src/host.ts",
 			"import": "./src/host.ts"
-		},
-		"./jsonl": {
-			"types": "./src/jsonl.ts",
-			"import": "./src/jsonl.ts"
 		},
 		"./paths": {
 			"types": "./src/paths.ts",
@@ -40,25 +20,25 @@
 			"types": "./src/pi-runner.ts",
 			"import": "./src/pi-runner.ts"
 		},
-		"./transcript": {
-			"types": "./src/transcript.ts",
-			"import": "./src/transcript.ts"
-		},
-		"./projection": {
-			"types": "./src/projection.ts",
-			"import": "./src/projection.ts"
+		"./pi-session": {
+			"types": "./src/pi-session.ts",
+			"import": "./src/pi-session.ts"
 		},
 		"./protocol": {
 			"types": "./src/protocol.ts",
 			"import": "./src/protocol.ts"
 		},
-		"./protocol-codec": {
-			"types": "./src/protocol-codec.ts",
-			"import": "./src/protocol-codec.ts"
+		"./runtime": {
+			"types": "./src/runtime.ts",
+			"import": "./src/runtime.ts"
 		},
-		"./sdk": {
-			"types": "./src/sdk.ts",
-			"import": "./src/sdk.ts"
+		"./serve": {
+			"types": "./src/serve.ts",
+			"import": "./src/serve.ts"
+		},
+		"./transcript": {
+			"types": "./src/transcript.ts",
+			"import": "./src/transcript.ts"
 		},
 		"./workflow": {
 			"types": "./src/workflow.ts",
@@ -68,15 +48,14 @@
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
-		"test": "bun test test",
-		"build:sdk": "rm -rf dist && bun build src/sdk.ts --target=node --format=esm --outfile=dist/sdk.js && tsc -p tsconfig.sdk.json"
+		"test": "bun test test"
 	},
 	"dependencies": {
 		"@earendil-works/pi-ai": "0.79.0",
 		"@earendil-works/pi-coding-agent": "0.79.0",
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
-		"effect": "4.0.0-beta.78",
+		"@plot/sdk": "workspace:*",
 		"eta": "4.6.0",
 		"jiti": "^2.7.0",
 		"yaml": "2.9.0"

@@ -1,26 +1,22 @@
 import type {
 	Observation,
 	RuntimeSnapshot,
-	SourceId,
-	TickId,
 	WorkItem,
 	WorkResult,
 	WorkRun,
 } from "./model.js";
 
-export type MaybePromise<A> = A | Promise<A>;
-
 export interface WorkRunnerContext {
-	readonly sourceId: SourceId;
-	readonly tickId: TickId;
-	readonly run: WorkRun;
-	readonly work: WorkItem;
-	readonly snapshot: RuntimeSnapshot;
-	readonly signal: AbortSignal;
-	readonly emitObservation: (observation: Observation) => MaybePromise<boolean>;
-	readonly shouldContinue?: (turnNumber: number) => MaybePromise<boolean>;
+	sourceId: string;
+	tickId: number;
+	run: WorkRun;
+	work: WorkItem;
+	snapshot: RuntimeSnapshot;
+	signal: AbortSignal;
+	emitObservation: (observation: Observation) => boolean | Promise<boolean>;
+	shouldContinue?: (turnNumber: number) => boolean | Promise<boolean>;
 }
 
 export interface WorkRunner {
-	readonly run: (context: WorkRunnerContext) => MaybePromise<WorkResult>;
+	run: (context: WorkRunnerContext) => WorkResult | Promise<WorkResult>;
 }

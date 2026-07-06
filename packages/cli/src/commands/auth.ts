@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { defineCommand } from "citty";
 import { authPathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
-import { runHumanCommand, writeProcessStderr } from "../io.js";
-import { makeAuth, str } from "../options.js";
+import { openBrowser, runHumanCommand, writeProcessStderr } from "../io.js";
+import { makeAuthFromArgs, str } from "../options.js";
 import { renderAuthStatus } from "../render.js";
 
 interface SelectPrompt {
@@ -45,18 +44,6 @@ export const selectOptionId = (
 	)?.id;
 };
 
-const openBrowser = (url: string): void => {
-	const [command, args]: [string, string[]] =
-		process.platform === "darwin"
-			? ["open", [url]]
-			: process.platform === "win32"
-				? ["rundll32", ["url.dll,FileProtocolHandler", url]]
-				: ["xdg-open", [url]];
-	spawn(command, args, { stdio: "ignore", detached: true })
-		.on("error", () => {})
-		.unref();
-};
-
 const readSelect = async (
 	prompt: SelectPrompt,
 ): Promise<string | undefined> => {
@@ -90,17 +77,6 @@ const optionalProviderArg = {
 		required: false,
 	},
 } as const;
-
-const makeAuthFromArgs = (args: Record<string, unknown>) => {
-	const cwd = str(args, "cwd") ?? process.cwd();
-	const plotDir = str(args, "plot-dir");
-	const agentDir = str(args, "agent-dir");
-	return makeAuth({
-		cwd,
-		...(plotDir === undefined ? {} : { plotDir }),
-		...(agentDir === undefined ? {} : { agentDir }),
-	});
-};
 
 export const authCommand = defineCommand({
 	meta: {

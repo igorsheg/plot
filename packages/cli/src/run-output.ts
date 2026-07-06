@@ -1,4 +1,6 @@
-import type { RunRecord, RunResponse } from "@plot/session/run-registry";
+import type { RunResponse } from "@plot/registry/ipc";
+import type { RunRecord } from "@plot/registry/record";
+import { pad, table } from "./render.js";
 
 const agoOf = (record: RunRecord, nowMs: number): string => {
 	const ms = Date.parse(record.lastSeenAt ?? record.createdAt);
@@ -8,23 +10,6 @@ const agoOf = (record: RunRecord, nowMs: number): string => {
 	if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
 	if (seconds < 86_400) return `${Math.round(seconds / 3600)}h`;
 	return `${Math.round(seconds / 86_400)}d`;
-};
-
-const pad = (value: string, width: number): string =>
-	value.length >= width ? value : value + " ".repeat(width - value.length);
-
-const table = (rows: readonly (readonly string[])[]): string => {
-	const widths = rows[0]?.map((_, column) =>
-		Math.max(...rows.map((row) => (row[column] ?? "").length)),
-	);
-	return rows
-		.map((row) =>
-			row
-				.map((cell, column) => pad(cell, widths?.[column] ?? cell.length))
-				.join("  ")
-				.trimEnd(),
-		)
-		.join("\n");
 };
 
 const liveFirst = (runs: readonly RunRecord[]): readonly RunRecord[] =>

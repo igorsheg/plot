@@ -1,20 +1,83 @@
-import type { AgentEventInput, RuntimeEvent } from "./runtime-event.js";
+import { randomUUID } from "node:crypto";
+import { EventHub } from "@plot/common/event-stream";
+import {
+	makePlotAgent,
+	type PlotAgent,
+	type PlotAgentOptions,
+} from "@plot/agent/agent";
+import type {
+	Completion,
+	Diagnostic,
+	PlotAgentEvent,
+	TickResult,
+	WorkRecord,
+	WorkRun,
+} from "@plot/agent/model";
+import type { WorkRunner } from "@plot/agent/work-runner";
+import type { WorkSource } from "@plot/agent/work-source";
 
-export interface SessionSnapshot {
-	readonly sessionId: string;
-	readonly work?: unknown;
-	readonly running?: unknown;
-	readonly facts?: unknown;
+export interface TickSummary {
+	readonly tickId: number;
+	readonly selected: number;
+	readonly started: number;
+	readonly running: number;
+	readonly completions: number;
+	readonly diagnostics: readonly Diagnostic[];
 }
 
-export interface SessionTickResult {
-	readonly tickId: number;
-	readonly selectedCount: number;
-	readonly startedCount: number;
-	readonly runningCount: number;
-	readonly completionCount: number;
-	readonly diagnosticCount: number;
-	readonly diagnostics?: readonly unknown[];
+/** Scheduler events, typed end-to-end. tick_completed is summarized; the rest pass through. */
+export type SessionEvent =
+	| { readonly type: "session_started" }
+	| { readonly type: "session_shutdown" }
+	| { readonly type: "tick_started"; readonly tickId: number }
+	| { readonly type: "tick_completed"; readonly result: TickSummary }
+	| { readonly type: "work_observed"; readonly work: WorkRecord }
+	| { readonly type: "work_removed"; readonly workKey: string }
+	| {
+			readonly type: "wake_scheduled";
+			readonly delayMs: number;
+			readonly reason?: string;
+			readonly workKey?: string;
+			readonly attempt?: number;
+	  }
+	| { readonly type: "attempt_started"; readonly run: WorkRun }
+	| { readonly type: "attempt_completed"; readonly completion: Completion };
+
+export interface SessionEventRecord {
+	readonly kind: "session_event";
+	readonly sessionId: string;
+	readonly sequence: number;
+	readonly timestamp: string;
+	readonly event: SessionEvent;
+}
+
+/** A raw inner-agent event relayed verbatim (pi AgentSessionEvent or the plot_transcript synthetic). */
+export interface AgentEventRecord {
+	readonly kind: "agent_event";
+	readonly sessionId: string;
+	readonly sequence: number;
+	readonly timestamp: string;
+	readonly sourceId: string;
+	readonly runId: string;
+	readonly workKey: string;
+	readonly event: unknown;
+}
+
+export type RuntimeEvent = SessionEventRecord | AgentEventRecord;
+
+export interface AgentEventInput {
+	readonly sourceId: string;
+	readonly runId: string;
+	readonly workKey: string;
+	readonly event: unknown;
+}
+
+/** Wire shape of a state snapshot; the only place Maps become objects. */
+export interface SessionSnapshot {
+	readonly sessionId: string;
+	readonly work: Readonly<Record<string, WorkRecord>>;
+	readonly running: Readonly<Record<string, WorkRun>>;
+	readonly facts: Readonly<Record<string, unknown>>;
 }
 
 export interface InterruptAgentRunInput {
@@ -46,7 +109,7 @@ export interface SessionRuntimeState {
 export interface SessionRuntime {
 	readonly id: string;
 	readonly start: () => Promise<void>;
-	readonly tickOnce: () => Promise<SessionTickResult>;
+	readonly tickOnce: () => Promise<TickSummary>;
 	readonly state: () => Promise<SessionRuntimeState>;
 	readonly snapshot: () => Promise<SessionSnapshot>;
 	readonly pauseDispatch: () => Promise<void>;
@@ -83,5 +146,142 @@ export const startOwnedTask = (input: {
 		name: input.name,
 		done,
 		stop: () => controller.abort(),
+	};
+};
+
+export const createSessionId = (): string => `session-${randomUUID()}`;
+
+export interface SessionRuntimeOptions {
+	readonly id: string;
+	readonly sources: readonly WorkSource[];
+	readonly runner: WorkRunner;
+	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
+	readonly agent?: Omit<PlotAgentOptions, "sources" | "runner">;
+	readonly eventCapacity?: number;
+}
+
+const objectFromMap = <V>(map: Map<string, V>): Record<string, V> =>
+	Object.fromEntries(map.entries());
+
+const toTickSummary = (result: TickResult): TickSummary => ({
+	tickId: result.tickId,
+	selected: result.selected.length,
+	started: result.started.length,
+	running: result.snapshot.running.size,
+	completions: result.completions.length,
+	diagnostics: result.diagnostics,
+});
+
+const toSessionEvent = (event: PlotAgentEvent): SessionEvent =>
+	event.type === "tick_completed"
+		? { type: "tick_completed", result: toTickSummary(event.result) }
+		: event;
+
+export const makeSessionRuntime = (
+	options: SessionRuntimeOptions,
+): SessionRuntime => {
+	if (options.id.length === 0) throw new Error("session id must be non-empty");
+	const sessionId = options.id;
+	const events = new EventHub<RuntimeEvent>(options.eventCapacity ?? 256);
+	const agent: PlotAgent = makePlotAgent({
+		...options.agent,
+		sources: [...options.sources],
+		runner: options.runner,
+	});
+	let shutdownPromise: Promise<boolean> | undefined;
+
+	let liveSequence = 0;
+	const publish = (record: RuntimeEvent): RuntimeEvent => {
+		const liveRecord =
+			record.sequence > liveSequence
+				? record
+				: { ...record, sequence: liveSequence + 1 };
+		liveSequence = liveRecord.sequence;
+		events.publish(liveRecord);
+		return liveRecord;
+	};
+	const publishSessionEvent = async (
+		event: SessionEvent,
+	): Promise<RuntimeEvent> =>
+		publish({
+			kind: "session_event",
+			sessionId,
+			sequence: liveSequence + 1,
+			timestamp: new Date().toISOString(),
+			event,
+		});
+	const publishAgentEvent = async (
+		input: AgentEventInput,
+	): Promise<RuntimeEvent> =>
+		publish({
+			kind: "agent_event",
+			sessionId,
+			sequence: liveSequence + 1,
+			timestamp: new Date().toISOString(),
+			sourceId: input.sourceId,
+			runId: input.runId,
+			workKey: input.workKey,
+			event: input.event,
+		});
+
+	const agentEvents = startOwnedTask({
+		name: "session.runtime.agent_events",
+		run: async (signal) => {
+			for await (const event of agent.events()) {
+				if (signal.aborted) return;
+				await publishSessionEvent(toSessionEvent(event));
+			}
+		},
+	});
+
+	return {
+		id: sessionId,
+		start: async () => {
+			await publishSessionEvent({ type: "session_started" });
+			await agent.start();
+		},
+		tickOnce: async () => toTickSummary(await agent.tickOnce()),
+		state: async () => ({
+			sessionId,
+			...options.state,
+			lastSequence: liveSequence,
+		}),
+		snapshot: async () => {
+			const snapshot = await agent.snapshot();
+			return {
+				sessionId,
+				work: objectFromMap(snapshot.work),
+				running: objectFromMap(snapshot.running),
+				facts: objectFromMap(snapshot.facts),
+			};
+		},
+		pauseDispatch: () => agent.pauseDispatch(),
+		resumeDispatch: () => agent.resumeDispatch(),
+		interruptAgentRun: (input) => agent.interruptAgentRun(input),
+		recordOperatorObservation: async (input) => {
+			const accepted = await agent.offer({
+				type: "observation",
+				observation: {
+					type: "operator_observation",
+					data: { ...input, timestamp: new Date().toISOString() },
+				},
+			});
+			// Reconcile promptly: the operator is watching.
+			if (accepted) await agent.wakeAfter(1, "operator observation");
+			return accepted;
+		},
+		events: () => events.subscribe(),
+		appendAgentEvent: publishAgentEvent,
+		lastEventSequence: async () => liveSequence,
+		shutdown: async () => {
+			shutdownPromise ??= (async () => {
+				const accepted = await agent.shutdown();
+				await agentEvents.done;
+				await publishSessionEvent({ type: "session_shutdown" });
+				events.close();
+				return accepted;
+			})();
+			return shutdownPromise;
+		},
 	};
 };

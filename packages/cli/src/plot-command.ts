@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { RunIpcOptions } from "@plot/session/run-ipc";
+import type { RunIpcOptions } from "@plot/registry/ipc";
 
 const sourceEntry = (value: string | undefined): string | undefined =>
 	value !== undefined && /\.[cm]?[jt]sx?$/.test(value) ? value : undefined;

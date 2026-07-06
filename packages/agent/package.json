@@ -14,7 +14,8 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@plot/common": "workspace:*"
+		"@plot/common": "workspace:*",
+		"@plot/sdk": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/tsconfig": "workspace:*"

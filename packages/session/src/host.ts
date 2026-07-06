@@ -1,31 +1,20 @@
 import { basename, resolve } from "node:path";
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import { setFact, sourceId, subjectKey, workKey } from "@plot/agent/model";
-import type { WorkRunnerContext } from "@plot/agent/work-runner";
+import { setFact } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
-import { createSessionId } from "./runtime-event.js";
+import { isPositiveInteger } from "@plot/common/primitives";
+import { createSessionId } from "./runtime.js";
 import {
 	makeCreatePiAgentSession,
 	type AgentSessionOverrides,
-} from "./agent-session.js";
-import {
-	makePlotExtensionSourceBundleFromWorkflow,
-	type PlotExtensionSourceBundle,
-} from "./extensions/source.js";
+} from "./pi-session.js";
+import { makePlotExtensionSourceBundleFromWorkflow } from "./extension-source.js";
 import { resolveSessionPaths, type SessionPaths } from "./paths.js";
 import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
 import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";
-import {
-	makeSessionProtocol,
-	type SessionProtocol,
-} from "./protocol-adapter.js";
-import {
-	makeAgentSessionRuntime,
-	type AgentSessionRuntimeOptions,
-} from "./agent-runtime.js";
+import { makeSessionProtocol, type SessionProtocol } from "./protocol.js";
+import { makeSessionRuntime, type SessionRuntimeOptions } from "./runtime.js";
 import type { SessionRuntime } from "./runtime.js";
 import { loadDiscoveredWorkflow, type WorkflowDefinition } from "./workflow.js";
-import type { WorkflowRuntimeConfig } from "./workflow-config.js";
 
 export interface SessionHostMetadata {
 	readonly workflowName: string;
@@ -69,9 +58,6 @@ export interface CreateSessionHostOptions {
 	readonly stallTimeoutMs?: number;
 }
 
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-type AgentConfig = NonNullable<WorkflowRuntimeConfig["agent"]>;
-
 export class SessionHostError extends Error {
 	override readonly name = "SessionHostError";
 	readonly phase: "config";
@@ -82,13 +68,13 @@ export class SessionHostError extends Error {
 	}
 }
 
-const workflowSourceId = sourceId("workflow");
-const workflowSubject = subjectKey("workflow");
-const workflowWorkKey = workKey("workflow:default");
+const workflowSourceId = "workflow";
+const workflowSubject = "workflow";
+const workflowWorkKey = "workflow:default";
 const workflowCompletedFact = "workflow:default:completed";
 
 const positiveInteger = (value: number, field: string): number => {
-	if (Number.isInteger(value) && value >= 1) return value;
+	if (isPositiveInteger(value)) return value;
 	throw new SessionHostError(`${field} must be a positive integer`);
 };
 
@@ -143,50 +129,6 @@ const makeProtocolLimits = (input: {
 	),
 });
 
-const noToolsForPi = (
-	value: AgentConfig["noTools"],
-): CreateAgentSessionOptions["noTools"] => {
-	if (value === undefined || value === false) return undefined;
-	if (value === true) return "all";
-	return value;
-};
-
-const baseCreateOptions = (input: {
-	readonly paths: SessionPaths;
-	readonly workflow: WorkflowDefinition;
-}): CreateAgentSessionOptions => {
-	const agent = input.workflow.runtime.agent;
-	const noTools = noToolsForPi(agent?.noTools);
-	const options: CreateAgentSessionOptions = {
-		cwd: input.paths.cwd,
-		agentDir: input.paths.agentDir,
-	};
-	if (agent?.thinking !== undefined) options.thinkingLevel = agent.thinking;
-	if (agent?.tools !== undefined) options.tools = [...agent.tools];
-	if (agent?.excludeTools !== undefined)
-		options.excludeTools = [...agent.excludeTools];
-	if (noTools !== undefined) options.noTools = noTools;
-	return options;
-};
-
-const runnerCreateOptions = async (input: {
-	readonly base: CreateAgentSessionOptions;
-	readonly extensionBundle?: PlotExtensionSourceBundle;
-	readonly context: WorkRunnerContext;
-}): Promise<CreateAgentSessionOptions> => {
-	const extensionCreate = await input.extensionBundle?.createOptions(
-		input.context,
-	);
-	if (extensionCreate === undefined) return input.base;
-	return {
-		...input.base,
-		...(extensionCreate.cwd === undefined ? {} : { cwd: extensionCreate.cwd }),
-		...(extensionCreate.customTools.length === 0
-			? {}
-			: { customTools: extensionCreate.customTools }),
-	};
-};
-
 const makeMetadata = (input: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
@@ -227,7 +169,6 @@ export const createSessionHost = async (
 	const sources = extensionBundle
 		? [extensionBundle.source]
 		: [makeOneShotWorkflowSource(workflow)];
-	const base = baseCreateOptions({ paths, workflow });
 	const createAgentSession =
 		options.createAgentSession ??
 		makeCreatePiAgentSession({
@@ -241,12 +182,7 @@ export const createSessionHost = async (
 	const runner = makePiWorkRunner({
 		createAgentSession,
 		prompt: workflow.prompt,
-		create: (context) =>
-			runnerCreateOptions({
-				base,
-				context,
-				...(extensionBundle === undefined ? {} : { extensionBundle }),
-			}),
+		create: (context) => extensionBundle?.createOptions(context),
 		maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
 		onEvent: async ({ context, event }) => {
 			await runtime.appendAgentEvent({
@@ -257,9 +193,7 @@ export const createSessionHost = async (
 			});
 		},
 	});
-	const agentOptions: Mutable<
-		NonNullable<AgentSessionRuntimeOptions["agent"]>
-	> = {
+	const agentOptions: NonNullable<SessionRuntimeOptions["agent"]> = {
 		queueCapacity: requestQueueCapacity,
 	};
 	if (tickIntervalMs !== undefined)
@@ -269,7 +203,7 @@ export const createSessionHost = async (
 	if (stallTimeoutMs !== undefined)
 		agentOptions.stallTimeoutMs = stallTimeoutMs;
 	const metadata = makeMetadata({ workflow, paths });
-	const runtimeOptions: AgentSessionRuntimeOptions = {
+	const runtimeOptions: SessionRuntimeOptions = {
 		id: sessionId,
 		sources,
 		runner: extensionBundle?.wrapRunner(runner) ?? runner,
@@ -283,7 +217,7 @@ export const createSessionHost = async (
 		eventCapacity,
 		agent: agentOptions,
 	};
-	runtime = makeAgentSessionRuntime(runtimeOptions);
+	runtime = makeSessionRuntime(runtimeOptions);
 	const parts: SessionHostPart[] = [];
 	if (extensionBundle !== undefined)
 		parts.push({ shutdown: () => extensionBundle.shutdown() });

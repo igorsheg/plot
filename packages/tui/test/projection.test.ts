@@ -1,50 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { sessionProtocolVersion } from "@plot/session/protocol";
-
-interface ProjectionEventRecord {
-	readonly protocol: string;
-	readonly kind: "event";
-	readonly event: {
-		readonly kind?: string;
-		readonly sessionId: string;
-		readonly sequence?: number;
-		readonly timestamp: string;
-		readonly type?: string;
-		readonly payload?: unknown;
-		readonly event?: unknown;
-		readonly [key: string]: unknown;
-	};
-	readonly [key: string]: unknown;
-}
-import { dashboardModelFrom } from "../src/dashboard-model.js";
 import {
-	applySnapshot,
-	emptyProjection,
-	reduceRecord,
-} from "@plot/session/projection";
+	sessionProtocolVersion,
+	type ServerRecord,
+} from "@plot/session/protocol";
+
+type ProjectionEventRecord = Extract<ServerRecord, { kind: "event" }>;
+import { dashboardModelFrom } from "../src/dashboard-model.js";
+import { applySnapshot, emptyProjection, reduceRecord } from "@plot/projection";
 
 const eventRecord = (
 	sequence: number,
-	type: string,
-	payload: unknown,
+	event: Extract<
+		ProjectionEventRecord["event"],
+		{ kind: "session_event" }
+	>["event"],
 ): ProjectionEventRecord => ({
 	protocol: sessionProtocolVersion,
 	kind: "event",
-	sessionId: "default",
-	epoch: "epoch-1",
-	sequence,
 	event: {
 		kind: "session_event",
 		sessionId: "default",
-		epoch: "epoch-1",
 		sequence,
 		timestamp: "2026-06-15T00:00:00.000Z",
-		type,
-		payload,
+		event,
 	},
 });
 
-const started = eventRecord(1, "attempt_started", {
+const started = eventRecord(1, {
+	type: "attempt_started",
 	run: {
 		runId: "run-1",
 		workKey: "source:item:42",
@@ -120,7 +103,8 @@ describe("Plot TUI projection", () => {
 		let p = emptyProjection("default", "workflow");
 		p = reduceRecord(
 			p,
-			eventRecord(1, "attempt_started", {
+			eventRecord(1, {
+				type: "attempt_started",
 				run: {
 					runId: "run-1",
 					workKey: "source:item:42",
@@ -137,20 +121,19 @@ describe("Plot TUI projection", () => {
 		p = reduceRecord(p, started);
 		p = reduceRecord(
 			p,
-			eventRecord(2, "attempt_completed", {
+			eventRecord(2, {
+				type: "attempt_completed",
 				completion: {
 					runId: "run-1",
 					workKey: "source:item:42",
+					sourceId: "extension:worker",
 					status: "succeeded",
 				},
 			}),
 		);
 		p = reduceRecord(
 			p,
-			eventRecord(3, "agent_run_event", {
-				runId: "run-1",
-				event: { type: "message_delta", text: "late" },
-			}),
+			agentProjectionEventRecord(3, { type: "message_delta", text: "late" }),
 		);
 		expect(p.attempts.has("run-1")).toBe(false);
 		expect(p.completed[0]?.status).toBe("succeeded");

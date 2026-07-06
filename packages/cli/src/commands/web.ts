@@ -1,15 +1,16 @@
 import { defineCommand } from "citty";
+import type { Mutable } from "@plot/common/primitives";
 import { pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
+import { openBrowser } from "../io.js";
 import { int, str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
-import { cliSemantics } from "../semantics.js";
-import { runPlotWebGateway } from "../web-gateway.js";
+import { runPlotWebGateway } from "@plot/gateway";
 
 export const webCommand = defineCommand({
 	meta: {
 		name: "web",
-		description: cliSemantics.web.description,
+		description: "Open the local Plot canvas for running sessions.",
 	},
 	args: {
 		cwd: pathArgs.cwd,
@@ -26,15 +27,17 @@ export const webCommand = defineCommand({
 	},
 	run: ({ args }) => {
 		const io = getCliIo();
-		return runPlotWebGateway({
+		const options: Mutable<Parameters<typeof runPlotWebGateway>[0]> = {
 			cwd: str(args, "cwd") ?? process.cwd(),
-			...(str(args, "agent-dir") === undefined
-				? {}
-				: { agentDir: str(args, "agent-dir") }),
-			...(int(args, "port") === undefined ? {} : { port: int(args, "port") }),
 			open: args["no-open"] !== true,
+			openUrl: openBrowser,
 			cli: resolvePlotCommand(),
-			...(io.writeStderr === undefined ? {} : { writeStderr: io.writeStderr }),
-		});
+		};
+		const agentDir = str(args, "agent-dir");
+		const port = int(args, "port");
+		if (agentDir !== undefined) options.agentDir = agentDir;
+		if (port !== undefined) options.port = port;
+		if (io.writeStderr !== undefined) options.writeStderr = io.writeStderr;
+		return runPlotWebGateway(options);
 	},
 });

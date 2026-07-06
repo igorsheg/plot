@@ -1,7 +1,7 @@
 import { DEFAULT_WORKFLOW_PATH } from "@plot/session/workflow";
 import type { ArgsDef } from "citty";
 
-export const workflowArgs = {
+const workflowArgs = {
 	workflow: {
 		type: "string",
 		description: `Workflow file. Default: ${DEFAULT_WORKFLOW_PATH}`,
@@ -43,7 +43,7 @@ export const authPathArgs = {
 	"agent-dir": pathArgs["agent-dir"],
 } satisfies ArgsDef;
 
-export const loggingArgs = {
+const loggingArgs = {
 	"log-level": {
 		type: "string",
 		description: "Log level: debug, info, warn, error.",
@@ -51,7 +51,7 @@ export const loggingArgs = {
 	},
 } satisfies ArgsDef;
 
-export const runtimeArgs = {
+const runtimeArgs = {
 	"request-queue-capacity": {
 		type: "string",
 		description: "Maximum queued protocol/control requests.",
@@ -79,7 +79,7 @@ export const runtimeArgs = {
 	},
 } satisfies ArgsDef;
 
-export const agentOverrideArgs = {
+const agentOverrideArgs = {
 	provider: {
 		type: "string",
 		description: "Override workflow agent provider.",
@@ -124,7 +124,7 @@ export const agentOverrideArgs = {
 	},
 } satisfies ArgsDef;
 
-export const resourceArgs = {
+const resourceArgs = {
 	skill: {
 		type: "string",
 		description: "Additional skill path for the agent session.",

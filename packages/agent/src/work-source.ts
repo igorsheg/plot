@@ -1,52 +1,45 @@
 import type {
 	Diagnostic,
 	Observation,
-	SourceId,
 	ReconcileProposal,
 	RuntimeSnapshot,
-	TickId,
 	WorkItem,
 	WorkRun,
 } from "./model.js";
-import type { MaybePromise } from "./work-runner.js";
 
 export interface PhaseContext {
-	readonly sourceId: SourceId;
-	readonly tickId: TickId;
-	readonly snapshot: RuntimeSnapshot;
-	readonly signal: AbortSignal;
+	sourceId: string;
+	tickId: number;
+	snapshot: RuntimeSnapshot;
+	signal: AbortSignal;
 }
 
 export interface WorkSourcePolicy {
-	readonly maxConcurrentRuns?: number;
+	maxConcurrentRuns?: number;
 }
 
 export interface ContinuationContext extends PhaseContext {
-	readonly run: WorkRun;
-	readonly work: WorkItem;
-	readonly turnNumber: number;
+	run: WorkRun;
+	work: WorkItem;
+	turnNumber: number;
 }
 
 export interface WorkSource {
-	readonly id: SourceId;
-	readonly policy?: WorkSourcePolicy;
-	readonly observeTick?: (
+	id: string;
+	policy?: WorkSourcePolicy;
+	observeTick?: (
 		context: PhaseContext,
-	) => MaybePromise<readonly Observation[]>;
-	readonly reconcile?: (
+	) => Observation[] | Promise<Observation[]>;
+	reconcile?: (
 		context: PhaseContext,
-	) => MaybePromise<readonly ReconcileProposal[]>;
-	readonly selectWork?: (
-		context: PhaseContext,
-	) => MaybePromise<readonly WorkItem[]>;
-	readonly continueWork?: (
-		context: ContinuationContext,
-	) => MaybePromise<boolean>;
+	) => ReconcileProposal[] | Promise<ReconcileProposal[]>;
+	selectWork?: (context: PhaseContext) => WorkItem[] | Promise<WorkItem[]>;
+	continueWork?: (context: ContinuationContext) => boolean | Promise<boolean>;
 }
 
 export interface AgentPolicy {
-	readonly maxConcurrentRuns?: number;
-	readonly validate?: (
+	maxConcurrentRuns?: number;
+	validate?: (
 		snapshot: RuntimeSnapshot,
-	) => MaybePromise<readonly Diagnostic[]>;
+	) => Diagnostic[] | Promise<Diagnostic[]>;
 }

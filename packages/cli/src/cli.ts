@@ -1,3 +1,4 @@
+import type { Mutable } from "@plot/common/primitives";
 import {
 	defineCommand,
 	renderUsage,
@@ -23,13 +24,11 @@ import {
 import { webCommand } from "./commands/web.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 import { baseOptions } from "./options.js";
+import type { RunInProcessOnceOptions } from "./runtime.js";
 import { VERSION } from "./package.js";
 import { resolvePlotCommand } from "./plot-command.js";
-import { cliSemantics } from "./semantics.js";
 
-export const version = VERSION;
-export { processCliIo } from "./io.js";
-export type { PlotCliIo } from "./io.js";
+const version = VERSION;
 
 const rootArgs = sessionCommandArgs;
 
@@ -43,19 +42,19 @@ const runRootTui = async ({
 	const io = getCliIo();
 	const runTui = io.runTui ?? (await import("@plot/tui/plot-tui")).runPlotTui;
 	void rawArgs;
-	return runTui({
-		...baseOptions(args),
-		cli: resolvePlotCommand(),
-		...(io.createAgentSession === undefined
-			? {}
-			: { createAgentSession: io.createAgentSession }),
-	});
+	const options: Mutable<
+		RunInProcessOnceOptions & { cli?: ReturnType<typeof resolvePlotCommand> }
+	> = baseOptions(args);
+	options.cli = resolvePlotCommand();
+	if (io.createAgentSession !== undefined)
+		options.createAgentSession = io.createAgentSession;
+	return runTui(options);
 };
 
 const tuiCommand = defineCommand({
 	meta: {
 		name: "tui",
-		description: cliSemantics.tui.description,
+		description: "Open the terminal dashboard for one Plot run.",
 	},
 	args: rootArgs,
 	run: runRootTui,
@@ -80,7 +79,7 @@ const subCommands = {
 const rootMeta = {
 	name: "plot",
 	version,
-	description: cliSemantics.root.description,
+	description: "Run coding-agent workflows.",
 };
 
 const rootCommand = defineCommand({

@@ -5,10 +5,6 @@
 		"plot": "./src/main.ts"
 	},
 	"type": "module",
-	"exports": {
-		"./cli": "./src/cli.ts",
-		"./runtime": "./src/runtime.ts"
-	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint . --tsconfig tsconfig.json",
@@ -16,6 +12,8 @@
 	},
 	"dependencies": {
 		"@plot/common": "workspace:*",
+		"@plot/gateway": "workspace:*",
+		"@plot/registry": "workspace:*",
 		"@plot/session": "workspace:*",
 		"@plot/tui": "workspace:*",
 		"citty": "^0.1.6"

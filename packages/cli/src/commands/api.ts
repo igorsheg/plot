@@ -1,10 +1,12 @@
 import { defineCommand } from "citty";
+import type { Mutable } from "@plot/common/primitives";
 import { sessionCommandArgs, pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
+import { openBrowser } from "../io.js";
 import { baseOptions, int, str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
-import { runApiStdio } from "../runtime.js";
-import { runPlotWebGateway } from "../web-gateway.js";
+import { runApiStdio, type ApiStdioOptions } from "../runtime.js";
+import { runPlotWebGateway } from "@plot/gateway";
 
 export const apiCommand = defineCommand({
 	meta: {
@@ -42,28 +44,28 @@ export const apiCommand = defineCommand({
 		const io = getCliIo();
 		if (args.stdio === true) {
 			io.protectStdout?.();
-			return runApiStdio({
-				...baseOptions(args),
-				...(io.createAgentSession === undefined
-					? {}
-					: { createAgentSession: io.createAgentSession }),
-				stdin: io.stdin,
-				writeStdout: io.writeStdout,
-			});
+			const stdioOptions = baseOptions(args) as Mutable<ApiStdioOptions>;
+			if (io.createAgentSession !== undefined)
+				stdioOptions.createAgentSession = io.createAgentSession;
+			stdioOptions.stdin = io.stdin;
+			stdioOptions.writeLine = io.writeStdout;
+			return runApiStdio(stdioOptions);
 		}
-		return runPlotWebGateway({
+		const options: Mutable<Parameters<typeof runPlotWebGateway>[0]> = {
 			cwd: str(args, "cwd") ?? process.cwd(),
-			...(str(args, "agent-dir") === undefined
-				? {}
-				: { agentDir: str(args, "agent-dir") }),
-			...(str(args, "workflow") === undefined
-				? {}
-				: { workflowPath: str(args, "workflow") }),
-			...(int(args, "port") === undefined ? {} : { port: int(args, "port") }),
-			...(str(args, "host") === undefined ? {} : { host: str(args, "host") }),
 			open: args["no-open"] !== true,
+			openUrl: openBrowser,
 			cli: resolvePlotCommand(),
-			...(io.writeStderr === undefined ? {} : { writeStderr: io.writeStderr }),
-		});
+		};
+		const agentDir = str(args, "agent-dir");
+		const workflowPath = str(args, "workflow");
+		const port = int(args, "port");
+		const host = str(args, "host");
+		if (agentDir !== undefined) options.agentDir = agentDir;
+		if (workflowPath !== undefined) options.workflowPath = workflowPath;
+		if (port !== undefined) options.port = port;
+		if (host !== undefined) options.host = host;
+		if (io.writeStderr !== undefined) options.writeStderr = io.writeStderr;
+		return runPlotWebGateway(options);
 	},
 });

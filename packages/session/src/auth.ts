@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { Mutable } from "@plot/common/primitives";
 import type {
 	OAuthAuthInfo,
 	OAuthDeviceCodeInfo,
@@ -85,12 +86,13 @@ const statusFor = (
 	provider: string,
 ): AuthStatusInfo => {
 	const status = modelRegistry.getProviderAuthStatus(provider);
-	return {
+	const info: Mutable<AuthStatusInfo> = {
 		provider,
 		configured: status.configured,
-		...(status.source === undefined ? {} : { source: status.source }),
-		...(status.label === undefined ? {} : { label: status.label }),
 	};
+	if (status.source !== undefined) info.source = status.source;
+	if (status.label !== undefined) info.label = status.label;
+	return info;
 };
 
 const matchesModelSearch = (model: ModelInfo, search: string) => {
@@ -107,7 +109,7 @@ const makeCallbacks = (options: AuthLoginOptions): OAuthLoginCallbacks => {
 		(options.manualCode === undefined
 			? undefined
 			: async () => options.manualCode ?? "");
-	return {
+	const callbacks: OAuthLoginCallbacks = {
 		onAuth: (info) => options.events?.auth?.(info),
 		onDeviceCode: (info) => options.events?.deviceCode?.(info),
 		onPrompt: async (prompt) => {
@@ -119,7 +121,6 @@ const makeCallbacks = (options: AuthLoginOptions): OAuthLoginCallbacks => {
 			throw new Error("auth login requires prompt input");
 		},
 		onProgress: (message) => options.events?.progress?.(message),
-		...(onManualCodeInput === undefined ? {} : { onManualCodeInput }),
 		onSelect: async (prompt) => {
 			options.events?.select?.(prompt);
 			if (options.selectResponse !== undefined) return options.selectResponse;
@@ -127,6 +128,9 @@ const makeCallbacks = (options: AuthLoginOptions): OAuthLoginCallbacks => {
 			return prompt.options[0]?.id;
 		},
 	};
+	if (onManualCodeInput !== undefined)
+		callbacks.onManualCodeInput = onManualCodeInput;
+	return callbacks;
 };
 
 export const createSessionAuth = (
@@ -151,14 +155,15 @@ export const createSessionAuth = (
 			return providerIds(authStorage, modelRegistry).map((id) => {
 				const status = modelRegistry.getProviderAuthStatus(id);
 				const oauth = oauthById.get(id);
-				return {
+				const info: Mutable<AuthProviderInfo> = {
 					id,
 					name: oauth?.name ?? modelRegistry.getProviderDisplayName(id),
 					usesCallbackServer: oauth?.usesCallbackServer ?? false,
 					configured: status.configured,
-					...(status.source === undefined ? {} : { source: status.source }),
-					...(status.label === undefined ? {} : { label: status.label }),
 				};
+				if (status.source !== undefined) info.source = status.source;
+				if (status.label !== undefined) info.label = status.label;
+				return info;
 			});
 		},
 		listModels: async (search) => {

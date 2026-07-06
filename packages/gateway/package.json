@@ -1,0 +1,26 @@
+{
+	"name": "@plot/gateway",
+	"private": true,
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		".": {
+			"types": "./src/gateway.ts",
+			"import": "./src/gateway.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"test": "bun test test"
+	},
+	"dependencies": {
+		"@plot/common": "workspace:*",
+		"@plot/projection": "workspace:*",
+		"@plot/registry": "workspace:*",
+		"@plot/session": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}

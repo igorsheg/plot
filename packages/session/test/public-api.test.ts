@@ -3,19 +3,14 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 const expectedExports = [
-	"./agent-session",
+	"./pi-session",
 	"./auth",
-	"./runtime-event",
-	"./run-registry",
-	"./run-ipc",
+	"./runtime",
+	"./serve",
 	"./host",
-	"./jsonl",
 	"./paths",
 	"./pi-runner",
-	"./projection",
 	"./protocol",
-	"./protocol-codec",
-	"./sdk",
 	"./transcript",
 	"./workflow",
 ] as const;

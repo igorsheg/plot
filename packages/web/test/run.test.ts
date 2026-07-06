@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parsePlotRuns } from "../src/run.js";
+import { parsePlotRuns } from "../src/data/run.js";
 
 describe("web run parser", () => {
 	test("drops invalid rows but keeps runs", () => {

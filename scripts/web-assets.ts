@@ -9,7 +9,7 @@ const out = join(
 	import.meta.dir,
 	"..",
 	"packages",
-	"cli",
+	"gateway",
 	"src",
 	"web-assets.generated.ts",
 );

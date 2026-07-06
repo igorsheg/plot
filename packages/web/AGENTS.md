@@ -2,47 +2,40 @@
 
 ## Scope
 
-Applies to `packages/web/**`. Prefer this over root guidance when working on the React web app.
+Applies to `packages/web/**`.
 
-## Architecture
+## Direction
 
-Keep the web app a clean React/TypeScript client over Plot's local file-backed gateway.
+This web app is being rebuilt from first principles. Keep only essentials until a real screen needs more.
 
-```text
-api.ts              HTTP/SSE contract parsing, URLs, fetch helpers
-main.tsx           app wiring only
-flow-canvas.tsx    canvas substrate + composed node UI
-live-events.ts     live runRegistry delta hook
-run.ts        runRegistry run DTO parsing
-components/ui/*    copied coss primitives only when used
-```
-
-## React rules
-
-- Use composition over boolean mode props. If a component wants `isDetail`, `isCompact`, `showFoo`, make explicit composed variants instead.
-- Prefer small components with `children` slots over render props and giant configurable parents.
-- Use compound components when a UI surface grows shared state across siblings.
-- Keep state ownership explicit: hooks/providers own data loading and mutation; presentational components receive ready data.
-- Keep API parsing at the edge in `api.ts` / DTO modules. Canvas/cards should not parse raw JSON.
-- React Flow owns canvas mechanics only. Plot UI remains normal React DOM/coss/Tailwind components.
-- Do not add global state libraries until prop flow is actually painful.
-- Do not copy more coss components than are rendered.
-
-## Theme and primitives
-
-- Call sites should use semantic classes or composed primitives, not long Tailwind strings.
-- No arbitrary colors, typography, shadows, or spacing in JSX. Put them in `src/style.css` under a named Plot class.
-- Tailwind utilities are acceptable inside primitive/component definitions, not scattered across feature call sites.
-- Prefer coss primitives first. If a repeated Plot pattern appears, create a small composed component before adding more call-site classes.
-- Extend `style.css` only for surfaced patterns. Do not create a token dump "for later".
-- Use CSS variables for substrate values that third-party components need, e.g. React Flow grid colors.
-
-## Product data flow
+## Structure
 
 ```text
-runRegistry canvas: /api/runs + SSE after run.lastSequence
-session detail: /api/runs/:id/projection + live SSE after projection.frontier
-raw events: live transport only, never durable browser replay
+src/main.tsx          React entrypoint only
+src/app/              App wiring plus app-owned Nano Stores
+src/components/       Flat domain block compositions
+src/components/ui/    Owned UI primitives we actually render (ported Kumo + Stack)
+src/data/             Gateway contracts, DTO parsing, fetch helpers, tiny parse helpers
+src/theme/            Theme Nano Store persistence and Kumo mode wiring
+src/lib/              Tiny shared utilities
+src/style.css         Tailwind v4 raw tokens, semantic tokens, and base selectors only
 ```
 
-Keep runRegistry O(number of runs).
+## Rules
+
+- Locality of behavior: feature-specific state, helpers, and markup live together under the owning directory.
+- Domain block compositions live flat in `src/components/`; only primitive UI components live under `src/components/ui/`.
+- State lives in Nano Stores (`nanostores` + `@nanostores/react`); components subscribe and render, they do not own app state with React context/effects.
+- API reads/writes go through `@nanostores/query` fetcher/mutator stores. Keep raw fetch/parse helpers in `src/data/`, but do not call them from views.
+- Move non-UI logic into stores and derived stores. Prefer `computed` chains over component `useMemo` glue.
+- Separate changes from reactions: actions set/mutate stores only; persistence, DOM sync, revalidation, and other side effects live in store listeners/query stores.
+- Do not rebuild the old Console model by inertia: no Fleet, Brief, lanes, replay scrub, palette, or optimistic queue unless re-proven.
+- Keep gateway parsing at `src/data/`; views do not parse raw JSON.
+- Port external UI primitives only when rendered. No package install, no closed component system.
+- Use `@phosphor-icons/react` for icons throughout Plot web; do not mix icon sets.
+- `src/style.css` is the Plot web design system: raw tokens, semantic aliases, Tailwind v4 theme entries, and base selectors only.
+- Do not put component/block/domain selectors in `src/style.css`; colocate that styling with the owning component using idiomatic Tailwind utilities/composition.
+- Visible text renders through `src/components/ui/text.tsx`; do not define typography styles in component CSS or inline styles.
+- Keep `Text` and `Button` close to their Kumo ports; avoid product-specific primitive variants.
+- Use Tailwind/native spacing directly at the owning component; do not add JS spacing-token wrappers.
+- Add the smallest behavior test that proves a kept contract.

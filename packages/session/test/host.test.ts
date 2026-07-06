@@ -4,13 +4,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import type {
 	AgentSessionEvent,
-	CreateAgentSessionOptions,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import { makeCreatePiAgentSession } from "../src/agent-session.js";
+import { makeCreatePiAgentSession } from "../src/pi-session.js";
 import { createProtocolSessionHost, createSessionHost } from "../src/host.js";
 import { resolveSessionPaths } from "../src/paths.js";
-import type { PiAgentSessionPort } from "../src/pi-runner.js";
+import type {
+	PiAgentSessionPort,
+	PiAgentSessionRunOptions,
+} from "../src/pi-runner.js";
 import { parseWorkflowText } from "../src/workflow.js";
 
 class FakePiSession implements PiAgentSessionPort {
@@ -85,7 +87,7 @@ Hello {{ workflow.name }}
 `,
 		);
 		const session = new FakePiSession();
-		let createOptions: CreateAgentSessionOptions | undefined;
+		let createOptions: PiAgentSessionRunOptions | undefined;
 		const host = await createSessionHost({
 			cwd,
 			sessionId: "host-test",
@@ -105,9 +107,63 @@ Hello {{ workflow.name }}
 			cwd,
 			cwdName: cwd.split("/").at(-1),
 		});
-		expect(createOptions).toMatchObject({ cwd, noTools: "all" });
+		expect(createOptions).toBeUndefined();
 		expect(session.prompts).toEqual(["Hello host-test"]);
 		expect(session.disposed).toBe(true);
+	});
+
+	test("passes only extension per-run options to createAgentSession", async () => {
+		const cwd = await makeTempDir();
+		const workCwd = join(cwd, "work");
+		await writeFile(
+			join(cwd, "extension.ts"),
+			`export default {
+  id: "per-run",
+  create: ({ registerTool }) => {
+    registerTool({
+      name: "demo_tool",
+      description: "Demo tool",
+      parameters: { type: "object", properties: {} },
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] })
+    });
+    return { discover: () => [{ id: "work", workspace: ${JSON.stringify(workCwd)} }] };
+  }
+};
+`,
+		);
+		await writeFile(
+			join(cwd, "WORKFLOW.md"),
+			`---
+extension:
+  source: ./extension.ts
+---
+Do it
+`,
+		);
+		const session = new FakePiSession();
+		let createOptions: PiAgentSessionRunOptions | undefined;
+		const host = await createSessionHost({
+			cwd,
+			sessionId: "host-extension-options",
+			createAgentSession: async (options) => {
+				createOptions = options;
+				return { session };
+			},
+		});
+
+		await host.runtime.start();
+		await host.runtime.tickOnce();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await host.shutdown();
+
+		expect(createOptions?.cwd).toBe(workCwd);
+		expect(createOptions?.customTools?.map((tool) => tool.name)).toEqual([
+			"demo_tool",
+		]);
+		expect(Object.keys(createOptions ?? {}).toSorted()).toEqual([
+			"customTools",
+			"cwd",
+		]);
 	});
 
 	test("protocol host owns protocol close and runtime shutdown", async () => {
@@ -122,7 +178,7 @@ Hello {{ workflow.name }}
 		const welcome = await host.protocol.welcome();
 		await host.shutdown();
 		const accepted = await host.protocol.submit({
-			protocol: "plot.session.v2",
+			protocol: "plot.session.v3",
 			kind: "request",
 			id: "after-close",
 			command: "ping",

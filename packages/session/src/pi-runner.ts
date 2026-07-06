@@ -3,9 +3,15 @@ import {
 	type AgentSessionEvent,
 	type CreateAgentSessionOptions,
 	type PromptOptions,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { AsyncQueue } from "@plot/common/async-queue";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import {
+	errorMessage,
+	isPositiveInteger,
+	isRecord,
+	type Mutable,
+} from "@plot/common/primitives";
 import type { WorkResult } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import { Eta } from "eta";
@@ -24,8 +30,13 @@ export interface PiAgentSessionPort {
 /** Synthetic event carrying the Agent Transcript reference into the stream. */
 export const transcriptEventType = "plot_transcript";
 
+export interface PiAgentSessionRunOptions {
+	readonly cwd?: string;
+	readonly customTools?: ToolDefinition[];
+}
+
 export type CreatePiAgentSession = (
-	options?: CreateAgentSessionOptions,
+	perRun?: PiAgentSessionRunOptions,
 ) => Promise<{ readonly session: PiAgentSessionPort }>;
 
 export type PiRunnerValue<A> =
@@ -35,7 +46,7 @@ export type PiRunnerValue<A> =
 export interface PiWorkRunnerConfig {
 	readonly createAgentSession?: CreatePiAgentSession;
 	readonly prompt: PiRunnerValue<string>;
-	readonly create?: PiRunnerValue<CreateAgentSessionOptions | undefined>;
+	readonly create?: PiRunnerValue<PiAgentSessionRunOptions | undefined>;
 	readonly promptOptions?: PiRunnerValue<PromptOptions | undefined>;
 	readonly maxTurns?: number;
 	readonly eventCapacity?: number;
@@ -104,14 +115,18 @@ Continuation guidance:
 `;
 
 const positiveInteger = (value: number, field: string): number => {
-	if (Number.isInteger(value) && value >= 1) return value;
+	if (isPositiveInteger(value)) return value;
 	throw new PiWorkRunnerError({
 		phase: "prompt",
 		message: `${field} must be a positive integer`,
 	});
 };
 
-const defaultCreateAgentSession: CreatePiAgentSession = async (options) => {
+const defaultCreateAgentSession: CreatePiAgentSession = async (perRun) => {
+	const options: CreateAgentSessionOptions = {};
+	if (perRun?.cwd !== undefined) options.cwd = perRun.cwd;
+	if (perRun?.customTools !== undefined)
+		options.customTools = perRun.customTools;
 	const result = await createAgentSession(options);
 	return { session: result.session };
 };
@@ -129,7 +144,7 @@ const disposeSession = (session: PiAgentSessionPort): void => {
 
 async function* promptSession(input: {
 	readonly createAgentSession: CreatePiAgentSession;
-	readonly create?: CreateAgentSessionOptions;
+	readonly create?: PiAgentSessionRunOptions;
 	readonly prompt: string;
 	readonly promptOptions?: PromptOptions;
 	readonly signal: AbortSignal;
@@ -165,13 +180,17 @@ async function* promptSession(input: {
 				return;
 			}
 			if (session.sessionFile !== undefined) {
-				queue.offer({
+				const event: Mutable<{
+					readonly type: typeof transcriptEventType;
+					readonly sessionFile: string;
+					readonly sessionId?: string | undefined;
+				}> = {
 					type: transcriptEventType,
 					sessionFile: session.sessionFile,
-					...(session.sessionId === undefined
-						? {}
-						: { sessionId: session.sessionId }),
-				} as unknown as AgentSessionEvent);
+				};
+				if (session.sessionId !== undefined)
+					event.sessionId = session.sessionId;
+				queue.offer(event as unknown as AgentSessionEvent);
 			}
 			unsubscribe = session.subscribe((event) => {
 				if (queue.offer(event)) return;
@@ -236,19 +255,19 @@ export const makePiWorkRunner = (config: PiWorkRunnerConfig): WorkRunner => ({
 			"eventCapacity",
 		);
 		let lastActivityPingMs = 0;
-		for await (const event of promptSession({
+		const sessionInput: Mutable<Parameters<typeof promptSession>[0]> = {
 			createAgentSession:
 				config.createAgentSession ?? defaultCreateAgentSession,
-			...(create === undefined ? {} : { create }),
 			prompt,
-			...(promptOptions === undefined ? {} : { promptOptions }),
 			signal: context.signal,
 			maxTurns,
 			eventCapacity,
-			...(context.shouldContinue === undefined
-				? {}
-				: { shouldContinue: context.shouldContinue }),
-		})) {
+		};
+		if (create !== undefined) sessionInput.create = create;
+		if (promptOptions !== undefined) sessionInput.promptOptions = promptOptions;
+		if (context.shouldContinue !== undefined)
+			sessionInput.shouldContinue = context.shouldContinue;
+		for await (const event of promptSession(sessionInput)) {
 			const now = Date.now();
 			if (now - lastActivityPingMs >= 10_000) {
 				lastActivityPingMs = now;

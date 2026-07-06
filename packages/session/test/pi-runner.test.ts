@@ -3,12 +3,7 @@ import type {
 	AgentSessionEvent,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import {
-	runId,
-	sourceId,
-	workKey,
-	type RuntimeSnapshot,
-} from "@plot/agent/model";
+import type { RuntimeSnapshot } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import {
 	PiWorkRunnerError,
@@ -24,6 +19,14 @@ class FakePiSession implements PiAgentSessionPort {
 	readonly listeners = new Set<(event: AgentSessionEvent) => void>();
 	disposed = false;
 
+	constructor(
+		private readonly event: AgentSessionEvent = {
+			type: "queue_update",
+			steering: [],
+			followUp: [],
+		},
+	) {}
+
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -31,8 +34,7 @@ class FakePiSession implements PiAgentSessionPort {
 
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
 		this.prompts.push({ text, ...(options === undefined ? {} : { options }) });
-		for (const listener of this.listeners)
-			listener({ type: "queue_update", steering: [], followUp: [] });
+		for (const listener of this.listeners) listener(this.event);
 	}
 
 	dispose(): void {
@@ -57,12 +59,12 @@ const context = (
 		readonly emitObservation?: WorkRunnerContext["emitObservation"];
 	} = {},
 ): WorkRunnerContext => {
-	const source = sourceId("source");
-	const key = workKey("work-1");
+	const source = "source";
+	const key = "work-1";
 	return {
 		sourceId: source,
 		tickId: 1,
-		run: { runId: runId("run-1"), sourceId: source, workKey: key },
+		run: { runId: "run-1", sourceId: source, workKey: key },
 		work: { workKey: key, templateContext: { name: "Ada" } },
 		snapshot,
 		signal: input.signal ?? new AbortController().signal,
@@ -98,7 +100,7 @@ test("pi runner renders prompt, streams events, and disposes", async () => {
 	expect(session.prompts).toEqual([
 		{ text: "Hello Ada", options: { expandPromptTemplates: false } },
 	]);
-	expect(events.map((event) => event.type)).toEqual(["queue_update"]);
+	expect(events.map((event) => event["type"])).toEqual(["queue_update"]);
 	expect(observations).toBe(1);
 	expect(session.disposed).toBe(true);
 });

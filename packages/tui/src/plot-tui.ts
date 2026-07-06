@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
-import { errorMessage } from "@plot/common/primitives";
+import { errorMessage, type Mutable } from "@plot/common/primitives";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 import type { CreateSessionHostOptions } from "@plot/session/host";
-import { openOrStartRunIpc, type RunIpcOptions } from "@plot/session/run-ipc";
+import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
 import {
 	sessionProtocolVersion,
 	type ClientRequest,
@@ -16,7 +16,7 @@ import {
 	emptyProjection,
 	reduceRecord,
 	type DashboardProjection,
-} from "@plot/session/projection";
+} from "@plot/projection";
 
 export interface PlotTuiOptions extends CreateSessionHostOptions {
 	readonly mode?: "watch" | "oneshot";
@@ -64,33 +64,29 @@ const initialProjection = (input: {
 	);
 
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	const runIpc = await openOrStartRunIpc({
+	const runIpcOptions: Mutable<RunIpcOptions> = { cwd: options.cwd };
+	if (options.cli !== undefined) runIpcOptions.cli = options.cli;
+	const runIpc = await openOrStartRunIpc(runIpcOptions);
+	const spawnInput: Mutable<Parameters<typeof runIpc.runRegistry.spawn>[0]> = {
 		cwd: options.cwd,
-		...(options.cli === undefined ? {} : { cli: options.cli }),
-	});
-	const run = await runIpc.runRegistry.spawn({
-		cwd: options.cwd,
-		...(options.sessionId === undefined
-			? {}
-			: { sessionId: options.sessionId }),
-		...(options.workflowPath === undefined
-			? {}
-			: { workflowPath: options.workflowPath }),
-	});
-	let projection = initialProjection({
+	};
+	if (options.sessionId !== undefined) spawnInput.sessionId = options.sessionId;
+	if (options.workflowPath !== undefined)
+		spawnInput.workflowPath = options.workflowPath;
+	const run = await runIpc.runRegistry.spawn(spawnInput);
+	const initialInput: Mutable<Parameters<typeof initialProjection>[0]> = {
 		id: run.id,
-		...(run.sessionId === undefined ? {} : { sessionId: run.sessionId }),
 		cwd: run.cwd,
-		...(run.cwdName === undefined ? {} : { cwdName: run.cwdName }),
-		...(run.workflowName === undefined
-			? {}
-			: { workflowName: run.workflowName }),
-		...(run.workflowPath === undefined
-			? options.workflowPath === undefined
-				? {}
-				: { workflowPath: options.workflowPath }
-			: { workflowPath: run.workflowPath }),
-	});
+	};
+	if (run.sessionId !== undefined) initialInput.sessionId = run.sessionId;
+	if (run.cwdName !== undefined) initialInput.cwdName = run.cwdName;
+	if (run.workflowName !== undefined)
+		initialInput.workflowName = run.workflowName;
+	if (run.workflowPath !== undefined)
+		initialInput.workflowPath = run.workflowPath;
+	else if (options.workflowPath !== undefined)
+		initialInput.workflowPath = options.workflowPath;
+	let projection = initialProjection(initialInput);
 	let requestIndex = 0;
 	let resolveStopped!: () => void;
 	const stopped = new Promise<void>((resolve) => {
@@ -121,13 +117,13 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		params?: unknown,
 	): Promise<ServerRecord> => {
 		const id = `tui-${++requestIndex}`;
-		const record: ClientRequest = {
+		const record: Mutable<ClientRequest> = {
 			protocol: sessionProtocolVersion,
 			kind: "request",
 			id,
 			command,
-			...(params === undefined ? {} : { params }),
 		};
+		if (params !== undefined) record.params = params;
 		return runIpc.runRegistry.submit(run.id, record);
 	};
 	let refreshInFlight = false;

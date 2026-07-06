@@ -1,0 +1,25 @@
+{
+	"name": "@plot/registry",
+	"private": true,
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		"./history": "./src/history.ts",
+		"./ipc": "./src/ipc.ts",
+		"./record": "./src/record.ts",
+		"./store": "./src/store.ts",
+		"./supervisor": "./src/supervisor.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"test": "bun test test"
+	},
+	"dependencies": {
+		"@plot/common": "workspace:*",
+		"@plot/session": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}

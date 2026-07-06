@@ -55,6 +55,15 @@ Use the current task context.
 		).toThrow(WorkflowBoundaryError);
 	});
 
+	test("runtime validation error names nested field path", () => {
+		expect(() =>
+			parseWorkflowText(
+				`---\nruntime:\n  agent:\n    maxTurns: nope\n---\nDo it.`,
+				"WORKFLOW.md",
+			),
+		).toThrow(/runtime\.agent\.maxTurns/);
+	});
+
 	test("loads through injected file system and resolves discovery paths", async () => {
 		const workflow = await loadWorkflow("custom/WORKFLOW.md", {
 			readFileString: async (path) =>

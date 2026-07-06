@@ -1,0 +1,25 @@
+{
+	"name": "@plot/projection",
+	"private": true,
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		".": {
+			"types": "./src/projection.ts",
+			"import": "./src/projection.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"test": "bun test test"
+	},
+	"dependencies": {
+		"@plot/agent": "workspace:*",
+		"@plot/common": "workspace:*",
+		"@plot/session": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}
