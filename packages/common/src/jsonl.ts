@@ -1,14 +1,14 @@
-import { byteLength, errorMessage } from "@plot/common/primitives";
+import { byteLength, errorMessage } from "./primitives.js";
 
 export interface JsonlLimits {
 	readonly maxLineBytes: number;
 }
 
-export interface JsonlDecodeState {
+interface JsonlDecodeState {
 	readonly pending: string;
 }
 
-export interface JsonlDecodeResult {
+interface JsonlDecodeResult {
 	readonly lines: readonly string[];
 	readonly state: JsonlDecodeState;
 }
@@ -34,7 +34,7 @@ export class JsonlBoundaryError extends Error {
 	}
 }
 
-export const emptyJsonlDecodeState: JsonlDecodeState = { pending: "" };
+const emptyJsonlDecodeState: JsonlDecodeState = { pending: "" };
 
 const trimCarriageReturn = (line: string): string =>
 	line.endsWith("\r") ? line.slice(0, -1) : line;
@@ -49,7 +49,7 @@ const assertLineSize = (line: string, limits: JsonlLimits): void => {
 	});
 };
 
-export const splitJsonl = (
+const splitJsonl = (
 	state: JsonlDecodeState,
 	chunk: string,
 	limits: JsonlLimits,
@@ -62,7 +62,7 @@ export const splitJsonl = (
 	return { lines, state: { pending } };
 };
 
-export const flushJsonl = (
+const flushJsonl = (
 	state: JsonlDecodeState,
 	limits: JsonlLimits,
 ): readonly string[] => {

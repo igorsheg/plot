@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { isRecord } from "@plot/common/primitives";
-import { jsonlLines, parseJsonl } from "./jsonl.js";
+import { jsonlLines, parseJsonl } from "@plot/common/jsonl";
 
 /** One display block of an Agent Transcript, flattened from pi's session store. */
 export interface TranscriptEntry {

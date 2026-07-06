@@ -3,7 +3,7 @@ import { defineCommand, type ParsedArgs } from "citty";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
 import { str } from "../options.js";
-import { jsonlLines, stringifyJsonl } from "@plot/session/jsonl";
+import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
 import { defaultProtocolLimits } from "@plot/session/protocol";
 import type { RunIpcOptions } from "@plot/session/run-ipc";
 import {

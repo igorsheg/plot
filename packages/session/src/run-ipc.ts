@@ -15,7 +15,7 @@ import {
 	type RunResponse,
 	type RunSpawnOptions,
 } from "./run-registry.js";
-import { jsonlLines, parseJsonl, stringifyJsonl } from "./jsonl.js";
+import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
 import { errorMessage } from "@plot/common/primitives";
 import {
 	decodeServerRecord,

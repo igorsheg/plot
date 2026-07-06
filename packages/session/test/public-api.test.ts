@@ -10,7 +10,6 @@ const expectedExports = [
 	"./run-record",
 	"./run-ipc",
 	"./host",
-	"./jsonl",
 	"./paths",
 	"./pi-runner",
 	"./protocol",

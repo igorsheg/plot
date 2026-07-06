@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
 import { errorMessage, hasErrnoCode, isRecord } from "@plot/common/primitives";
 import { Schema } from "effect";
-import { jsonlLines, parseJsonl } from "./jsonl.js";
+import { jsonlLines, parseJsonl } from "@plot/common/jsonl";
 import {
 	clientRequestSchema,
 	sessionProtocolVersion,

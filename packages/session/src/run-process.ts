@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { jsonlLines, stringifyJsonl } from "./jsonl.js";
+import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
 import { decodeServerRecordLine } from "./protocol-codec.js";
 import {
 	defaultProtocolLimits,

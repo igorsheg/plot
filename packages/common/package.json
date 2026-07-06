@@ -5,6 +5,7 @@
 	"exports": {
 		"./async-queue": "./src/async-queue.ts",
 		"./event-stream": "./src/event-stream.ts",
+		"./jsonl": "./src/jsonl.ts",
 		"./observability": "./src/observability.ts",
 		"./primitives": "./src/primitives.ts"
 	},

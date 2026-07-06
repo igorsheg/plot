@@ -4,7 +4,7 @@ import {
 	parseJsonl,
 	stringifyJsonl,
 	type JsonlLimits,
-} from "./jsonl.js";
+} from "@plot/common/jsonl";
 import {
 	ProtocolBoundaryError,
 	decodeClientRequest,
