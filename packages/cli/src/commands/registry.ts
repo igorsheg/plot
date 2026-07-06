@@ -1,37 +1,11 @@
-import { existsSync, unlinkSync } from "node:fs";
 import { defineCommand } from "citty";
 import type { Mutable } from "@plot/common/primitives";
 import { pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
+import { writeCliStderr } from "../io.js";
 import { str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
-import { startRunIpcServer } from "@plot/registry/ipc";
-
-const serveRegistry = async (input: {
-	readonly cwd: string;
-	readonly runRegistryDir?: string;
-	readonly writeStderr?: (text: string) => Promise<void> | void;
-}) => {
-	const options: Mutable<Parameters<typeof startRunIpcServer>[0]["options"]> = {
-		cwd: input.cwd,
-		cli: resolvePlotCommand(),
-	};
-	if (input.runRegistryDir !== undefined)
-		options.runRegistryDir = input.runRegistryDir;
-	const server = await startRunIpcServer({ options });
-	await input.writeStderr?.(`Plot run registry: ${server.socketPath}\n`);
-	let stopping = false;
-	const shutdown = async () => {
-		if (stopping) return;
-		stopping = true;
-		server.server.close();
-		await server.runRegistry.shutdown();
-		if (existsSync(server.socketPath)) unlinkSync(server.socketPath);
-	};
-	process.once("SIGINT", () => void shutdown().then(() => process.exit(0)));
-	process.once("SIGTERM", () => void shutdown().then(() => process.exit(0)));
-	await new Promise<void>(() => {});
-};
+import { runRegistryDaemon, type RunIpcOptions } from "@plot/registry/ipc";
 
 const serveCommand = defineCommand({
 	meta: {
@@ -49,12 +23,15 @@ const serveCommand = defineCommand({
 	run: ({ args }) => {
 		const io = getCliIo();
 		const runRegistryDir = str(args, "registry-dir");
-		const input: Mutable<Parameters<typeof serveRegistry>[0]> = {
+		const options: Mutable<RunIpcOptions> = {
 			cwd: str(args, "cwd") ?? process.cwd(),
+			cli: resolvePlotCommand(),
 		};
-		if (runRegistryDir !== undefined) input.runRegistryDir = runRegistryDir;
-		if (io.writeStderr !== undefined) input.writeStderr = io.writeStderr;
-		return serveRegistry(input);
+		if (runRegistryDir !== undefined) options.runRegistryDir = runRegistryDir;
+		return runRegistryDaemon(options, {
+			onReady: (socketPath) =>
+				writeCliStderr(io, `Plot run registry: ${socketPath}\n`),
+		});
 	},
 });
 

@@ -425,6 +425,30 @@ export const createRunIpcClient = (
 	};
 };
 
+export interface RunRegistryDaemonHooks {
+	readonly onReady?: (socketPath: string) => Promise<void> | void;
+}
+
+/** Run the registry daemon until SIGINT/SIGTERM; owns shutdown and socket cleanup. */
+export const runRegistryDaemon = async (
+	options: RunIpcOptions,
+	hooks: RunRegistryDaemonHooks = {},
+): Promise<void> => {
+	const server = await startRunIpcServer({ options });
+	await hooks.onReady?.(server.socketPath);
+	let stopping = false;
+	const shutdown = async () => {
+		if (stopping) return;
+		stopping = true;
+		server.server.close();
+		await server.runRegistry.shutdown();
+		if (existsSync(server.socketPath)) unlinkSync(server.socketPath);
+	};
+	process.once("SIGINT", () => void shutdown().then(() => process.exit(0)));
+	process.once("SIGTERM", () => void shutdown().then(() => process.exit(0)));
+	await new Promise<void>(() => {});
+};
+
 export const openRunIpc = async (
 	options: RunIpcOptions,
 ): Promise<{

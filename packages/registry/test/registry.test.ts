@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
 import { readRunHistory, runHistoryPath } from "../src/history.js";
-import { decodeRunRequest } from "../src/ipc.js";
+import { decodeRunRequest, waitForRunIpc } from "../src/ipc.js";
 import { RunRegistry } from "../src/supervisor.js";
 import { createFileRunStore, createMemoryRunStore } from "../src/store.js";
 import type { RunChildProcess } from "../src/run-process.js";
@@ -260,6 +260,31 @@ test("runRegistry attach is live-only", async () => {
 		records.push(record);
 
 	expect(records).toEqual([]);
+});
+
+test("registry daemon shuts down cleanly on SIGTERM", async () => {
+	const dir = await mkdtemp(join("/tmp", "plot-daemon-"));
+	const repoRoot = join(import.meta.dirname, "../../..");
+	const child = Bun.spawn(
+		[
+			"bun",
+			"./packages/cli/src/main.ts",
+			"registry",
+			"serve",
+			"--registry-dir",
+			dir,
+		],
+		{ cwd: repoRoot },
+	);
+	try {
+		await waitForRunIpc({ cwd: process.cwd(), runRegistryDir: dir });
+		child.kill("SIGTERM");
+		const code = await child.exited;
+		expect(code).toBe(0);
+		expect(existsSync(join(dir, "runRegistry.sock"))).toBe(false);
+	} finally {
+		child.kill();
+	}
 });
 
 test("runRegistry IPC does not start an in-process registry", async () => {
