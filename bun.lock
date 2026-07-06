@@ -33,7 +33,7 @@
       },
       "dependencies": {
         "@plot/common": "workspace:*",
-        "@plot/projection": "workspace:*",
+        "@plot/gateway": "workspace:*",
         "@plot/registry": "workspace:*",
         "@plot/session": "workspace:*",
         "@plot/tui": "workspace:*",
@@ -45,6 +45,18 @@
     },
     "packages/common": {
       "name": "@plot/common",
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
+    "packages/gateway": {
+      "name": "@plot/gateway",
+      "dependencies": {
+        "@plot/common": "workspace:*",
+        "@plot/projection": "workspace:*",
+        "@plot/registry": "workspace:*",
+        "@plot/session": "workspace:*",
+      },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
       },
@@ -334,6 +346,8 @@
     "@plot/cli": ["@plot/cli@workspace:packages/cli"],
 
     "@plot/common": ["@plot/common@workspace:packages/common"],
+
+    "@plot/gateway": ["@plot/gateway@workspace:packages/gateway"],
 
     "@plot/projection": ["@plot/projection@workspace:packages/projection"],
 

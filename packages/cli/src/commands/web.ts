@@ -5,7 +5,7 @@ import { getCliIo } from "../cli-context.js";
 import { int, str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
 import { cliSemantics } from "../semantics.js";
-import { runPlotWebGateway } from "../web-gateway.js";
+import { runPlotWebGateway } from "@plot/gateway";
 
 export const webCommand = defineCommand({
 	meta: {

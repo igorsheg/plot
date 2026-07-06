@@ -5,10 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { startRunIpcServer } from "@plot/registry/ipc";
 import type { RunRecord } from "@plot/registry/record";
 import type { RunRegistryRuntime } from "@plot/registry/supervisor";
-import {
-	runTranscriptResponse,
-	startPlotWebGateway,
-} from "../src/web-gateway.js";
+import { runTranscriptResponse, startPlotWebGateway } from "../src/gateway.js";
 
 const writeRuns = async (registryDir: string, runs: readonly RunRecord[]) => {
 	await mkdir(registryDir, { recursive: true });

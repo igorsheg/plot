@@ -5,7 +5,7 @@ import { getCliIo } from "../cli-context.js";
 import { baseOptions, int, str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
 import { runApiStdio } from "../runtime.js";
-import { runPlotWebGateway } from "../web-gateway.js";
+import { runPlotWebGateway } from "@plot/gateway";
 
 export const apiCommand = defineCommand({
 	meta: {
