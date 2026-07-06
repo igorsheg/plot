@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runPlotCli } from "../src/cli.js";
 import { selectOptionId } from "../src/commands/auth.js";
+import { renderModels } from "../src/render.js";
 import {
 	flushRawStdout,
 	restoreStdout,
@@ -82,6 +83,22 @@ describe("plot CLI", () => {
 				.splice(0)
 				.map((dir) => rm(dir, { recursive: true, force: true })),
 		);
+	});
+
+	test("prints rounded fractional token counts in model table", () => {
+		const output = renderModels(undefined, [
+			{
+				provider: "test",
+				model: "fractional-model",
+				context: 32_768,
+				maxOutput: 1_048_576,
+				thinking: false,
+				images: false,
+			},
+		]);
+
+		expect(output).toContain("32.8K");
+		expect(output).toContain("1.0M");
 	});
 
 	test("prints model list as a text table", async () => {

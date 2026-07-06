@@ -2,12 +2,17 @@ import { isRecord } from "@plot/common/primitives";
 import type { AuthStatusInfo, ModelInfo } from "@plot/session/auth";
 import type { RuntimeEvent } from "@plot/session/runtime";
 
-const formatTokenCount = (count: number): string =>
-	count >= 1_000_000
-		? `${count / 1_000_000}${count % 1_000_000 === 0 ? "" : ""}M`
-		: count >= 1_000
-			? `${count / 1_000}${count % 1_000 === 0 ? "" : ""}K`
-			: count.toString();
+const formatTokenCount = (count: number): string => {
+	const scaled =
+		count >= 1_000_000
+			? count / 1_000_000
+			: count >= 1_000
+				? count / 1_000
+				: count;
+	const unit = count >= 1_000_000 ? "M" : count >= 1_000 ? "K" : "";
+	const text = Number.isInteger(scaled) ? String(scaled) : scaled.toFixed(1);
+	return `${text}${unit}`;
+};
 
 const renderTable = (
 	rows: readonly Record<string, string>[],
