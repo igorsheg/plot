@@ -11,7 +11,7 @@ import {
 import {
 	makePlotExtensionSourceBundleFromWorkflow,
 	type PlotExtensionSourceBundle,
-} from "./extensions/source.js";
+} from "./extension-source.js";
 import { resolveSessionPaths, type SessionPaths } from "./paths.js";
 import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
 import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";

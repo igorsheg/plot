@@ -5,12 +5,13 @@ import {
 	scheduleWake,
 	setFact,
 	upsertWork,
+	type Completion,
 	type WorkItem,
 	type WorkRecord,
 } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { isRecord } from "@plot/common/primitives";
+import { errorMessage, isRecord } from "@plot/common/primitives";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
 	PlotExtension,
@@ -18,35 +19,195 @@ import type {
 	PlotExtensionTool,
 	PlotExtensionWork,
 } from "@plot/sdk";
-import type { SessionPaths } from "../paths.js";
-import type { WorkflowDefinition } from "../workflow.js";
-import { logHookError } from "./errors.js";
+import type { SessionPaths } from "./paths.js";
+import type { WorkflowDefinition } from "./workflow.js";
 import {
-	discover,
-	invokeCompletionHook,
-	invokeOperatorActionHook,
-} from "./hooks.js";
-import { loadPlotExtensionRuntimeFromWorkflow } from "./loader.js";
-import { resolveToolDefinitions } from "./tools.js";
-import {
-	agentDisplayFor,
-	agentOperatorActionsFor,
-	cancelledReason,
-	currentWorkKeys,
-	decodeDiscoveredWorks,
-	decodeStoredWorks,
-	discoveredFactKey,
-	isBlocked,
-	isCancelled,
-	isHeld,
-	isWaiting,
-	releasedReason,
-	sourceIdForExtension,
-	templateContextForWork,
-	toSubject,
-	workKeyForExtensionWork,
-	workRecordFor,
-} from "./work.js";
+	loadPlotExtensionRuntimeFromWorkflow,
+	logHookError,
+	PlotExtensionSourceError,
+	resolveToolDefinitions,
+	runMaybePromise,
+	validateExtensionWork,
+} from "./extension-loader.js";
+
+const sanitizeIdentifier = (value: string): string => {
+	const sanitized = value.replace(/[^A-Za-z0-9._:-]/g, "_");
+	return sanitized.length === 0 ? "extension" : sanitized;
+};
+
+export const sourceIdForExtension = (extension: PlotExtension): string =>
+	`extension:${sanitizeIdentifier(extension.id)}`;
+
+export const workKeyForExtensionWork = (
+	extension: PlotExtension,
+	work: PlotExtensionWork,
+): string =>
+	`extension:${extension.id}:${work.id}:${work.version ?? "unversioned"}`;
+
+export const discoveredFactKey = (source: string) =>
+	`extension.discovered:${source}`;
+export const releasedReason = (source: string) =>
+	`work is no longer discovered by source ${source}`;
+export const cancelledReason = (source: string) =>
+	`work was cancelled by source ${source}`;
+export const isBlocked = (work: PlotExtensionWork) => work.status === "blocked";
+export const isWaiting = (work: PlotExtensionWork) => work.status === "waiting";
+export const isHeld = (work: PlotExtensionWork) =>
+	isBlocked(work) || isWaiting(work);
+export const isCancelled = (work: PlotExtensionWork) =>
+	work.status === "cancelled";
+export const toSubject = (work: PlotExtensionWork) => work.subject ?? work.id;
+
+const validateExtensionWorks = (
+	value: unknown,
+	source: string | undefined,
+): readonly PlotExtensionWork[] => {
+	try {
+		if (!Array.isArray(value))
+			throw new Error("discover must return an array of work items");
+		return (value as PlotExtensionWork[]).map(validateExtensionWork);
+	} catch (error) {
+		const input: { phase: "discover"; message: string; source?: string } = {
+			phase: "discover",
+			message: errorMessage(error),
+		};
+		if (source !== undefined) input.source = source;
+		throw new PlotExtensionSourceError(input);
+	}
+};
+
+const storedWorks = (value: unknown): readonly PlotExtensionWork[] =>
+	Array.isArray(value) ? (value as PlotExtensionWork[]) : [];
+
+export const workRecordFor = (
+	extension: PlotExtension,
+	source: string,
+	work: PlotExtensionWork,
+	status: WorkRecord["status"],
+	currentRunId?: string,
+): WorkRecord => {
+	const record: WorkRecord = {
+		workKey: workKeyForExtensionWork(extension, work),
+		sourceId: source,
+		status,
+		subject: toSubject(work),
+	};
+	if (work.display !== undefined) record.display = work.display;
+	if (work.blockedReason !== undefined)
+		record.blockedReason = work.blockedReason;
+	if (work.operatorActions !== undefined)
+		record.operatorActions = [...work.operatorActions];
+	if (currentRunId !== undefined) record.currentRunId = currentRunId;
+	return record;
+};
+
+export const currentWorkKeys = (
+	extension: PlotExtension,
+	works: readonly PlotExtensionWork[],
+): ReadonlySet<string> =>
+	new Set(works.map((work) => workKeyForExtensionWork(extension, work)));
+
+export const templateContextForWork = (
+	workflow: WorkflowDefinition,
+	work: PlotExtensionWork,
+) => {
+	const metadata: Record<string, unknown> & { readonly id: string } = {
+		id: work.id,
+	};
+	for (const key of [
+		"version",
+		"title",
+		"url",
+		"subject",
+		"workspace",
+	] as const) {
+		const value = work[key];
+		if (value !== undefined) metadata[key] = value;
+	}
+	if (work.display !== undefined) metadata["display"] = work.display;
+	if (work.operatorActions !== undefined)
+		metadata["operatorActions"] = work.operatorActions;
+	const base = { workflow: workflow.config, work: metadata };
+	if (work.context === undefined) return base;
+	if (isRecord(work.context)) return { ...base, ...work.context };
+	return { ...base, value: work.context };
+};
+
+export const discover = async (input: {
+	readonly runtime: PlotExtensionRuntime;
+	readonly source: string;
+	readonly signal: AbortSignal;
+}): Promise<readonly PlotExtensionWork[]> =>
+	validateExtensionWorks(
+		await runMaybePromise("discover", String(input.source), () =>
+			input.runtime.discover({ signal: input.signal }),
+		),
+		String(input.source),
+	);
+
+export const invokeOperatorActionHook = async (
+	runtime: PlotExtensionRuntime,
+	source: string,
+	work: PlotExtensionWork,
+	data: Record<string, unknown>,
+) => {
+	try {
+		const actionId = data["actionId"];
+		const actionLabel = data["actionLabel"];
+		const timestamp = data["timestamp"];
+		if (
+			typeof actionId !== "string" ||
+			typeof actionLabel !== "string" ||
+			typeof timestamp !== "string"
+		)
+			return;
+		await runtime.operatorAction?.({
+			work,
+			actionId,
+			actionLabel,
+			timestamp,
+			...(typeof data["comment"] === "string"
+				? { comment: data["comment"] }
+				: {}),
+			...(typeof data["clientId"] === "string"
+				? { clientId: data["clientId"] }
+				: {}),
+			...(data["actor"] === undefined ? {} : { actor: data["actor"] }),
+		});
+	} catch (error) {
+		await logHookError(error, "operator_action", source);
+	}
+};
+
+export const invokeCompletionHook = async (
+	runtime: PlotExtensionRuntime,
+	source: string,
+	work: PlotExtensionWork,
+	completion: Completion,
+) => {
+	const runId = String(completion.runId);
+	try {
+		if (completion.status === "succeeded")
+			await runtime.completed?.({
+				work,
+				runId,
+				...(completion.output === undefined
+					? {}
+					: { output: completion.output }),
+			});
+		else if (completion.status === "failed")
+			await runtime.failed?.({
+				work,
+				runId,
+				error: completion.error ?? completion.status,
+			});
+		else if (completion.status === "timed_out")
+			await runtime.timedOut?.({ work, runId });
+		else await runtime.interrupted?.({ work, runId });
+	} catch (error) {
+		await logHookError(error, completion.status, source);
+	}
+};
 
 export interface PlotExtensionSourceBundle {
 	readonly source: WorkSource;
@@ -104,7 +265,7 @@ export const makePlotExtensionSourceBundle = (options: {
 		],
 		reconcile: async ({ snapshot }) => {
 			const proposals = [];
-			const previousDiscoveredWorks = decodeStoredWorks(
+			const previousDiscoveredWorks = storedWorks(
 				snapshot.facts.get(discoveredFactKey(source)),
 			);
 			let discoveredWorks = previousDiscoveredWorks;
@@ -115,7 +276,7 @@ export const makePlotExtensionSourceBundle = (options: {
 			);
 			const shouldWriteDiscoveredFact = latestDiscovery !== undefined;
 			if (latestDiscovery !== undefined)
-				discoveredWorks = decodeDiscoveredWorks(
+				discoveredWorks = validateExtensionWorks(
 					latestDiscovery.data,
 					String(source),
 				);
@@ -320,9 +481,7 @@ export const makePlotExtensionSourceBundle = (options: {
 		// polling the extension again; staleness is bounded by the tick interval.
 		continueWork: ({ work, snapshot }) => {
 			if (!selectedWork.has(work.workKey)) return false;
-			return decodeStoredWorks(
-				snapshot.facts.get(discoveredFactKey(source)),
-			).some(
+			return storedWorks(snapshot.facts.get(discoveredFactKey(source))).some(
 				(candidate) =>
 					!isHeld(candidate) &&
 					workKeyForExtensionWork(options.extension, candidate) ===
@@ -343,34 +502,32 @@ export const makePlotExtensionSourceBundle = (options: {
 					wake.workKey === undefined ? [] : [wake.workKey],
 				),
 			);
-			return decodeStoredWorks(
-				snapshot.facts.get(discoveredFactKey(source)),
-			).flatMap((extensionWork) => {
-				const key = workKeyForExtensionWork(options.extension, extensionWork);
-				if (
-					snapshot.running.has(key) ||
-					heldKeys.has(key) ||
-					claimedIds.has(extensionWork.id) ||
-					isHeld(extensionWork)
-				)
-					return [];
-				selectedWork.set(key, extensionWork);
-				const item: WorkItem = {
-					workKey: key,
-					subject: toSubject(extensionWork),
-					templateContext: templateContextForWork(
-						options.workflow,
-						extensionWork,
-					),
-				};
-				if (extensionWork.display !== undefined)
-					item.display = agentDisplayFor(extensionWork.display);
-				if (extensionWork.operatorActions !== undefined)
-					item.operatorActions = agentOperatorActionsFor(
-						extensionWork.operatorActions,
-					);
-				return [item];
-			});
+			return storedWorks(snapshot.facts.get(discoveredFactKey(source))).flatMap(
+				(extensionWork) => {
+					const key = workKeyForExtensionWork(options.extension, extensionWork);
+					if (
+						snapshot.running.has(key) ||
+						heldKeys.has(key) ||
+						claimedIds.has(extensionWork.id) ||
+						isHeld(extensionWork)
+					)
+						return [];
+					selectedWork.set(key, extensionWork);
+					const item: WorkItem = {
+						workKey: key,
+						subject: toSubject(extensionWork),
+						templateContext: templateContextForWork(
+							options.workflow,
+							extensionWork,
+						),
+					};
+					if (extensionWork.display !== undefined)
+						item.display = extensionWork.display;
+					if (extensionWork.operatorActions !== undefined)
+						item.operatorActions = [...extensionWork.operatorActions];
+					return [item];
+				},
+			);
 		},
 	};
 	return {

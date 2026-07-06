@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { makePlotAgentLayer } from "@plot/agent/agent";
 import type { WorkRunner } from "@plot/agent/work-runner";
-import { loadPlotExtensionRuntimeFromWorkflow } from "../src/extensions/loader.js";
-import { makePlotExtensionSourceBundle } from "../src/extensions/source.js";
+import { loadPlotExtensionRuntimeFromWorkflow } from "../src/extension-loader.js";
+import { makePlotExtensionSourceBundle } from "../src/extension-source.js";
 import type { SessionPaths } from "../src/paths.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
 
