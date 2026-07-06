@@ -5,7 +5,11 @@ import {
 	buildLiveTiles,
 	buildPastTiles,
 	DISTANCE,
+	dockOrder,
+	dockShortcutId,
+	GHOST_TILE_KEY,
 	magnify,
+	nextDockKey,
 	SCALE,
 } from "../src/components/session-dock/view-model.js";
 
@@ -69,6 +73,39 @@ test("buildPastTiles keeps stopped runs by lastSeenAt desc with stoppedAtMs", ()
 	expect(tiles.map((tile) => tile.id)).toEqual(["recent", "old"]);
 	expect(tiles[0]?.stoppedAtMs).toBe(Date.parse("2026-01-02T00:00:00.000Z"));
 	expect(tiles[0]?.selected).toBe(true);
+});
+
+test("dockOrder exposes live, expanded past, and ghost keys", () => {
+	const live = [
+		{ id: "one", name: "one", place: "repo", selected: false, errored: false },
+	];
+	const past = [
+		{ id: "old", name: "old", place: "repo", selected: false, errored: false },
+	];
+	expect(dockOrder(live, past, false)).toEqual(["one", GHOST_TILE_KEY]);
+	expect(dockOrder(live, past, true)).toEqual(["one", "old", GHOST_TILE_KEY]);
+});
+
+test("dock keyboard policy clamps movement and shortcuts to live tiles", () => {
+	const order = ["one", "two", GHOST_TILE_KEY];
+	expect(nextDockKey(order, "one", 1)).toBe("two");
+	expect(nextDockKey(order, "one", -1)).toBe("one");
+	expect(nextDockKey(order, GHOST_TILE_KEY, 1)).toBe(GHOST_TILE_KEY);
+	expect(
+		dockShortcutId(
+			[
+				{
+					id: "one",
+					name: "one",
+					place: "repo",
+					selected: false,
+					errored: false,
+				},
+			],
+			1,
+		),
+	).toBe("one");
+	expect(dockShortcutId([], 1)).toBeUndefined();
 });
 
 test("magnify peaks at the tile center and flattens beyond DISTANCE", () => {

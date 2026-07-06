@@ -14,9 +14,9 @@ import {
 	$selectedProjection,
 	$selectedRun,
 	$selectedRunId,
-	$transcriptRef,
-	setTranscriptRef,
 } from "../../app/store.js";
+import type { TranscriptResult } from "../../data/api.js";
+import { createFetcherStore } from "../../data/query.js";
 import {
 	buildDetail,
 	openableRefs,
@@ -25,6 +25,29 @@ import {
 	type DetailView,
 } from "./detail-view-model.js";
 import { buildAttention, buildMotion, buildSettled } from "./view-model.js";
+
+interface TranscriptRef {
+	readonly runId: string;
+	readonly attemptRunId: string;
+}
+
+export const $transcriptRef = atom<TranscriptRef | undefined>(undefined);
+
+const $transcriptUrl = computed($transcriptRef, (ref) =>
+	ref === undefined
+		? null
+		: `/api/runs/${encodeURIComponent(ref.runId)}/attempts/${encodeURIComponent(
+				ref.attemptRunId,
+			)}/transcript`,
+);
+
+export const $transcriptQuery = createFetcherStore<TranscriptResult>([
+	$transcriptUrl,
+]);
+
+const setTranscriptRef = (ref: TranscriptRef | undefined): void => {
+	$transcriptRef.set(ref);
+};
 
 export const $openDetail = atom<DetailRef | undefined>(undefined);
 

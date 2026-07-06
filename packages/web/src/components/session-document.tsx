@@ -4,8 +4,11 @@ import { $selectedRun } from "../app/store.js";
 import {
 	SessionHeader,
 	StoreSessionHeaderProvider,
-} from "./session-header/index.js";
-import { SessionWork, StoreSessionWorkProvider } from "./session-work/index.js";
+} from "./session-header/session-header.js";
+import {
+	SessionWork,
+	StoreSessionWorkProvider,
+} from "./session-work/session-work.js";
 import { VStack } from "./ui/stack.js";
 import { Text } from "./ui/text.js";
 

@@ -4,6 +4,7 @@ import {
 	applySnapshot,
 	emptyProjection,
 	hydrateDashboardProjection,
+	parseSerializedDashboardProjection,
 	reduceProjectableEvent,
 	serializeDashboardProjection,
 } from "../src/projection.js";
@@ -32,6 +33,21 @@ const agentEvent = (
 	runId,
 	workKey: "work-1",
 	event,
+});
+
+test("projection parser accepts a serialized projection envelope", () => {
+	const projection = serializeDashboardProjection(
+		emptyProjection("session-1", "workflow", {
+			cwd: "/repo",
+			cwdName: "repo",
+			workflowPath: "/repo/WORKFLOW.md",
+			skills: [],
+			skillPaths: [],
+		}),
+	);
+	const parsed = parseSerializedDashboardProjection({ projection });
+	expect(parsed?.sessionId).toBe("session-1");
+	expect(parsed?.runtime.cwdName).toBe("repo");
 });
 
 test("projection JSON helpers round-trip map fields", () => {

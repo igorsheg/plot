@@ -18,6 +18,36 @@ export interface DockTile {
 	readonly stoppedAtMs?: number | undefined;
 }
 
+export const GHOST_TILE_KEY = "__dock_ghost__";
+
+export const dockOrder = (
+	live: readonly DockTile[],
+	past: readonly DockTile[],
+	expanded: boolean,
+): readonly string[] => {
+	const keys = live.map((tile) => tile.id);
+	if (expanded) for (const tile of past) keys.push(tile.id);
+	if (past.length > 0) keys.push(GHOST_TILE_KEY);
+	return keys;
+};
+
+export const nextDockKey = (
+	order: readonly string[],
+	current: string | null,
+	direction: 1 | -1,
+): string | undefined => {
+	if (order.length === 0) return undefined;
+	const index = current === null ? -1 : order.indexOf(current);
+	const start = index === -1 ? 0 : index;
+	const next = Math.min(order.length - 1, Math.max(0, start + direction));
+	return order[next];
+};
+
+export const dockShortcutId = (
+	live: readonly DockTile[],
+	digit: number,
+): string | undefined => live[digit - 1]?.id;
+
 /**
  * Marble avatar palette — the one deliberate splash of color in the app.
  * Identity art is keyed on the session name, so the same workflow keeps its

@@ -5,9 +5,10 @@ import type { WorkItemProjection, WorkStatus } from "./types.js";
 const display = (v: unknown) => (isRecord(v) ? v : {});
 
 export const displayWork = (
-	work: Record<string, unknown>,
+	value: unknown,
 	previous?: WorkItemProjection,
 ): WorkItemProjection => {
+	const work = display(value);
 	const d = display(work["display"]);
 	const key = String(work["workKey"] ?? previous?.workKey ?? "work");
 	const item: Mutable<WorkItemProjection> = {

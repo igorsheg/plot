@@ -4,7 +4,7 @@ import { SessionMain } from "../components/session-document.js";
 import {
 	SessionDock,
 	StoreSessionDockProvider,
-} from "../components/session-dock/index.js";
+} from "../components/session-dock/session-dock.js";
 import Stack from "../components/ui/stack.js";
 import { ThemeToggle } from "../theme/theme.js";
 

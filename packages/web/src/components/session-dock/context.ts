@@ -26,7 +26,7 @@ export interface SessionDockContextValue {
 
 const SessionDockContext = createContext<SessionDockContextValue | null>(null);
 
-export interface SessionDockProviderProps {
+interface SessionDockProviderProps {
 	readonly value: SessionDockContextValue;
 	readonly children: ReactNode;
 }

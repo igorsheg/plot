@@ -10,10 +10,12 @@ import {
 	type RunSpawnOptions,
 } from "./supervisor.js";
 import { createFileRunStore } from "./store.js";
-import type { RunRecord } from "./record.js";
+import { parseRunRecord, type RunRecord } from "./record.js";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
 import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
 import {
+	decodeClientRequest,
+	decodeServerRecord,
 	defaultProtocolLimits,
 	type ClientRequest,
 	type ServerRecord,
@@ -68,53 +70,130 @@ export type RunResponse =
 			readonly ok: true;
 			readonly run?: RunRecord;
 	  }
-	| { readonly type: "protocol_response"; readonly record: unknown }
+	| { readonly type: "protocol_response"; readonly record: ServerRecord }
 	| { readonly type: "error"; readonly ok: false; readonly error: string };
 
-const runRequestTypes = new Set([
-	"spawn",
-	"list",
-	"status",
-	"stop",
-	"prune",
-	"protocol_stream",
-	"protocol_request",
-]);
+const decodeError = (label: string, value: unknown): Error =>
+	new Error(`invalid ${label}: ${JSON.stringify(value)?.slice(0, 200)}`);
 
-const runResponseTypes = new Set([
-	"spawn_result",
-	"list_result",
-	"status_result",
-	"stop_result",
-	"prune_result",
-	"protocol_ready",
-	"protocol_response",
-	"error",
-]);
+const nonEmptyString = (
+	label: string,
+	value: unknown,
+	input: unknown,
+): string => {
+	if (typeof value === "string" && value.length > 0) return value;
+	throw decodeError(label, input);
+};
 
-/** The registry socket is a trusted local boundary: discriminant check, then cast. */
+const optionalRunRecord = (value: unknown): RunRecord | undefined =>
+	value === undefined ? undefined : parseRunRecord(value);
+
+const decodeSpawnOptions = (value: unknown): RunSpawnOptions | undefined => {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) throw decodeError("spawn options", value);
+	const options: Mutable<RunSpawnOptions> = {};
+	for (const key of ["cwd", "label", "sessionId", "workflowPath"] as const) {
+		const field = value[key];
+		if (typeof field === "string" && field.length > 0) options[key] = field;
+	}
+	return options;
+};
+
+const decodeAfterSequence = (
+	value: unknown,
+	input: unknown,
+): number | undefined => {
+	if (value === undefined) return undefined;
+	if (typeof value === "number" && Number.isInteger(value) && value >= 0)
+		return value;
+	throw decodeError("run IPC afterSequence", input);
+};
+
 export const decodeRunRequest = (value: unknown): RunRequest => {
-	if (
-		!isRecord(value) ||
-		typeof value["type"] !== "string" ||
-		!runRequestTypes.has(value["type"])
-	)
-		throw new Error(
-			`unknown run request: ${JSON.stringify(value)?.slice(0, 200)}`,
-		);
-	return value as unknown as RunRequest;
+	if (!isRecord(value)) throw decodeError("run request", value);
+	const type = value["type"];
+	if (type === "list" || type === "prune") return { type };
+	if (type === "spawn") {
+		const options = decodeSpawnOptions(value["options"]);
+		return options === undefined ? { type } : { type, options };
+	}
+	if (type === "status" || type === "stop")
+		return { type, id: nonEmptyString("run IPC id", value["id"], value) };
+	if (type === "protocol_stream") {
+		const request: Mutable<Extract<RunRequest, { type: "protocol_stream" }>> = {
+			type,
+			id: nonEmptyString("run IPC id", value["id"], value),
+		};
+		const afterSequence = decodeAfterSequence(value["afterSequence"], value);
+		if (afterSequence !== undefined) request.afterSequence = afterSequence;
+		return request;
+	}
+	if (type === "protocol_request")
+		return {
+			type,
+			id: nonEmptyString("run IPC id", value["id"], value),
+			request: decodeClientRequest(value["request"]),
+		};
+	throw decodeError("run request", value);
 };
 
 export const decodeRunResponse = (value: unknown): RunResponse => {
-	if (
-		!isRecord(value) ||
-		typeof value["type"] !== "string" ||
-		!runResponseTypes.has(value["type"])
-	)
-		throw new Error(
-			`unknown run response: ${JSON.stringify(value)?.slice(0, 200)}`,
-		);
-	return value as unknown as RunResponse;
+	if (!isRecord(value)) throw decodeError("run response", value);
+	const type = value["type"];
+	if (type === "error") {
+		if (value["ok"] !== false) throw decodeError("run error response", value);
+		return {
+			type,
+			ok: false,
+			error: nonEmptyString("run IPC error", value["error"], value),
+		};
+	}
+	if (value["ok"] !== true && type !== "protocol_response")
+		throw decodeError("run response", value);
+	if (type === "spawn_result")
+		return { type, ok: true, run: parseRunRecord(value["run"]) };
+	if (type === "list_result") {
+		if (!Array.isArray(value["runs"]))
+			throw decodeError("run list response", value);
+		return { type, ok: true, runs: value["runs"].map(parseRunRecord) };
+	}
+	if (type === "status_result") {
+		const response: Mutable<Extract<RunResponse, { type: "status_result" }>> = {
+			type,
+			ok: true,
+		};
+		const run = optionalRunRecord(value["run"]);
+		if (run !== undefined) response.run = run;
+		return response;
+	}
+	if (type === "stop_result") {
+		const response: Mutable<Extract<RunResponse, { type: "stop_result" }>> = {
+			type,
+			ok: true,
+			id: nonEmptyString("run IPC id", value["id"], value),
+		};
+		const run = optionalRunRecord(value["run"]);
+		if (run !== undefined) response.run = run;
+		return response;
+	}
+	if (type === "prune_result") {
+		if (!Array.isArray(value["removed"]))
+			throw decodeError("run prune response", value);
+		return { type, ok: true, removed: value["removed"].map(parseRunRecord) };
+	}
+	if (type === "protocol_ready") {
+		const response: Mutable<Extract<RunResponse, { type: "protocol_ready" }>> =
+			{
+				type,
+				ok: true,
+			};
+		const run = optionalRunRecord(value["run"]);
+		if (run !== undefined) response.run = run;
+		return response;
+	}
+	if (type === "protocol_response")
+		return { type, record: decodeServerRecord(value["record"]) };
+	throw decodeError("run response", value);
 };
 
 export interface RunIpcOptions {
@@ -387,7 +466,7 @@ export const createRunIpcClient = (
 			});
 			if (response.type !== "protocol_response")
 				throw new Error(`unexpected IPC response: ${response.type}`);
-			return response.record as ServerRecord;
+			return response.record;
 		},
 		attachRecords: async function* (
 			id: string,
@@ -414,8 +493,7 @@ export const createRunIpcClient = (
 						if (response.run === undefined) throw runMissing(id);
 						continue;
 					}
-					if (response.type === "protocol_response")
-						yield response.record as ServerRecord;
+					if (response.type === "protocol_response") yield response.record;
 				}
 			} finally {
 				socket.end();

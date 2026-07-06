@@ -51,12 +51,14 @@ import {
 	AVATAR_COLORS,
 	buildLiveTiles,
 	buildPastTiles,
+	dockOrder,
+	dockShortcutId,
+	GHOST_TILE_KEY,
 	magnify,
+	nextDockKey,
 	SPRING,
 	type DockTile,
 } from "./view-model.js";
-
-const GHOST_KEY = "__dock_ghost__";
 const TILE_PX = 34;
 const PANEL_BULGE = 14;
 
@@ -328,7 +330,7 @@ function GhostTile({
 	const setRef = useCallback(
 		(el: HTMLButtonElement | null) => {
 			ref.current = el;
-			handlers.register(GHOST_KEY, el);
+			handlers.register(GHOST_TILE_KEY, el);
 		},
 		[ref, handlers],
 	);
@@ -343,7 +345,7 @@ function GhostTile({
 					type="button"
 					aria-expanded={expanded}
 					aria-label={label}
-					data-dock-key={GHOST_KEY}
+					data-dock-key={GHOST_TILE_KEY}
 					tabIndex={handlers.tabbable ? 0 : -1}
 					onClick={onToggle}
 					onFocus={(e: FocusEvent<HTMLButtonElement>) => {
@@ -387,12 +389,10 @@ export function SessionDock() {
 	}, []);
 
 	const hasGhost = past.length > 0;
-	const order = useMemo(() => {
-		const keys = live.map((tile) => tile.id);
-		if (expanded) for (const tile of past) keys.push(tile.id);
-		if (hasGhost) keys.push(GHOST_KEY);
-		return keys;
-	}, [live, past, expanded, hasGhost]);
+	const order = useMemo(
+		() => dockOrder(live, past, expanded),
+		[live, past, expanded],
+	);
 
 	const [rovingKey, setRovingKey] = useState<string | null>(null);
 	const activeKey =
@@ -415,10 +415,10 @@ export function SessionDock() {
 			}
 			const digit = Number(e.key);
 			if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
-			const tile = live[digit - 1];
-			if (tile === undefined) return;
+			const id = dockShortcutId(live, digit);
+			if (id === undefined) return;
 			e.preventDefault();
-			actions.select(tile.id);
+			actions.select(id);
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
@@ -456,13 +456,7 @@ export function SessionDock() {
 	const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
 		if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
 		e.preventDefault();
-		const current = order.indexOf(activeKey ?? "");
-		const start = current === -1 ? 0 : current;
-		const next =
-			e.key === "ArrowDown"
-				? Math.min(start + 1, order.length - 1)
-				: Math.max(start - 1, 0);
-		const key = order[next];
+		const key = nextDockKey(order, activeKey, e.key === "ArrowDown" ? 1 : -1);
 		if (key !== undefined) buttons.current.get(key)?.focus();
 	};
 
@@ -530,7 +524,7 @@ export function SessionDock() {
 						<GhostTile
 							count={past.length}
 							expanded={expanded}
-							handlers={handlers(GHOST_KEY)}
+							handlers={handlers(GHOST_TILE_KEY)}
 							onToggle={actions.toggleExpanded}
 						/>
 					)}

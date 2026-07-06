@@ -39,7 +39,7 @@ export interface WorkDetailContextValue {
 
 const WorkDetailContext = createContext<WorkDetailContextValue | null>(null);
 
-export interface WorkDetailProviderProps {
+interface WorkDetailProviderProps {
 	readonly value: WorkDetailContextValue;
 	readonly children: ReactNode;
 }

@@ -6,7 +6,11 @@ import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
 import { readRunHistory, runHistoryPath } from "../src/history.js";
-import { decodeRunRequest, waitForRunIpc } from "../src/ipc.js";
+import {
+	decodeRunRequest,
+	decodeRunResponse,
+	waitForRunIpc,
+} from "../src/ipc.js";
 import { RunRegistry } from "../src/supervisor.js";
 import { createFileRunStore, createMemoryRunStore } from "../src/store.js";
 import type { RunChildProcess } from "../src/run-process.js";
@@ -80,6 +84,33 @@ class FakeChild implements RunChildProcess {
 test("runRegistry rejects invalid IPC discriminants at the boundary", () => {
 	expect(() => decodeRunRequest({ type: "wat" })).toThrow();
 	expect(() => decodeRunRequest({ type: "status", id: "run-1" })).not.toThrow();
+});
+
+test("runRegistry IPC codecs validate required protocol fields", () => {
+	expect(() => decodeRunRequest({ type: "status" })).toThrow();
+	expect(() =>
+		decodeRunRequest({
+			type: "protocol_request",
+			id: "run-1",
+			request: { kind: "request", id: "client-1", command: "ping" },
+		}),
+	).toThrow();
+	const response = decodeRunResponse({
+		type: "protocol_response",
+		record: {
+			protocol: "plot.session.v3",
+			kind: "response",
+			id: "client-1",
+			command: "ping",
+			ok: true,
+		},
+	});
+	expect(response.type).toBe("protocol_response");
+	if (response.type !== "protocol_response") throw new Error("bad response");
+	expect(response.record).toMatchObject({ kind: "response", id: "client-1" });
+	expect(() =>
+		decodeRunResponse({ type: "protocol_response", record: { kind: "nope" } }),
+	).toThrow();
 });
 
 test("runRegistry requires an explicit CLI command for real child processes", async () => {

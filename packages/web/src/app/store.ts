@@ -1,22 +1,14 @@
-import { nanoquery, type Fetcher, type KeyInput } from "@nanostores/query";
 import { atom, computed, onMount } from "nanostores";
-import {
-	workLabel,
-	type SerializedDashboardProjection,
-} from "@plot/projection";
+import type { SerializedDashboardProjection } from "@plot/projection";
 import type { RunRecord } from "@plot/registry/record";
 import type { OperatorObservationInput } from "@plot/session/runtime";
+import { recordObservation, stopRun } from "../data/api.js";
 import {
-	fetchAttemptTranscript,
-	fetchRunProjectionUrl,
-	fetchRuns,
-	recordObservation,
-	stopRun,
-	type TranscriptResult,
-} from "../data/api.js";
+	createFetcherStore,
+	createMutatorStore,
+	runsUrl,
+} from "../data/query.js";
 import { isRunLive } from "../data/run.js";
-
-const runsUrl = "/api/runs";
 
 const errorText = (caught: unknown): string =>
 	caught instanceof Error ? caught.message : String(caught);
@@ -51,33 +43,6 @@ export const pastRuns = (runs: readonly RunRecord[]): readonly RunRecord[] =>
 		.filter((run) => run.status === "stopped")
 		.toSorted((a, b) => lastSeenMs(b) - lastSeenMs(a));
 
-export type StatusTone = "error" | "info" | "secondary" | "success" | "warning";
-
-export const statusTone = (status: string): StatusTone => {
-	switch (status) {
-		case "done":
-		case "idle":
-		case "stopped":
-		case "succeeded":
-			return "success";
-		case "blocked":
-		case "error":
-		case "failed":
-			return "error";
-		case "draining":
-		case "paused":
-		case "pending":
-		case "shutting_down":
-		case "starting":
-		case "waiting":
-			return "warning";
-		case "running":
-			return "info";
-		default:
-			return "secondary";
-	}
-};
-
 export const projectionUrl = (run: RunRecord): string =>
 	`/api/runs/${encodeURIComponent(run.id)}/projection?seq=${run.lastSequence ?? 0}`;
 
@@ -87,30 +52,6 @@ export const $nowMs = atom<number>(Date.now());
 onMount($nowMs, () => {
 	const id = setInterval(() => $nowMs.set(Date.now()), 1000);
 	return () => clearInterval(id);
-});
-
-const transcriptRoute = /^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/;
-
-const queryFetcher: Fetcher<unknown> = async (urlPart) => {
-	const url = String(urlPart);
-	const { pathname } = new URL(url, "http://plot.local");
-	if (pathname === runsUrl) return fetchRuns();
-	if (/^\/api\/runs\/[^/]+\/projection$/.test(pathname)) {
-		return fetchRunProjectionUrl(url);
-	}
-	const transcript = transcriptRoute.exec(pathname);
-	if (transcript !== null) {
-		return fetchAttemptTranscript(
-			decodeURIComponent(transcript[1] ?? ""),
-			decodeURIComponent(transcript[2] ?? ""),
-		);
-	}
-	throw new Error(`unknown web query: ${url}`);
-};
-
-const [createFetcherStore, createMutatorStore] = nanoquery({
-	fetcher: queryFetcher,
-	onErrorRetry: null,
 });
 
 export const $selectedRunId = atom<string | undefined>(undefined);
@@ -128,52 +69,18 @@ export const $selectedRun = computed(
 	selectedRunFrom,
 );
 export const $selectedProjectionUrl = computed($selectedRun, (run) =>
-	run === undefined ? undefined : projectionUrl(run),
+	run === undefined ? null : projectionUrl(run),
 );
 
 export const $projectionQuery =
-	createFetcherStore<SerializedDashboardProjection>(
-		[$selectedProjectionUrl] as unknown as KeyInput,
-		{ revalidateOnFocus: true },
-	);
+	createFetcherStore<SerializedDashboardProjection>([$selectedProjectionUrl], {
+		revalidateOnFocus: true,
+	});
 
 export const $selectedProjection = computed(
 	$projectionQuery,
 	(query) => query.data,
 );
-
-/**
- * The attempt whose transcript the work drawer is showing. Set only while the
- * drawer's transcript tail is expanded; clearing it disables the query. The
- * gateway route is `/api/runs/{runId}/attempts/{attemptRunId}/transcript`.
- */
-export interface TranscriptRef {
-	readonly runId: string;
-	readonly attemptRunId: string;
-}
-
-export const $transcriptRef = atom<TranscriptRef | undefined>(undefined);
-
-const $transcriptUrl = computed($transcriptRef, (ref) =>
-	ref === undefined
-		? undefined
-		: `/api/runs/${encodeURIComponent(ref.runId)}/attempts/${encodeURIComponent(
-				ref.attemptRunId,
-			)}/transcript`,
-);
-
-/**
- * Fetches only when `$transcriptRef` is set (an unset key disables the store);
- * no revalidation interval — a transcript tail is read once on demand. Its
- * errors stay local to the drawer and never flow into `$plotError`.
- */
-export const $transcriptQuery = createFetcherStore<TranscriptResult>([
-	$transcriptUrl,
-] as unknown as KeyInput);
-
-export const setTranscriptRef = (ref: TranscriptRef | undefined): void => {
-	$transcriptRef.set(ref);
-};
 
 export const $stopSelectedRun = createMutatorStore<void, void>(
 	async ({ revalidate }) => {
@@ -188,11 +95,6 @@ export const selectRun = (id: string): void => {
 	$selectedRunId.set(id);
 };
 
-export const refreshSessions = (): void => {
-	$runsQuery.revalidate();
-	$projectionQuery.revalidate();
-};
-
 export const stopSelectedRun = (): Promise<void> => $stopSelectedRun.mutate();
 
 export const $actOnWork = createMutatorStore<
@@ -202,7 +104,7 @@ export const $actOnWork = createMutatorStore<
 	if (run === undefined) return;
 	await recordObservation(run.id, data);
 	const url = $selectedProjectionUrl.get();
-	if (url !== undefined) revalidate(url);
+	if (url !== null) revalidate(url);
 });
 
 export const $plotError = computed(
@@ -218,5 +120,3 @@ export const $plotError = computed(
 						? errorText(act.error)
 						: undefined,
 );
-
-export { workLabel };

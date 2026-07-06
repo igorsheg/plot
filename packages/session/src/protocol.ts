@@ -4,7 +4,12 @@ import {
 	parseJsonl,
 	stringifyJsonl,
 } from "@plot/common/jsonl";
-import { byteLength, errorMessage, isRecord } from "@plot/common/primitives";
+import {
+	byteLength,
+	errorMessage,
+	isRecord,
+	type Mutable,
+} from "@plot/common/primitives";
 import {
 	startOwnedTask,
 	type OperatorObservationInput,
@@ -29,8 +34,6 @@ const sessionCommands = [
 ] as const;
 
 export type SessionCommand = (typeof sessionCommands)[number];
-
-const sessionCommandSet: ReadonlySet<string> = new Set(sessionCommands);
 
 export interface ProtocolLimits {
 	readonly maxInputLineBytes: number;
@@ -120,6 +123,70 @@ export class ProtocolBoundaryError extends Error {
 	}
 }
 
+const asSessionCommand = (value: unknown): SessionCommand | undefined =>
+	sessionCommands.find((command) => command === value);
+
+const requireString = (label: string, value: unknown): string => {
+	if (typeof value === "string" && value.length > 0) return value;
+	throw new ProtocolBoundaryError({
+		code: "invalid_request",
+		message: `${label} must be a non-empty string`,
+	});
+};
+
+const requirePositiveInteger = (label: string, value: unknown): number => {
+	if (typeof value === "number" && Number.isInteger(value) && value > 0)
+		return value;
+	throw new ProtocolBoundaryError({
+		code: "invalid_request",
+		message: `${label} must be a positive integer`,
+	});
+};
+
+const decodeProtocolLimits = (value: unknown): ProtocolLimits => {
+	if (!isRecord(value))
+		throw new ProtocolBoundaryError({
+			code: "invalid_request",
+			message: "protocol limits must be an object",
+		});
+	return {
+		maxInputLineBytes: requirePositiveInteger(
+			"maxInputLineBytes",
+			value["maxInputLineBytes"],
+		),
+		maxOutputLineBytes: requirePositiveInteger(
+			"maxOutputLineBytes",
+			value["maxOutputLineBytes"],
+		),
+		maxPendingRequests: requirePositiveInteger(
+			"maxPendingRequests",
+			value["maxPendingRequests"],
+		),
+		maxBufferedEvents: requirePositiveInteger(
+			"maxBufferedEvents",
+			value["maxBufferedEvents"],
+		),
+	};
+};
+
+const protocolErrorCodes = [
+	"parse_error",
+	"invalid_request",
+	"payload_too_large",
+	"request_queue_full",
+	"session_closed",
+	"internal_error",
+] as const satisfies readonly ProtocolErrorCode[];
+
+const decodeProtocolErrorCode = (value: unknown): ProtocolErrorCode => {
+	const code = protocolErrorCodes.find((candidate) => candidate === value);
+	if (code !== undefined) return code;
+	throw new ProtocolBoundaryError({
+		code: "invalid_request",
+		message: `unknown protocol error code: ${String(value)}`,
+	});
+};
+
 const assertProtocolVersion = (value: Record<string, unknown>): void => {
 	if (value["protocol"] === sessionProtocolVersion) return;
 	throw new ProtocolBoundaryError({
@@ -146,16 +213,21 @@ export const decodeClientRequest = (value: unknown): ClientRequest => {
 			code: "invalid_request",
 			message: "request id must be a non-empty string of at most 128 chars",
 		});
-	const command = value["command"];
-	if (typeof command !== "string" || !sessionCommandSet.has(command))
+	const command = asSessionCommand(value["command"]);
+	if (command === undefined)
 		throw new ProtocolBoundaryError({
 			code: "invalid_request",
-			message: `unknown command: ${String(command)}`,
+			message: `unknown command: ${String(value["command"])}`,
 		});
-	return value as unknown as ClientRequest;
+	const request: Mutable<ClientRequest> = {
+		protocol: sessionProtocolVersion,
+		kind: "request",
+		id,
+		command,
+	};
+	if (value["params"] !== undefined) request.params = value["params"];
+	return request;
 };
-
-const serverRecordKinds = new Set(["welcome", "event", "response"]);
 
 export const decodeServerRecord = (value: unknown): ServerRecord => {
 	if (!isRecord(value))
@@ -164,15 +236,73 @@ export const decodeServerRecord = (value: unknown): ServerRecord => {
 			message: "server record must be an object",
 		});
 	assertProtocolVersion(value);
-	if (
-		typeof value["kind"] !== "string" ||
-		!serverRecordKinds.has(value["kind"])
-	)
+	const kind = value["kind"];
+	if (kind === "welcome")
+		return {
+			protocol: sessionProtocolVersion,
+			kind,
+			sessionId: requireString("sessionId", value["sessionId"]),
+			limits: decodeProtocolLimits(value["limits"]),
+		};
+	if (kind === "event")
+		return {
+			protocol: sessionProtocolVersion,
+			kind,
+			event: value["event"] as RuntimeEvent,
+		};
+	if (kind !== "response")
 		throw new ProtocolBoundaryError({
 			code: "invalid_request",
-			message: `unknown server record kind: ${String(value["kind"])}`,
+			message: `unknown server record kind: ${String(kind)}`,
 		});
-	return value as unknown as ServerRecord;
+	if (value["ok"] === true) {
+		const command = asSessionCommand(value["command"]);
+		if (command === undefined)
+			throw new ProtocolBoundaryError({
+				code: "invalid_request",
+				message: `unknown command: ${String(value["command"])}`,
+			});
+		const response: Mutable<SuccessResponse> = {
+			protocol: sessionProtocolVersion,
+			kind,
+			id: requireString("response id", value["id"]),
+			command,
+			ok: true,
+		};
+		if (typeof value["lastSequence"] === "number")
+			response.lastSequence = value["lastSequence"];
+		if (value["data"] !== undefined) response.data = value["data"];
+		return response;
+	}
+	if (value["ok"] === false) {
+		const errorValue = value["error"];
+		if (!isRecord(errorValue))
+			throw new ProtocolBoundaryError({
+				code: "invalid_request",
+				message: "error response requires an error object",
+			});
+		const error: Mutable<ErrorResponse["error"]> = {
+			code: decodeProtocolErrorCode(errorValue["code"]),
+			message: requireString("error message", errorValue["message"]),
+		};
+		if (errorValue["details"] !== undefined)
+			error.details = errorValue["details"];
+		const response: Mutable<ErrorResponse> = {
+			protocol: sessionProtocolVersion,
+			kind,
+			ok: false,
+			error,
+		};
+		if (typeof value["id"] === "string" && value["id"].length > 0)
+			response.id = value["id"];
+		const command = asSessionCommand(value["command"]);
+		if (command !== undefined) response.command = command;
+		return response;
+	}
+	throw new ProtocolBoundaryError({
+		code: "invalid_request",
+		message: "response ok must be true or false",
+	});
 };
 
 const mapJsonlError = (error: unknown): ProtocolBoundaryError => {
@@ -523,10 +653,12 @@ export const makeSessionProtocol = (
 			while (!signal.aborted) {
 				let queued: QueuedRequest;
 				try {
+					// eslint-disable-next-line no-await-in-loop -- protocol requests are queued and processed in order.
 					queued = await requests.take();
 				} catch {
 					return;
 				}
+				// eslint-disable-next-line no-await-in-loop -- each response belongs to the current queued request.
 				const record = await handleRequest(queued.request).catch((error) =>
 					toErrorResponse(queued.request, error),
 				);

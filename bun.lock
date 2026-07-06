@@ -20,7 +20,6 @@
       "name": "@plot/agent",
       "dependencies": {
         "@plot/common": "workspace:*",
-        "@plot/sdk": "workspace:*",
       },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
@@ -64,7 +63,6 @@
     "packages/projection": {
       "name": "@plot/projection",
       "dependencies": {
-        "@plot/agent": "workspace:*",
         "@plot/common": "workspace:*",
         "@plot/session": "workspace:*",
       },

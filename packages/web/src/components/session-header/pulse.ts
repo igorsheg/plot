@@ -11,7 +11,7 @@
 
 import { atom, onMount } from "nanostores";
 import { $selectedRun } from "../../app/store.js";
-import type { LiveLinePoint } from "../ui/live-line/index.js";
+import type { LiveLinePoint } from "../ui/live-line/scale.js";
 
 export interface PulseSample {
 	readonly atMs: number;

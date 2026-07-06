@@ -24,10 +24,11 @@ src/style.css         Tailwind v4 raw tokens, semantic tokens, and base selector
 ## Rules
 
 - Locality of behavior: feature-specific state, helpers, and markup live together under the owning directory.
-- Domain block compositions live flat in `src/components/`; only primitive UI components live under `src/components/ui/`.
+- Domain block compositions start flat in `src/components/`; earn `src/components/<domain>/` only when the Module owns state, view-model, markup, and tests together.
 - State lives in Nano Stores (`nanostores` + `@nanostores/react`); components subscribe and render, they do not own app state with React context/effects.
 - API reads/writes go through `@nanostores/query` fetcher/mutator stores. Keep raw fetch/parse helpers in `src/data/`, but do not call them from views.
 - Move non-UI logic into stores and derived stores. Prefer `computed` chains over component `useMemo` glue.
+- Do not add barrel files that only re-export; import symbols from the Module that owns them.
 - Separate changes from reactions: actions set/mutate stores only; persistence, DOM sync, revalidation, and other side effects live in store listeners/query stores.
 - Do not rebuild the old Console model by inertia: no Fleet, Brief, lanes, replay scrub, palette, or optimistic queue unless re-proven.
 - Keep gateway parsing at `src/data/`; views do not parse raw JSON.

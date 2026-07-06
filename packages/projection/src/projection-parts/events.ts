@@ -27,8 +27,7 @@ export const reduceEvent = (
 	e: ProjectableEvent,
 ): DashboardProjection => {
 	const p = debug(p0, e);
-	if (e.kind === "agent_event")
-		return reduceAgentEvent(p, e, e as unknown as Record<string, unknown>);
+	if (e.kind === "agent_event") return reduceAgentEvent(p, e, e);
 	const event = e.event;
 	if (event.type === "session_started")
 		return {
@@ -60,10 +59,7 @@ export const reduceEvent = (
 		};
 	}
 	if (event.type === "work_observed") {
-		const item = displayWork(
-			event.work as unknown as Record<string, unknown>,
-			p.work.get(event.work.workKey),
-		);
+		const item = displayWork(event.work, p.work.get(event.work.workKey));
 		return { ...p, work: new Map(p.work).set(item.workKey, item) };
 	}
 	if (event.type === "work_removed") {
@@ -84,7 +80,7 @@ export const reduceEvent = (
 				...run,
 				status: "running",
 				currentRunId: run.runId,
-			} as unknown as Record<string, unknown>,
+			},
 			p.work.get(run.workKey),
 		);
 		const attempt: AgentAttemptProjection = {

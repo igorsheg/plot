@@ -20,7 +20,8 @@ import {
 } from "../../app/store.js";
 import { formatRelative } from "../../lib/relative-time.js";
 import { Button } from "../ui/button.js";
-import { LiveLine, LiveLineChart } from "../ui/live-line/index.js";
+import { LiveLineChart } from "../ui/live-line/live-line-chart.js";
+import { LiveLine } from "../ui/live-line/live-line.js";
 import Stack, { VStack } from "../ui/stack.js";
 import { Text } from "../ui/text.js";
 import {
@@ -31,7 +32,7 @@ import {
 } from "./context.js";
 import { $pulseRate, $pulseSeries } from "./pulse.js";
 
-export type HeaderVariant = "live" | "starting" | "errored" | "stopped";
+type HeaderVariant = "live" | "starting" | "errored" | "stopped";
 
 /** Pure variant selection: online/stopping share the live band. */
 export function headerVariant(status: RunStatus): HeaderVariant {

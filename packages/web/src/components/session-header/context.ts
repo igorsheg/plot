@@ -6,7 +6,7 @@
 
 import type { RunStatus } from "@plot/registry/record";
 import { createContext, createElement, type ReactNode, use } from "react";
-import type { LiveLinePoint } from "../ui/live-line/index.js";
+import type { LiveLinePoint } from "../ui/live-line/scale.js";
 
 export interface SessionHeaderState {
 	readonly place: string;
@@ -34,7 +34,7 @@ const SessionHeaderContext = createContext<SessionHeaderContextValue | null>(
 	null,
 );
 
-export interface SessionHeaderProviderProps {
+interface SessionHeaderProviderProps {
 	readonly value: SessionHeaderContextValue;
 	readonly children: ReactNode;
 }

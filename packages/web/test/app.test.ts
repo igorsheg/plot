@@ -5,7 +5,6 @@ import {
 	pastRuns,
 	projectionUrl,
 	selectedRunFrom,
-	statusTone,
 } from "../src/app/store.js";
 
 const run = (
@@ -58,15 +57,4 @@ test("projection query key tracks run sequence without changing the route", () =
 	expect(projectionUrl({ ...run("one/two", "online"), lastSequence: 7 })).toBe(
 		"/api/runs/one%2Ftwo/projection?seq=7",
 	);
-});
-
-test("status tone makes blocked work loud", () => {
-	expect(statusTone("blocked")).toBe("error");
-	expect(statusTone("waiting")).toBe("warning");
-});
-
-test("status tone makes waiting work quiet but visible", () => {
-	expect(statusTone("running")).toBe("info");
-	expect(statusTone("done")).toBe("success");
-	expect(statusTone("unknown-status")).toBe("secondary");
 });

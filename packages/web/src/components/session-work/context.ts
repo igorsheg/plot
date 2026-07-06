@@ -29,7 +29,7 @@ export interface SessionWorkContextValue {
 
 const SessionWorkContext = createContext<SessionWorkContextValue | null>(null);
 
-export interface SessionWorkProviderProps {
+interface SessionWorkProviderProps {
 	readonly value: SessionWorkContextValue;
 	readonly children: ReactNode;
 }

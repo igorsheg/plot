@@ -21,8 +21,6 @@ import {
 	$nowMs,
 	$selectedProjection,
 	$selectedRun,
-	$transcriptQuery,
-	$transcriptRef,
 } from "../../app/store.js";
 import {
 	formatCountdown,
@@ -51,6 +49,8 @@ import {
 	stepDetail,
 	toggleTranscript,
 	$detailView,
+	$transcriptQuery,
+	$transcriptRef,
 } from "./detail-store.js";
 import {
 	refEquals,

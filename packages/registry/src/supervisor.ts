@@ -363,15 +363,17 @@ export class RunRegistry implements RunRegistryRuntime {
 
 	/** Remove ended run records and their Session History; live runs stay. */
 	async prune(): Promise<readonly RunRecord[]> {
-		const removed: RunRecord[] = [];
-		for (const record of await this.options.store.list()) {
-			if (this.live.has(record.id)) continue;
-			if (record.status !== "stopped" && record.status !== "error") continue;
-			await this.options.store.remove(record.id);
-			const history = this.historyPath(record.id);
-			if (history !== undefined) await rm(history, { force: true });
-			removed.push(cloneRunRecord(record));
-		}
-		return removed;
+		const ended = (await this.options.store.list()).filter((record) => {
+			if (this.live.has(record.id)) return false;
+			return record.status === "stopped" || record.status === "error";
+		});
+		await Promise.all(
+			ended.map(async (record) => {
+				await this.options.store.remove(record.id);
+				const history = this.historyPath(record.id);
+				if (history !== undefined) await rm(history, { force: true });
+			}),
+		);
+		return ended.map(cloneRunRecord);
 	}
 }

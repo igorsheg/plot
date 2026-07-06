@@ -6,38 +6,37 @@
  * Fixture series are deterministic functions of index — no module-top randomness.
  */
 
+import type { TranscriptEntry } from "@plot/session/transcript";
 import { type CSSProperties, useEffect, useState } from "react";
 import {
-	SessionDock,
 	SessionDockProvider,
-	type DockTile,
 	type SessionDockContextValue,
-} from "../components/session-dock/index.js";
+} from "../components/session-dock/context.js";
+import { SessionDock } from "../components/session-dock/session-dock.js";
+import type { DockTile } from "../components/session-dock/view-model.js";
 import {
-	SessionHeader,
 	SessionHeaderProvider,
 	type SessionHeaderContextValue,
 	type SessionHeaderState,
-} from "../components/session-header/index.js";
+} from "../components/session-header/context.js";
+import { SessionHeader } from "../components/session-header/session-header.js";
 import {
-	SessionWork,
 	SessionWorkProvider,
-	WorkDetailProvider,
-	WorkDrawer,
-	type DetailView,
 	type SessionWorkContextValue,
 	type SessionWorkState,
+} from "../components/session-work/context.js";
+import {
+	WorkDetailProvider,
 	type TranscriptPanel,
 	type WorkDetailContextValue,
-} from "../components/session-work/index.js";
-import type { TranscriptEntry } from "@plot/session/transcript";
-import {
-	LiveLine,
-	LiveLineChart,
-	type LiveLinePoint,
-	LiveXAxis,
-	LiveYAxis,
-} from "../components/ui/live-line/index.js";
+} from "../components/session-work/detail-context.js";
+import type { DetailView } from "../components/session-work/detail-view-model.js";
+import { WorkDrawer } from "../components/session-work/drawer.js";
+import { SessionWork } from "../components/session-work/session-work.js";
+import { LiveXAxis, LiveYAxis } from "../components/ui/live-line/live-axes.js";
+import { LiveLineChart } from "../components/ui/live-line/live-line-chart.js";
+import { LiveLine } from "../components/ui/live-line/live-line.js";
+import type { LiveLinePoint } from "../components/ui/live-line/scale.js";
 import { VStack } from "../components/ui/stack.js";
 import { Text } from "../components/ui/text.js";
 

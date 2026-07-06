@@ -73,8 +73,10 @@ const freshUsage = (
 export const reduceAgentEvent = (
 	p: DashboardProjection,
 	e: ProjectableEvent,
-	payload: Record<string, unknown>,
+	payloadValue: unknown,
 ): DashboardProjection => {
+	const payload = isRecord(payloadValue) ? payloadValue : undefined;
+	if (payload === undefined) return p;
 	const runId = str(payload["runId"]);
 	if (runId === undefined) return p;
 	const rawEvent = isRecord(payload["event"]) ? payload["event"] : {};
