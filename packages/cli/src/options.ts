@@ -3,7 +3,7 @@ import type { Mutable } from "@plot/common/primitives";
 import type { AgentSessionOverrides } from "@plot/session/pi-session";
 import { createSessionAuth } from "@plot/session/auth";
 import type { ParsedArgs } from "citty";
-import type { LogLevelFlag } from "./runtime.js";
+import type { LogLevelFlag, RunInProcessOnceOptions } from "./runtime.js";
 
 export const str = (
 	args: Record<string, unknown>,
@@ -19,7 +19,10 @@ export const bool = (
 	const value = args[name];
 	return value === true || value === "" || value === "true" ? true : undefined;
 };
-export const int = (args: ParsedArgs, name: string): number | undefined => {
+export const int = (
+	args: Record<string, unknown>,
+	name: string,
+): number | undefined => {
 	const v = str(args, name);
 	return v === undefined ? undefined : Number.parseInt(v, 10);
 };
@@ -36,11 +39,15 @@ const splitCommaList = (value: string): readonly string[] =>
 		.map((p) => p.trim())
 		.filter(Boolean);
 
-export const makeAuth = (options: {
-	cwd: string;
-	plotDir?: string;
-	agentDir?: string;
-}) => createSessionAuth(options);
+export const makeAuthFromArgs = (args: Record<string, unknown>) => {
+	const cwd = str(args, "cwd") ?? process.cwd();
+	const plotDir = str(args, "plot-dir");
+	const agentDir = str(args, "agent-dir");
+	const options: Mutable<Parameters<typeof createSessionAuth>[0]> = { cwd };
+	if (plotDir !== undefined) options.plotDir = plotDir;
+	if (agentDir !== undefined) options.agentDir = agentDir;
+	return createSessionAuth(options);
+};
 
 export const makeAgentSessionOverrides = (
 	args: ParsedArgs,
@@ -66,7 +73,7 @@ export const makeAgentSessionOverrides = (
 		override.excludeTools = splitCommaList(excludeTools);
 	if (bool(args, "no-tools")) override.noTools = true;
 	if (bool(args, "no-builtin-tools")) override.noTools = "builtin";
-	if (bool(args, "approve") !== undefined) override.allowProjectConfig = true;
+	if (bool(args, "approve")) override.allowProjectConfig = true;
 	if (skills.length > 0) override.skills = skills;
 	if (prompts.length > 0) override.prompts = prompts;
 	if (bool(args, "no-skills")) override.noSkills = true;
@@ -86,31 +93,31 @@ export const baseOptions = (args: ParsedArgs) => {
 	const cwd = str(args, "cwd") ?? process.cwd();
 	const workflowPath = str(args, "workflow");
 	const sessionId = str(args, "session-id") ?? defaultSessionId();
-	const options = {
+	const plotDir = str(args, "plot-dir");
+	const agentDir = str(args, "agent-dir");
+	const sessionDir = str(args, "session-dir");
+	const requestQueueCapacity = int(args, "request-queue-capacity");
+	const eventCapacity = int(args, "event-capacity");
+	const eventBufferCapacity = int(args, "event-buffer-capacity");
+	const tickIntervalMs = int(args, "tick-interval-ms");
+	const maxRunDurationMs = int(args, "max-run-duration-ms");
+	const options: Mutable<RunInProcessOnceOptions> = {
 		sessionId,
 		cwd,
 		logLevel: (str(args, "log-level") ?? "warn") as LogLevelFlag,
 	};
-	if (workflowPath !== undefined) Object.assign(options, { workflowPath });
-	for (const [key, option] of [
-		["plot-dir", "plotDir"],
-		["agent-dir", "agentDir"],
-		["session-dir", "sessionDir"],
-	] as const) {
-		const value = str(args, key);
-		if (value !== undefined) Object.assign(options, { [option]: value });
-	}
-	for (const [key, option] of [
-		["request-queue-capacity", "requestQueueCapacity"],
-		["event-capacity", "eventCapacity"],
-		["event-buffer-capacity", "eventBufferCapacity"],
-		["tick-interval-ms", "tickIntervalMs"],
-		["max-run-duration-ms", "maxRunDurationMs"],
-	] as const) {
-		const value = int(args, key);
-		if (value !== undefined) Object.assign(options, { [option]: value });
-	}
-	if (overrides !== undefined)
-		Object.assign(options, { agentSessionOverrides: overrides });
+	if (plotDir !== undefined) options.plotDir = plotDir;
+	if (agentDir !== undefined) options.agentDir = agentDir;
+	if (sessionDir !== undefined) options.sessionDir = sessionDir;
+	if (requestQueueCapacity !== undefined)
+		options.requestQueueCapacity = requestQueueCapacity;
+	if (eventCapacity !== undefined) options.eventCapacity = eventCapacity;
+	if (eventBufferCapacity !== undefined)
+		options.eventBufferCapacity = eventBufferCapacity;
+	if (tickIntervalMs !== undefined) options.tickIntervalMs = tickIntervalMs;
+	if (maxRunDurationMs !== undefined)
+		options.maxRunDurationMs = maxRunDurationMs;
+	if (workflowPath !== undefined) options.workflowPath = workflowPath;
+	if (overrides !== undefined) options.agentSessionOverrides = overrides;
 	return options;
 };

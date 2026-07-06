@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { errorMessage } from "@plot/common/primitives";
 import type { CreatePiAgentSession } from "@plot/session/pi-runner";
 import { takeOverStdout, writeRawStdout } from "./stdout-guard.js";
@@ -18,7 +19,17 @@ class PlotCliIoError extends Error {
 	}
 }
 
-export { errorMessage };
+export const openBrowser = (url: string): void => {
+	const [command, args]: [string, string[]] =
+		process.platform === "darwin"
+			? ["open", [url]]
+			: process.platform === "win32"
+				? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+				: ["xdg-open", [url]];
+	spawn(command, args, { stdio: "ignore", detached: true })
+		.on("error", () => {})
+		.unref();
+};
 
 const writeStream = (stream: NodeJS.WritableStream, text: string) =>
 	new Promise<void>((resolve, reject) => {

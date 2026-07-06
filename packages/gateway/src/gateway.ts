@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
 import { basename } from "node:path";
 import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
 import { readRunHistory, runHistoryPath } from "@plot/registry/history";
@@ -38,21 +37,6 @@ const text = (body: unknown, init: ResponseInit = {}) =>
 		...init,
 		headers: { "content-type": "application/json; charset=utf-8" },
 	});
-
-const openBrowser = (url: string) => {
-	const command =
-		process.platform === "darwin"
-			? "open"
-			: process.platform === "win32"
-				? "cmd"
-				: "xdg-open";
-	const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-	const child = spawn(command, args, { detached: true, stdio: "ignore" });
-	child.on("error", (error) => {
-		void error;
-	});
-	child.unref();
-};
 
 const assetResponse = (pathname: string): Response => {
 	if (pathname === "/favicon.ico") return new Response(null, { status: 204 });
@@ -549,7 +533,8 @@ export const startPlotWebGateway = async (
 	});
 	const url = `http://${server.hostname}:${server.port}/`;
 	await options.writeStderr?.(`Plot web: ${url}\n`);
-	if (options.open !== false) await (options.openUrl ?? openBrowser)(url);
+	if (options.open !== false && options.openUrl !== undefined)
+		await options.openUrl(url);
 	return {
 		url,
 		stop: () => {

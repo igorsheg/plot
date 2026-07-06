@@ -15,11 +15,9 @@ export type DocName = (typeof docNames)[number];
 export const isDocName = (value: string): value is DocName =>
 	(docNames as readonly string[]).includes(value);
 
-const docsDirs = getDocsDirs;
-
 export const readPlotDoc = async (name: DocName): Promise<string> => {
 	const file = `${name}.md`;
-	for (const dir of docsDirs()) {
+	for (const dir of getDocsDirs()) {
 		try {
 			// eslint-disable-next-line no-await-in-loop -- docs lookup checks fallback directories in order.
 			return await readFile(join(dir, file), "utf8");

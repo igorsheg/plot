@@ -2,9 +2,10 @@ import { defineCommand } from "citty";
 import type { Mutable } from "@plot/common/primitives";
 import { sessionCommandArgs, pathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
+import { openBrowser } from "../io.js";
 import { baseOptions, int, str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
-import { runApiStdio } from "../runtime.js";
+import { runApiStdio, type ApiStdioOptions } from "../runtime.js";
 import { runPlotWebGateway } from "@plot/gateway";
 
 export const apiCommand = defineCommand({
@@ -43,18 +44,17 @@ export const apiCommand = defineCommand({
 		const io = getCliIo();
 		if (args.stdio === true) {
 			io.protectStdout?.();
-			return runApiStdio({
-				...baseOptions(args),
-				...(io.createAgentSession === undefined
-					? {}
-					: { createAgentSession: io.createAgentSession }),
-				stdin: io.stdin,
-				writeLine: io.writeStdout,
-			});
+			const stdioOptions = baseOptions(args) as Mutable<ApiStdioOptions>;
+			if (io.createAgentSession !== undefined)
+				stdioOptions.createAgentSession = io.createAgentSession;
+			stdioOptions.stdin = io.stdin;
+			stdioOptions.writeLine = io.writeStdout;
+			return runApiStdio(stdioOptions);
 		}
 		const options: Mutable<Parameters<typeof runPlotWebGateway>[0]> = {
 			cwd: str(args, "cwd") ?? process.cwd(),
 			open: args["no-open"] !== true,
+			openUrl: openBrowser,
 			cli: resolvePlotCommand(),
 		};
 		const agentDir = str(args, "agent-dir");

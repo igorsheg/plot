@@ -14,22 +14,21 @@ const formatTokenCount = (count: number): string => {
 	return `${text}${unit}`;
 };
 
-const renderTable = (
-	rows: readonly Record<string, string>[],
-	headers: readonly string[],
-) => {
-	const widths = Object.fromEntries(
-		headers.map((h) => [
-			h,
-			Math.max(h.length, ...rows.map((r) => r[h]?.length ?? 0)),
-		]),
+export const pad = (value: string, width: number): string =>
+	value.length >= width ? value : value + " ".repeat(width - value.length);
+
+export const table = (rows: readonly (readonly string[])[]): string => {
+	const widths = rows[0]?.map((_, column) =>
+		Math.max(...rows.map((row) => (row[column] ?? "").length)),
 	);
-	return [
-		headers.map((h) => h.padEnd(widths[h] ?? 0)).join("  "),
-		...rows.map((r) =>
-			headers.map((h) => (r[h] ?? "").padEnd(widths[h] ?? 0)).join("  "),
-		),
-	].join("\n");
+	return rows
+		.map((row) =>
+			row
+				.map((cell, column) => pad(cell, widths?.[column] ?? cell.length))
+				.join("  ")
+				.trimEnd(),
+		)
+		.join("\n");
 };
 
 export const renderModels = (
@@ -40,30 +39,30 @@ export const renderModels = (
 		? search === undefined
 			? "No models available. Configure provider auth and try again.\n"
 			: `No models matching "${search}"\n`
-		: `${renderTable(
-				models.map((m) => ({
-					provider: m.provider,
-					model: m.model,
-					context: formatTokenCount(m.context),
-					"max-out": formatTokenCount(m.maxOutput),
-					thinking: m.thinking ? "yes" : "no",
-					images: m.images ? "yes" : "no",
-				})),
+		: `${table([
 				["provider", "model", "context", "max-out", "thinking", "images"],
-			)}\n`;
+				...models.map((m) => [
+					m.provider,
+					m.model,
+					formatTokenCount(m.context),
+					formatTokenCount(m.maxOutput),
+					m.thinking ? "yes" : "no",
+					m.images ? "yes" : "no",
+				]),
+			])}\n`;
 
 export const renderAuthStatus = (statuses: readonly AuthStatusInfo[]) =>
 	statuses.length === 0
 		? "No auth providers found.\n"
-		: `${renderTable(
-				statuses.map((s) => ({
-					provider: s.provider,
-					configured: s.configured ? "yes" : "no",
-					source: s.source ?? "",
-					label: s.label ?? "",
-				})),
+		: `${table([
 				["provider", "configured", "source", "label"],
-			)}\n`;
+				...statuses.map((s) => [
+					s.provider,
+					s.configured ? "yes" : "no",
+					s.source ?? "",
+					s.label ?? "",
+				]),
+			])}\n`;
 
 const textFromContent = (content: unknown): string =>
 	typeof content === "string"

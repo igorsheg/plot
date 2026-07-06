@@ -1,6 +1,7 @@
 import { defineCommand, type ParsedArgs } from "citty";
 import { getCliIo } from "../cli-context.js";
-import { errorMessage, writeCliStderr } from "../io.js";
+import { errorMessage } from "@plot/common/primitives";
+import { writeCliStderr } from "../io.js";
 import { str } from "../options.js";
 import { stringifyJsonl } from "@plot/common/jsonl";
 import { defaultProtocolLimits } from "@plot/session/protocol";
