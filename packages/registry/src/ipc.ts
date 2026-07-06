@@ -324,6 +324,14 @@ const runMissing = (id: string) => new Error(`unknown run: ${id}`);
 const responseError = (response: RunResponse): Error | undefined =>
 	response.type === "error" ? new Error(response.error) : undefined;
 
+/** Stream a run's live protocol records over the registry socket. */
+export const streamRunRecords = (
+	options: RunIpcOptions,
+	runId: string,
+	afterSequence = 0,
+): AsyncIterable<ServerRecord> =>
+	createRunIpcClient(options).attachRecords(runId, afterSequence);
+
 export const createRunIpcClient = (
 	options: RunIpcOptions,
 ): RunRegistryRuntime => {

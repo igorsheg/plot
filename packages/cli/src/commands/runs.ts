@@ -1,26 +1,19 @@
-import { createConnection } from "node:net";
 import { defineCommand, type ParsedArgs } from "citty";
 import { getCliIo } from "../cli-context.js";
 import { errorMessage, writeCliStderr } from "../io.js";
 import { str } from "../options.js";
-import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
-import type { Mutable } from "@plot/common/primitives";
+import { stringifyJsonl } from "@plot/common/jsonl";
 import { defaultProtocolLimits } from "@plot/session/protocol";
-import type { RunIpcOptions } from "@plot/registry/ipc";
-import { resolveRunIpcSocketPath, sendRunIpcRequest } from "@plot/registry/ipc";
+import { sendRunIpcRequest, streamRunRecords } from "@plot/registry/ipc";
 import type { RunRequest } from "@plot/registry/ipc";
 import { formatRunResponse } from "../run-output.js";
-
-const runIpcOptions = (_args: ParsedArgs): RunIpcOptions => ({
-	cwd: process.cwd(),
-});
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
 const request = async (args: ParsedArgs, value: RunRequest) => {
 	const io = getCliIo();
 	try {
-		const response = await sendRunIpcRequest(runIpcOptions(args), value);
+		const response = await sendRunIpcRequest({ cwd: process.cwd() }, value);
 		await io.writeStdout(
 			args["json"] === true
 				? json(response)
@@ -48,30 +41,17 @@ const streamEvents = async (args: ParsedArgs) => {
 	const runId = str(args, "runId");
 	if (runId === undefined) throw new Error("run id required");
 	const after = str(args, "after");
-	const socket = createConnection(resolveRunIpcSocketPath(runIpcOptions(args)));
-	try {
-		await new Promise<void>((resolve, reject) => {
-			socket.once("connect", resolve);
-			socket.once("error", reject);
-		});
-		const streamRequest: Mutable<RunRequest> = {
-			type: "protocol_stream",
-			id: runId,
-		};
-		if (after !== undefined) streamRequest.afterSequence = Number(after);
-		socket.write(
-			stringifyJsonl(streamRequest, {
+	for await (const record of streamRunRecords(
+		{ cwd: process.cwd() },
+		runId,
+		after === undefined ? 0 : Number(after),
+	)) {
+		// eslint-disable-next-line no-await-in-loop -- preserve streamed run output order.
+		await io.writeStdout(
+			stringifyJsonl(record, {
 				maxLineBytes: defaultProtocolLimits.maxOutputLineBytes,
 			}),
 		);
-		for await (const line of jsonlLines(socket, {
-			maxLineBytes: defaultProtocolLimits.maxOutputLineBytes,
-		})) {
-			// eslint-disable-next-line no-await-in-loop -- preserve streamed run output order.
-			if (line.trim() !== "") await io.writeStdout(`${line}\n`);
-		}
-	} finally {
-		socket.destroy();
 	}
 };
 
