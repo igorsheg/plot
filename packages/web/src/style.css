@@ -1,6 +1,10 @@
 @import "@fontsource-variable/inter";
 @import "tailwindcss";
 
+/* Streamdown emits Tailwind utility classes at runtime for streamed LLM
+ * markdown; this build directive lets Tailwind v4 scan its dist for them. */
+@source "../node_modules/streamdown/dist/*.js";
+
 @custom-variant dark (&:is(.dark *, [data-mode="dark"] *));
 
 /*

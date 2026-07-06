@@ -8,11 +8,11 @@ import type {
 	TokenSample,
 	WorkItemProjection,
 } from "@plot/projection";
+import type { RunRecord } from "@plot/registry/record";
+import type { OperatorObservationInput } from "@plot/session/runtime";
+import type { TranscriptEntry } from "@plot/session/transcript";
 import { asNumber, asRecord, asString, asStringArray } from "./parse.js";
-import { parsePlotRuns, type PlotRun } from "./run.js";
-
-export type WebActivityEntry = ActivityEntry;
-export type WebDashboardProjection = SerializedDashboardProjection;
+import { parsePlotRuns } from "./run.js";
 
 const projectionStatuses = new Set([
 	"starting",
@@ -53,7 +53,7 @@ const parseRuntime = (value: unknown): RuntimeIdentityProjection => {
 	};
 };
 
-const parseActivity = (value: unknown): readonly WebActivityEntry[] =>
+const parseActivity = (value: unknown): readonly ActivityEntry[] =>
 	Array.isArray(value)
 		? value.flatMap((entry) => {
 				const record = asRecord(entry);
@@ -71,7 +71,7 @@ const parseActivity = (value: unknown): readonly WebActivityEntry[] =>
 
 export const parseProjection = (
 	value: unknown,
-): WebDashboardProjection | undefined => {
+): SerializedDashboardProjection | undefined => {
 	const envelope = asRecord(value);
 	const record = asRecord(envelope?.["projection"] ?? value);
 	const sessionId = asString(record?.["sessionId"]);
@@ -92,7 +92,7 @@ export const parseProjection = (
 	return {
 		sessionId,
 		workflowName,
-		status: status as WebDashboardProjection["status"],
+		status: status as SerializedDashboardProjection["status"],
 		frontier,
 		runtime: parseRuntime(record["runtime"]),
 		usageTotals: {
@@ -122,56 +122,111 @@ export const parseProjection = (
 	};
 };
 
-export const fetchRuns = async (): Promise<readonly PlotRun[]> => {
-	const response = await fetch("/api/runs");
-	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	return parsePlotRuns(await response.json());
+const httpError = (response: Response): Error =>
+	new Error(`HTTP ${response.status}`);
+
+const fetchOk = async (url: string, init?: RequestInit): Promise<Response> => {
+	const response = await fetch(url, init);
+	if (!response.ok) throw httpError(response);
+	return response;
 };
 
-export interface ObservationInput {
-	readonly sourceId: string;
-	readonly workKey: string;
-	readonly actionId: string;
-	readonly actionLabel: string;
-	readonly comment?: string | undefined;
-	readonly clientId?: string | undefined;
-}
+const fetchJson = async (url: string, init?: RequestInit): Promise<unknown> =>
+	(await fetchOk(url, init)).json();
+
+export const fetchRuns = async (): Promise<readonly RunRecord[]> =>
+	parsePlotRuns(await fetchJson("/api/runs"));
 
 export const recordObservation = async (
 	runId: string,
-	input: ObservationInput,
+	input: Omit<OperatorObservationInput, "actor">,
 ): Promise<boolean> => {
-	const response = await fetch(
-		`/api/runs/${encodeURIComponent(runId)}/observations`,
-		{
+	const data = asRecord(
+		await fetchJson(`/api/runs/${encodeURIComponent(runId)}/observations`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(input),
-		},
+		}),
 	);
-	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	const data = (await response.json()) as { readonly accepted?: boolean };
-	return data.accepted === true;
+	return data?.["accepted"] === true;
 };
 
 export const stopRun = async (id: string): Promise<void> => {
-	const response = await fetch(`/api/runs/${encodeURIComponent(id)}`, {
-		method: "DELETE",
-	});
-	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	await fetchOk(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
 };
 
 export const fetchRunProjectionUrl = async (
 	url: string,
-): Promise<WebDashboardProjection> => {
-	const response = await fetch(url);
-	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	const projection = parseProjection(await response.json());
+): Promise<SerializedDashboardProjection> => {
+	const projection = parseProjection(await fetchJson(url));
 	if (projection === undefined) throw new Error("invalid projection response");
 	return projection;
 };
 
-export const fetchRunProjection = async (
-	key: string,
-): Promise<WebDashboardProjection> =>
-	fetchRunProjectionUrl(`/api/runs/${encodeURIComponent(key)}/projection`);
+/**
+ * A transcript read result. `notRecorded` distinguishes a deliberate 404 ("no
+ * transcript recorded" — a normal state) from a transport error (which throws).
+ */
+export interface TranscriptResult {
+	readonly entries: readonly TranscriptEntry[];
+	readonly notRecorded: boolean;
+}
+
+const transcriptRoles = new Set(["user", "assistant", "tool"]);
+const transcriptKinds = new Set([
+	"text",
+	"thinking",
+	"tool-call",
+	"tool-result",
+]);
+
+const parseTranscriptEntry = (value: unknown): readonly TranscriptEntry[] => {
+	const record = asRecord(value);
+	const role = asString(record?.["role"]);
+	const kind = asString(record?.["kind"]);
+	const text = asString(record?.["text"]);
+	if (
+		record === undefined ||
+		role === undefined ||
+		!transcriptRoles.has(role) ||
+		kind === undefined ||
+		!transcriptKinds.has(kind) ||
+		text === undefined
+	) {
+		return [];
+	}
+	const entry: TranscriptEntry = {
+		role: role as TranscriptEntry["role"],
+		kind: kind as TranscriptEntry["kind"],
+		text,
+		at: asString(record["at"]),
+		name: asString(record["name"]),
+	};
+	return [entry];
+};
+
+/** Defensive parse of the gateway `{ entries }` envelope; junk blocks skipped. */
+export const parseTranscript = (value: unknown): TranscriptResult => {
+	const record = asRecord(value);
+	const raw = record?.["entries"];
+	const entries = Array.isArray(raw) ? raw.flatMap(parseTranscriptEntry) : [];
+	return { entries, notRecorded: false };
+};
+
+/**
+ * Read one attempt's transcript tail from the gateway. A 404 is not an error —
+ * it means no transcript was recorded, surfaced as an empty flagged result.
+ */
+export const fetchAttemptTranscript = async (
+	runId: string,
+	attemptRunId: string,
+): Promise<TranscriptResult> => {
+	const response = await fetch(
+		`/api/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(
+			attemptRunId,
+		)}/transcript`,
+	);
+	if (response.status === 404) return { entries: [], notRecorded: true };
+	if (!response.ok) throw httpError(response);
+	return parseTranscript(await response.json());
+};

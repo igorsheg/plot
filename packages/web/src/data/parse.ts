@@ -1,9 +1,7 @@
-export type UnknownRecord = Record<string, unknown>;
+import { isRecord } from "@plot/common/primitives";
 
-export const asRecord = (value: unknown): UnknownRecord | undefined =>
-	value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as UnknownRecord)
-		: undefined;
+export const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+	isRecord(value) ? value : undefined;
 
 export const asString = (value: unknown): string | undefined =>
 	typeof value === "string" ? value : undefined;
