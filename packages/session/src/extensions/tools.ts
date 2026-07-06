@@ -7,7 +7,7 @@ import type {
 	PlotJsonSchema,
 	PlotToolContext,
 	PlotToolDefinition,
-} from "../sdk.js";
+} from "@plot/sdk";
 import type { WorkflowDefinition } from "../workflow.js";
 import { PlotExtensionSourceError } from "./errors.js";
 

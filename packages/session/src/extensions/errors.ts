@@ -1,6 +1,6 @@
 import { logWideEvent } from "@plot/common/observability";
 import { errorMessage } from "@plot/common/primitives";
-import type { MaybePromise } from "../sdk.js";
+import type { MaybePromise } from "@plot/sdk";
 
 export class PlotExtensionSourceError extends Error {
 	override readonly name = "PlotExtensionSourceError";

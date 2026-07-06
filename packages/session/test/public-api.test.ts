@@ -14,7 +14,6 @@ const expectedExports = [
 	"./pi-runner",
 	"./protocol",
 	"./protocol-codec",
-	"./sdk",
 	"./transcript",
 	"./workflow",
 ] as const;

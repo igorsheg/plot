@@ -1,0 +1,20 @@
+{
+	"name": "@plot/sdk",
+	"private": true,
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		".": {
+			"types": "./src/sdk.ts",
+			"import": "./src/sdk.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"build:sdk": "rm -rf dist && bun build src/sdk.ts --target=node --format=esm --outfile=dist/sdk.js && tsc -p tsconfig.sdk.json"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}

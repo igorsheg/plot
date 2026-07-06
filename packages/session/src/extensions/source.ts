@@ -17,7 +17,7 @@ import type {
 	PlotExtensionRuntime,
 	PlotExtensionTool,
 	PlotExtensionWork,
-} from "../sdk.js";
+} from "@plot/sdk";
 import type { SessionPaths } from "../paths.js";
 import type { WorkflowDefinition } from "../workflow.js";
 import { logHookError } from "./errors.js";

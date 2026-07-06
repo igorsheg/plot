@@ -6,8 +6,8 @@ import type {
 	PlotExtension,
 	PlotExtensionRuntime,
 	PlotExtensionTool,
-} from "../sdk.js";
-import * as plotSdk from "../sdk.js";
+} from "@plot/sdk";
+import * as plotSdk from "@plot/sdk";
 import type { WorkflowDefinition } from "../workflow.js";
 import { decodeBoundary } from "../schema.js";
 import { PlotExtensionSourceError, runMaybePromise } from "./errors.js";

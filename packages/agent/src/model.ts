@@ -1,3 +1,5 @@
+import type { OperatorAction, WorkDisplay } from "@plot/sdk";
+
 export type AgentPhase =
 	| "setup"
 	| "observe"
@@ -91,27 +93,6 @@ export const scheduleWake = (
 	return proposal;
 };
 
-export interface WorkDisplay {
-	kind?: string;
-	primary?: string;
-	title?: string;
-	subtitle?: string;
-	url?: string;
-	version?: string;
-	labels?: string[];
-}
-export interface OperatorActionConfirm {
-	title: string;
-	message?: string;
-}
-export interface OperatorAction {
-	id: string;
-	label: string;
-	tone?: "primary" | "secondary" | "danger";
-	disabledReason?: string;
-	requiresComment?: boolean;
-	confirm?: OperatorActionConfirm;
-}
 export type WorkStatus =
 	| "pending"
 	| "waiting"

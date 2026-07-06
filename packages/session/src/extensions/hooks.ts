@@ -1,5 +1,5 @@
 import type { Completion } from "@plot/agent/model";
-import type { PlotExtensionRuntime, PlotExtensionWork } from "../sdk.js";
+import type { PlotExtensionRuntime, PlotExtensionWork } from "@plot/sdk";
 import { logHookError, runMaybePromise } from "./errors.js";
 import { decodeDiscoveredWorks } from "./work.js";
 

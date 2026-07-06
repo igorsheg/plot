@@ -20,6 +20,7 @@
       "name": "@plot/agent",
       "dependencies": {
         "@plot/common": "workspace:*",
+        "@plot/sdk": "workspace:*",
       },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
@@ -56,6 +57,12 @@
         "@repo/tsconfig": "workspace:*",
       },
     },
+    "packages/sdk": {
+      "name": "@plot/sdk",
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
     "packages/session": {
       "name": "@plot/session",
       "dependencies": {
@@ -63,6 +70,7 @@
         "@earendil-works/pi-coding-agent": "0.79.0",
         "@plot/agent": "workspace:*",
         "@plot/common": "workspace:*",
+        "@plot/sdk": "workspace:*",
         "effect": "4.0.0-beta.78",
         "eta": "4.6.0",
         "jiti": "^2.7.0",
@@ -328,6 +336,8 @@
     "@plot/common": ["@plot/common@workspace:packages/common"],
 
     "@plot/projection": ["@plot/projection@workspace:packages/projection"],
+
+    "@plot/sdk": ["@plot/sdk@workspace:packages/sdk"],
 
     "@plot/session": ["@plot/session@workspace:packages/session"],
 

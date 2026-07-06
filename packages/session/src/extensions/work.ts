@@ -1,12 +1,9 @@
 import { isAbsolute } from "node:path";
-import type {
-	OperatorAction,
-	WorkDisplay,
-	WorkRecord,
-} from "@plot/agent/model";
+import type { WorkRecord } from "@plot/agent/model";
+import type { OperatorAction, WorkDisplay } from "@plot/sdk";
 import { errorMessage, isRecord } from "@plot/common/primitives";
 import { Schema } from "effect";
-import type { PlotExtension, PlotExtensionWork } from "../sdk.js";
+import type { PlotExtension, PlotExtensionWork } from "@plot/sdk";
 import type { WorkflowDefinition } from "../workflow.js";
 import { PlotExtensionSourceError } from "./errors.js";
 import { NonEmptyString, decodeBoundary, optional } from "../schema.js";
@@ -174,7 +171,7 @@ export const decodeStoredWorks = (
 export const agentDisplayFor = (
 	display: NonNullable<PlotExtensionWork["display"]>,
 ): WorkDisplay => {
-	const clean: WorkDisplay = {};
+	const clean: Mutable<WorkDisplay> = {};
 	if (display.kind !== undefined) clean.kind = display.kind;
 	if (display.primary !== undefined) clean.primary = display.primary;
 	if (display.title !== undefined) clean.title = display.title;
@@ -189,14 +186,17 @@ export const agentOperatorActionsFor = (
 	actions: NonNullable<PlotExtensionWork["operatorActions"]>,
 ): OperatorAction[] =>
 	actions.map((action) => {
-		const clean: OperatorAction = { id: action.id, label: action.label };
+		const clean: Mutable<OperatorAction> = {
+			id: action.id,
+			label: action.label,
+		};
 		if (action.tone !== undefined) clean.tone = action.tone;
 		if (action.disabledReason !== undefined)
 			clean.disabledReason = action.disabledReason;
 		if (action.requiresComment !== undefined)
 			clean.requiresComment = action.requiresComment;
 		if (action.confirm !== undefined) {
-			const confirm: NonNullable<OperatorAction["confirm"]> = {
+			const confirm: Mutable<NonNullable<OperatorAction["confirm"]>> = {
 				title: action.confirm.title,
 			};
 			if (action.confirm.message !== undefined)
