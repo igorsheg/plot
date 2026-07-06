@@ -4,7 +4,7 @@
  * Fixtures and the store adapter both flow through this one interface.
  */
 
-import { createContext, createElement, type ReactNode, use } from "react";
+import { createRequiredContext } from "../../lib/required-context.js";
 import type { DockTile } from "./view-model.js";
 
 export interface SessionDockState {
@@ -24,26 +24,7 @@ export interface SessionDockContextValue {
 	readonly actions: SessionDockActions;
 }
 
-const SessionDockContext = createContext<SessionDockContextValue | null>(null);
-
-interface SessionDockProviderProps {
-	readonly value: SessionDockContextValue;
-	readonly children: ReactNode;
-}
-
-export function SessionDockProvider({
-	value,
-	children,
-}: SessionDockProviderProps) {
-	return createElement(SessionDockContext, { value }, children);
-}
-
-export function useSessionDock(): SessionDockContextValue {
-	const context = use(SessionDockContext);
-	if (context === null) {
-		throw new Error(
-			"Session dock components must be rendered inside <SessionDockProvider>.",
-		);
-	}
-	return context;
-}
+export const [SessionDockProvider, useSessionDock] =
+	createRequiredContext<SessionDockContextValue>(
+		"Session dock components must be rendered inside <SessionDockProvider>.",
+	);

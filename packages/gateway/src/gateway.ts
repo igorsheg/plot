@@ -32,6 +32,8 @@ export interface PlotWebGatewayOptions {
 	readonly cli?: RunIpcOptions["cli"];
 }
 
+type RunIpcConnection = Awaited<ReturnType<typeof openOrStartRunIpc>>;
+
 const text = (body: unknown, init: ResponseInit = {}) =>
 	new Response(JSON.stringify(body), {
 		...init,
@@ -376,6 +378,197 @@ const sessionEventsResponse = (input: {
 	);
 };
 
+const spawnRunResponse = async (
+	request: Request,
+	options: PlotWebGatewayOptions,
+	runIpc: RunIpcConnection,
+): Promise<Response> => {
+	const body = await parseCreateRunBody(request);
+	const spawnInput: Mutable<Parameters<typeof runIpc.runRegistry.spawn>[0]> = {
+		cwd: body.cwd ?? options.cwd,
+	};
+	if (body.workflowPath !== undefined)
+		spawnInput.workflowPath = body.workflowPath;
+	else if (options.workflowPath !== undefined)
+		spawnInput.workflowPath = options.workflowPath;
+	if (body.label !== undefined) spawnInput.label = body.label;
+	const run = await runIpc.runRegistry.spawn(spawnInput);
+	return text({ run });
+};
+
+const listRunsResponse = async (
+	runIpc: RunIpcConnection,
+): Promise<Response> => {
+	const runs = await runIpc.runRegistry
+		.list()
+		.then((value) => ({ ok: true as const, value }))
+		.catch((error: unknown) => ({ ok: false as const, error }));
+	return runs.ok
+		? text({ runs: runs.value })
+		: text({ error: String(runs.error) }, { status: 503 });
+};
+
+const stopRunResponse = async (
+	id: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> => {
+	const run = await runIpc.runRegistry.stop(id);
+	return run === undefined
+		? new Response("run not found", { status: 404 })
+		: text({ run });
+};
+
+const runResponse = async (
+	id: string,
+	runIpc: RunIpcConnection,
+	handle: (run: RunRecord) => Promise<Response> | Response,
+): Promise<Response> => {
+	const run = await runIpc.runRegistry.status(id);
+	return run === undefined
+		? new Response("run not found", { status: 404 })
+		: handle(run);
+};
+
+const operatorObservationResponse = async (
+	request: Request,
+	id: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> =>
+	runResponse(id, runIpc, async () => {
+		const body = await parseObservationBody(request);
+		if (body === undefined)
+			return text({ error: "invalid observation body" }, { status: 400 });
+		const response = await runIpc.runRegistry
+			.submit(id, {
+				protocol: sessionProtocolVersion,
+				kind: "request",
+				id: `web_observation_${randomUUID()}`,
+				command: "record_operator_observation",
+				params: { ...body, actor: "web" },
+			})
+			.catch(() => undefined);
+		if (response === undefined || response.kind !== "response" || !response.ok)
+			return text({ error: "run not live" }, { status: 409 });
+		return text({
+			accepted: isRecord(response.data) && response.data["accepted"] === true,
+		});
+	});
+
+const runEventsEndpointResponse = async (
+	request: Request,
+	url: URL,
+	id: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> => {
+	const after = parseAfterSequence({
+		header: request.headers.get("last-event-id"),
+		query: url.searchParams.get("after"),
+	});
+	if (after === undefined) return text({ error: "invalid after sequence" });
+	return runResponse(id, runIpc, () =>
+		sessionEventsResponse({
+			request,
+			records: runIpc.runRegistry.attachRecords(id, after),
+		}),
+	);
+};
+
+const runHistoryEndpointResponse = async (
+	url: URL,
+	id: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> => {
+	const after = parseSequence(url.searchParams.get("after"));
+	if (after === undefined) return text({ error: "invalid after sequence" });
+	return runResponse(id, runIpc, (run) =>
+		runHistoryResponse(run, runIpc.historyDir, after),
+	);
+};
+
+const runTranscriptEndpointResponse = async (
+	runId: string,
+	attemptRunId: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> =>
+	runResponse(runId, runIpc, (run) =>
+		runTranscriptResponse(
+			run,
+			attemptRunId,
+			runIpc.runRegistry,
+			runIpc.historyDir,
+		),
+	);
+
+const runProjectionEndpointResponse = async (
+	id: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> =>
+	runResponse(id, runIpc, (run) =>
+		runProjectionResponse(run, runIpc.runRegistry, runIpc.historyDir),
+	);
+
+const gatewayResponse = async (
+	request: Request,
+	options: PlotWebGatewayOptions,
+	runIpc: RunIpcConnection,
+): Promise<Response> => {
+	const url = new URL(request.url);
+	if (url.pathname === "/api/runs/events")
+		return runCatalogEventsResponse({
+			request,
+			listRuns: () => runIpc.runRegistry.list(),
+		});
+	if (url.pathname === "/api/runs" && request.method === "POST")
+		return spawnRunResponse(request, options, runIpc);
+	const stopPath = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
+	if (stopPath !== null && request.method === "DELETE")
+		return stopRunResponse(decodeURIComponent(stopPath[1] ?? ""), runIpc);
+	if (url.pathname === "/api/runs") return listRunsResponse(runIpc);
+	const observationPath = /^\/api\/runs\/([^/]+)\/observations$/.exec(
+		url.pathname,
+	);
+	if (observationPath !== null && request.method === "POST")
+		return operatorObservationResponse(
+			request,
+			decodeURIComponent(observationPath[1] ?? ""),
+			runIpc,
+		);
+	const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
+	if (eventPath !== null)
+		return runEventsEndpointResponse(
+			request,
+			url,
+			decodeURIComponent(eventPath[1] ?? ""),
+			runIpc,
+		);
+	const historyPath = /^\/api\/runs\/([^/]+)\/history$/.exec(url.pathname);
+	if (historyPath !== null)
+		return runHistoryEndpointResponse(
+			url,
+			decodeURIComponent(historyPath[1] ?? ""),
+			runIpc,
+		);
+	const transcriptPath =
+		/^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/.exec(url.pathname);
+	if (transcriptPath !== null)
+		return runTranscriptEndpointResponse(
+			decodeURIComponent(transcriptPath[1] ?? ""),
+			decodeURIComponent(transcriptPath[2] ?? ""),
+			runIpc,
+		);
+	const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
+		url.pathname,
+	);
+	if (projectionPath !== null)
+		return runProjectionEndpointResponse(
+			decodeURIComponent(projectionPath[1] ?? ""),
+			runIpc,
+		);
+	if (url.pathname === "/api/health")
+		return text({ ok: true, socketPath: runIpc.socketPath });
+	return assetResponse(url.pathname);
+};
+
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
@@ -390,142 +583,7 @@ export const startPlotWebGateway = async (
 		idleTimeout: 255,
 		async fetch(request) {
 			try {
-				const url = new URL(request.url);
-				if (url.pathname === "/api/runs/events")
-					return runCatalogEventsResponse({
-						request,
-						listRuns: () => runIpc.runRegistry.list(),
-					});
-				if (url.pathname === "/api/runs" && request.method === "POST") {
-					const body = await parseCreateRunBody(request);
-					const spawnInput: Mutable<
-						Parameters<typeof runIpc.runRegistry.spawn>[0]
-					> = {
-						cwd: body.cwd ?? options.cwd,
-					};
-					if (body.workflowPath !== undefined)
-						spawnInput.workflowPath = body.workflowPath;
-					else if (options.workflowPath !== undefined)
-						spawnInput.workflowPath = options.workflowPath;
-					if (body.label !== undefined) spawnInput.label = body.label;
-					const run = await runIpc.runRegistry.spawn(spawnInput);
-					return text({ run });
-				}
-				const stopPath = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
-				if (stopPath !== null && request.method === "DELETE") {
-					const run = await runIpc.runRegistry.stop(
-						decodeURIComponent(stopPath[1] ?? ""),
-					);
-					return run === undefined
-						? new Response("run not found", { status: 404 })
-						: text({ run });
-				}
-				if (url.pathname === "/api/runs") {
-					const runs = await runIpc.runRegistry
-						.list()
-						.then((value) => ({ ok: true as const, value }))
-						.catch((error: unknown) => ({ ok: false as const, error }));
-					return runs.ok
-						? text({ runs: runs.value })
-						: text({ error: String(runs.error) }, { status: 503 });
-				}
-				const observationPath = /^\/api\/runs\/([^/]+)\/observations$/.exec(
-					url.pathname,
-				);
-				if (observationPath !== null && request.method === "POST") {
-					const id = decodeURIComponent(observationPath[1] ?? "");
-					const run = await runIpc.runRegistry.status(id);
-					if (run === undefined)
-						return new Response("run not found", { status: 404 });
-					const body = await parseObservationBody(request);
-					if (body === undefined)
-						return text({ error: "invalid observation body" }, { status: 400 });
-					const response = await runIpc.runRegistry
-						.submit(id, {
-							protocol: sessionProtocolVersion,
-							kind: "request",
-							id: `web_observation_${randomUUID()}`,
-							command: "record_operator_observation",
-							params: { ...body, actor: "web" },
-						})
-						.catch(() => undefined);
-					if (
-						response === undefined ||
-						response.kind !== "response" ||
-						!response.ok
-					)
-						return text({ error: "run not live" }, { status: 409 });
-					return text({
-						accepted:
-							isRecord(response.data) && response.data["accepted"] === true,
-					});
-				}
-				const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
-				if (eventPath !== null) {
-					const after = parseAfterSequence({
-						header: request.headers.get("last-event-id"),
-						query: url.searchParams.get("after"),
-					});
-					if (after === undefined)
-						return text({ error: "invalid after sequence" });
-					const id = decodeURIComponent(eventPath[1] ?? "");
-					const run = await runIpc.runRegistry.status(id);
-					if (run === undefined)
-						return new Response("run not found", { status: 404 });
-					return sessionEventsResponse({
-						request,
-						records: runIpc.runRegistry.attachRecords(id, after),
-					});
-				}
-				const historyPath = /^\/api\/runs\/([^/]+)\/history$/.exec(
-					url.pathname,
-				);
-				if (historyPath !== null) {
-					const after = parseSequence(url.searchParams.get("after"));
-					if (after === undefined)
-						return text({ error: "invalid after sequence" });
-					const run = await runIpc.runRegistry.status(
-						decodeURIComponent(historyPath[1] ?? ""),
-					);
-					if (run === undefined)
-						return new Response("run not found", { status: 404 });
-					return runHistoryResponse(run, runIpc.historyDir, after);
-				}
-				const transcriptPath =
-					/^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/.exec(
-						url.pathname,
-					);
-				if (transcriptPath !== null) {
-					const run = await runIpc.runRegistry.status(
-						decodeURIComponent(transcriptPath[1] ?? ""),
-					);
-					if (run === undefined)
-						return new Response("run not found", { status: 404 });
-					return runTranscriptResponse(
-						run,
-						decodeURIComponent(transcriptPath[2] ?? ""),
-						runIpc.runRegistry,
-						runIpc.historyDir,
-					);
-				}
-				const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
-					url.pathname,
-				);
-				if (projectionPath !== null) {
-					const run = await runIpc.runRegistry.status(
-						decodeURIComponent(projectionPath[1] ?? ""),
-					);
-					if (run === undefined)
-						return new Response("run not found", { status: 404 });
-					return runProjectionResponse(
-						run,
-						runIpc.runRegistry,
-						runIpc.historyDir,
-					);
-				}
-				if (url.pathname === "/api/health")
-					return text({ ok: true, socketPath: runIpc.socketPath });
-				return assetResponse(url.pathname);
+				return await gatewayResponse(request, options, runIpc);
 			} catch (error) {
 				return text({ error: String(error) }, { status: 503 });
 			}

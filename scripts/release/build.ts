@@ -93,6 +93,10 @@ async function buildUmbrellaPackage() {
 		join(packageDir, "lib", "sdk.d.ts"),
 	);
 	cpSync(
+		join(sdkPackageDir, "dist", "work-contract.d.ts"),
+		join(packageDir, "lib", "work-contract.d.ts"),
+	);
+	cpSync(
 		join(npmPackageDir, "postinstall.mjs"),
 		join(packageDir, "postinstall.mjs"),
 	);

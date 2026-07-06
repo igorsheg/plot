@@ -10,20 +10,7 @@ const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-export function formatRelative(thenMs: number, nowMs: number): string {
-	const deltaMs = nowMs - thenMs;
-	const seconds = Math.round(deltaMs / SECOND_MS);
-	if (seconds < 45) return `${Math.max(1, seconds)}s ago`;
-	const minutes = Math.round(deltaMs / MINUTE_MS);
-	if (minutes < 45) return `${minutes}m ago`;
-	const hours = Math.round(deltaMs / HOUR_MS);
-	if (hours < 22) return `${hours}h ago`;
-	const days = Math.round(deltaMs / DAY_MS);
-	return `${days}d ago`;
-}
-
-/** Bare age like "3m" (no "ago"); s/m/h/d, clamped to at least "1s". */
-export function formatShortAge(deltaMs: number): string {
+const ageBucket = (deltaMs: number): string => {
 	const seconds = Math.round(deltaMs / SECOND_MS);
 	if (seconds < 45) return `${Math.max(1, seconds)}s`;
 	const minutes = Math.round(deltaMs / MINUTE_MS);
@@ -32,6 +19,15 @@ export function formatShortAge(deltaMs: number): string {
 	if (hours < 22) return `${hours}h`;
 	const days = Math.round(deltaMs / DAY_MS);
 	return `${days}d`;
+};
+
+export function formatRelative(thenMs: number, nowMs: number): string {
+	return `${ageBucket(nowMs - thenMs)} ago`;
+}
+
+/** Bare age like "3m" (no "ago"); s/m/h/d, clamped to at least "1s". */
+export function formatShortAge(deltaMs: number): string {
+	return ageBucket(deltaMs);
 }
 
 /** Elapsed duration like "41s" / "3m" / "1h 4m". */

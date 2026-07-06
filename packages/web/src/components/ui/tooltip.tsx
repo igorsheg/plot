@@ -1,19 +1,12 @@
 import { Tooltip as TooltipBase } from "@base-ui/react/tooltip";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { cn } from "../../lib/utils.js";
+import { resolveVariant } from "./variant.js";
 
 /**
  * Ported from Kumo's `ui/tooltip.tsx`, kept close to the source. Adaptations:
- * the portal-container context is dropped (base-ui portals to `document.body`),
- * and Kumo's shared `resolveVariant` helper is inlined below.
+ * the portal-container context is dropped because base-ui portals to `document.body`.
  */
-
-const resolveVariant = (
-	variants: Record<string, { readonly classes: string }>,
-	key: string | undefined,
-	fallback: string,
-): { readonly classes: string } =>
-	variants[key ?? fallback] ?? variants[fallback] ?? { classes: "" };
 
 /** Tooltip side variant definitions mapping positions to their Tailwind classes. */
 export const KUMO_TOOLTIP_VARIANTS = {

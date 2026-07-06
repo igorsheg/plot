@@ -2,6 +2,7 @@
 
 import React from "react";
 import { cn } from "../../lib/utils.js";
+import { resolveVariant } from "./variant.js";
 
 export const KUMO_BUTTON_VARIANTS = {
 	shape: {
@@ -89,13 +90,6 @@ export interface KumoButtonVariantsProps {
 	readonly size?: ButtonSize | undefined;
 	readonly variant?: ButtonVariant | undefined;
 }
-
-const resolveVariant = (
-	variants: Record<string, { readonly classes: string }>,
-	key: string | undefined,
-	fallback: string,
-): { readonly classes: string } =>
-	variants[key ?? fallback] ?? variants[fallback] ?? { classes: "" };
 
 const normalizeSize = (size: ButtonSize | undefined): KumoButtonSize =>
 	size === undefined || size === "default" || size === "icon" ? "base" : size;

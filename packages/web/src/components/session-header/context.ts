@@ -5,7 +5,7 @@
  */
 
 import type { RunStatus } from "@plot/registry/record";
-import { createContext, createElement, type ReactNode, use } from "react";
+import { createRequiredContext } from "../../lib/required-context.js";
 import type { LiveLinePoint } from "../ui/live-line/scale.js";
 
 export interface SessionHeaderState {
@@ -30,28 +30,7 @@ export interface SessionHeaderContextValue {
 	readonly actions: SessionHeaderActions;
 }
 
-const SessionHeaderContext = createContext<SessionHeaderContextValue | null>(
-	null,
-);
-
-interface SessionHeaderProviderProps {
-	readonly value: SessionHeaderContextValue;
-	readonly children: ReactNode;
-}
-
-export function SessionHeaderProvider({
-	value,
-	children,
-}: SessionHeaderProviderProps) {
-	return createElement(SessionHeaderContext, { value }, children);
-}
-
-export function useSessionHeader(): SessionHeaderContextValue {
-	const context = use(SessionHeaderContext);
-	if (context === null) {
-		throw new Error(
-			"Session header components must be rendered inside <SessionHeaderProvider>.",
-		);
-	}
-	return context;
-}
+export const [SessionHeaderProvider, useSessionHeader] =
+	createRequiredContext<SessionHeaderContextValue>(
+		"Session header components must be rendered inside <SessionHeaderProvider>.",
+	);

@@ -7,6 +7,10 @@
 		".": {
 			"types": "./src/sdk.ts",
 			"import": "./src/sdk.ts"
+		},
+		"./work-contract": {
+			"types": "./src/work-contract.ts",
+			"import": "./src/work-contract.ts"
 		}
 	},
 	"scripts": {

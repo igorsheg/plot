@@ -5,7 +5,7 @@
  */
 
 import type { OperatorObservationInput } from "@plot/session/runtime";
-import { createContext, createElement, type ReactNode, use } from "react";
+import { createRequiredContext } from "../../lib/required-context.js";
 import type { AttentionItem, MotionItem, SettledItem } from "./view-model.js";
 
 export interface SessionWorkState {
@@ -27,26 +27,7 @@ export interface SessionWorkContextValue {
 	readonly actions: SessionWorkActions;
 }
 
-const SessionWorkContext = createContext<SessionWorkContextValue | null>(null);
-
-interface SessionWorkProviderProps {
-	readonly value: SessionWorkContextValue;
-	readonly children: ReactNode;
-}
-
-export function SessionWorkProvider({
-	value,
-	children,
-}: SessionWorkProviderProps) {
-	return createElement(SessionWorkContext, { value }, children);
-}
-
-export function useSessionWork(): SessionWorkContextValue {
-	const context = use(SessionWorkContext);
-	if (context === null) {
-		throw new Error(
-			"Session work components must be rendered inside <SessionWorkProvider>.",
-		);
-	}
-	return context;
-}
+export const [SessionWorkProvider, useSessionWork] =
+	createRequiredContext<SessionWorkContextValue>(
+		"Session work components must be rendered inside <SessionWorkProvider>.",
+	);

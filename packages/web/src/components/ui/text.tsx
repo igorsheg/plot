@@ -9,6 +9,7 @@ import React, {
 	useMemo,
 } from "react";
 import { cn } from "../../lib/utils.js";
+import { resolveVariant } from "./variant.js";
 
 export const KUMO_TEXT_VARIANTS = {
 	variant: {
@@ -99,13 +100,6 @@ export interface KumoTextVariantsProps {
 	readonly variant?: KumoTextVariant | undefined;
 	readonly size?: KumoTextSize | undefined;
 }
-
-const resolveVariant = (
-	variants: Record<string, { readonly classes: string }>,
-	key: string | undefined,
-	fallback: string,
-): { readonly classes: string } =>
-	variants[key ?? fallback] ?? variants[fallback] ?? { classes: "" };
 
 export function textVariants({
 	variant = KUMO_TEXT_DEFAULT_VARIANTS.variant,
