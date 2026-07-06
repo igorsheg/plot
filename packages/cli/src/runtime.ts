@@ -1,5 +1,5 @@
 import { LoggerLive, withWideEvent } from "@plot/common/observability";
-import type { AgentSessionOverrides } from "@plot/session/agent-session";
+import type { AgentSessionOverrides } from "@plot/session/pi-session";
 import { createProtocolSessionHost } from "@plot/session/host";
 import type { CreatePiAgentSession } from "@plot/session/pi-runner";
 import {

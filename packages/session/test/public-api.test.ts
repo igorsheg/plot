@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 const expectedExports = [
-	"./agent-session",
+	"./pi-session",
 	"./auth",
 	"./runtime",
 	"./host",

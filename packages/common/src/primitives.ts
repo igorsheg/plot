@@ -3,6 +3,9 @@ const encoder = new TextEncoder();
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
+export const isPositiveInteger = (value: number): boolean =>
+	Number.isInteger(value) && value >= 1;
+
 export const errorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
 

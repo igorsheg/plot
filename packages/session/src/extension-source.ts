@@ -20,6 +20,7 @@ import type {
 	PlotExtensionWork,
 } from "@plot/sdk";
 import type { SessionPaths } from "./paths.js";
+import type { PiAgentSessionRunOptions } from "./pi-runner.js";
 import type { WorkflowDefinition } from "./workflow.js";
 import {
 	loadPlotExtensionRuntimeFromWorkflow,
@@ -211,10 +212,9 @@ export const invokeCompletionHook = async (
 
 export interface PlotExtensionSourceBundle {
 	readonly source: WorkSource;
-	readonly createOptions: (context: WorkRunnerContext) => Promise<{
-		readonly customTools: ToolDefinition[];
-		readonly cwd?: string;
-	}>;
+	readonly createOptions: (
+		context: WorkRunnerContext,
+	) => Promise<PiAgentSessionRunOptions>;
 	readonly workFor: (
 		context: WorkRunnerContext,
 	) => PlotExtensionWork | undefined;

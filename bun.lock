@@ -84,7 +84,6 @@
         "@plot/agent": "workspace:*",
         "@plot/common": "workspace:*",
         "@plot/sdk": "workspace:*",
-        "effect": "4.0.0-beta.78",
         "eta": "4.6.0",
         "jiti": "^2.7.0",
         "yaml": "2.9.0",

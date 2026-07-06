@@ -543,7 +543,7 @@ describe("extension source adapter", () => {
 		const runner: WorkRunner = {
 			run: async (context) => {
 				const create = await bundle.createOptions(context);
-				const tool = create.customTools[0];
+				const tool = create.customTools?.[0];
 				expect(tool?.description).toBe(
 					"Comment on github:acme/web:pr:42 during run-0 with test-token.",
 				);

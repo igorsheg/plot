@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentSessionOverrides } from "@plot/session/agent-session";
+import type { AgentSessionOverrides } from "@plot/session/pi-session";
 import { createSessionAuth } from "@plot/session/auth";
 import type { ParsedArgs } from "citty";
 import type { LogLevelFlag } from "./runtime.js";

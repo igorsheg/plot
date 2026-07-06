@@ -3,9 +3,14 @@ import {
 	type AgentSessionEvent,
 	type CreateAgentSessionOptions,
 	type PromptOptions,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { AsyncQueue } from "@plot/common/async-queue";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import {
+	errorMessage,
+	isPositiveInteger,
+	isRecord,
+} from "@plot/common/primitives";
 import type { WorkResult } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import { Eta } from "eta";
@@ -24,8 +29,13 @@ export interface PiAgentSessionPort {
 /** Synthetic event carrying the Agent Transcript reference into the stream. */
 export const transcriptEventType = "plot_transcript";
 
+export interface PiAgentSessionRunOptions {
+	readonly cwd?: string;
+	readonly customTools?: ToolDefinition[];
+}
+
 export type CreatePiAgentSession = (
-	options?: CreateAgentSessionOptions,
+	perRun?: PiAgentSessionRunOptions,
 ) => Promise<{ readonly session: PiAgentSessionPort }>;
 
 export type PiRunnerValue<A> =
@@ -35,7 +45,7 @@ export type PiRunnerValue<A> =
 export interface PiWorkRunnerConfig {
 	readonly createAgentSession?: CreatePiAgentSession;
 	readonly prompt: PiRunnerValue<string>;
-	readonly create?: PiRunnerValue<CreateAgentSessionOptions | undefined>;
+	readonly create?: PiRunnerValue<PiAgentSessionRunOptions | undefined>;
 	readonly promptOptions?: PiRunnerValue<PromptOptions | undefined>;
 	readonly maxTurns?: number;
 	readonly eventCapacity?: number;
@@ -104,14 +114,18 @@ Continuation guidance:
 `;
 
 const positiveInteger = (value: number, field: string): number => {
-	if (Number.isInteger(value) && value >= 1) return value;
+	if (isPositiveInteger(value)) return value;
 	throw new PiWorkRunnerError({
 		phase: "prompt",
 		message: `${field} must be a positive integer`,
 	});
 };
 
-const defaultCreateAgentSession: CreatePiAgentSession = async (options) => {
+const defaultCreateAgentSession: CreatePiAgentSession = async (perRun) => {
+	const options: CreateAgentSessionOptions = {};
+	if (perRun?.cwd !== undefined) options.cwd = perRun.cwd;
+	if (perRun?.customTools !== undefined)
+		options.customTools = perRun.customTools;
 	const result = await createAgentSession(options);
 	return { session: result.session };
 };
@@ -129,7 +143,7 @@ const disposeSession = (session: PiAgentSessionPort): void => {
 
 async function* promptSession(input: {
 	readonly createAgentSession: CreatePiAgentSession;
-	readonly create?: CreateAgentSessionOptions;
+	readonly create?: PiAgentSessionRunOptions;
 	readonly prompt: string;
 	readonly promptOptions?: PromptOptions;
 	readonly signal: AbortSignal;

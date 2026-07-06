@@ -4,10 +4,6 @@
 	"type": "module",
 	"sideEffects": false,
 	"exports": {
-		"./agent-session": {
-			"types": "./src/agent-session.ts",
-			"import": "./src/agent-session.ts"
-		},
 		"./auth": {
 			"types": "./src/auth.ts",
 			"import": "./src/auth.ts"
@@ -24,9 +20,9 @@
 			"types": "./src/pi-runner.ts",
 			"import": "./src/pi-runner.ts"
 		},
-		"./transcript": {
-			"types": "./src/transcript.ts",
-			"import": "./src/transcript.ts"
+		"./pi-session": {
+			"types": "./src/pi-session.ts",
+			"import": "./src/pi-session.ts"
 		},
 		"./protocol": {
 			"types": "./src/protocol.ts",
@@ -35,6 +31,10 @@
 		"./runtime": {
 			"types": "./src/runtime.ts",
 			"import": "./src/runtime.ts"
+		},
+		"./transcript": {
+			"types": "./src/transcript.ts",
+			"import": "./src/transcript.ts"
 		},
 		"./workflow": {
 			"types": "./src/workflow.ts",
@@ -52,7 +52,6 @@
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
 		"@plot/sdk": "workspace:*",
-		"effect": "4.0.0-beta.78",
 		"eta": "4.6.0",
 		"jiti": "^2.7.0",
 		"yaml": "2.9.0"
