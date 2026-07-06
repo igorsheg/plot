@@ -14,7 +14,7 @@ import { Schema } from "effect";
 import type { CreatePiAgentSession } from "./pi-runner.js";
 import type { SessionPaths } from "./paths.js";
 import type { WorkflowDefinition } from "./workflow.js";
-import type { WorkflowRuntimeConfig } from "./workflow-config.js";
+import type { WorkflowRuntimeConfig } from "./workflow.js";
 import { NonEmptyString, decodeBoundary, optional } from "./schema.js";
 
 type AgentConfig = NonNullable<WorkflowRuntimeConfig["agent"]>;

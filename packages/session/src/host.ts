@@ -19,7 +19,7 @@ import { makeSessionProtocol, type SessionProtocol } from "./protocol.js";
 import { makeSessionRuntime, type SessionRuntimeOptions } from "./runtime.js";
 import type { SessionRuntime } from "./runtime.js";
 import { loadDiscoveredWorkflow, type WorkflowDefinition } from "./workflow.js";
-import type { WorkflowRuntimeConfig } from "./workflow-config.js";
+import type { WorkflowRuntimeConfig } from "./workflow.js";
 
 export interface SessionHostMetadata {
 	readonly workflowName: string;
