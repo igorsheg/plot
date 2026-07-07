@@ -9,12 +9,10 @@
  */
 
 import { atom, computed } from "nanostores";
-import {
-	$nowMs,
-	$selectedProjection,
-	$selectedRun,
-	$selectedRunId,
-} from "../../app/store.js";
+import { $selectedProjection } from "../../app/projection-store.js";
+import { $selectedRun, $selectedRunId } from "../../app/runs-store.js";
+import { $nowMs } from "../../app/time-store.js";
+import { runTranscriptUrl } from "../../data/routes.js";
 import type { TranscriptResult } from "../../data/api.js";
 import { createFetcherStore } from "../../data/query.js";
 import {
@@ -34,11 +32,7 @@ interface TranscriptRef {
 export const $transcriptRef = atom<TranscriptRef | undefined>(undefined);
 
 const $transcriptUrl = computed($transcriptRef, (ref) =>
-	ref === undefined
-		? null
-		: `/api/runs/${encodeURIComponent(ref.runId)}/attempts/${encodeURIComponent(
-				ref.attemptRunId,
-			)}/transcript`,
+	ref === undefined ? null : runTranscriptUrl(ref),
 );
 
 export const $transcriptQuery = createFetcherStore<TranscriptResult>([

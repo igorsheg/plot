@@ -10,7 +10,7 @@
 		"bootstrap": "bun install",
 		"prepare": "lefthook install",
 		"typecheck": "tsc -p tsconfig.json --noEmit && turbo run typecheck",
-		"lint": "oxlint examples/pr-review --tsconfig tsconfig.json && turbo run lint",
+		"lint": "oxlint examples/pr-review examples/debug --tsconfig tsconfig.json && turbo run lint",
 		"format": "oxfmt .",
 		"format:check": "oxfmt --check .",
 		"test": "bun test examples/pr-review/*.test.ts && turbo run test",

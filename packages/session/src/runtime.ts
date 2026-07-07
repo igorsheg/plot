@@ -15,6 +15,7 @@ import type {
 } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
+import { createSessionEventLogWriter } from "./history.js";
 
 export interface TickSummary {
 	readonly tickId: number;
@@ -72,14 +73,6 @@ export interface AgentEventInput {
 	readonly event: unknown;
 }
 
-/** Wire shape of a state snapshot; the only place Maps become objects. */
-export interface SessionSnapshot {
-	readonly sessionId: string;
-	readonly work: Readonly<Record<string, WorkRecord>>;
-	readonly running: Readonly<Record<string, WorkRun>>;
-	readonly facts: Readonly<Record<string, unknown>>;
-}
-
 export interface InterruptAgentRunInput {
 	readonly runId: string;
 	readonly workKey?: string;
@@ -103,6 +96,7 @@ export interface SessionRuntimeState {
 	readonly cwd?: string | undefined;
 	readonly cwdName?: string | undefined;
 	readonly sessionDir?: string | undefined;
+	readonly sessionFile?: string | undefined;
 	readonly lastSequence?: number | undefined;
 }
 
@@ -111,7 +105,7 @@ export interface SessionRuntime {
 	readonly start: () => Promise<void>;
 	readonly tickOnce: () => Promise<TickSummary>;
 	readonly state: () => Promise<SessionRuntimeState>;
-	readonly snapshot: () => Promise<SessionSnapshot>;
+
 	readonly pauseDispatch: () => Promise<void>;
 	readonly resumeDispatch: () => Promise<void>;
 	readonly interruptAgentRun: (
@@ -156,12 +150,10 @@ export interface SessionRuntimeOptions {
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
 	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
+	readonly sessionFile?: string;
 	readonly agent?: Omit<PlotAgentOptions, "sources" | "runner">;
 	readonly eventCapacity?: number;
 }
-
-const objectFromMap = <V>(map: Map<string, V>): Record<string, V> =>
-	Object.fromEntries(map.entries());
 
 const toTickSummary = (result: TickResult): TickSummary => ({
 	tickId: result.tickId,
@@ -191,14 +183,27 @@ export const makeSessionRuntime = (
 	let shutdownPromise: Promise<boolean> | undefined;
 
 	let liveSequence = 0;
-	const publish = (record: RuntimeEvent): RuntimeEvent => {
-		const liveRecord =
-			record.sequence > liveSequence
-				? record
-				: { ...record, sequence: liveSequence + 1 };
-		liveSequence = liveRecord.sequence;
-		events.publish(liveRecord);
-		return liveRecord;
+	const eventLog =
+		options.sessionFile === undefined
+			? undefined
+			: createSessionEventLogWriter(options.sessionFile);
+	let publishChain: Promise<void> = Promise.resolve();
+	const publish = (record: RuntimeEvent): Promise<RuntimeEvent> => {
+		const published = publishChain.then(async () => {
+			const liveRecord =
+				record.sequence > liveSequence
+					? record
+					: { ...record, sequence: liveSequence + 1 };
+			await eventLog?.append(liveRecord);
+			liveSequence = liveRecord.sequence;
+			events.publish(liveRecord);
+			return liveRecord;
+		});
+		publishChain = published.then(
+			() => undefined,
+			() => undefined,
+		);
+		return published;
 	};
 	const publishSessionEvent = async (
 		event: SessionEvent,
@@ -244,17 +249,10 @@ export const makeSessionRuntime = (
 		state: async () => ({
 			sessionId,
 			...options.state,
+			sessionFile: options.sessionFile,
 			lastSequence: liveSequence,
 		}),
-		snapshot: async () => {
-			const snapshot = await agent.snapshot();
-			return {
-				sessionId,
-				work: objectFromMap(snapshot.work),
-				running: objectFromMap(snapshot.running),
-				facts: objectFromMap(snapshot.facts),
-			};
-		},
+
 		pauseDispatch: () => agent.pauseDispatch(),
 		resumeDispatch: () => agent.resumeDispatch(),
 		interruptAgentRun: (input) => agent.interruptAgentRun(input),
@@ -278,6 +276,7 @@ export const makeSessionRuntime = (
 				const accepted = await agent.shutdown();
 				await agentEvents.done;
 				await publishSessionEvent({ type: "session_shutdown" });
+				await eventLog?.close();
 				events.close();
 				return accepted;
 			})();

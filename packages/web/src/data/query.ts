@@ -4,8 +4,7 @@ import {
 	fetchRunProjectionUrl,
 	fetchRuns,
 } from "./api.js";
-
-export const runsUrl = "/api/runs";
+import { runsUrl } from "./routes.js";
 
 const transcriptRoute = /^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/;
 

@@ -8,7 +8,11 @@ import {
 	type AgentSessionOverrides,
 } from "./pi-session.js";
 import { makePlotExtensionSourceBundleFromWorkflow } from "./extension-source.js";
-import { resolveSessionPaths, type SessionPaths } from "./paths.js";
+import {
+	resolveSessionPaths,
+	sessionEventLogPath,
+	type SessionPaths,
+} from "./paths.js";
 import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
 import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";
 import { makeSessionProtocol, type SessionProtocol } from "./protocol.js";
@@ -203,6 +207,7 @@ export const createSessionHost = async (
 	if (stallTimeoutMs !== undefined)
 		agentOptions.stallTimeoutMs = stallTimeoutMs;
 	const metadata = makeMetadata({ workflow, paths });
+	const sessionFile = sessionEventLogPath(paths.sessionDir, sessionId);
 	const runtimeOptions: SessionRuntimeOptions = {
 		id: sessionId,
 		sources,
@@ -213,7 +218,9 @@ export const createSessionHost = async (
 			cwd: metadata.cwd,
 			cwdName: metadata.cwdName,
 			sessionDir: metadata.sessionDir,
+			sessionFile,
 		},
+		sessionFile,
 		eventCapacity,
 		agent: agentOptions,
 	};

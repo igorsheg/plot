@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import type { CSSProperties } from "react";
-import { $selectedRun } from "../app/store.js";
+import { $selectedRun } from "../app/runs-store.js";
 import {
 	SessionHeader,
 	StoreSessionHeaderProvider,

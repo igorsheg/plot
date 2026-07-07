@@ -36,12 +36,6 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 		diagnostics: [],
 	}),
 	state: async () => ({ sessionId: "session-1" }),
-	snapshot: async () => ({
-		sessionId: "session-1",
-		work: {},
-		running: {},
-		facts: {},
-	}),
 	pauseDispatch: async () => {},
 	resumeDispatch: async () => {},
 	interruptAgentRun: async () => true,

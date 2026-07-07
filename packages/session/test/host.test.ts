@@ -15,6 +15,32 @@ import type {
 } from "../src/pi-runner.js";
 import { parseWorkflowText } from "../src/workflow.js";
 
+const waitForRuntimeEvent = async <A>(
+	iterable: AsyncIterable<A>,
+	predicate: (item: A) => boolean,
+): Promise<A> => {
+	const iterator = iterable[Symbol.asyncIterator]();
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const found = (async () => {
+			for (;;) {
+				// eslint-disable-next-line no-await-in-loop -- helper polls until the requested event arrives.
+				const next = await iterator.next();
+				if (next.done) break;
+				if (predicate(next.value)) return next.value;
+			}
+			throw new Error("event stream ended before matching event");
+		})();
+		const timedOut = new Promise<never>((_, reject) => {
+			timeout = setTimeout(() => reject(new Error("timed out")), 1000);
+		});
+		return await Promise.race([found, timedOut]);
+	} finally {
+		if (timeout) clearTimeout(timeout);
+		await iterator.return?.();
+	}
+};
+
 class FakePiSession implements PiAgentSessionPort {
 	readonly listeners = new Set<(event: AgentSessionEvent) => void>();
 	readonly prompts: string[] = [];
@@ -100,6 +126,7 @@ Hello {{ workflow.name }}
 		await host.runtime.start();
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		await host.runtime.tickOnce();
+		const state = await host.runtime.state();
 		await host.shutdown();
 
 		expect(host.metadata).toMatchObject({
@@ -107,6 +134,9 @@ Hello {{ workflow.name }}
 			cwd,
 			cwdName: cwd.split("/").at(-1),
 		});
+		expect(state.sessionFile).toBe(
+			join(host.paths.sessionDir, "host-test.jsonl"),
+		);
 		expect(createOptions).toBeUndefined();
 		expect(session.prompts).toEqual(["Hello host-test"]);
 		expect(session.disposed).toBe(true);
@@ -204,11 +234,22 @@ Do it
 		await host.runtime.start();
 		await host.runtime.tickOnce();
 		await session.startedPromise;
+		const completed = waitForRuntimeEvent(
+			host.runtime.events(),
+			(record) =>
+				record.kind === "session_event" &&
+				record.event.type === "attempt_completed",
+		);
 		await host.shutdown();
-		const snapshot = await host.runtime.snapshot();
 
 		expect(session.disposed).toBe(true);
-		expect(snapshot.running).toEqual({});
+		expect(await completed).toMatchObject({
+			kind: "session_event",
+			event: {
+				type: "attempt_completed",
+				completion: { status: "interrupted" },
+			},
+		});
 	});
 
 	test("agent settings parse errors name the bad file", async () => {

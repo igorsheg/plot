@@ -25,7 +25,6 @@ const sessionCommands = [
 	"start",
 	"shutdown",
 	"get_state",
-	"get_snapshot",
 	"request_tick",
 	"pause_dispatch",
 	"resume_dispatch",
@@ -581,15 +580,7 @@ export const makeSessionProtocol = (
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: await options.runtime.state(),
 				});
-			case "get_snapshot":
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: {
-						snapshot: await options.runtime.snapshot(),
-						lastSequence: await options.runtime.lastEventSequence(),
-					},
-				});
+
 			case "request_tick":
 				return makeSuccess({
 					request,

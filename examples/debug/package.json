@@ -1,0 +1,8 @@
+{
+	"name": "plot-debug-example",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"plot-ai": "latest"
+	}
+}

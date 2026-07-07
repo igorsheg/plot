@@ -16,12 +16,10 @@
 import { useStore } from "@nanostores/react";
 import type { OperatorObservationInput } from "@plot/session/runtime";
 import { type ReactNode } from "react";
-import {
-	$actOnWork,
-	$nowMs,
-	$selectedProjection,
-	$selectedRun,
-} from "../../app/store.js";
+import { $actOnWork } from "../../app/actions-store.js";
+import { $selectedProjection } from "../../app/projection-store.js";
+import { $selectedRun } from "../../app/runs-store.js";
+import { $nowMs } from "../../app/time-store.js";
 import {
 	formatCountdown,
 	formatDuration,

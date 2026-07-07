@@ -18,6 +18,10 @@ export interface SessionPathOptions {
 	readonly sessionDir?: string;
 }
 
+export const sessionEventLogPath = (
+	sessionDir: string,
+	sessionId: string,
+): string => resolve(sessionDir, `${sessionId}.jsonl`);
 export const resolveSessionPaths = (
 	options: SessionPathOptions,
 ): SessionPaths => {

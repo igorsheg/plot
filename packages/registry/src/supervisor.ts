@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
 import { basename } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
 import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
@@ -8,13 +7,6 @@ import {
 	type ClientRequest,
 	type ServerRecord,
 } from "@plot/session/protocol";
-import {
-	createRunHistoryWriter,
-	runHistoryPath,
-	shouldWriteHistory,
-	type EventServerRecord,
-	type RunHistoryWriter,
-} from "./history.js";
 import { cloneRunRecord, type RunRecord, type RunStatus } from "./record.js";
 import {
 	RunProcessInstance,
@@ -62,8 +54,6 @@ export interface RunRegistryOptions {
 	readonly spawnDeadlineMs?: number;
 	readonly eventCapacity?: number;
 	readonly stderrLimitBytes?: number;
-	/** Durable Session History: event records append to <historyDir>/<runId>.jsonl. */
-	readonly historyDir?: string;
 }
 
 interface LiveRun {
@@ -71,7 +61,6 @@ interface LiveRun {
 	readonly process: RunProcessInstance;
 	readonly events: EventHub<ServerRecord>;
 	readonly cleanup: () => void;
-	historyWriter?: RunHistoryWriter | undefined;
 }
 
 const noop = () => {};
@@ -92,7 +81,7 @@ const stateUpdates = (data: unknown): Partial<RunRecord> => {
 		"workflowName",
 		"workflowPath",
 		"cwdName",
-		"sessionDir",
+		"sessionFile",
 	] as const) {
 		const value = data[key];
 		if (typeof value === "string" && value.length > 0) updates[key] = value;
@@ -103,7 +92,7 @@ const stateUpdates = (data: unknown): Partial<RunRecord> => {
 async function* liveEventRecords(
 	live: LiveRun,
 	afterSequence: number,
-): AsyncIterable<EventServerRecord> {
+): AsyncIterable<ServerRecord> {
 	let frontier = afterSequence;
 	for await (const record of live.events.subscribe()) {
 		if (record.kind !== "event" || record.event.sequence <= frontier) continue;
@@ -185,31 +174,8 @@ export class RunRegistry implements RunRegistryRuntime {
 						? record.event.event.type
 						: "agent_event",
 			});
-			await this.appendHistory(live, record);
 		}
 		live.events.publish(record);
-	}
-
-	private historyPath(id: string): string | undefined {
-		return this.options.historyDir === undefined
-			? undefined
-			: runHistoryPath(this.options.historyDir, id);
-	}
-
-	private async appendHistory(
-		live: LiveRun,
-		record: EventServerRecord,
-	): Promise<void> {
-		if (!shouldWriteHistory(record)) return;
-		const path = this.historyPath(live.record.id);
-		if (path === undefined) return;
-		live.historyWriter ??= createRunHistoryWriter(path);
-		await live.historyWriter.append(record.event);
-	}
-
-	private async closeHistory(live: LiveRun): Promise<void> {
-		await live.historyWriter?.close();
-		live.historyWriter = undefined;
 	}
 
 	async recoverAfterRestart(): Promise<void> {
@@ -301,7 +267,6 @@ export class RunRegistry implements RunRegistryRuntime {
 		});
 		live.cleanup();
 		live.events.close();
-		await this.closeHistory(live);
 		this.live.delete(live.record.id);
 	}
 
@@ -320,7 +285,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		live.process.kill("SIGTERM");
 		live.cleanup();
 		live.events.close();
-		await this.closeHistory(live);
+
 		this.live.delete(id);
 		await this.update(live, { status: "stopped" });
 		return cloneRunRecord(live.record);
@@ -361,18 +326,14 @@ export class RunRegistry implements RunRegistryRuntime {
 		await Promise.all([...this.live.keys()].map((id) => this.stop(id)));
 	}
 
-	/** Remove ended run records and their Session History; live runs stay. */
+	/** Remove ended run records; live runs stay. */
 	async prune(): Promise<readonly RunRecord[]> {
 		const ended = (await this.options.store.list()).filter((record) => {
 			if (this.live.has(record.id)) return false;
 			return record.status === "stopped" || record.status === "error";
 		});
 		await Promise.all(
-			ended.map(async (record) => {
-				await this.options.store.remove(record.id);
-				const history = this.historyPath(record.id);
-				if (history !== undefined) await rm(history, { force: true });
-			}),
+			ended.map((record) => this.options.store.remove(record.id)),
 		);
 		return ended.map(cloneRunRecord);
 	}

@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 const expectedExports = [
 	"./pi-session",
 	"./auth",
+	"./history",
 	"./runtime",
 	"./serve",
 	"./host",

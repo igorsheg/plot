@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import type { CSSProperties } from "react";
-import { $plotError } from "../app/store.js";
+import { $plotError } from "../app/error-store.js";
 import { Text } from "./ui/text.js";
 
 const toastStyle: CSSProperties = {

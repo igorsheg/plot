@@ -1,18 +1,12 @@
 import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
 import { isRecord } from "@plot/common/primitives";
-import type { ServerRecord } from "@plot/session/protocol";
-import type { RuntimeEvent } from "@plot/session/runtime";
+import type { RuntimeEvent } from "./runtime.js";
 
-export type EventServerRecord = Extract<ServerRecord, { kind: "event" }>;
-
-export const runHistoryPath = (historyDir: string, id: string): string =>
-	join(historyDir, `${id}.jsonl`);
-
-/** Replay a run's durable Session History (empty when none was written). */
-export async function* readRunHistory(
+/** Replay a session-owned durable event log. Missing files are empty logs. */
+export async function* readSessionEvents(
 	path: string,
 ): AsyncIterable<RuntimeEvent> {
 	const exists = await stat(path).then(
@@ -28,18 +22,10 @@ export async function* readRunHistory(
 			try {
 				record = parseJsonl(line);
 			} catch {
-				continue; // unreadable line: skip, never fatal
-			}
-			if (!isRecord(record)) continue;
-			if (
-				record["kind"] !== "session_event" &&
-				record["kind"] !== "agent_event"
-			)
 				continue;
-			if (typeof record["sequence"] !== "number") continue;
-			// v2 session_event records carried {type, payload} instead of a typed event: skip them.
-			if (!isRecord(record["event"])) continue;
-			yield record as unknown as RuntimeEvent;
+			}
+			if (!isRuntimeEvent(record)) continue;
+			yield record;
 		}
 	} finally {
 		stream.close();
@@ -62,32 +48,43 @@ const agentEventType = (event: unknown): string | undefined => {
 	return typeof type === "string" ? type : undefined;
 };
 
-export const shouldWriteHistory = (record: EventServerRecord): boolean =>
-	record.event.kind !== "agent_event" ||
-	!historySkippedAgentEventTypes.has(agentEventType(record.event.event) ?? "");
+export const shouldWriteSessionEvent = (event: RuntimeEvent): boolean =>
+	event.kind !== "agent_event" ||
+	!historySkippedAgentEventTypes.has(agentEventType(event.event) ?? "");
+
+const isRuntimeEvent = (record: unknown): record is RuntimeEvent => {
+	if (!isRecord(record)) return false;
+	if (record["kind"] !== "session_event" && record["kind"] !== "agent_event")
+		return false;
+	if (typeof record["sessionId"] !== "string") return false;
+	if (typeof record["sequence"] !== "number") return false;
+	if (typeof record["timestamp"] !== "string") return false;
+	if (!isRecord(record["event"])) return false;
+	return true;
+};
 
 const noop = () => {};
 const historyLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
 
-export interface RunHistoryWriter {
-	readonly append: (event: unknown) => Promise<void>;
+export interface SessionEventLogWriter {
+	readonly append: (event: RuntimeEvent) => Promise<void>;
 	readonly close: () => Promise<void>;
 }
 
-// ponytail: history still grows unboundedly per run; add snapshot rotation when
-// compacted files actually hurt.
-export const createRunHistoryWriter = (path: string): RunHistoryWriter => {
+export const createSessionEventLogWriter = (
+	path: string,
+): SessionEventLogWriter => {
 	let stream: WriteStream | undefined;
 	let pending: Promise<void> = Promise.resolve();
 	return {
 		append: (event) => {
+			if (!shouldWriteSessionEvent(event)) return pending;
 			pending = pending
 				.then(async () => {
 					if (stream === undefined) {
 						await mkdir(dirname(path), { recursive: true });
 						stream = createWriteStream(path, { flags: "a" });
 						stream.on("error", () => {
-							// History is best-effort; a full disk must not kill the run.
 							stream = undefined;
 						});
 					}

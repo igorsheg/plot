@@ -12,7 +12,6 @@ import {
 } from "@plot/session/protocol";
 import { PlotDashboard } from "./dashboard.js";
 import {
-	applySnapshot,
 	emptyProjection,
 	reduceRecord,
 	type DashboardProjection,
@@ -126,37 +125,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		if (params !== undefined) record.params = params;
 		return runIpc.runRegistry.submit(run.id, record);
 	};
-	let refreshInFlight = false;
-	let refreshQueued = false;
-	const refresh = () => {
-		if (refreshInFlight) {
-			refreshQueued = true;
-			return;
-		}
-		refreshInFlight = true;
-		void request("get_snapshot")
-			.then((record) => {
-				if (record.kind === "response" && record.ok)
-					setProjection(applySnapshot(projection, record.data));
-				return undefined;
-			})
-			.catch(fail)
-			.finally(() => {
-				refreshInFlight = false;
-				if (refreshQueued) {
-					refreshQueued = false;
-					refresh();
-				}
-			});
-	};
-	let scheduledRefresh: ReturnType<typeof setTimeout> | undefined;
-	const scheduleRefresh = () => {
-		if (scheduledRefresh !== undefined) return;
-		scheduledRefresh = setTimeout(() => {
-			scheduledRefresh = undefined;
-			refresh();
-		}, 250);
-	};
+	const refresh = () => render();
 	const openUrl = (url: string) => {
 		if (!/^https?:\/\//.test(url)) return;
 		const command =
@@ -181,7 +150,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
-			void request("request_tick").then(refresh).catch(fail);
+			void request("request_tick").catch(fail);
 		},
 		refresh,
 		toggleDebug: render,
@@ -199,6 +168,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		}
 		return undefined;
 	});
+	// TUI is intentionally live-only: durable replay/resume is owned by the web gateway continuation contract.
 	void (async () => {
 		for await (const record of runIpc.runRegistry.attachRecords(
 			run.id,
@@ -207,7 +177,6 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			if (record.kind === "event") {
 				projection = reduceRecord(projection, record);
 				render();
-				scheduleRefresh();
 			}
 		}
 	})().catch(fail);
@@ -217,7 +186,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		dashboard.startLiveUpdates();
 		tui.start();
 		setStatus("running");
-		refresh();
+		render();
 		await stopped;
 	} finally {
 		process.off("SIGINT", stopTui);

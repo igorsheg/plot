@@ -7,7 +7,7 @@
  */
 
 import type { RunRecord } from "@plot/registry/record";
-import { displayName } from "../../app/store.js";
+import { displayName } from "../../app/runs-store.js";
 
 export interface DockTile {
 	readonly id: string;

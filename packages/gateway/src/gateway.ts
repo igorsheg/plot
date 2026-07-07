@@ -1,19 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
+import { AsyncQueue } from "@plot/common/async-queue";
 import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
-import { readRunHistory, runHistoryPath } from "@plot/registry/history";
 import type { RunRecord } from "@plot/registry/record";
-import type { RunRegistryRuntime } from "@plot/registry/supervisor";
 import { isRecord, type Mutable } from "@plot/common/primitives";
-import { sessionProtocolVersion } from "@plot/session/protocol";
 import {
-	applySnapshot,
+	sessionProtocolVersion,
+	type ServerRecord,
+} from "@plot/session/protocol";
+import type { RuntimeEvent } from "@plot/session/runtime";
+import {
 	emptyProjection,
 	reduceProjectableEvent,
 	serializeDashboardProjection,
 	type DashboardProjection,
-	type ProjectableEvent,
 } from "@plot/projection";
+import { readSessionEvents } from "@plot/session/history";
 import { readAgentTranscript } from "@plot/session/transcript";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
@@ -201,7 +203,7 @@ const parseAfterSequence = (input: {
 	return Math.max(header ?? 0, query ?? 0);
 };
 
-const historyPageLimit = 20_000;
+const sessionEventsPageLimit = 20_000;
 
 const emptyRunProjection = (run: RunRecord): DashboardProjection =>
 	emptyProjection(run.sessionId ?? run.id, run.workflowName ?? "workflow", {
@@ -212,91 +214,89 @@ const emptyRunProjection = (run: RunRecord): DashboardProjection =>
 		skillPaths: [],
 	});
 
-/** Post-mortem board: replay durable Session History through the shared reducer. */
-const replayHistoryProjection = async (
+/** Dashboard baseline: replay the session-owned durable event log. */
+const replaySessionProjection = async (
 	run: RunRecord,
-	historyDir: string,
 ): Promise<DashboardProjection | undefined> => {
+	if (run.sessionFile === undefined) return undefined;
 	let projection: DashboardProjection | undefined;
-	for await (const event of readRunHistory(
-		runHistoryPath(historyDir, run.id),
-	)) {
-		if (!isRecord(event)) continue;
+	for await (const event of readSessionEvents(run.sessionFile)) {
 		projection = reduceProjectableEvent(
 			projection ?? emptyRunProjection(run),
-			event as ProjectableEvent,
+			event,
 		);
 	}
 	return projection;
 };
 
-const loadRunProjection = async (
-	run: RunRecord,
-	registry: RunRegistryRuntime,
-	historyDir: string,
-): Promise<
-	| { readonly projection: DashboardProjection; readonly replayed: boolean }
-	| undefined
-> => {
-	const replay = async () => {
-		const projection = await replayHistoryProjection(run, historyDir);
-		return projection === undefined
-			? undefined
-			: { projection, replayed: true };
+const toServerEventRecord = (event: RuntimeEvent): ServerRecord => ({
+	protocol: sessionProtocolVersion,
+	kind: "event",
+	event,
+});
+
+const eventRecordSequence = (record: ServerRecord): number | undefined =>
+	record.kind === "event" ? record.event.sequence : undefined;
+
+export async function* gaplessRunEventRecords(input: {
+	readonly sessionFile: string;
+	readonly after: number;
+	readonly liveRecords: AsyncIterable<ServerRecord>;
+}): AsyncIterable<ServerRecord> {
+	let frontier = input.after;
+	const liveQueue = new AsyncQueue<ServerRecord>();
+	const liveIterator = input.liveRecords[Symbol.asyncIterator]();
+	const pump = (async () => {
+		try {
+			for (;;) {
+				// eslint-disable-next-line no-await-in-loop -- live pump waits for each child event in order.
+				const next = await liveIterator.next();
+				if (next.done === true) break;
+				liveQueue.offer(next.value, { force: true });
+			}
+		} catch (error) {
+			liveQueue.fail(error);
+		} finally {
+			liveQueue.close();
+		}
+	})();
+	const unseen = (record: ServerRecord): boolean => {
+		const sequence = eventRecordSequence(record);
+		if (sequence === undefined || sequence <= frontier) return false;
+		frontier = sequence;
+		return true;
 	};
-	if (run.sessionId === undefined) return replay();
-	const response = await registry
-		.submit(run.id, {
-			protocol: sessionProtocolVersion,
-			kind: "request",
-			id: `web_projection_${randomUUID()}`,
-			command: "get_snapshot",
-		})
-		.catch(() => undefined);
-	if (response === undefined || response.kind !== "response" || !response.ok)
-		return replay();
-	const data = isRecord(response.data) ? response.data : {};
-	return {
-		projection: applySnapshot(emptyRunProjection(run), {
-			snapshot: data["snapshot"],
-			asOfSequence: response.lastSequence ?? data["lastSequence"],
-		}),
-		replayed: false,
-	};
+	try {
+		for await (const event of readSessionEvents(input.sessionFile)) {
+			const record = toServerEventRecord(event);
+			if (unseen(record)) yield record;
+		}
+		for await (const record of liveQueue) if (unseen(record)) yield record;
+	} finally {
+		await liveIterator.return?.();
+		await pump.catch(() => undefined);
+	}
+}
+
+const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
+	const projection = await replaySessionProjection(run);
+	if (projection === undefined)
+		return new Response("run has no session event log", { status: 409 });
+	return text({ projection: serializeDashboardProjection(projection) });
 };
 
-const runProjectionResponse = async (
+const runSessionEventsResponse = async (
 	run: RunRecord,
-	registry: RunRegistryRuntime,
-	historyDir: string,
-): Promise<Response> => {
-	const loaded = await loadRunProjection(run, registry, historyDir);
-	if (loaded === undefined)
-		return new Response("run not live", { status: 409 });
-	const body: Mutable<{
-		readonly projection: ReturnType<typeof serializeDashboardProjection>;
-		readonly replayed?: true;
-	}> = { projection: serializeDashboardProjection(loaded.projection) };
-	if (loaded.replayed) body.replayed = true;
-	return text(body);
-};
-
-const runHistoryResponse = async (
-	run: RunRecord,
-	historyDir: string,
 	after: number,
 ): Promise<Response> => {
+	if (run.sessionFile === undefined)
+		return new Response("run has no session event log", { status: 409 });
 	const records: unknown[] = [];
 	let truncated = false;
-	for await (const event of readRunHistory(
-		runHistoryPath(historyDir, run.id),
-	)) {
-		if (!isRecord(event)) continue;
-		const value = event["sequence"];
-		if (!Number.isInteger(value)) continue;
-		const sequence = value as number;
+	for await (const event of readSessionEvents(run.sessionFile)) {
+		const sequence = event.sequence;
 		if (sequence <= after) continue;
-		if (records.length === historyPageLimit) {
+		if (records.length === sessionEventsPageLimit) {
 			truncated = true;
 			break;
 		}
@@ -309,24 +309,11 @@ const runHistoryResponse = async (
 export const runTranscriptResponse = async (
 	run: RunRecord,
 	attemptRunId: string,
-	registry: RunRegistryRuntime,
-	historyDir: string,
 ): Promise<Response> => {
-	const loaded = await loadRunProjection(run, registry, historyDir);
-	if (loaded === undefined)
-		return new Response("run not live", { status: 409 });
-	// The live snapshot rebuilds attempts from agent state, which does not
-	// carry the plot_transcript event; the durable history does, even for
-	// live runs, so fall back to a replay before declaring no transcript.
-	const transcriptPathOf = (projection: DashboardProjection) =>
-		projection.attempts.get(attemptRunId)?.transcript?.path;
-	const path =
-		transcriptPathOf(loaded.projection) ??
-		(loaded.replayed
-			? undefined
-			: await replayHistoryProjection(run, historyDir).then((replayed) =>
-					replayed === undefined ? undefined : transcriptPathOf(replayed),
-				));
+	const projection = await replaySessionProjection(run);
+	if (projection === undefined)
+		return new Response("run has no session event log", { status: 409 });
+	const path = projection.attempts.get(attemptRunId)?.transcript?.path;
 	if (path === undefined)
 		return new Response("no transcript recorded", { status: 404 });
 	return text({ entries: await readAgentTranscript(path) });
@@ -465,24 +452,28 @@ const runEventsEndpointResponse = async (
 		query: url.searchParams.get("after"),
 	});
 	if (after === undefined) return text({ error: "invalid after sequence" });
-	return runResponse(id, runIpc, () =>
-		sessionEventsResponse({
+	return runResponse(id, runIpc, (run) => {
+		if (run.sessionFile === undefined)
+			return new Response("run has no session event log", { status: 409 });
+		return sessionEventsResponse({
 			request,
-			records: runIpc.runRegistry.attachRecords(id, after),
-		}),
-	);
+			records: gaplessRunEventRecords({
+				sessionFile: run.sessionFile,
+				after,
+				liveRecords: runIpc.runRegistry.attachRecords(id, after),
+			}),
+		});
+	});
 };
 
-const runHistoryEndpointResponse = async (
+const runSessionEventsEndpointResponse = async (
 	url: URL,
 	id: string,
 	runIpc: RunIpcConnection,
 ): Promise<Response> => {
 	const after = parseSequence(url.searchParams.get("after"));
 	if (after === undefined) return text({ error: "invalid after sequence" });
-	return runResponse(id, runIpc, (run) =>
-		runHistoryResponse(run, runIpc.historyDir, after),
-	);
+	return runResponse(id, runIpc, (run) => runSessionEventsResponse(run, after));
 };
 
 const runTranscriptEndpointResponse = async (
@@ -490,22 +481,12 @@ const runTranscriptEndpointResponse = async (
 	attemptRunId: string,
 	runIpc: RunIpcConnection,
 ): Promise<Response> =>
-	runResponse(runId, runIpc, (run) =>
-		runTranscriptResponse(
-			run,
-			attemptRunId,
-			runIpc.runRegistry,
-			runIpc.historyDir,
-		),
-	);
+	runResponse(runId, runIpc, (run) => runTranscriptResponse(run, attemptRunId));
 
 const runProjectionEndpointResponse = async (
 	id: string,
 	runIpc: RunIpcConnection,
-): Promise<Response> =>
-	runResponse(id, runIpc, (run) =>
-		runProjectionResponse(run, runIpc.runRegistry, runIpc.historyDir),
-	);
+): Promise<Response> => runResponse(id, runIpc, runProjectionResponse);
 
 const gatewayResponse = async (
 	request: Request,
@@ -541,11 +522,13 @@ const gatewayResponse = async (
 			decodeURIComponent(eventPath[1] ?? ""),
 			runIpc,
 		);
-	const historyPath = /^\/api\/runs\/([^/]+)\/history$/.exec(url.pathname);
-	if (historyPath !== null)
-		return runHistoryEndpointResponse(
+	const sessionEventsPath = /^\/api\/runs\/([^/]+)\/session-events$/.exec(
+		url.pathname,
+	);
+	if (sessionEventsPath !== null)
+		return runSessionEventsEndpointResponse(
 			url,
-			decodeURIComponent(historyPath[1] ?? ""),
+			decodeURIComponent(sessionEventsPath[1] ?? ""),
 			runIpc,
 		);
 	const transcriptPath =

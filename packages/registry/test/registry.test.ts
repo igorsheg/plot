@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
-import { readRunHistory, runHistoryPath } from "../src/history.js";
 import {
 	decodeRunRequest,
 	decodeRunResponse,
@@ -140,7 +139,12 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		spawnChild: (input) => {
 			childInput = input;
 			child = new FakeChild("session-runRegistry", {
-				sessionDir: join(cwd, ".plot", "sessions"),
+				sessionFile: join(
+					cwd,
+					".plot",
+					"sessions",
+					"session-runRegistry.jsonl",
+				),
 				workflowName: "workflow",
 			});
 			queueMicrotask(() =>
@@ -169,7 +173,7 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		id: "run-1",
 		status: "online",
 		sessionId: "session-runRegistry",
-		sessionDir: join(cwd, ".plot", "sessions"),
+		sessionFile: join(cwd, ".plot", "sessions", "session-runRegistry.jsonl"),
 		workflowName: "workflow",
 	});
 	expect(childInput).toMatchObject({
@@ -222,24 +226,25 @@ test("file run store ignores a corrupt final record", async () => {
 	]);
 });
 
-test("file run store drops removed run fields", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-run-store-legacy-"));
+test("file run store keeps the session file catalog pointer", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-run-store-session-file-"));
 	const path = join(cwd, "runs.json");
+	const sessionFile = join(cwd, "session.jsonl");
 	await writeFile(
 		path,
 		JSON.stringify([
 			{
-				id: "legacy",
+				id: "recorded",
 				status: "stopped",
 				cwd,
 				createdAt: "2026-01-01T00:00:00.000Z",
-				eventLogPath: join(cwd, "old.jsonl"),
+				sessionFile,
 			},
 		]),
 	);
 
 	expect(await createFileRunStore(path).list()).toEqual([
-		expect.not.objectContaining({ eventLogPath: expect.anything() }),
+		expect.objectContaining({ sessionFile }),
 	]);
 });
 
@@ -508,143 +513,8 @@ test("runRegistry IPC survives a client disconnecting from a protocol stream", a
 	}
 });
 
-test("runRegistry persists Session History and replays it after stop", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-history-"));
-	const historyDir = join(cwd, "history");
-	let child: FakeChild | undefined;
-	const runRegistry = new RunRegistry({
-		cli: { command: "bun", args: ["main.ts"] },
-		cwd,
-		store: createMemoryRunStore(),
-		id: () => "run-history",
-		now: () => "2026-01-01T00:00:00.000Z",
-		historyDir,
-		spawnChild: () => {
-			child = new FakeChild("session-history");
-			queueMicrotask(() =>
-				child?.emit({
-					protocol: "plot.session.v3",
-					kind: "welcome",
-					sessionId: "session-history",
-					limits: {
-						maxInputLineBytes: 1_000,
-						maxOutputLineBytes: 1_000,
-						maxPendingRequests: 4,
-						maxBufferedEvents: 4,
-					},
-				}),
-			);
-			return child;
-		},
-	});
-
-	const spawned = await runRegistry.spawn();
-	child?.emit({
-		protocol: "plot.session.v3",
-		kind: "event",
-		event: {
-			kind: "session_event",
-			sessionId: "session-history",
-			sequence: 1,
-			timestamp: "2026-01-01T00:00:01.000Z",
-			event: { type: "session_started" },
-		},
-	});
-	child?.emit({
-		protocol: "plot.session.v3",
-		kind: "event",
-		event: {
-			kind: "agent_event",
-			sessionId: "session-history",
-			sequence: 2,
-			timestamp: "2026-01-01T00:00:02.000Z",
-			sourceId: "source-1",
-			runId: "run-1",
-			workKey: "work-1",
-			event: { type: "message_delta", delta: "streaming prose" },
-		},
-	});
-	child?.emit({
-		protocol: "plot.session.v3",
-		kind: "event",
-		event: {
-			kind: "agent_event",
-			sessionId: "session-history",
-			sequence: 3,
-			timestamp: "2026-01-01T00:00:03.000Z",
-			sourceId: "source-1",
-			runId: "run-1",
-			workKey: "work-1",
-			event: { type: "message_end" },
-		},
-	});
-	await new Promise((resolve) => setTimeout(resolve, 10));
-	await runRegistry.stop(spawned.id);
-
-	const replayed = [];
-	for await (const event of readRunHistory(
-		runHistoryPath(historyDir, spawned.id),
-	))
-		replayed.push(event);
-	expect(replayed).toHaveLength(2);
-	expect(
-		replayed.map((event) => (event as { sequence?: number }).sequence),
-	).toEqual([1, 3]);
-	expect(replayed[0]).toMatchObject({
-		kind: "session_event",
-		event: { type: "session_started" },
-		sequence: 1,
-	});
-	expect(replayed[1]).toMatchObject({
-		kind: "agent_event",
-		event: { type: "message_end" },
-		sequence: 3,
-	});
-
-	// A run that never wrote history replays to nothing.
-	const empty = [];
-	for await (const event of readRunHistory(
-		runHistoryPath(historyDir, "missing"),
-	))
-		empty.push(event);
-	expect(empty).toHaveLength(0);
-});
-
-test("history reader skips unreadable and pre-v3 records", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-history-reader-"));
-	const path = join(dir, "history.jsonl");
-	const v3 = {
-		kind: "session_event",
-		sessionId: "s",
-		sequence: 2,
-		timestamp: "2026-01-01T00:00:01.000Z",
-		event: { type: "session_started" },
-	} as const;
-	await writeFile(
-		path,
-		[
-			"not json",
-			JSON.stringify({
-				kind: "session_event",
-				sessionId: "s",
-				sequence: 1,
-				timestamp: "2026-01-01T00:00:00.000Z",
-				type: "tick_completed",
-				payload: {},
-			}),
-			JSON.stringify(v3),
-		].join("\n"),
-	);
-
-	const records = [];
-	for await (const record of readRunHistory(path)) records.push(record);
-	expect(records).toHaveLength(1);
-	expect(records[0]).toEqual(v3);
-});
-
-test("runRegistry prune removes ended records and history, keeps live runs", async () => {
+test("runRegistry prune removes ended records and keeps live runs", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-prune-"));
-	const historyDir = join(cwd, "history");
 	const store = createMemoryRunStore();
 	let child: FakeChild | undefined;
 	const runRegistry = new RunRegistry({
@@ -653,7 +523,6 @@ test("runRegistry prune removes ended records and history, keeps live runs", asy
 		store,
 		id: () => "run-live",
 		now: () => "2026-01-01T00:00:00.000Z",
-		historyDir,
 		spawnChild: () => {
 			child = new FakeChild("session-live");
 			queueMicrotask(() =>
@@ -678,14 +547,12 @@ test("runRegistry prune removes ended records and history, keeps live runs", asy
 		cwd,
 		createdAt: "2026-01-01T00:00:00.000Z",
 	});
-	await mkdir(historyDir, { recursive: true });
-	await writeFile(runHistoryPath(historyDir, "run-dead"), "{}\n");
+
 	await runRegistry.spawn();
 
 	const removed = await runRegistry.prune();
 
 	expect(removed.map((record) => record.id)).toEqual(["run-dead"]);
-	expect(existsSync(runHistoryPath(historyDir, "run-dead"))).toBe(false);
 	expect((await runRegistry.list()).map((record) => record.id)).toEqual([
 		"run-live",
 	]);

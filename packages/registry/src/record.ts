@@ -19,7 +19,7 @@ export interface RunRecord {
 	readonly sessionId?: string;
 	readonly workflowName?: string;
 	readonly workflowPath?: string;
-	readonly sessionDir?: string;
+	readonly sessionFile?: string;
 	readonly lastSequence?: number;
 	readonly lastEventType?: string;
 	readonly stderrTail?: string;
@@ -40,7 +40,7 @@ const optionalStringKeys = [
 	"sessionId",
 	"workflowName",
 	"workflowPath",
-	"sessionDir",
+	"sessionFile",
 	"lastEventType",
 	"stderrTail",
 ] as const;

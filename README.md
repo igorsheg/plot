@@ -99,6 +99,14 @@ bot/label/draft gating. One anchor comment per PR holds all review state.
 
 Needs an authenticated `gh` and provider auth (`plot auth login`).
 
+## Try the debug lab
+
+```bash
+plot --workflow examples/debug/WORKFLOW.md
+```
+
+Synthetic long-running work for inspecting every Plot state in the TUI and web dashboard: queued, running, waiting, blocked, draining, failed, interrupted, timed out, operator actions, custom tools, and retry wakes.
+
 ## Watch it work
 
 ```bash

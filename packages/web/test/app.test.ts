@@ -2,13 +2,20 @@ import { expect, test } from "bun:test";
 import type { RunRecord } from "@plot/registry/record";
 import {
 	activeRuns,
-	freshestProjection,
 	pastRuns,
-	projectionEventFromSse,
-	projectionUrl,
-	runEventsUrl,
 	selectedRunFrom,
-} from "../src/app/store.js";
+} from "../src/app/runs-store.js";
+import { reduceSerializedProjection } from "../src/data/projection-client.js";
+import { runEventsUrl, runProjectionUrl } from "../src/data/routes.js";
+import { projectionEventFromSse } from "../src/data/sse.js";
+import {
+	eventSourceMessages,
+	type EventSourceLike,
+} from "../src/data/sse-client.js";
+import {
+	emptyProjection,
+	serializeDashboardProjection,
+} from "@plot/projection";
 
 const run = (
 	id: string,
@@ -21,6 +28,30 @@ const run = (
 	createdAt: "2026-01-01T00:00:00.000Z",
 	...extra,
 });
+
+class FakeEventSource implements EventSourceLike {
+	closed = false;
+	private readonly listeners = new Map<string, Set<(event: Event) => void>>();
+
+	addEventListener(type: string, listener: (event: Event) => void): void {
+		const listeners = this.listeners.get(type) ?? new Set();
+		listeners.add(listener);
+		this.listeners.set(type, listeners);
+	}
+
+	removeEventListener(type: string, listener: (event: Event) => void): void {
+		this.listeners.get(type)?.delete(listener);
+	}
+
+	close(): void {
+		this.closed = true;
+	}
+
+	emit(type: string, data: string): void {
+		for (const listener of this.listeners.get(type) ?? [])
+			listener({ data } as MessageEvent);
+	}
+}
 
 test("session dock keeps only active runs", () => {
 	expect(
@@ -56,10 +87,13 @@ test("past runs keep stopped sessions, most-recently-seen first", () => {
 	expect(pastRuns(runs).map((entry) => entry.id)).toEqual(["recent", "old"]);
 });
 
-test("projection fetch key is stable while event stream resumes after the run frontier", () => {
+test("projection fetch key is stable and event stream resumes after a projection frontier", () => {
 	const selected = { ...run("one/two", "online"), lastSequence: 7 };
-	expect(projectionUrl(selected)).toBe("/api/runs/one%2Ftwo/projection");
+	expect(runProjectionUrl(selected)).toBe("/api/runs/one%2Ftwo/projection");
 	expect(runEventsUrl(selected)).toBe("/api/runs/one%2Ftwo/events?after=7");
+	expect(runEventsUrl(selected, 11)).toBe(
+		"/api/runs/one%2Ftwo/events?after=11",
+	);
 });
 
 test("SSE helper parses selected-run protocol events", () => {
@@ -79,23 +113,42 @@ test("SSE helper parses selected-run protocol events", () => {
 	).toBe(2);
 });
 
-test("freshestProjection keeps the highest frontier", () => {
-	const base = {
-		sessionId: "s",
-		workflowName: "w",
-		status: "running",
-		frontier: 1,
-		runtime: { cwd: "/tmp", cwdName: "tmp", skills: [], skillPaths: [] },
-		usageTotals: { tokens: 0 },
-		tokenSamples: [],
-		work: {},
-		attempts: {},
-		completed: [],
-		diagnostics: [],
-		scheduledWakes: [],
-		activity: [],
-		debugEvents: [],
-	} as const;
-	expect(freshestProjection(base, { ...base, frontier: 2 })?.frontier).toBe(2);
-	expect(freshestProjection({ ...base, frontier: 3 }, base)?.frontier).toBe(3);
+test("projection reducer ignores duplicate or stale stream events", () => {
+	const projection = serializeDashboardProjection({
+		...emptyProjection("session-1", "workflow"),
+		frontier: 4,
+	});
+	const next = reduceSerializedProjection(projection, {
+		kind: "session_event",
+		sessionId: "session-1",
+		sequence: 4,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		event: { type: "session_shutdown" },
+	});
+	expect(next).toBe(projection);
+});
+
+test("SSE client exposes EventSource messages as an abortable async iterable", async () => {
+	let source: FakeEventSource | undefined;
+	const controller = new AbortController();
+	const iterator = eventSourceMessages("/stream", {
+		eventName: "plot",
+		signal: controller.signal,
+		createEventSource: (url) => {
+			expect(url).toBe("/stream");
+			source = new FakeEventSource();
+			return source;
+		},
+	})[Symbol.asyncIterator]();
+
+	const next = iterator.next();
+	source?.emit("plot", "payload");
+	const result = await next;
+	expect(result.done).toBe(false);
+	expect(result.value?.data).toBe("payload");
+
+	const closed = iterator.next();
+	controller.abort();
+	expect((await closed).done).toBe(true);
+	expect(source?.closed).toBe(true);
 });

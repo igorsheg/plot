@@ -10,14 +10,10 @@
 import { useStore } from "@nanostores/react";
 import type { RunStatus } from "@plot/registry/record";
 import type { ReactNode } from "react";
-import {
-	$nowMs,
-	$selectedProjection,
-	$selectedRun,
-	$stopSelectedRun,
-	displayName,
-	stopSelectedRun,
-} from "../../app/store.js";
+import { $stopSelectedRun, stopSelectedRun } from "../../app/actions-store.js";
+import { $selectedProjection } from "../../app/projection-store.js";
+import { $selectedRun, displayName } from "../../app/runs-store.js";
+import { $nowMs } from "../../app/time-store.js";
 import { formatRelative } from "../../lib/relative-time.js";
 import { Button } from "../ui/button.js";
 import { LiveLineChart } from "../ui/live-line/live-line-chart.js";

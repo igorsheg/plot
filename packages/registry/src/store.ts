@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { hasErrnoCode, isRecord } from "@plot/common/primitives";
+import { hasErrnoCode } from "@plot/common/primitives";
 import { cloneRunRecord, parseRunRecords, type RunRecord } from "./record.js";
 
 export interface RunStore {
@@ -17,16 +17,8 @@ export const stripTrailingNuls = (text: string): string => {
 	return text.slice(0, end);
 };
 
-export const parseRunStoreJson = (text: string): readonly RunRecord[] => {
-	const value = JSON.parse(stripTrailingNuls(text)) as unknown;
-	if (Array.isArray(value)) {
-		for (const row of value) {
-			if (!isRecord(row)) continue;
-			delete row["eventLogPath"];
-		}
-	}
-	return parseRunRecords(value);
-};
+export const parseRunStoreJson = (text: string): readonly RunRecord[] =>
+	parseRunRecords(JSON.parse(stripTrailingNuls(text)) as unknown);
 
 export const readJson = async (path: string): Promise<readonly RunRecord[]> => {
 	let text: string;

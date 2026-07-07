@@ -6,7 +6,7 @@ import {
 
 type ProjectionEventRecord = Extract<ServerRecord, { kind: "event" }>;
 import { dashboardModelFrom } from "../src/dashboard-model.js";
-import { applySnapshot, emptyProjection, reduceRecord } from "@plot/projection";
+import { emptyProjection, reduceRecord } from "@plot/projection";
 
 const eventRecord = (
 	sequence: number,
@@ -287,37 +287,5 @@ describe("Plot TUI projection", () => {
 		);
 		p = reduceRecord(p, agentProjectionEventRecord(4, { type: "turn_start" }));
 		expect(dashboardModelFrom(p).work[0]?.activity).toBe("bun run check");
-	});
-
-	test("snapshot repairs visible work and active attempts", () => {
-		const p = applySnapshot(emptyProjection("default", "workflow"), {
-			asOfSequence: 10,
-			snapshot: {
-				work: new Map([
-					[
-						"source:item:2",
-						{
-							workKey: "source:item:2",
-							sourceId: "extension:worker",
-							status: "pending",
-							display: { title: "Second" },
-						},
-					],
-				]),
-				running: new Map([
-					[
-						"run-2",
-						{
-							runId: "run-2",
-							workKey: "source:item:2",
-							sourceId: "extension:worker",
-						},
-					],
-				]),
-			},
-		});
-		expect(p.frontier).toBe(10);
-		expect(p.work.has("source:item:2")).toBe(true);
-		expect(p.attempts.has("run-2")).toBe(true);
 	});
 });

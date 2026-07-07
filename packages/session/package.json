@@ -12,6 +12,10 @@
 			"types": "./src/host.ts",
 			"import": "./src/host.ts"
 		},
+		"./history": {
+			"types": "./src/history.ts",
+			"import": "./src/history.ts"
+		},
 		"./paths": {
 			"types": "./src/paths.ts",
 			"import": "./src/paths.ts"

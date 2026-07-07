@@ -1,5 +1,4 @@
 import { reduceEvent } from "./projection-parts/events.js";
-import { applySnapshot } from "./projection-parts/snapshot.js";
 import type {
 	DashboardProjection,
 	ProjectableEvent,
@@ -42,7 +41,6 @@ export type {
 	WorkStatus,
 } from "./projection-parts/types.js";
 export {
-	applySnapshot,
 	hydrateDashboardProjection,
 	parseSerializedDashboardProjection,
 	serializeDashboardProjection,

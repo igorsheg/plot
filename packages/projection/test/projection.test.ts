@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import type { RuntimeEvent } from "@plot/session/runtime";
 import {
-	applySnapshot,
 	emptyProjection,
 	hydrateDashboardProjection,
 	parseSerializedDashboardProjection,
@@ -212,42 +211,17 @@ test("debug events name agent event payloads", () => {
 	expect(projection.debugEvents[0]).toBe("1 agent_event:turn_start");
 });
 
-test("snapshot clears stale current run ids", () => {
-	const live = {
-		...emptyProjection("session-1", "workflow"),
-		work: new Map([
-			[
-				"work-1",
-				{
-					workKey: "work-1",
-					sourceId: "source-1",
-					title: "Work 1",
-					labels: [],
-					status: "running" as const,
-					currentRunId: "run-1",
-				},
-			],
-		]),
-	};
+test("projection frontier follows reduced event sequences across durable gaps", () => {
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		sessionEvent(1, { type: "session_started" }),
+	);
+	projection = reduceProjectableEvent(
+		projection,
+		sessionEvent(3, { type: "session_shutdown" }),
+	);
 
-	const repaired = applySnapshot(live, {
-		asOfSequence: 2,
-		snapshot: {
-			work: {
-				"work-1": {
-					workKey: "work-1",
-					sourceId: "source-1",
-					status: "done",
-					display: { title: "Work 1" },
-				},
-			},
-			running: {},
-		},
-	});
-
-	expect(repaired.work.get("work-1")?.status).toBe("done");
-	expect(repaired.work.get("work-1")?.currentRunId).toBeUndefined();
-	expect(repaired.attempts.size).toBe(0);
+	expect(projection.frontier).toBe(3);
 });
 
 test("attempt timeline is a rolling tail, not a frozen head", () => {

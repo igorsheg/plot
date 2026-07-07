@@ -1,6 +1,10 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
+import { readSessionEvents } from "../src/history.js";
 import { makeSessionRuntime } from "../src/runtime.js";
 
 const waitForEvent = async <A>(
@@ -123,6 +127,53 @@ test("runtime publishes appended inner agent events", async () => {
 	});
 
 	await runtime.shutdown();
+});
+
+test("runtime writes durable session events before closing", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-session-history-"));
+	const sessionFile = join(dir, "session-1.jsonl");
+	const runtime = makeSessionRuntime({
+		id: "session-1",
+		sources: [],
+		runner,
+		sessionFile,
+	});
+
+	await runtime.start();
+	await runtime.appendAgentEvent({
+		sourceId: "runtime-test",
+		runId: "run-1",
+		workKey: "work-1",
+		event: { type: "message_delta", delta: "live only" },
+	});
+	await runtime.appendAgentEvent({
+		sourceId: "runtime-test",
+		runId: "run-1",
+		workKey: "work-1",
+		event: { type: "message_end" },
+	});
+	await runtime.shutdown();
+
+	const events = [];
+	for await (const event of readSessionEvents(sessionFile)) events.push(event);
+	expect(new Set(events.map((event) => event.sequence)).size).toBe(
+		events.length,
+	);
+	expect(events.map((event) => event.sequence)).not.toContain(2);
+	expect(
+		events.some(
+			(event) =>
+				event.kind === "agent_event" &&
+				JSON.stringify(event.event).includes("message_delta"),
+		),
+	).toBe(false);
+	expect(events).toContainEqual(
+		expect.objectContaining({
+			kind: "agent_event",
+			sequence: 3,
+			event: { type: "message_end" },
+		}),
+	);
 });
 
 test("runtime shutdown publishes shutdown and is idempotent", async () => {

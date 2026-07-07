@@ -4,7 +4,6 @@
 	"type": "module",
 	"sideEffects": false,
 	"exports": {
-		"./history": "./src/history.ts",
 		"./ipc": "./src/ipc.ts",
 		"./record": "./src/record.ts",
 		"./store": "./src/store.ts",

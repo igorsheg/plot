@@ -31,13 +31,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { $nowMs } from "../../app/time-store.js";
 import {
-	$nowMs,
 	$pastRuns,
 	$runs,
 	$selectedRun,
 	selectRun,
-} from "../../app/store.js";
+} from "../../app/runs-store.js";
 import { formatRelative } from "../../lib/relative-time.js";
 import { Text } from "../ui/text.js";
 import { Tooltip, TooltipProvider } from "../ui/tooltip.js";

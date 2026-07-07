@@ -6,11 +6,11 @@
  *
  * The pure core (`pushSample`, `rateSeries`) is unit-tested. The module-local
  * nanostores below wire it to `$selectedRun` via nanostores lifecycle — no
- * component effects. The shared 1s clock lives in `app/store.ts` as `$nowMs`.
+ * component effects. The shared 1s clock lives in `app/time-store.ts`.
  */
 
 import { atom, onMount } from "nanostores";
-import { $selectedRun } from "../../app/store.js";
+import { $selectedRun } from "../../app/runs-store.js";
 import type { LiveLinePoint } from "../ui/live-line/scale.js";
 
 export interface PulseSample {
