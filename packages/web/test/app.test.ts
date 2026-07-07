@@ -2,8 +2,11 @@ import { expect, test } from "bun:test";
 import type { RunRecord } from "@plot/registry/record";
 import {
 	activeRuns,
+	freshestProjection,
 	pastRuns,
+	projectionEventFromSse,
 	projectionUrl,
+	runEventsUrl,
 	selectedRunFrom,
 } from "../src/app/store.js";
 
@@ -53,8 +56,46 @@ test("past runs keep stopped sessions, most-recently-seen first", () => {
 	expect(pastRuns(runs).map((entry) => entry.id)).toEqual(["recent", "old"]);
 });
 
-test("projection query key tracks run sequence without changing the route", () => {
-	expect(projectionUrl({ ...run("one/two", "online"), lastSequence: 7 })).toBe(
-		"/api/runs/one%2Ftwo/projection?seq=7",
-	);
+test("projection fetch key is stable while event stream resumes after the run frontier", () => {
+	const selected = { ...run("one/two", "online"), lastSequence: 7 };
+	expect(projectionUrl(selected)).toBe("/api/runs/one%2Ftwo/projection");
+	expect(runEventsUrl(selected)).toBe("/api/runs/one%2Ftwo/events?after=7");
+});
+
+test("SSE helper parses selected-run protocol events", () => {
+	expect(
+		projectionEventFromSse(
+			JSON.stringify({
+				kind: "event",
+				event: {
+					kind: "session_event",
+					sessionId: "s",
+					sequence: 2,
+					timestamp: "2026-01-01T00:00:00.000Z",
+					event: { type: "session_shutdown" },
+				},
+			}),
+		)?.sequence,
+	).toBe(2);
+});
+
+test("freshestProjection keeps the highest frontier", () => {
+	const base = {
+		sessionId: "s",
+		workflowName: "w",
+		status: "running",
+		frontier: 1,
+		runtime: { cwd: "/tmp", cwdName: "tmp", skills: [], skillPaths: [] },
+		usageTotals: { tokens: 0 },
+		tokenSamples: [],
+		work: {},
+		attempts: {},
+		completed: [],
+		diagnostics: [],
+		scheduledWakes: [],
+		activity: [],
+		debugEvents: [],
+	} as const;
+	expect(freshestProjection(base, { ...base, frontier: 2 })?.frontier).toBe(2);
+	expect(freshestProjection({ ...base, frontier: 3 }, base)?.frontier).toBe(3);
 });

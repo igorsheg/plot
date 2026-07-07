@@ -1,5 +1,11 @@
 import { atom, computed, onMount } from "nanostores";
-import type { SerializedDashboardProjection } from "@plot/projection";
+import {
+	hydrateDashboardProjection,
+	reduceProjectableEvent,
+	serializeDashboardProjection,
+	type ProjectableEvent,
+	type SerializedDashboardProjection,
+} from "@plot/projection";
 import type { RunRecord } from "@plot/registry/record";
 import type { OperatorObservationInput } from "@plot/session/runtime";
 import { recordObservation, stopRun } from "../data/api.js";
@@ -43,8 +49,51 @@ export const pastRuns = (runs: readonly RunRecord[]): readonly RunRecord[] =>
 		.filter((run) => run.status === "stopped")
 		.toSorted((a, b) => lastSeenMs(b) - lastSeenMs(a));
 
+const jsonRecord = (value: string): Record<string, unknown> | undefined => {
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		return parsed !== null && typeof parsed === "object"
+			? (parsed as Record<string, unknown>)
+			: undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+export const runEventsUrl = (run: RunRecord): string => {
+	const after = run.lastSequence ?? 0;
+	return `/api/runs/${encodeURIComponent(run.id)}/events?after=${after}`;
+};
+
+export const projectionEventFromSse = (
+	data: string,
+): ProjectableEvent | undefined => {
+	const record = jsonRecord(data);
+	if (record?.["kind"] !== "event") return undefined;
+	const event = record["event"];
+	return event !== null && typeof event === "object"
+		? (event as ProjectableEvent)
+		: undefined;
+};
+
+export const reduceSerializedProjection = (
+	projection: SerializedDashboardProjection,
+	event: ProjectableEvent,
+): SerializedDashboardProjection =>
+	serializeDashboardProjection(
+		reduceProjectableEvent(hydrateDashboardProjection(projection), event),
+	);
+
+export const freshestProjection = (
+	fetched: SerializedDashboardProjection | undefined,
+	streamed: SerializedDashboardProjection | undefined,
+): SerializedDashboardProjection | undefined => {
+	if (fetched === undefined) return streamed;
+	if (streamed === undefined) return fetched;
+	return streamed.frontier >= fetched.frontier ? streamed : fetched;
+};
 export const projectionUrl = (run: RunRecord): string =>
-	`/api/runs/${encodeURIComponent(run.id)}/projection?seq=${run.lastSequence ?? 0}`;
+	`/api/runs/${encodeURIComponent(run.id)}/projection`;
 
 /** Shared 1s wall clock; session-header and session-work read the same tick. */
 export const $nowMs = atom<number>(Date.now());
@@ -55,6 +104,67 @@ onMount($nowMs, () => {
 });
 
 export const $selectedRunId = atom<string | undefined>(undefined);
+
+const $streamedProjection = atom<SerializedDashboardProjection | undefined>(
+	undefined,
+);
+
+const projectionStreamKey = (run: RunRecord | undefined): string | undefined =>
+	run === undefined || !isRunLive(run) ? undefined : run.id;
+
+onMount($streamedProjection, () => {
+	if (typeof EventSource === "undefined") return undefined;
+	let source: EventSource | undefined;
+	let pendingEvents: ProjectableEvent[] = [];
+	const flushEvents = (events: readonly ProjectableEvent[]): void => {
+		const base = freshestProjection(
+			$projectionQuery.get().data,
+			$streamedProjection.get(),
+		);
+		if (base === undefined) {
+			pendingEvents = [...pendingEvents, ...events];
+			return;
+		}
+		$streamedProjection.set(events.reduce(reduceSerializedProjection, base));
+	};
+	const flushPendingEvents = (): void => {
+		if (pendingEvents.length === 0) return;
+		const events = pendingEvents;
+		pendingEvents = [];
+		flushEvents(events);
+	};
+	const unsubscribeProjection = $projectionQuery.listen(flushPendingEvents);
+	const open = (run: RunRecord | undefined) => {
+		source?.close();
+		source = undefined;
+		pendingEvents = [];
+		$streamedProjection.set(undefined);
+		if (run === undefined || !isRunLive(run)) return;
+		source = new EventSource(runEventsUrl(run));
+		const onPlot = (event: Event) => {
+			const projectionEvent = projectionEventFromSse(
+				(event as MessageEvent).data,
+			);
+			if (projectionEvent !== undefined) flushEvents([projectionEvent]);
+		};
+		source.addEventListener("plot", onPlot);
+	};
+	let sourceKey: string | undefined;
+	const unsubscribe = $selectedRun.listen((run) => {
+		const nextKey = projectionStreamKey(run);
+		if (nextKey === sourceKey) return;
+		sourceKey = nextKey;
+		open(run);
+	});
+	const initialRun = $selectedRun.get();
+	sourceKey = projectionStreamKey(initialRun);
+	open(initialRun);
+	return () => {
+		unsubscribe();
+		unsubscribeProjection();
+		source?.close();
+	};
+});
 
 export const $runsQuery = createFetcherStore<readonly RunRecord[]>(runsUrl, {
 	revalidateInterval: 10_000,
@@ -78,8 +188,8 @@ export const $projectionQuery =
 	});
 
 export const $selectedProjection = computed(
-	$projectionQuery,
-	(query) => query.data,
+	[$projectionQuery, $streamedProjection],
+	(query, streamed) => freshestProjection(query.data, streamed),
 );
 
 export const $stopSelectedRun = createMutatorStore<void, void>(
