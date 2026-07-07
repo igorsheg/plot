@@ -51,12 +51,6 @@ const waveSeries = (amp: number, base: number): LiveLinePoint[] =>
 		value: Math.max(0, base + amp * Math.sin(i * 0.7) + (i % 4)),
 	}));
 
-const flatSeries = (value: number): LiveLinePoint[] =>
-	Array.from({ length: 28 }, (_, i) => ({
-		time: nowSec - (27 - i) * 10,
-		value,
-	}));
-
 const fixture = (
 	overrides: Partial<SessionHeaderState> & Pick<SessionHeaderState, "status">,
 ): SessionHeaderContextValue => ({
@@ -66,8 +60,8 @@ const fixture = (
 		startedAtMs: nowMs - 25 * 60_000,
 		lastEventAtMs: nowMs - 4_000,
 		nowMs,
-		series: [],
-		rate: 0,
+		throughputGraph: "▁▁▁▁▁▁▁▁",
+		throughputRate: 0,
 		stderrTail: undefined,
 		...overrides,
 	},
@@ -85,8 +79,8 @@ const specimens: readonly {
 		label: "working (dense series, recent last event)",
 		value: fixture({
 			status: "online",
-			series: workingSeries,
-			rate: workingRate,
+			throughputGraph: "▁▃▄▆█▅▃▇",
+			throughputRate: workingRate,
 			lastEventAtMs: nowMs - 4_000,
 		}),
 	},
@@ -94,8 +88,8 @@ const specimens: readonly {
 		label: "idle (flat series, last event 6m ago)",
 		value: fixture({
 			status: "online",
-			series: flatSeries(1),
-			rate: 1,
+			throughputGraph: "▁▁▁▁▁▁▁▁",
+			throughputRate: 1,
 			lastEventAtMs: nowMs - 6 * 60_000,
 		}),
 	},
@@ -107,8 +101,8 @@ const specimens: readonly {
 		label: "stopping",
 		value: fixture({
 			status: "stopping",
-			series: workingSeries,
-			rate: workingRate,
+			throughputGraph: "▁▃▄▆█▅▃▇",
+			throughputRate: workingRate,
 		}),
 	},
 	{

@@ -6,7 +6,6 @@
 
 import type { RunStatus } from "@plot/registry/record";
 import { createRequiredContext } from "../../lib/required-context.js";
-import type { LiveLinePoint } from "../ui/live-line/scale.js";
 
 export interface SessionHeaderState {
 	readonly place: string;
@@ -15,8 +14,8 @@ export interface SessionHeaderState {
 	readonly startedAtMs: number | undefined;
 	readonly lastEventAtMs: number | undefined;
 	readonly nowMs: number;
-	readonly series: readonly LiveLinePoint[];
-	readonly rate: number;
+	readonly throughputGraph: string;
+	readonly throughputRate: number;
 	readonly stderrTail: string | undefined;
 }
 

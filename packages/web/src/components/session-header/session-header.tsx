@@ -16,8 +16,6 @@ import { $selectedRun, displayName } from "../../app/runs-store.js";
 import { $nowMs } from "../../app/time-store.js";
 import { formatRelative } from "../../lib/relative-time.js";
 import { Button } from "../ui/button.js";
-import { LiveLineChart } from "../ui/live-line/live-line-chart.js";
-import { LiveLine } from "../ui/live-line/live-line.js";
 import Stack, { VStack } from "../ui/stack.js";
 import { Text } from "../ui/text.js";
 import {
@@ -26,7 +24,8 @@ import {
 	type SessionHeaderContextValue,
 	type SessionHeaderState,
 } from "./context.js";
-import { $pulseRate, $pulseSeries } from "./pulse.js";
+import { formatTps, tokenThroughput } from "./throughput.js";
+import { ThroughputSparkline } from "./throughput-sparkline.js";
 
 type HeaderVariant = "live" | "starting" | "errored" | "stopped";
 
@@ -73,30 +72,17 @@ function Kicker({
 function LiveStrip({ state }: { readonly state: SessionHeaderState }) {
 	return (
 		<Stack baseline gap={12}>
-			<div style={{ flex: "1 1 0%", minWidth: 0 }}>
-				<LiveLineChart
-					data={state.series}
-					margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-					paused={state.status !== "online"}
-					style={{ height: 40 }}
-					value={state.rate}
-					window={280}
-				>
-					<LiveLine
-						badge={false}
-						dataKey="value"
-						dotSize={2.5}
-						fill={false}
-						guide={false}
-						stroke="var(--text-color-kumo-subtle)"
-					/>
-				</LiveLineChart>
-			</div>
-			{state.lastEventAtMs !== undefined && (
+			<ThroughputSparkline graph={state.throughputGraph} />
+			<Stack baseline gap={8}>
 				<Text as="span" variant="mono-secondary">
-					last event {formatRelative(state.lastEventAtMs, state.nowMs)}
+					{formatTps(state.throughputRate)} tok/s
 				</Text>
-			)}
+				{state.lastEventAtMs !== undefined && (
+					<Text as="span" variant="mono-secondary">
+						last event {formatRelative(state.lastEventAtMs, state.nowMs)}
+					</Text>
+				)}
+			</Stack>
 		</Stack>
 	);
 }
@@ -267,9 +253,8 @@ export function StoreSessionHeaderProvider({
 }) {
 	const run = useStore($selectedRun);
 	const projection = useStore($selectedProjection);
-	const series = useStore($pulseSeries);
-	const rate = useStore($pulseRate);
 	const nowMs = useStore($nowMs);
+	const throughput = tokenThroughput(projection, nowMs);
 	const stopState = useStore($stopSelectedRun);
 	if (run === undefined) return null;
 	const value: SessionHeaderContextValue = {
@@ -280,8 +265,8 @@ export function StoreSessionHeaderProvider({
 			startedAtMs: parseTimeMs(run.createdAt),
 			lastEventAtMs: parseTimeMs(run.lastSeenAt),
 			nowMs,
-			series,
-			rate,
+			throughputGraph: throughput.graph,
+			throughputRate: throughput.rate,
 			stderrTail: run.stderrTail,
 		},
 		actions: {
