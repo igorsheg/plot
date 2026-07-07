@@ -4,7 +4,11 @@ import { renderToString } from "react-dom/server";
 import { Button } from "../src/components/ui/button.js";
 
 test("buttons render Phosphor icon components", () => {
-	expect(renderToString(<Button icon={ArrowsClockwiseIcon} />)).toContain(
-		"svg",
-	);
+	expect(
+		renderToString(
+			<Button>
+				<ArrowsClockwiseIcon />
+			</Button>,
+		),
+	).toContain("svg");
 });

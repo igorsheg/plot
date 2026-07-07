@@ -1,9 +1,9 @@
 /**
  * Pure view-model for the session-work "one river" — no React. Turns a
  * projection into three salience-ordered lists: attention (decisions, failures,
- * diagnostics), motion (active, queued), and settled. The store adapter and the
- * /lab fixtures both feed the same discriminated-union item types below, and
- * every builder here is unit-tested in isolation.
+ * diagnostics), motion (active, queued), and settled. The store adapter and tests
+ * feed the same discriminated-union item types below, and every builder here is
+ * unit-tested in isolation.
  */
 
 import {
@@ -47,9 +47,8 @@ export type AttentionItem =
 
 /**
  * A resolved live line tagged by origin: `llm` is true only when the winning
- * source is an LLM-authored stream (message/thinking) — markdown-safe — and
- * false for tool commands and status subtitles, which stay plain mono so a
- * markdown renderer can't mangle `file_names_with_underscores`.
+ * source is an LLM-authored stream (message/thinking) and markdown-safe; false
+ * means render as plain text so `file_names_with_underscores` stays intact.
  */
 export interface LiveLine {
 	readonly text: string;
@@ -95,7 +94,7 @@ const attemptFor = (
  * Live line resolution, mirroring the old `attemptActivity` chain minus the
  * blocked-reason and status fallbacks (those carry their own affordances). The
  * result is tagged: only message/thinking streams are LLM-authored markdown;
- * tool commands, the activity label, and the subtitle stay plain mono.
+ * tool commands, the activity label, and the subtitle stay plain text.
  */
 const liveLine = (
 	work: SerializedDashboardProjection["work"][string],

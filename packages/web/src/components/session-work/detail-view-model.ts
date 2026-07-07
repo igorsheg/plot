@@ -31,7 +31,7 @@ export type DetailRef =
 	| { readonly kind: "work"; readonly workKey: string }
 	| { readonly kind: "settled"; readonly key: string };
 
-/** The minimal slice `DecisionActions` needs — shared by river row and drawer. */
+/** The minimal slice `DecisionActions` needs in the drawer. */
 export interface DecisionActionTarget {
 	readonly sourceId: string;
 	readonly workKey: string;

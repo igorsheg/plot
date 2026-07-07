@@ -1,33 +1,38 @@
 /**
- * Pure view-model for the session-dock — no React, no motion. Turns the app's
- * runs into two ordered tile lists (live + past) and holds the macOS-dock
- * magnification math as a single pure function. The store adapter and the /lab
- * fixtures both feed the same `DockTile` shape, and every builder here is
- * unit-tested in isolation.
+ * Pure view-model for the session dock. The dock is a line-nav control: live
+ * sessions first, optionally revealed past sessions, then a ghost line that
+ * toggles the past group. No React and no animation primitives live here.
  */
 
 import type { RunRecord } from "@plot/registry/record";
 import { displayName } from "../../app/runs-store.js";
 
-export interface DockTile {
+export interface DockLineItem {
 	readonly id: string;
-	readonly name: string;
+	readonly title: string;
 	readonly place: string;
 	readonly selected: boolean;
-	readonly errored: boolean;
+	readonly attention: boolean;
 	readonly stoppedAtMs?: number | undefined;
 }
 
-export const GHOST_TILE_KEY = "__dock_ghost__";
+export const GHOST_LINE_KEY = "__dock_ghost__";
 
-export const dockOrder = (
-	live: readonly DockTile[],
-	past: readonly DockTile[],
+export const LINE_WIDTH = {
+	normal: 24,
+	attention: 32,
+	active: 40,
+	hover: 40,
+} as const;
+
+export const dockLineOrder = (
+	live: readonly DockLineItem[],
+	past: readonly DockLineItem[],
 	expanded: boolean,
 ): readonly string[] => {
-	const keys = live.map((tile) => tile.id);
-	if (expanded) for (const tile of past) keys.push(tile.id);
-	if (past.length > 0) keys.push(GHOST_TILE_KEY);
+	const keys = live.map((item) => item.id);
+	if (expanded) for (const item of past) keys.push(item.id);
+	if (past.length > 0) keys.push(GHOST_LINE_KEY);
 	return keys;
 };
 
@@ -44,22 +49,9 @@ export const nextDockKey = (
 };
 
 export const dockShortcutId = (
-	live: readonly DockTile[],
+	live: readonly DockLineItem[],
 	digit: number,
 ): string | undefined => live[digit - 1]?.id;
-
-/**
- * Marble avatar palette — the one deliberate splash of color in the app.
- * Identity art is keyed on the session name, so the same workflow keeps its
- * marble across run restarts.
- */
-export const AVATAR_COLORS = [
-	"#00686c",
-	"#32c2b9",
-	"#edecb3",
-	"#fad928",
-	"#ff9915",
-] as const;
 
 const timeMs = (value: string | undefined): number | undefined => {
 	if (value === undefined) return undefined;
@@ -74,26 +66,26 @@ const place = (run: RunRecord): string => run.cwdName ?? "session";
  * stay live until stopped (binding UX), so this deliberately does not reuse the
  * store's `isRunLive` (which treats `error` as non-live).
  */
-export const buildLiveTiles = (
+export const buildLiveLines = (
 	runs: readonly RunRecord[],
 	selectedId: string | undefined,
-): readonly DockTile[] =>
+): readonly DockLineItem[] =>
 	runs
 		.filter((run) => run.status !== "stopped")
 		.toSorted((a, b) => (timeMs(a.createdAt) ?? 0) - (timeMs(b.createdAt) ?? 0))
 		.map((run) => ({
 			id: run.id,
-			name: displayName(run),
+			title: displayName(run),
 			place: place(run),
 			selected: run.id === selectedId,
-			errored: run.status === "error",
+			attention: run.status === "error",
 		}));
 
 /** Past group: stopped runs only, most-recently-seen first. */
-export const buildPastTiles = (
+export const buildPastLines = (
 	runs: readonly RunRecord[],
 	selectedId: string | undefined,
-): readonly DockTile[] =>
+): readonly DockLineItem[] =>
 	runs
 		.filter((run) => run.status === "stopped")
 		.toSorted(
@@ -103,38 +95,9 @@ export const buildPastTiles = (
 		)
 		.map((run) => ({
 			id: run.id,
-			name: displayName(run),
+			title: displayName(run),
 			place: place(run),
 			selected: run.id === selectedId,
-			errored: false,
+			attention: false,
 			stoppedAtMs: timeMs(run.lastSeenAt ?? run.createdAt),
 		}));
-
-/** Subtle — "enough to bring life and physics to it". */
-export const SCALE = 1.22;
-/** px before the cursor affects a tile. */
-export const DISTANCE = 100;
-/** px tiles are pushed away from the cursor. */
-export const NUDGE = 10;
-export const SPRING = { mass: 0.1, stiffness: 170, damping: 12 } as const;
-
-export interface Magnification {
-	readonly scale: number;
-	readonly nudge: number;
-}
-
-/**
- * Pure magnification core (rotated 90° from the macOS reference): signed
- * `distance` from a tile's center to the cursor maps to a scale and a nudge.
- * `-Infinity` (cursor absent) is the identity transform.
- */
-export const magnify = (distance: number): Magnification => {
-	if (!Number.isFinite(distance)) return { scale: 1, nudge: 0 };
-	const clamped = Math.max(-DISTANCE, Math.min(DISTANCE, distance));
-	const scale = 1 + (SCALE - 1) * (1 - Math.abs(clamped) / DISTANCE);
-	const nudge =
-		distance < -DISTANCE || distance > DISTANCE
-			? Math.sign(distance) * -1 * NUDGE
-			: (-distance / DISTANCE) * NUDGE * scale;
-	return { scale, nudge };
-};

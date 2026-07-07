@@ -1,6 +1,10 @@
-import { motion, type MotionStyle, useReducedMotion } from "motion/react";
-import type { CSSProperties } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Text } from "../ui/text.js";
+import {
+	sparklineBucketClass,
+	sparklineClass,
+	sparklineRootClass,
+} from "./styles.js";
 import { SPARK_CHARS } from "./throughput.js";
 
 const transition = {
@@ -11,21 +15,6 @@ const transition = {
 const minBucketHeight = 4;
 const maxBucketHeight = 22;
 
-const sparklineStyle: CSSProperties = {
-	display: "inline-flex",
-	alignItems: "flex-end",
-	gap: 1,
-	height: 40,
-	verticalAlign: "middle",
-};
-
-const bucketStyle: MotionStyle = {
-	background: "currentColor",
-	display: "inline-block",
-	width: 5,
-	willChange: "height, opacity",
-};
-
 const heightForGlyph = (glyph: string): number => {
 	const level = Math.max(0, SPARK_CHARS.indexOf(glyph));
 	const ratio = level / Math.max(1, SPARK_CHARS.length - 1);
@@ -35,26 +24,26 @@ const heightForGlyph = (glyph: string): number => {
 export function ThroughputSparkline({ graph }: { readonly graph: string }) {
 	const reducedMotion = useReducedMotion();
 	return (
-		<Text
-			as="span"
-			variant="mono-secondary"
-			DANGEROUS_style={{ lineHeight: "40px", whiteSpace: "nowrap" }}
+		<span
+			className={sparklineRootClass()}
 			title="token throughput over the last 60 seconds"
 		>
-			<span aria-hidden="true" style={sparklineStyle}>
+			<span aria-hidden="true" className={sparklineClass()}>
 				{Array.from(graph).map((glyph, index) => (
 					<motion.span
 						key={index}
+						className={sparklineBucketClass()}
 						initial={false}
 						animate={{ height: heightForGlyph(glyph), opacity: 1 }}
 						transition={reducedMotion ? { duration: 0 } : transition}
-						style={bucketStyle}
 					/>
 				))}
 			</span>
-			<span className="sr-only">
-				token throughput over the last 60 seconds: {graph}
-			</span>
-		</Text>
+			<Text as="span" size="sm" variant="secondary">
+				<span className="sr-only">
+					token throughput over the last 60 seconds: {graph}
+				</span>
+			</Text>
+		</span>
 	);
 }

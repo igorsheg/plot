@@ -34,7 +34,6 @@ import {
 	useSessionWork,
 	type SessionWorkContextValue,
 } from "./context.js";
-import { DecisionActions } from "./decision-actions.js";
 import {
 	WorkDetailProvider,
 	useWorkDetail,
@@ -57,6 +56,17 @@ import {
 } from "./detail-view-model.js";
 import { WorkDrawer } from "./drawer.js";
 import {
+	edgeClass,
+	hairlineClass,
+	groupClass,
+	itemClass,
+	openButtonClass,
+	riverClass,
+	rowClass,
+	settledLineClass,
+	workLineClass,
+} from "./styles.js";
+import {
 	buildAttention,
 	buildMotion,
 	buildSettled,
@@ -73,34 +83,18 @@ type DiagnosticItem = Extract<AttentionItem, { kind: "diagnostic" }>;
 type ActiveItem = Extract<MotionItem, { kind: "active" }>;
 type QueuedItem = Extract<MotionItem, { kind: "queued" }>;
 
-const riverStyle = { maxWidth: "calc(var(--plot-rhythm) * 168)" } as const;
-const groupStyle = {
-	gap: 18,
-	listStyle: "none",
-	margin: 0,
-	padding: 0,
-} as const;
-const rowStyle = { minWidth: 0 } as const;
-const liStyle = { listStyle: "none", minWidth: 0 } as const;
-const edgeStyle = { whiteSpace: "nowrap" } as const;
-
-const openButtonClass =
-	"group -mx-2 flex w-full cursor-pointer rounded-md px-2 py-1 text-left " +
-	"hover:bg-kumo-tint/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus/50";
-
-// Font wrappers for `StreamedLine`: the primitive inherits font-family/size and
-// only sets color via `tone`, so each callsite carries the font its row used
-// before — mono 12.5px for live/failure lines, sans 13.5px for reason/settled.
-const liveLineFont =
-	"block min-w-0 max-w-full truncate font-mono text-[12.5px]";
-const liveLineFontFlex = "min-w-0 flex-1 truncate font-mono text-[12.5px]";
-const reasonLineFont = "block min-w-0 max-w-full truncate text-[13.5px]";
-const settledLineFont = "min-w-0 flex-1 truncate text-[13.5px]";
-
 const isOpen = (view: DetailView | undefined, ref: DetailRef): boolean =>
 	view !== undefined && refEquals(view.ref, ref);
 
 const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
+
+function EmptySubline() {
+	return (
+		<span aria-hidden="true" className={workLineClass({ kind: "empty" })}>
+			&nbsp;
+		</span>
+	);
+}
 
 function RowInner({
 	dot,
@@ -114,13 +108,15 @@ function RowInner({
 	return (
 		<>
 			<Dot kind={dot} />
-			<VStack flex1 gap={4} style={rowStyle}>
+			<VStack flex1 gap={4} className={rowClass()}>
 				{children}
 			</VStack>
 			{edge !== undefined && (
-				<Text as="span" variant="mono-secondary" DANGEROUS_style={edgeStyle}>
-					{edge}
-				</Text>
+				<span className={edgeClass()}>
+					<Text as="span" size="sm" variant="secondary">
+						{edge}
+					</Text>
+				</span>
 			)}
 		</>
 	);
@@ -137,7 +133,7 @@ function Row({
 	readonly children: ReactNode;
 }) {
 	return (
-		<Stack as="li" alignStart gap={12} style={rowStyle}>
+		<Stack as="li" alignStart gap={12} className={rowClass({ size: "work" })}>
 			<RowInner dot={dot} edge={edge}>
 				{children}
 			</RowInner>
@@ -145,27 +141,28 @@ function Row({
 	);
 }
 
-/** An openable row: the whole row is a button; `footer` renders below it. */
+/** An openable live-work row: the whole fixed-height row is a button. */
 function OpenableRow({
 	dot,
 	edge,
 	open,
 	onOpen,
 	children,
-	footer,
 }: {
 	readonly dot: DotKind;
 	readonly edge?: string | undefined;
 	readonly open: boolean;
 	readonly onOpen: () => void;
 	readonly children: ReactNode;
-	readonly footer?: ReactNode;
 }) {
 	return (
-		<li style={liStyle}>
+		<li className={itemClass()}>
 			<button
 				aria-expanded={open}
-				className={`${openButtonClass} items-start gap-3`}
+				className={openButtonClass({
+					align: "work",
+					className: rowClass({ size: "work" }),
+				})}
 				onClick={onOpen}
 				type="button"
 			>
@@ -173,7 +170,6 @@ function OpenableRow({
 					{children}
 				</RowInner>
 			</button>
-			{footer}
 		</li>
 	);
 }
@@ -192,29 +188,16 @@ function DecisionRow({ item }: { readonly item: DecisionItem }) {
 		<OpenableRow
 			dot="attention"
 			edge={ageEdge(state.nowMs, item.sinceMs)}
-			footer={
-				item.actions.length > 0 ? (
-					<Stack style={{ paddingLeft: 20 }}>
-						<DecisionActions
-							target={{
-								sourceId: item.sourceId,
-								workKey: item.workKey,
-								actions: item.actions,
-							}}
-						/>
-					</Stack>
-				) : undefined
-			}
 			onOpen={() => detail.actions.open(ref)}
 			open={isOpen(detail.state.view, ref)}
 		>
-			<Text as="p" bold>
-				{item.title}
-			</Text>
-			{item.reason !== undefined && (
-				<span className={reasonLineFont}>
+			<Text as="p">{item.title}</Text>
+			{item.reason !== undefined ? (
+				<span className={workLineClass({ kind: "reason" })}>
 					<StreamedLine text={item.reason} />
 				</span>
+			) : (
+				<EmptySubline />
 			)}
 		</OpenableRow>
 	);
@@ -231,13 +214,13 @@ function FailureRow({ item }: { readonly item: FailureItem }) {
 			onOpen={() => detail.actions.open(ref)}
 			open={isOpen(detail.state.view, ref)}
 		>
-			<Text as="p" bold>
-				{item.title}
-			</Text>
-			{item.line !== undefined && (
-				<span className={liveLineFont}>
+			<Text as="p">{item.title}</Text>
+			{item.line !== undefined ? (
+				<span className={workLineClass({ kind: "live" })}>
 					<StreamedLine text={item.line} tone="danger" />
 				</span>
+			) : (
+				<EmptySubline />
 			)}
 		</OpenableRow>
 	);
@@ -246,14 +229,10 @@ function FailureRow({ item }: { readonly item: FailureItem }) {
 function DiagnosticRow({ item }: { readonly item: DiagnosticItem }) {
 	return (
 		<Row dot="attention">
-			<Text
-				as="p"
-				DANGEROUS_className="text-kumo-danger"
-				truncate
-				variant="mono"
-			>
+			<Text as="p" truncate variant="error">
 				{item.text}
 			</Text>
+			<EmptySubline />
 		</Row>
 	);
 }
@@ -277,22 +256,22 @@ function ActiveRow({ item }: { readonly item: ActiveItem }) {
 			onOpen={() => detail.actions.open(ref)}
 			open={isOpen(detail.state.view, ref)}
 		>
-			<Text as="p" bold>
-				{item.title}
-			</Text>
-			{line !== undefined && (
-				<Stack alignCenter gap={8} style={rowStyle}>
+			<Text as="p">{item.title}</Text>
+			{line !== undefined ? (
+				<Stack alignCenter gap={8} className={rowClass({ size: "subline" })}>
 					{line.llm ? (
-						<span className={liveLineFontFlex}>
+						<span className={workLineClass({ fill: true, kind: "live" })}>
 							<StreamedLine text={line.text} tone="secondary" />
 						</span>
 					) : (
-						<Text as="p" truncate variant="mono-secondary">
+						<span className={workLineClass({ fill: true, kind: "live" })}>
 							{line.text}
-						</Text>
+						</span>
 					)}
 					{item.streaming && <Caret />}
 				</Stack>
+			) : (
+				<EmptySubline />
 			)}
 		</OpenableRow>
 	);
@@ -309,10 +288,12 @@ function QueuedRow({ item }: { readonly item: QueuedItem }) {
 			<Text as="p" variant="secondary">
 				{item.title}
 			</Text>
-			{item.sub !== undefined && (
-				<Text as="p" truncate variant="secondary">
+			{item.sub !== undefined ? (
+				<Text as="p" size="sm" truncate variant="secondary">
 					{item.sub}
 				</Text>
+			) : (
+				<EmptySubline />
 			)}
 		</Row>
 	);
@@ -348,25 +329,30 @@ function SettledRow({ item }: { readonly item: SettledItem }) {
 			? age
 			: `${age} · ${formatDuration(item.durationMs)}`;
 	return (
-		<li style={liStyle}>
+		<li className={itemClass()}>
 			<button
 				aria-expanded={isOpen(detail.state.view, ref)}
-				className={`${openButtonClass} items-baseline gap-3`}
+				className={openButtonClass({
+					align: "settled",
+					className: rowClass({ size: "settled" }),
+				})}
 				onClick={() => detail.actions.open(ref)}
 				type="button"
 			>
-				<Text as="span" DANGEROUS_style={{ flexShrink: 0 }}>
-					{item.label}
-				</Text>
-				<span className={settledLineFont}>
+				<span className="shrink-0">
+					<Text as="span">{item.label}</Text>
+				</span>
+				<span className={settledLineClass()}>
 					<StreamedLine
 						text={item.message}
 						tone={item.failed ? "danger" : "secondary"}
 					/>
 				</span>
-				<Text as="span" variant="mono-secondary" DANGEROUS_style={edgeStyle}>
-					{edge}
-				</Text>
+				<span className={edgeClass()}>
+					<Text as="span" size="sm" variant="secondary">
+						{edge}
+					</Text>
+				</span>
 			</button>
 		</li>
 	);
@@ -374,12 +360,7 @@ function SettledRow({ item }: { readonly item: SettledItem }) {
 
 /** The only structural line on the page: in-motion above, settled below. */
 function Hairline() {
-	return (
-		<div
-			aria-hidden="true"
-			style={{ borderTop: "1px solid var(--color-kumo-hairline)" }}
-		/>
-	);
+	return <div aria-hidden="true" className={hairlineClass()} />;
 }
 
 export function SessionWork() {
@@ -406,16 +387,16 @@ export function SessionWork() {
 		);
 	}
 	return (
-		<VStack gap={40} style={riverStyle}>
+		<VStack gap={40} className={riverClass()}>
 			{hasAttention && (
-				<VStack as="ul" style={groupStyle}>
+				<VStack as="ul" className={groupClass()}>
 					{state.attention.map((item) => (
 						<AttentionRow item={item} key={item.key} />
 					))}
 				</VStack>
 			)}
 			{hasMotion && (
-				<VStack as="ul" style={groupStyle}>
+				<VStack as="ul" className={groupClass()}>
 					{state.motion.map((item) => (
 						<MotionRow item={item} key={item.key} />
 					))}
@@ -423,7 +404,7 @@ export function SessionWork() {
 			)}
 			{(hasAttention || hasMotion) && hasSettled && <Hairline />}
 			{hasSettled && (
-				<VStack as="ul" style={groupStyle}>
+				<VStack as="ul" className={groupClass()}>
 					{state.settled.map((item) => (
 						<SettledRow item={item} key={item.key} />
 					))}

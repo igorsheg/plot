@@ -1,7 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { CircleHalfTiltIcon, MoonIcon, SunIcon } from "@phosphor-icons/react";
 import { atom, onMount } from "nanostores";
-import type { ReactNode } from "react";
+import { createElement, type ReactNode } from "react";
 import { Button } from "../components/ui/button.js";
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -41,7 +41,7 @@ const applyMode = (mode: ThemeMode, systemPrefersDark = false) => {
 	const root = globalThis.document?.documentElement;
 	if (root === undefined) return;
 	const dark = resolveDark(mode, systemPrefersDark);
-	root.dataset["theme"] = "kumo";
+	root.dataset["theme"] = "coss";
 	root.dataset["mode"] = dark ? "dark" : "light";
 	root.classList.toggle("dark", dark);
 };
@@ -101,12 +101,12 @@ export function ThemeToggle() {
 	return (
 		<Button
 			aria-label={`Theme: ${mode}; click for ${next}`}
-			icon={modeIcon[mode]}
-			shape="circle"
-			size="sm"
+			size="icon-sm"
 			title={`theme: ${mode}`}
 			variant="ghost"
 			onClick={() => setThemeMode(next)}
-		/>
+		>
+			{createElement(modeIcon[mode], { "aria-hidden": true })}
+		</Button>
 	);
 }

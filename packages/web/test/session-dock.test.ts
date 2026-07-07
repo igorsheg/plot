@@ -1,16 +1,13 @@
 import { expect, test } from "bun:test";
 import type { RunRecord } from "@plot/registry/record";
 import {
-	AVATAR_COLORS,
-	buildLiveTiles,
-	buildPastTiles,
-	DISTANCE,
-	dockOrder,
+	buildLiveLines,
+	buildPastLines,
+	dockLineOrder,
 	dockShortcutId,
-	GHOST_TILE_KEY,
-	magnify,
+	GHOST_LINE_KEY,
+	LINE_WIDTH,
 	nextDockKey,
-	SCALE,
 } from "../src/components/session-dock/view-model.js";
 
 const run = (
@@ -25,12 +22,13 @@ const run = (
 	...extra,
 });
 
-test("avatar palette is the approved five-color marble preset", () => {
-	expect(AVATAR_COLORS).toHaveLength(5);
-	expect(AVATAR_COLORS[0]).toBe("#00686c");
+test("line width tokens encode idle, attention, active, and hover states", () => {
+	expect(LINE_WIDTH.normal).toBe(24);
+	expect(LINE_WIDTH.attention).toBeGreaterThan(LINE_WIDTH.normal);
+	expect(LINE_WIDTH.active).toBe(LINE_WIDTH.hover);
 });
 
-test("buildLiveTiles keeps non-stopped runs in createdAt order", () => {
+test("buildLiveLines keeps non-stopped runs in createdAt order", () => {
 	const runs = [
 		run("b", "online", {
 			createdAt: "2026-01-02T00:00:00.000Z",
@@ -42,21 +40,21 @@ test("buildLiveTiles keeps non-stopped runs in createdAt order", () => {
 		}),
 		run("gone", "stopped"),
 	];
-	const tiles = buildLiveTiles(runs, "a");
-	expect(tiles.map((tile) => tile.id)).toEqual(["a", "b"]);
-	expect(tiles[0]?.name).toBe("alpha");
-	expect(tiles[0]?.selected).toBe(true);
-	expect(tiles[1]?.selected).toBe(false);
+	const lines = buildLiveLines(runs, "a");
+	expect(lines.map((line) => line.id)).toEqual(["a", "b"]);
+	expect(lines[0]?.title).toBe("alpha");
+	expect(lines[0]?.selected).toBe(true);
+	expect(lines[1]?.selected).toBe(false);
 });
 
-test("buildLiveTiles keeps an errored run live and flags it", () => {
+test("buildLiveLines keeps an errored run live and marks it for attention", () => {
 	const runs = [run("boom", "error", { workflowName: "boom" })];
-	const tiles = buildLiveTiles(runs, undefined);
-	expect(tiles).toHaveLength(1);
-	expect(tiles[0]?.errored).toBe(true);
+	const lines = buildLiveLines(runs, undefined);
+	expect(lines).toHaveLength(1);
+	expect(lines[0]?.attention).toBe(true);
 });
 
-test("buildPastTiles keeps stopped runs by lastSeenAt desc with stoppedAtMs", () => {
+test("buildPastLines keeps stopped runs by lastSeenAt desc with stoppedAtMs", () => {
 	const runs = [
 		run("live", "online"),
 		run("old", "stopped", {
@@ -69,58 +67,57 @@ test("buildPastTiles keeps stopped runs by lastSeenAt desc with stoppedAtMs", ()
 		}),
 		run("errored", "error"),
 	];
-	const tiles = buildPastTiles(runs, "recent");
-	expect(tiles.map((tile) => tile.id)).toEqual(["recent", "old"]);
-	expect(tiles[0]?.stoppedAtMs).toBe(Date.parse("2026-01-02T00:00:00.000Z"));
-	expect(tiles[0]?.selected).toBe(true);
+	const lines = buildPastLines(runs, "recent");
+	expect(lines.map((line) => line.id)).toEqual(["recent", "old"]);
+	expect(lines[0]?.stoppedAtMs).toBe(Date.parse("2026-01-02T00:00:00.000Z"));
+	expect(lines[0]?.selected).toBe(true);
 });
 
-test("dockOrder exposes live, expanded past, and ghost keys", () => {
+test("dockLineOrder exposes live, expanded past, and ghost keys", () => {
 	const live = [
-		{ id: "one", name: "one", place: "repo", selected: false, errored: false },
+		{
+			id: "one",
+			title: "one",
+			place: "repo",
+			selected: false,
+			attention: false,
+		},
 	];
 	const past = [
-		{ id: "old", name: "old", place: "repo", selected: false, errored: false },
+		{
+			id: "old",
+			title: "old",
+			place: "repo",
+			selected: false,
+			attention: false,
+		},
 	];
-	expect(dockOrder(live, past, false)).toEqual(["one", GHOST_TILE_KEY]);
-	expect(dockOrder(live, past, true)).toEqual(["one", "old", GHOST_TILE_KEY]);
+	expect(dockLineOrder(live, past, false)).toEqual(["one", GHOST_LINE_KEY]);
+	expect(dockLineOrder(live, past, true)).toEqual([
+		"one",
+		"old",
+		GHOST_LINE_KEY,
+	]);
 });
 
-test("dock keyboard policy clamps movement and shortcuts to live tiles", () => {
-	const order = ["one", "two", GHOST_TILE_KEY];
+test("dock keyboard policy clamps movement and shortcuts to live lines", () => {
+	const order = ["one", "two", GHOST_LINE_KEY];
 	expect(nextDockKey(order, "one", 1)).toBe("two");
 	expect(nextDockKey(order, "one", -1)).toBe("one");
-	expect(nextDockKey(order, GHOST_TILE_KEY, 1)).toBe(GHOST_TILE_KEY);
+	expect(nextDockKey(order, GHOST_LINE_KEY, 1)).toBe(GHOST_LINE_KEY);
 	expect(
 		dockShortcutId(
 			[
 				{
 					id: "one",
-					name: "one",
+					title: "one",
 					place: "repo",
 					selected: false,
-					errored: false,
+					attention: false,
 				},
 			],
 			1,
 		),
 	).toBe("one");
 	expect(dockShortcutId([], 1)).toBeUndefined();
-});
-
-test("magnify peaks at the tile center and flattens beyond DISTANCE", () => {
-	expect(magnify(0).scale).toBeCloseTo(SCALE, 5);
-	expect(magnify(0).nudge).toBeCloseTo(0, 5);
-	expect(magnify(DISTANCE).scale).toBeCloseTo(1, 5);
-	expect(magnify(-DISTANCE).scale).toBeCloseTo(1, 5);
-	expect(magnify(DISTANCE + 500).scale).toBeCloseTo(1, 5);
-});
-
-test("magnify nudges tiles away from the cursor", () => {
-	expect(magnify(-50).nudge).toBeGreaterThan(0);
-	expect(magnify(50).nudge).toBeLessThan(0);
-});
-
-test("magnify is the identity transform when the cursor is absent", () => {
-	expect(magnify(-Infinity)).toEqual({ scale: 1, nudge: 0 });
 });

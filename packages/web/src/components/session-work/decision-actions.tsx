@@ -1,15 +1,13 @@
 /**
- * The operator-action row for a blocked decision. One source of truth: it
- * renders in the river's `DecisionRow` AND the drawer's decision body, so the
- * comment box, confirm-title arming, and dispatch behave identically in both.
- * It takes only the `DecisionActionTarget` slice it needs and reads `act` from
- * the session-work context.
+ * The operator-action controls for a blocked decision. The river stays
+ * fixed-height; mutable controls live in the detail drawer.
  */
 
 import { useRef, useState } from "react";
 import { Button } from "../ui/button.js";
 import Stack from "../ui/stack.js";
 import { useSessionWork } from "./context.js";
+import { decisionActionsClass, decisionCommentInputClass } from "./styles.js";
 import type { DecisionActionTarget } from "./detail-view-model.js";
 import type { OperatorActionView } from "./view-model.js";
 
@@ -57,7 +55,7 @@ export function DecisionActions({
 	};
 
 	return (
-		<Stack alignCenter gap={8} style={{ paddingTop: 4 }} wrap>
+		<Stack alignCenter gap={8} className={decisionActionsClass()} wrap>
 			{target.actions.map((action) => (
 				<Button
 					disabled={actions.acting || action.disabledReason !== undefined}
@@ -71,9 +69,7 @@ export function DecisionActions({
 					}}
 					size="sm"
 					title={action.disabledReason}
-					variant={
-						action.tone === "danger" ? "secondary-destructive" : "outline"
-					}
+					variant={action.tone === "danger" ? "destructive-outline" : "outline"}
 				>
 					{confirmingId === action.id && action.confirmTitle !== undefined
 						? action.confirmTitle
@@ -82,7 +78,7 @@ export function DecisionActions({
 			))}
 			{commentOpen ? (
 				<input
-					className="h-6.5 min-w-40 rounded-md bg-transparent px-2 text-sm text-kumo-default ring ring-kumo-line focus:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus/50"
+					className={decisionCommentInputClass()}
 					onChange={(event) => setComment(event.target.value)}
 					placeholder="comment…"
 					ref={focusOnMount}

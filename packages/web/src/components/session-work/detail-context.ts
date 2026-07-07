@@ -1,7 +1,7 @@
 /**
  * Generic work-detail context. The drawer consumes only `useWorkDetail()` and
- * never imports app stores; fixtures (/lab) and the store adapter both flow
- * through this one interface. Mirrors `context.ts`'s shape and `use()` pattern.
+ * never imports app stores; test fixtures and the store adapter both flow through
+ * this one interface. Mirrors `context.ts`'s shape and `use()` pattern.
  */
 
 import type { OperatorObservationInput } from "@plot/session/runtime";

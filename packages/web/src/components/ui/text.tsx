@@ -1,129 +1,71 @@
 "use client";
 
-import React, {
-	type CSSProperties,
+import {
 	type ComponentPropsWithoutRef,
 	type ElementRef,
 	type ForwardedRef,
 	forwardRef,
-	useMemo,
+	type ReactElement,
+	type ReactNode,
+	type RefCallback,
 } from "react";
-import { cn } from "../../lib/utils.js";
-import { resolveVariant } from "./variant.js";
+import { cva } from "./variants.js";
 
-export const KUMO_TEXT_VARIANTS = {
+export const TEXT_VARIANTS = {
 	variant: {
-		heading1: {
-			classes: "text-3xl font-semibold",
-			description: "Large heading for page titles",
-		},
-		heading2: {
-			classes: "text-2xl font-semibold",
-			description: "Medium heading for section titles",
-		},
-		heading3: {
-			classes: "text-lg font-semibold",
-			description: "Small heading for subsections",
-		},
-		body: {
-			classes: "text-kumo-default",
-			description: "Default body text",
-		},
-		secondary: {
-			classes: "text-kumo-subtle",
-			description: "Muted text for secondary information",
-		},
-		success: {
-			classes: "text-kumo-link",
-			description: "Success state text",
-		},
-		error: {
-			classes: "text-kumo-danger",
-			description: "Error state text",
-		},
-		mono: {
-			classes: "font-mono",
-			description: "Monospace text for code",
-		},
-		"mono-secondary": {
-			classes: "font-mono text-kumo-subtle",
-			description: "Muted monospace text",
-		},
+		heading1:
+			"font-heading text-3xl leading-9 font-semibold tracking-tight text-foreground",
+		heading2:
+			"font-heading text-2xl leading-8 font-semibold tracking-tight text-foreground",
+		heading3:
+			"font-heading text-lg leading-7 font-semibold tracking-tight text-foreground",
+		body: "text-foreground",
+		secondary: "text-muted-foreground",
+		success: "text-success-foreground",
+		error: "text-destructive-foreground",
+		mono: "font-mono text-foreground",
+		"mono-secondary": "font-mono text-muted-foreground",
+		"mono-error": "font-mono text-destructive-foreground",
+		label:
+			"font-mono text-xs uppercase tracking-[0.04em] text-muted-foreground",
 	},
 	size: {
-		xs: { classes: "text-xs", description: "Extra small text" },
-		sm: { classes: "text-sm", description: "Small text" },
-		base: { classes: "text-base", description: "Default text size" },
-		lg: { classes: "text-lg", description: "Large text" },
+		xs: "text-xs leading-4",
+		sm: "text-sm leading-5",
+		base: "text-base leading-6",
+		lg: "text-lg leading-7",
+		subline: "text-[13.5px] leading-[18px]",
 	},
 } as const;
 
-export const KUMO_TEXT_DEFAULT_VARIANTS = {
+export const TEXT_DEFAULT_VARIANTS = {
 	variant: "body",
 	size: "base",
 } as const;
 
-export const KUMO_TEXT_STYLING = {
-	fontSizes: {
-		xs: 12,
-		sm: 14,
-		base: 16,
-		lg: 18,
-		xl: 20,
-		"2xl": 24,
-		"3xl": 30,
-	},
-	fontWeights: {
-		normal: 400,
-		medium: 500,
-		semibold: 600,
-	},
-	baseColor: "text-kumo-default",
-	variantColors: {
-		body: "text-kumo-default",
-		secondary: "text-kumo-subtle",
-		success: "text-kumo-link",
-		error: "text-kumo-danger",
-		mono: "text-kumo-default",
-		"mono-secondary": "text-kumo-subtle",
-	},
-	fontFamilies: {
-		default: "sans-serif",
-		mono: "monospace",
-	},
-} as const;
+export type TextVariant = keyof typeof TEXT_VARIANTS.variant;
+export type TextSize = keyof typeof TEXT_VARIANTS.size;
 
-export type KumoTextVariant = keyof typeof KUMO_TEXT_VARIANTS.variant;
-export type KumoTextSize = keyof typeof KUMO_TEXT_VARIANTS.size;
-
-export interface KumoTextVariantsProps {
-	readonly variant?: KumoTextVariant | undefined;
-	readonly size?: KumoTextSize | undefined;
+export interface TextVariantsProps {
+	readonly variant?: TextVariant | undefined;
+	readonly size?: TextSize | undefined;
 }
 
+const textClass = cva({
+	variants: TEXT_VARIANTS,
+});
+
 export function textVariants({
-	variant = KUMO_TEXT_DEFAULT_VARIANTS.variant,
-	size = KUMO_TEXT_DEFAULT_VARIANTS.size,
-}: KumoTextVariantsProps = {}) {
-	return cn(
-		resolveVariant(
-			KUMO_TEXT_VARIANTS.variant,
-			variant,
-			KUMO_TEXT_DEFAULT_VARIANTS.variant,
-		).classes,
-		resolveVariant(
-			KUMO_TEXT_VARIANTS.size,
-			size,
-			KUMO_TEXT_DEFAULT_VARIANTS.size,
-		).classes,
-	);
+	variant = TEXT_DEFAULT_VARIANTS.variant,
+	size = TEXT_DEFAULT_VARIANTS.size,
+}: TextVariantsProps = {}) {
+	return textClass({ variant, size });
 }
 
 type Heading = "heading1" | "heading2" | "heading3";
 type Copy = "body" | "secondary" | "success" | "error";
-type Monospace = "mono" | "mono-secondary";
-type TextSize = KumoTextSize;
-type TextVariant = KumoTextVariant;
+type Monospace = "mono" | "mono-secondary" | "mono-error";
+type Label = "label";
 
 export type TextElement =
 	| "h1"
@@ -150,10 +92,9 @@ export type TextElement =
 
 type BaseTextProps = Omit<
 	ComponentPropsWithoutRef<"span">,
-	"className" | "style"
+	"children" | "className" | "style"
 > & {
-	readonly DANGEROUS_className?: string;
-	readonly DANGEROUS_style?: CSSProperties;
+	readonly children?: ReactNode;
 };
 
 type TextPropsInternal<Variant extends TextVariant = "body"> = BaseTextProps &
@@ -169,13 +110,13 @@ type TextPropsInternal<Variant extends TextVariant = "body"> = BaseTextProps &
 			? {
 					readonly as?: TextElement;
 					readonly bold?: never;
-					readonly size?: "lg";
+					readonly size?: TextSize;
 					readonly truncate?: boolean;
 					readonly variant?: Variant;
 				}
-			: Variant extends Heading
+			: Variant extends Heading | Label
 				? {
-						readonly as: TextElement;
+						readonly as?: TextElement;
 						readonly bold?: never;
 						readonly size?: never;
 						readonly truncate?: boolean;
@@ -186,19 +127,31 @@ type TextPropsInternal<Variant extends TextVariant = "body"> = BaseTextProps &
 export interface TextProps {
 	readonly as?: TextElement;
 	readonly bold?: boolean;
-	readonly children?: React.ReactNode;
-	readonly size?: KumoTextSize;
+	readonly children?: ReactNode;
+	readonly size?: TextSize;
 	readonly truncate?: boolean;
-	readonly variant?: KumoTextVariant;
+	readonly variant?: TextVariant;
 }
+
+const defaultElement = (variant: TextVariant): TextElement => {
+	if (variant === "heading1") return "h1";
+	if (variant === "heading2") return "h2";
+	if (variant === "heading3") return "h3";
+	if (
+		variant === "mono" ||
+		variant === "mono-secondary" ||
+		variant === "mono-error"
+	)
+		return "span";
+	if (variant === "label") return "span";
+	return "p";
+};
 
 function TextRoot<Variant extends TextVariant = "body">(
 	{
 		as,
 		bold = false,
 		children,
-		DANGEROUS_className,
-		DANGEROUS_style,
 		size = "base",
 		truncate = false,
 		variant = "body" as Variant,
@@ -206,41 +159,19 @@ function TextRoot<Variant extends TextVariant = "body">(
 	}: TextPropsInternal<Variant>,
 	ref: ForwardedRef<HTMLElement>,
 ) {
-	const isCopy = ["body", "secondary", "success", "error"].includes(variant);
-	const isMono = ["mono", "mono-secondary"].includes(variant);
-	const Component = useMemo(() => {
-		if (as) return as;
-		if (["mono", "mono-secondary"].includes(variant)) return "span";
-		if (["heading1", "heading2", "heading3"].includes(variant)) return "span";
-		return "p";
-	}, [as, variant]);
+	const Component = as ?? defaultElement(variant);
+	const sized = !["heading1", "heading2", "heading3", "label"].includes(
+		variant,
+	);
 
 	return (
 		<Component
-			ref={ref as React.RefCallback<HTMLElement>}
-			className={cn(
-				"text-kumo-default",
-				resolveVariant(
-					KUMO_TEXT_VARIANTS.variant,
-					variant,
-					KUMO_TEXT_DEFAULT_VARIANTS.variant,
-				).classes,
-				isCopy
-					? resolveVariant(
-							KUMO_TEXT_VARIANTS.size,
-							size,
-							KUMO_TEXT_DEFAULT_VARIANTS.size,
-						).classes
-					: "",
-				isCopy && bold ? "font-medium" : "",
-				isMono &&
-					(size === "lg"
-						? KUMO_TEXT_VARIANTS.size.base.classes
-						: KUMO_TEXT_VARIANTS.size.sm.classes),
-				truncate && "truncate min-w-0",
-				DANGEROUS_className,
-			)}
-			style={DANGEROUS_style}
+			ref={ref as RefCallback<HTMLElement>}
+			className={textClass({
+				variant,
+				size: sized ? size : undefined,
+				className: [bold && "font-medium", truncate && "min-w-0 truncate"],
+			})}
 			{...props}
 		>
 			{children}
@@ -254,4 +185,4 @@ export const Text = forwardRef(TextRoot) as <
 	props: TextPropsInternal<Variant> & {
 		readonly ref?: ForwardedRef<ElementRef<"span">>;
 	},
-) => React.ReactElement;
+) => ReactElement;

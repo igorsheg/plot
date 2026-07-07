@@ -26,6 +26,7 @@ import {
 } from "./context.js";
 import { formatTps, tokenThroughput } from "./throughput.js";
 import { ThroughputSparkline } from "./throughput-sparkline.js";
+import { ghostStripClass, ghostStripLineClass } from "./styles.js";
 
 type HeaderVariant = "live" | "starting" | "errored" | "stopped";
 
@@ -60,7 +61,7 @@ function Kicker({
 			{withStarted && startedAtMs !== undefined && (
 				<>
 					{" · started "}
-					<Text as="span" variant="mono-secondary">
+					<Text as="span" size="sm" variant="secondary">
 						{formatRelative(startedAtMs, nowMs)}
 					</Text>
 				</>
@@ -74,11 +75,11 @@ function LiveStrip({ state }: { readonly state: SessionHeaderState }) {
 		<Stack baseline gap={12}>
 			<ThroughputSparkline graph={state.throughputGraph} />
 			<Stack baseline gap={8}>
-				<Text as="span" variant="mono-secondary">
+				<Text as="span" size="sm" variant="secondary">
 					{formatTps(state.throughputRate)} tok/s
 				</Text>
 				{state.lastEventAtMs !== undefined && (
-					<Text as="span" variant="mono-secondary">
+					<Text as="span" size="sm" variant="secondary">
 						last event {formatRelative(state.lastEventAtMs, state.nowMs)}
 					</Text>
 				)}
@@ -90,20 +91,8 @@ function LiveStrip({ state }: { readonly state: SessionHeaderState }) {
 /** Height-matched placeholder so the band never jumps while starting. */
 function GhostStrip() {
 	return (
-		<div
-			aria-hidden="true"
-			style={{ height: 40, opacity: 0.25, position: "relative" }}
-		>
-			<div
-				style={{
-					background: "var(--text-color-kumo-subtle)",
-					height: 1.5,
-					left: 0,
-					position: "absolute",
-					right: 0,
-					top: 19,
-				}}
-			/>
+		<div aria-hidden="true" className={ghostStripClass()}>
+			<div className={ghostStripLineClass()} />
 		</div>
 	);
 }
@@ -188,7 +177,7 @@ function ErroredSessionHeader() {
 				</Text>
 			</Stack>
 			{state.stderrTail !== undefined && (
-				<Text as="p" truncate variant="mono-secondary">
+				<Text as="p" size="sm" truncate variant="secondary">
 					{state.stderrTail}
 				</Text>
 			)}

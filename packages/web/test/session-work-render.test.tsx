@@ -1,0 +1,99 @@
+import { expect, test } from "bun:test";
+import { renderToString } from "react-dom/server";
+import { SessionWorkProvider } from "../src/components/session-work/context.js";
+import { WorkDetailProvider } from "../src/components/session-work/detail-context.js";
+import { SessionWork } from "../src/components/session-work/session-work.js";
+import type { SessionWorkContextValue } from "../src/components/session-work/context.js";
+import type { WorkDetailContextValue } from "../src/components/session-work/detail-context.js";
+
+const noop = (): void => undefined;
+
+const workValue: SessionWorkContextValue = {
+	state: {
+		nowMs: 1_000_000,
+		attention: [
+			{
+				kind: "decision",
+				key: "decision",
+				workKey: "decision",
+				sourceId: "source",
+				title: "Needs operator",
+				reason: undefined,
+				actions: [
+					{
+						id: "approve",
+						label: "Approve",
+						tone: "primary",
+						requiresComment: false,
+					},
+				],
+			},
+			{
+				kind: "failure",
+				key: "failure",
+				title: "Failed work",
+				line: undefined,
+			},
+			{ kind: "diagnostic", key: "diagnostic", text: "daemon restarted" },
+		],
+		motion: [
+			{
+				kind: "active",
+				key: "active",
+				title: "Running work",
+				line: undefined,
+				streaming: false,
+				verifying: false,
+			},
+			{ kind: "queued", key: "queued", title: "Queued work" },
+		],
+		settled: [
+			{
+				key: "settled",
+				label: "Settled",
+				message: "Done",
+				failed: false,
+				atMs: 999_000,
+			},
+		],
+		denseDecisions: false,
+		loaded: true,
+	},
+	actions: { act: noop, acting: false },
+};
+
+const detailValue: WorkDetailContextValue = {
+	state: {
+		view: undefined,
+		nowMs: 1_000_000,
+		transcript: {
+			expanded: false,
+			loading: false,
+			entries: [],
+			notRecorded: false,
+			error: undefined,
+		},
+	},
+	actions: {
+		open: noop,
+		close: noop,
+		step: noop,
+		toggleTranscript: noop,
+		act: noop,
+		acting: false,
+	},
+};
+
+test("session work river keeps busy-row heights fixed", () => {
+	const html = renderToString(
+		<SessionWorkProvider value={workValue}>
+			<WorkDetailProvider value={detailValue}>
+				<SessionWork />
+			</WorkDetailProvider>
+		</SessionWorkProvider>,
+	);
+
+	expect(html.match(/\bh-14\b/g)?.length).toBe(5);
+	expect(html.match(/\bh-8\b/g)?.length).toBe(1);
+	expect(html).not.toContain("Approve");
+});

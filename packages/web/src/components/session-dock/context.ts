@@ -5,11 +5,11 @@
  */
 
 import { createRequiredContext } from "../../lib/required-context.js";
-import type { DockTile } from "./view-model.js";
+import type { DockLineItem } from "./view-model.js";
 
 export interface SessionDockState {
-	readonly live: readonly DockTile[];
-	readonly past: readonly DockTile[];
+	readonly live: readonly DockLineItem[];
+	readonly past: readonly DockLineItem[];
 	readonly expanded: boolean;
 	readonly nowMs: number;
 }

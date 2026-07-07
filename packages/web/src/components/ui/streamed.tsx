@@ -12,8 +12,8 @@
  *   - `StreamedProse` — block markdown for drawer sections and the transcript.
  *   - `StreamedLine`  — single-line inline markdown for river/drawer one-liners;
  *     flattens every block to inline and truncates, so a mid-parse heading or
- *     code fence never grows the row. It inherits the caller's font (mono for
- *     live lines, sans for settled/reason lines); `tone` sets only the color.
+ *     code fence never grows the row. It inherits the caller's font and size;
+ *     `tone` sets only the color.
  *
  * Both wrap vercel/streamdown, which memoizes at block level internally; we add
  * `React.memo` on the primitives so an unchanged `text` between polls is a
@@ -26,15 +26,16 @@
 import { memo } from "react";
 import { Streamdown, type Components } from "streamdown";
 import { cn } from "../../lib/utils.js";
-
+import { textVariants } from "./text.js";
 /** Fenced/indented block code vs inline code: a language class or a newline. */
 const isBlockCode = (className: string | undefined, text: string): boolean =>
 	/language-/.test(className ?? "") || text.includes("\n");
 
-const proseCodeBlockClass =
-	"my-0 overflow-x-auto rounded-md bg-kumo-recessed p-3 font-mono text-[12.5px] leading-[1.5]";
-const inlineCodeClass =
-	"rounded bg-kumo-recessed px-1 py-0.5 font-mono text-[0.86em]";
+const proseCodeBlockClass = cn(
+	"my-0 overflow-x-auto rounded-md bg-muted p-3",
+	textVariants({ size: "sm" }),
+);
+const inlineCodeClass = "rounded bg-muted px-1 py-0.5";
 
 /** Block-level components: our tokens, tight rhythm, no document chrome. */
 const proseComponents: Components = {
@@ -59,7 +60,7 @@ const proseComponents: Components = {
 	em: ({ children }) => <em className="italic">{children}</em>,
 	a: ({ children, href }) => (
 		<a
-			className="text-kumo-link underline underline-offset-2"
+			className="text-info-foreground underline underline-offset-2"
 			href={href}
 			rel="noreferrer"
 			target="_blank"
@@ -68,11 +69,11 @@ const proseComponents: Components = {
 		</a>
 	),
 	blockquote: ({ children }) => (
-		<blockquote className="my-0 border-kumo-line border-l-2 pl-3 text-kumo-subtle">
+		<blockquote className="my-0 border-border border-l-2 pl-3 text-muted-foreground">
 			{children}
 		</blockquote>
 	),
-	hr: () => <hr className="my-1 border-kumo-line" />,
+	hr: () => <hr className="my-1 border-border" />,
 	pre: ({ children }) => <>{children}</>,
 	code: ({ className, children }) => {
 		const text = String(children ?? "");
@@ -108,21 +109,21 @@ const lineComponents: Components = {
 	),
 	hr: () => <span> </span>,
 	pre: ({ children }) => <>{children}</>,
-	code: ({ children }) => <code className="font-mono">{children}</code>,
+	code: ({ children }) => <code className={inlineCodeClass}>{children}</code>,
 };
 
 /** No images in either pipeline — a stream is text, not a gallery. */
 const disallow = ["img"] as const;
 
 const proseTone = {
-	default: "text-kumo-default",
-	danger: "text-kumo-danger",
+	default: "text-foreground",
+	danger: "text-destructive-foreground",
 } as const;
 
 const lineTone = {
-	default: "text-kumo-default",
-	secondary: "text-kumo-subtle",
-	danger: "text-kumo-danger",
+	default: "text-foreground",
+	secondary: "text-muted-foreground",
+	danger: "text-destructive-foreground",
 } as const;
 
 export interface StreamedProseProps {
@@ -135,7 +136,7 @@ function StreamedProseRoot({ text, tone = "default" }: StreamedProseProps) {
 	return (
 		<Streamdown
 			className={cn(
-				"min-w-0 break-words text-[14px] leading-[1.6]",
+				textVariants({ size: "sm" }),
 				// The root's own `space-y-4` is the inter-block rhythm; tighten it.
 				"[&>*+*]:!mt-[10px]",
 				proseTone[tone],

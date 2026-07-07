@@ -1,6 +1,9 @@
 import { useStore } from "@nanostores/react";
-import type { CSSProperties } from "react";
 import { $selectedRun } from "../app/runs-store.js";
+import {
+	sessionDocumentClass,
+	sessionMainClass,
+} from "./session-document.styles.js";
 import {
 	SessionHeader,
 	StoreSessionHeaderProvider,
@@ -12,28 +15,15 @@ import {
 import { VStack } from "./ui/stack.js";
 import { Text } from "./ui/text.js";
 
-const mainStyle: CSSProperties = {
-	flex: "1 1 0%",
-	minWidth: 0,
-	padding:
-		"var(--plot-page-top) var(--plot-space-8) var(--plot-page-bottom) calc(var(--plot-rhythm) * 20)",
-};
-
-const documentStyle: CSSProperties = {
-	margin: "0 auto",
-	maxWidth: "calc(var(--plot-rhythm) * 208)",
-	width: "100%",
-};
-
-const emptyDocumentStyle: CSSProperties = {
-	...documentStyle,
-	minHeight: "calc(var(--plot-rhythm) * 128)",
-};
-
 function EmptySelection() {
 	return (
-		<VStack as="main" style={mainStyle}>
-			<VStack as="article" style={emptyDocumentStyle} gap={12} center>
+		<VStack as="main" className={sessionMainClass()}>
+			<VStack
+				as="article"
+				className={sessionDocumentClass({ state: "empty" })}
+				gap={12}
+				center
+			>
 				<Text variant="heading1" as="h1">
 					No active sessions.
 				</Text>
@@ -47,8 +37,8 @@ function EmptySelection() {
 
 function SessionDocument() {
 	return (
-		<VStack as="main" style={mainStyle}>
-			<VStack as="article" style={documentStyle} gap={48}>
+		<VStack as="main" className={sessionMainClass()}>
+			<VStack as="article" className={sessionDocumentClass()} gap={48}>
 				<StoreSessionHeaderProvider>
 					<SessionHeader />
 				</StoreSessionHeaderProvider>

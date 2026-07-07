@@ -4,32 +4,33 @@
  * `session-work.tsx`) so the drawer can reuse them without an import cycle.
  */
 
-import type { CSSProperties } from "react";
+import { cva } from "../ui/variants.js";
 
 export type DotKind = "active" | "queued" | "attention" | "done";
 
-const dotStyles: Record<DotKind, CSSProperties> = {
-	active: { background: "var(--text-color-kumo-default)" },
-	queued: {
-		background: "transparent",
-		boxShadow: "inset 0 0 0 1.5px var(--text-color-kumo-subtle)",
+export const dotClass = cva({
+	base: "size-2 shrink-0 rounded-full",
+	variants: {
+		kind: {
+			active: "bg-foreground",
+			queued:
+				"bg-transparent shadow-[inset_0_0_0_1.5px_var(--muted-foreground)]",
+			attention: "bg-destructive",
+			done: "bg-muted-foreground",
+		},
+		offset: {
+			false: null,
+			true: "mt-2",
+		},
 	},
-	attention: { background: "var(--color-kumo-danger)" },
-	done: { background: "var(--text-color-kumo-subtle)" },
-};
-
-/** Bare dot color/box for a kind, without the row's top margin. */
-export const dotStyle = (kind: DotKind): CSSProperties => ({
-	borderRadius: 999,
-	flex: "0 0 auto",
-	height: 8,
-	width: 8,
-	...dotStyles[kind],
+	defaultVariants: {
+		offset: false,
+	},
 });
 
 export function Dot({ kind }: { readonly kind: DotKind }) {
 	return (
-		<span aria-hidden="true" style={{ marginTop: 8, ...dotStyle(kind) }} />
+		<span aria-hidden="true" className={dotClass({ kind, offset: true })} />
 	);
 }
 
@@ -38,14 +39,7 @@ export function Caret() {
 	return (
 		<span
 			aria-hidden="true"
-			className="animate-pulse motion-reduce:animate-none"
-			style={{
-				background: "var(--text-color-kumo-subtle)",
-				display: "inline-block",
-				flex: "0 0 auto",
-				height: 12,
-				width: 6,
-			}}
+			className="inline-block h-3 w-1.5 shrink-0 animate-pulse bg-muted-foreground motion-reduce:animate-none"
 		/>
 	);
 }
