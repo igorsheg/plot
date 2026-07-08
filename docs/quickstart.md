@@ -8,22 +8,22 @@ plot --help
 Authenticate a provider:
 
 ```bash
-plot auth status
+plot auth
 plot auth login
 ```
 
 Run a Workflow:
 
 ```bash
-plot tui --workflow WORKFLOW.md
+plot open WORKFLOW.md
 ```
 
-This opens a managed Plot Session in the terminal. `plot web` can watch the same session.
+This opens a managed Plot Session in the terminal. `plot open --web` can watch the same session.
 
 One pass without a dashboard:
 
 ```bash
-plot run --workflow WORKFLOW.md
+plot run WORKFLOW.md
 ```
 
 ## PR review example
@@ -31,7 +31,7 @@ plot run --workflow WORKFLOW.md
 From this repo, on a branch with a GitHub PR:
 
 ```bash
-plot tui --workflow examples/pr-review/WORKFLOW.md
+plot open examples/pr-review/WORKFLOW.md
 ```
 
 You need:

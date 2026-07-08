@@ -5,7 +5,7 @@ Continuous, senior-level review of every open PR in a repository. One bounded Ag
 ```bash
 npm install -g plot-ai
 npm install --prefix examples/pr-review
-plot tui --workflow examples/pr-review/WORKFLOW.md
+plot open examples/pr-review/WORKFLOW.md
 ```
 
 Requires GitHub CLI auth (`gh auth status`) and a provider login (`plot auth login`).

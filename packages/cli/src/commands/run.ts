@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { defineCommand } from "citty";
 import { errorMessage } from "@plot/common/primitives";
-import { sessionCommandArgs } from "../args.js";
+import { sessionCommandArgs, workflowPathArg } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { writeCliStderr } from "../io.js";
 import { baseOptions, str } from "../options.js";
@@ -13,7 +13,7 @@ export const runCommand = defineCommand({
 		name: "run",
 		description: "Run a workflow once without opening the dashboard.",
 	},
-	args: sessionCommandArgs,
+	args: { ...workflowPathArg, ...sessionCommandArgs },
 	async run({ args, rawArgs }) {
 		const io = getCliIo();
 		void rawArgs;

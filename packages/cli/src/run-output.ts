@@ -87,9 +87,9 @@ export const formatRunResponse = (
 				: `Stopped ${runLine(response.run, nowMs)}`;
 		case "prune_result":
 			return response.removed.length === 0
-				? "Nothing to prune."
+				? "Nothing to clean."
 				: [
-						`Removed ${response.removed.length} run(s):`,
+						`Cleaned ${response.removed.length} run(s):`,
 						...response.removed.map((record) => `  ${runLine(record, nowMs)}`),
 					].join("\n");
 		case "error":

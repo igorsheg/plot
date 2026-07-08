@@ -1,12 +1,12 @@
 # Web Dashboard
 
 ```bash
-plot web
+plot open --web
 ```
 
-Opens a local browser UI over the shared Plot run registry daemon. If the daemon is not running, `plot web` starts it.
+Starts the local browser UI over the shared Plot run registry daemon and prints a terminal landing screen with the URL. Press `o` to open the browser, or `q` to stop the web server.
 
-The web dashboard can watch runs started by `plot tui`, `plot web`, or the HTTP API.
+The web dashboard can watch runs started by `plot open`, `plot open --web`, or the HTTP API.
 
 ## Ownership model
 
@@ -60,4 +60,4 @@ lossy live-only stream.
 projection. It is built from the session-owned event log named by the run
 catalog record, and its `frontier` is the highest durable sequence reduced.
 
-Use `plot api --http` when you want the API without opening a browser.
+Use `plot serve api --http` when you want the API without opening a browser.

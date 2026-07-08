@@ -39,6 +39,9 @@ const splitCommaList = (value: string): readonly string[] =>
 		.map((p) => p.trim())
 		.filter(Boolean);
 
+export const workflowPathFromArgs = (args: Record<string, unknown>) =>
+	str(args, "workflow") ?? str(args, "workflowPath");
+
 export const makeAuthFromArgs = (args: Record<string, unknown>) => {
 	const cwd = str(args, "cwd") ?? process.cwd();
 	const plotDir = str(args, "plot-dir");
@@ -73,7 +76,7 @@ export const makeAgentSessionOverrides = (
 		override.excludeTools = splitCommaList(excludeTools);
 	if (bool(args, "no-tools")) override.noTools = true;
 	if (bool(args, "no-builtin-tools")) override.noTools = "builtin";
-	if (bool(args, "approve")) override.allowProjectConfig = true;
+	if (bool(args, "allow-project-config")) override.allowProjectConfig = true;
 	if (skills.length > 0) override.skills = skills;
 	if (prompts.length > 0) override.prompts = prompts;
 	if (bool(args, "no-skills")) override.noSkills = true;
@@ -91,7 +94,7 @@ export const defaultSessionId = (): string => `session-${randomUUID()}`;
 export const baseOptions = (args: ParsedArgs) => {
 	const overrides = makeAgentSessionOverrides(args);
 	const cwd = str(args, "cwd") ?? process.cwd();
-	const workflowPath = str(args, "workflow");
+	const workflowPath = workflowPathFromArgs(args);
 	const sessionId = str(args, "session-id") ?? defaultSessionId();
 	const plotDir = str(args, "plot-dir");
 	const agentDir = str(args, "agent-dir");

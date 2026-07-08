@@ -5,10 +5,10 @@ import { runHumanCommand } from "../io.js";
 import { makeAuthFromArgs } from "../options.js";
 import { renderModels } from "../render.js";
 
-export const listModelsCommand = defineCommand({
+export const modelsCommand = defineCommand({
 	meta: {
-		name: "list-models",
-		description: "List models visible to Plot auth.",
+		name: "models",
+		description: "List provider models visible to Plot auth.",
 	},
 	args: {
 		search: {

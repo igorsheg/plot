@@ -568,12 +568,12 @@ export const startRunIpcDaemon = async (
 ): Promise<void> => {
 	if (options.cli === undefined)
 		throw new Error(
-			"run registry daemon is not running; run `plot registry serve`",
+			"run registry daemon is not running; run `plot serve registry`",
 		);
 	const args = [
 		...options.cli.args,
-		"registry",
 		"serve",
+		"registry",
 		"--cwd",
 		options.cwd,
 		...(options.runRegistryDir === undefined

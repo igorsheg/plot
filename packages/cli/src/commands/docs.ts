@@ -10,6 +10,7 @@ Start here:
   plot docs extensions
   plot docs tui
   plot docs web
+  plot docs cli
 
 For LLM-assisted extension authoring:
   plot docs extension-prompt
@@ -24,7 +25,7 @@ export const docsCommand = defineCommand({
 		topic: {
 			type: "positional",
 			description:
-				"index|quickstart|workflows|extensions|tui|web|extension-prompt",
+				"index|quickstart|workflows|extensions|tui|web|cli|extension-prompt",
 			required: false,
 		},
 	},

@@ -1,25 +1,18 @@
 import { defineCommand } from "citty";
 import type { Mutable } from "@plot/common/primitives";
-import { pathArgs } from "../args.js";
+import { runRegistryArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { writeCliStderr } from "../io.js";
 import { str } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
 import { runRegistryDaemon, type RunIpcOptions } from "@plot/registry/ipc";
 
-const serveCommand = defineCommand({
+export const serveRegistryCommand = defineCommand({
 	meta: {
-		name: "serve",
+		name: "registry",
 		description: "Serve the shared Plot run registry daemon.",
 	},
-	args: {
-		cwd: pathArgs.cwd,
-		"registry-dir": {
-			type: "string",
-			description: "Run registry state directory.",
-			valueHint: "path",
-		},
-	},
+	args: runRegistryArgs,
 	run: ({ args }) => {
 		const io = getCliIo();
 		const runRegistryDir = str(args, "registry-dir");
@@ -32,15 +25,5 @@ const serveCommand = defineCommand({
 			onReady: (socketPath) =>
 				writeCliStderr(io, `Plot run registry: ${socketPath}\n`),
 		});
-	},
-});
-
-export const registryCommand = defineCommand({
-	meta: {
-		name: "registry",
-		description: "Manage the shared Plot run registry daemon.",
-	},
-	subCommands: {
-		serve: serveCommand,
 	},
 });

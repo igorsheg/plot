@@ -14,6 +14,14 @@ const workflowArgs = {
 	},
 } satisfies ArgsDef;
 
+export const workflowPathArg = {
+	workflowPath: {
+		type: "positional",
+		description: "Optional workflow file. Default: WORKFLOW.md.",
+		required: false,
+	},
+} satisfies ArgsDef;
+
 export const pathArgs = {
 	cwd: {
 		type: "string",
@@ -41,6 +49,15 @@ export const authPathArgs = {
 	cwd: pathArgs.cwd,
 	"plot-dir": pathArgs["plot-dir"],
 	"agent-dir": pathArgs["agent-dir"],
+} satisfies ArgsDef;
+
+export const runRegistryArgs = {
+	cwd: pathArgs.cwd,
+	"registry-dir": {
+		type: "string",
+		description: "Run registry state directory.",
+		valueHint: "path",
+	},
 } satisfies ArgsDef;
 
 const loggingArgs = {
@@ -118,9 +135,9 @@ const agentOverrideArgs = {
 		type: "boolean",
 		description: "Disable built-in agent tools.",
 	},
-	approve: {
+	"allow-project-config": {
 		type: "boolean",
-		description: "Approve supported provider/tool prompts automatically.",
+		description: "Trust project config without prompting.",
 	},
 } satisfies ArgsDef;
 

@@ -15,6 +15,7 @@ Start here:
 - [Extensions](extensions.md) — trusted TypeScript that discovers Work Items and tools.
 - [TUI](tui.md) — terminal dashboard.
 - [Web](web.md) — browser dashboard and HTTP API.
+- [CLI](cli.md) — command surface and common options.
 
 For LLM-assisted extension authoring:
 

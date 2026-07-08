@@ -1,0 +1,151 @@
+# CLI
+
+`plot` is the command-line entry point for opening dashboards, running workflows, managing provider auth, and inspecting runs.
+
+## Main commands
+
+```bash
+plot
+plot open [workflow]
+plot open [workflow] --web
+plot run [workflow]
+plot runs
+plot auth
+plot models [search]
+plot init [workflow]
+plot doctor [workflow]
+```
+
+- `plot` opens the terminal dashboard for `WORKFLOW.md`.
+- `plot open [workflow]` opens the terminal dashboard for a workflow.
+- `plot open [workflow] --web` opens the browser dashboard.
+- `plot run [workflow]` runs one workflow pass without a dashboard.
+- `plot auth` shows provider authentication status.
+- `plot models` lists provider/model ids available to Plot auth.
+- `plot init` creates a starter workflow.
+- `plot doctor` checks workflow parsing and provider auth readiness.
+
+## Run commands
+
+```bash
+plot runs [--json]
+plot runs list [--json]
+plot runs show <run-id> [--json]
+plot runs logs <run-id> [--after <sequence>]
+plot runs stop <run-id> [--json]
+plot runs clean [--json]
+```
+
+`<run-id>` accepts a full run id or any unique prefix shown by `plot runs`.
+
+Common registry options:
+
+- `--cwd <path>`: project root used by registry operations.
+- `--registry-dir <path>`: alternate run registry state directory.
+- `--json`: print raw IPC responses for commands that return a single response.
+
+## Auth and model commands
+
+```bash
+plot auth
+plot auth login [provider]
+plot auth logout [provider]
+plot models [search]
+```
+
+`login` and `logout` prompt for a provider when omitted.
+
+Common auth path options:
+
+- `--cwd <path>`
+- `--plot-dir <path>`
+- `--agent-dir <path>`
+
+## Config commands
+
+```bash
+plot config
+plot config list
+plot config get defaultProvider
+plot config set defaultProvider anthropic
+```
+
+Supported settings:
+
+- `defaultProvider`
+- `defaultModel`
+- `defaultThinkingLevel`
+
+Pass `--global` to read or write global Plot settings instead of project settings.
+
+## Serve commands
+
+```bash
+plot serve api [workflow]
+plot serve api [workflow] --stdio
+plot serve registry
+```
+
+`serve` is for advanced integrations and background daemons. Most users should start with `plot`, `plot open`, or `plot run`.
+
+## Workflow/session options
+
+These apply to `plot`, `plot open`, `plot run`, and `plot serve api --stdio`:
+
+- positional `[workflow]`: workflow file. Default: `WORKFLOW.md`.
+- `--workflow <path>`: explicit workflow file override.
+- `--session-id <id>`: stable Plot session id.
+- `--cwd <path>`: project root for workflow execution and Plot state.
+- `--plot-dir <path>`: project-local Plot state directory.
+- `--agent-dir <path>`: agent auth/model state directory.
+- `--session-dir <path>`: Plot session storage directory.
+- `--log-level <level>`: `debug`, `info`, `warn`, or `error`.
+
+Agent override options:
+
+- `--provider <id>`
+- `--model <id>`
+- `--api-key <key>`
+- `--thinking <level>`
+- `--tools <list>`
+- `--exclude-tools <list>`
+- `--no-tools`
+- `--no-builtin-tools`
+- `--allow-project-config`
+
+Resource override options:
+
+- `--skill <path>`
+- `--prompt-template <path>`
+- `--no-skills`
+- `--no-prompt-templates`
+- `--no-context-files`
+- `--system-prompt <text>`
+- `--append-system-prompt <text>`
+
+Advanced runtime options:
+
+- `--request-queue-capacity <count>`
+- `--event-capacity <count>`
+- `--event-buffer-capacity <count>`
+- `--tick-interval-ms <ms>`
+- `--max-run-duration-ms <ms>`
+
+## Browser/API options
+
+`plot open --web` and `plot serve api`:
+
+- `--port <port>`
+- `--host <host>`
+- `--open`: open the browser immediately. For `plot open --web`, the default is a terminal landing screen with `o` to open and `q` to stop.
+
+## Docs and help
+
+```bash
+plot docs [topic]
+plot --help
+plot help <command>
+plot <command> --help
+```
+
+Docs topics: `index`, `quickstart`, `workflows`, `extensions`, `tui`, `web`, `cli`, and `extension-prompt`.

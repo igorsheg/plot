@@ -110,9 +110,9 @@ Three realistic long-running synthetic work streams for inspecting concurrent Pl
 ## Watch it work
 
 ```bash
-plot --workflow WORKFLOW.md   # TUI dashboard
-plot web                      # same session, in the browser
-plot api --stdio              # same session, as JSONL for machines
+plot open WORKFLOW.md          # terminal dashboard
+plot open WORKFLOW.md --web    # same session, in the browser
+plot serve api WORKFLOW.md --stdio  # same session, as JSONL for machines
 ```
 
 ## Write your extension with an agent

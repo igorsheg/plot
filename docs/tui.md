@@ -1,10 +1,10 @@
 # TUI
 
 ```bash
-plot tui --workflow WORKFLOW.md
+plot open WORKFLOW.md
 ```
 
-The TUI opens one live Plot Session and renders a Process Table: Work Items plus their current or latest Agent Run. The same session is visible in `plot web`.
+The terminal dashboard opens one live Plot Session and renders a Process Table: Work Items plus their current or latest Agent Run. The same session is visible in `plot open --web`.
 
 It should answer:
 

@@ -21,7 +21,7 @@ plot --workflow examples/debug/WORKFLOW.md
 In another terminal:
 
 ```bash
-plot web
+plot open --web
 ```
 
 The extension is designed to run for a long time without intentionally creating failures, cancellations, or timeout noise.

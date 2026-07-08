@@ -1,9 +1,9 @@
 import { defineCommand } from "citty";
 import type { Mutable } from "@plot/common/primitives";
-import { sessionCommandArgs, pathArgs } from "../args.js";
+import { sessionCommandArgs, pathArgs, workflowPathArg } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { openBrowser } from "../io.js";
-import { baseOptions, int, str } from "../options.js";
+import { baseOptions, int, str, workflowPathFromArgs } from "../options.js";
 import { resolvePlotCommand } from "../plot-command.js";
 import { runApiStdio, type ApiStdioOptions } from "../runtime.js";
 import { runPlotWebGateway } from "@plot/gateway";
@@ -14,6 +14,7 @@ export const apiCommand = defineCommand({
 		description: "Serve the Plot API for custom clients and frontends.",
 	},
 	args: {
+		...workflowPathArg,
 		...sessionCommandArgs,
 		stdio: {
 			type: "boolean",
@@ -34,9 +35,9 @@ export const apiCommand = defineCommand({
 			description: "HTTP API host. Default: 127.0.0.1.",
 			valueHint: "host",
 		},
-		"no-open": {
+		open: {
 			type: "boolean",
-			description: "Do not open a browser for the HTTP API/dashboard.",
+			description: "Open the HTTP API/dashboard in a browser.",
 		},
 		cwd: pathArgs.cwd,
 	},
@@ -53,12 +54,12 @@ export const apiCommand = defineCommand({
 		}
 		const options: Mutable<Parameters<typeof runPlotWebGateway>[0]> = {
 			cwd: str(args, "cwd") ?? process.cwd(),
-			open: args["no-open"] !== true,
+			open: args["open"] === true,
 			openUrl: openBrowser,
 			cli: resolvePlotCommand(),
 		};
 		const agentDir = str(args, "agent-dir");
-		const workflowPath = str(args, "workflow");
+		const workflowPath = workflowPathFromArgs(args);
 		const port = int(args, "port");
 		const host = str(args, "host");
 		if (agentDir !== undefined) options.agentDir = agentDir;

@@ -305,8 +305,8 @@ test("registry daemon shuts down cleanly on SIGTERM", async () => {
 		[
 			"bun",
 			"./packages/cli/src/main.ts",
-			"registry",
 			"serve",
+			"registry",
 			"--registry-dir",
 			dir,
 		],

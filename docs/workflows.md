@@ -95,8 +95,8 @@ TypeScript tools own integration correctness and idempotent mutations. The agent
 ## Run and observe
 
 ```bash
-plot tui --workflow WORKFLOW.md
-plot run --workflow WORKFLOW.md
+plot open WORKFLOW.md
+plot run WORKFLOW.md
 ```
 
 Plot stores session history under `.plot/sessions`. Agent transcripts stay separate.

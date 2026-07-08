@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { defineCommand } from "citty";
+import { defineCommand, type ParsedArgs } from "citty";
 import { authPathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { openBrowser, runHumanCommand, writeProcessStderr } from "../io.js";
@@ -62,21 +62,119 @@ const readSelect = async (
 	}
 };
 
-const providerArg = {
-	providerName: {
-		type: "positional",
-		description: "Provider id from `plot list-models`.",
-		required: true,
-	},
-} as const;
-
 const optionalProviderArg = {
 	providerName: {
 		type: "positional",
-		description: "Optional provider id from `plot list-models`.",
+		description: "Optional provider id from `plot models`.",
 		required: false,
 	},
 } as const;
+
+const selectLoginProvider = async (
+	providers: readonly {
+		readonly id: string;
+		readonly name: string;
+		readonly configured: boolean;
+	}[],
+): Promise<string> => {
+	if (providers.length === 0)
+		throw new Error("No auth providers found. Run `plot models` first.");
+	const selected = await readSelect({
+		message: "Choose a provider to log in:",
+		options: providers.map((provider) => ({
+			id: provider.id,
+			label: `${provider.id} - ${provider.name}${provider.configured ? " (configured)" : ""}`,
+		})),
+	});
+	if (selected === undefined) throw new Error("provider selection required");
+	return selected;
+};
+
+const selectLogoutProvider = async (
+	providers: readonly {
+		readonly id: string;
+		readonly name: string;
+		readonly configured: boolean;
+	}[],
+): Promise<string> => {
+	const configured = providers.filter((provider) => provider.configured);
+	if (configured.length === 0)
+		throw new Error("No configured auth providers found.");
+	const selected = await readSelect({
+		message: "Choose a provider to log out:",
+		options: configured.map((provider) => ({
+			id: provider.id,
+			label: `${provider.id} - ${provider.name}`,
+		})),
+	});
+	if (selected === undefined) throw new Error("provider selection required");
+	return selected;
+};
+
+const runLogout = (args: ParsedArgs) => {
+	const auth = makeAuthFromArgs(args);
+	return runHumanCommand(
+		getCliIo(),
+		(async () => {
+			const provider =
+				str(args, "providerName") ??
+				(await selectLogoutProvider(await auth.providers()));
+			await auth.logout(provider);
+			return provider;
+		})(),
+		(x) => `Logged out from ${x}.\n`,
+		"Pass a valid provider id from `plot models`.",
+	);
+};
+
+const runLogin = (args: ParsedArgs) => {
+	const auth = makeAuthFromArgs(args);
+	return runHumanCommand(
+		getCliIo(),
+		(async () => {
+			const provider =
+				str(args, "providerName") ??
+				(await selectLoginProvider(await auth.providers()));
+			await auth.login({
+				provider,
+				events: {
+					auth: (info) => {
+						openBrowser(info.url);
+						void writeProcessStderr(
+							`Opening browser: ${info.url}\n${info.instructions ?? "If it did not open, copy the URL above."}\n`,
+						);
+					},
+					deviceCode: (info) => {
+						void writeProcessStderr(
+							`Open ${info.verificationUri} and enter ${info.userCode}\n`,
+						);
+					},
+					prompt: (prompt) => {
+						void writeProcessStderr(`${prompt.message}\n`);
+					},
+					progress: (message) => {
+						void writeProcessStderr(`${message}\n`);
+					},
+				},
+				promptInput: (prompt) => readPrompt(prompt.message),
+				manualCodeInput: () =>
+					readPrompt("Paste the authorization code or redirect URL:"),
+				selectInput: readSelect,
+			});
+			return provider;
+		})(),
+		(x) => `Logged in to ${x}.\n`,
+		"Run in an interactive terminal and provide the provider login prompts.",
+	);
+};
+
+const runStatus = (args: ParsedArgs) =>
+	runHumanCommand(
+		getCliIo(),
+		makeAuthFromArgs(args).status(),
+		renderAuthStatus,
+		"Run `plot auth login` or pass valid --cwd/--plot-dir/--agent-dir paths.",
+	);
 
 export const authCommand = defineCommand({
 	meta: {
@@ -89,19 +187,8 @@ export const authCommand = defineCommand({
 				name: "status",
 				description: "Show provider authentication status.",
 			},
-			args: {
-				...optionalProviderArg,
-				...authPathArgs,
-			},
-			run: ({ args }) => {
-				const provider = str(args, "providerName");
-				return runHumanCommand(
-					getCliIo(),
-					makeAuthFromArgs(args).status(provider),
-					renderAuthStatus,
-					"Pass a provider id from `plot list-models`.",
-				);
-			},
+			args: authPathArgs,
+			run: ({ args }) => runStatus(args),
 		}),
 		login: defineCommand({
 			meta: {
@@ -109,46 +196,10 @@ export const authCommand = defineCommand({
 				description: "Start an interactive provider login.",
 			},
 			args: {
-				...providerArg,
+				...optionalProviderArg,
 				...authPathArgs,
 			},
-			run: ({ args }) => {
-				const provider = str(args, "providerName")!;
-				return runHumanCommand(
-					getCliIo(),
-					makeAuthFromArgs(args)
-						.login({
-							provider,
-							events: {
-								auth: (info) => {
-									openBrowser(info.url);
-									void writeProcessStderr(
-										`Opening browser: ${info.url}\n${info.instructions ?? "If it did not open, copy the URL above."}\n`,
-									);
-								},
-								deviceCode: (info) => {
-									void writeProcessStderr(
-										`Open ${info.verificationUri} and enter ${info.userCode}\n`,
-									);
-								},
-								prompt: (prompt) => {
-									void writeProcessStderr(`${prompt.message}\n`);
-								},
-
-								progress: (message) => {
-									void writeProcessStderr(`${message}\n`);
-								},
-							},
-							promptInput: (prompt) => readPrompt(prompt.message),
-							manualCodeInput: () =>
-								readPrompt("Paste the authorization code or redirect URL:"),
-							selectInput: readSelect,
-						})
-						.then(() => provider),
-					(x) => `Logged in to ${x}.\n`,
-					"Run in an interactive terminal and provide the provider login prompts.",
-				);
-			},
+			run: ({ args }) => runLogin(args),
 		}),
 		logout: defineCommand({
 			meta: {
@@ -156,20 +207,10 @@ export const authCommand = defineCommand({
 				description: "Remove stored authentication for a provider.",
 			},
 			args: {
-				...providerArg,
+				...optionalProviderArg,
 				...authPathArgs,
 			},
-			run: ({ args }) => {
-				const provider = str(args, "providerName")!;
-				return runHumanCommand(
-					getCliIo(),
-					makeAuthFromArgs(args)
-						.logout(provider)
-						.then(() => provider),
-					(x) => `Logged out from ${x}.\n`,
-					"Pass a valid provider id from `plot list-models`.",
-				);
-			},
+			run: ({ args }) => runLogout(args),
 		}),
 	},
 });

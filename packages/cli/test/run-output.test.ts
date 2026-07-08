@@ -47,7 +47,7 @@ describe("run output", () => {
 		).toContain("Stopped 76e84f20");
 		expect(
 			formatRunResponse({ type: "prune_result", ok: true, removed: [] }, nowMs),
-		).toBe("Nothing to prune.");
+		).toBe("Nothing to clean.");
 		expect(
 			formatRunResponse({ type: "error", ok: false, error: "boom" }, nowMs),
 		).toBe("Error: boom");

@@ -9,6 +9,7 @@ const docNames = [
 	"extensions",
 	"tui",
 	"web",
+	"cli",
 ] as const;
 export type DocName = (typeof docNames)[number];
 

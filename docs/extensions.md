@@ -41,7 +41,7 @@ extension:
 ```
 
 ```bash
-plot tui --workflow WORKFLOW.md
+plot open WORKFLOW.md
 ```
 
 ## Mental model
