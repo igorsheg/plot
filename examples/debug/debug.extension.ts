@@ -4,20 +4,12 @@ import {
 	DiscoveryUnavailableError,
 	definePlotExtension,
 	defineTool,
-	type OperatorAction,
 	type PlotExtensionWork,
 } from "plot-ai/sdk";
 
 interface DebugConfig {
 	readonly cycleMs: number;
-	readonly waveSize: number;
-	readonly shortSleepMs: number;
-	readonly longSleepMs: number;
-	readonly drainAfterMs: number;
-	readonly includeFailure: boolean;
-	readonly includeTimeout: boolean;
-	readonly includeCancellation: boolean;
-	readonly includeDrain: boolean;
+	readonly stepDelayMs: number;
 	readonly simulateDiscoveryFailureEvery: number;
 	readonly workspaceRoot?: string;
 }
@@ -31,27 +23,77 @@ interface DebugLogEntry {
 	readonly message?: string | undefined;
 }
 
+interface DebugScenario {
+	readonly id: string;
+	readonly primary: string;
+	readonly title: string;
+	readonly subtitle: string;
+	readonly labels: readonly string[];
+	readonly objective: string;
+	readonly steps: readonly string[];
+	readonly artifacts: readonly string[];
+}
+
 const DEFAULT_CONFIG: DebugConfig = {
-	cycleMs: 90_000,
-	waveSize: 6,
-	shortSleepMs: 2_500,
-	longSleepMs: 45_000,
-	drainAfterMs: 8_000,
-	includeFailure: true,
-	includeTimeout: true,
-	includeCancellation: true,
-	includeDrain: true,
+	cycleMs: 15 * 60_000,
+	stepDelayMs: 20_000,
 	simulateDiscoveryFailureEvery: 0,
 };
+
+const SCENARIOS: readonly DebugScenario[] = [
+	{
+		id: "incident-triage",
+		primary: "INC",
+		title: "Triage checkout latency regression",
+		subtitle:
+			"live incident follow-up with hypotheses, evidence, and next actions",
+		labels: ["incident", "triage", "long-running"],
+		objective:
+			"Act like an on-call engineer turning noisy incident facts into a short, evidence-backed triage note.",
+		steps: [
+			"Summarize the alert, customer impact, and current uncertainty.",
+			"Build two plausible hypotheses and identify the evidence that would confirm or rule each out.",
+			"Write a handoff note with next checks, rollback criteria, and owner-facing status.",
+		],
+		artifacts: ["triage-note.md", "hypotheses.md"],
+	},
+	{
+		id: "release-readiness",
+		primary: "REL",
+		title: "Prepare release readiness brief",
+		subtitle: "release checklist, risk review, and go/no-go summary",
+		labels: ["release", "readiness", "long-running"],
+		objective:
+			"Act like a release captain preparing a concise readiness brief from partial release facts.",
+		steps: [
+			"Draft a release checklist with verification, rollout, and rollback sections.",
+			"Identify three realistic release risks and pair each with a mitigation.",
+			"Write a go/no-go summary that names remaining unknowns without blocking on fake data.",
+		],
+		artifacts: ["release-brief.md", "risk-register.md"],
+	},
+	{
+		id: "dependency-upgrade",
+		primary: "DEP",
+		title: "Plan dependency upgrade campaign",
+		subtitle: "upgrade strategy, compatibility checks, and rollout sequencing",
+		labels: ["dependencies", "planning", "long-running"],
+		objective:
+			"Act like a maintainer planning a safe multi-package dependency upgrade campaign.",
+		steps: [
+			"Inventory likely impact areas and compatibility risks.",
+			"Propose an incremental upgrade sequence with validation at each step.",
+			"Write a final plan with test commands, owner handoff, and rollback notes.",
+		],
+		artifacts: ["upgrade-plan.md", "validation-matrix.md"],
+	},
+];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const numberField = (record: Record<string, unknown>, field: string) =>
 	typeof record[field] === "number" ? record[field] : undefined;
-
-const booleanField = (record: Record<string, unknown>, field: string) =>
-	typeof record[field] === "boolean" ? record[field] : undefined;
 
 const stringField = (record: Record<string, unknown>, field: string) =>
 	typeof record[field] === "string" ? record[field] : undefined;
@@ -75,40 +117,17 @@ const parseConfig = (input: unknown): DebugConfig => {
 			numberField(record, "cycleMs"),
 			DEFAULT_CONFIG.cycleMs,
 		),
-		waveSize: positiveInteger(
-			numberField(record, "waveSize"),
-			DEFAULT_CONFIG.waveSize,
+		stepDelayMs: positiveInteger(
+			numberField(record, "stepDelayMs"),
+			DEFAULT_CONFIG.stepDelayMs,
 		),
-		shortSleepMs: positiveInteger(
-			numberField(record, "shortSleepMs"),
-			DEFAULT_CONFIG.shortSleepMs,
-		),
-		longSleepMs: positiveInteger(
-			numberField(record, "longSleepMs"),
-			DEFAULT_CONFIG.longSleepMs,
-		),
-		drainAfterMs: positiveInteger(
-			numberField(record, "drainAfterMs"),
-			DEFAULT_CONFIG.drainAfterMs,
-		),
-		includeFailure:
-			booleanField(record, "includeFailure") ?? DEFAULT_CONFIG.includeFailure,
-		includeTimeout:
-			booleanField(record, "includeTimeout") ?? DEFAULT_CONFIG.includeTimeout,
-		includeCancellation:
-			booleanField(record, "includeCancellation") ??
-			DEFAULT_CONFIG.includeCancellation,
-		includeDrain:
-			booleanField(record, "includeDrain") ?? DEFAULT_CONFIG.includeDrain,
 		simulateDiscoveryFailureEvery: nonNegativeInteger(
 			numberField(record, "simulateDiscoveryFailureEvery"),
 			DEFAULT_CONFIG.simulateDiscoveryFailureEvery,
 		),
 	};
 	const workspaceRoot = stringField(record, "workspaceRoot");
-	if (workspaceRoot !== undefined) {
-		return { ...config, workspaceRoot };
-	}
+	if (workspaceRoot !== undefined) return { ...config, workspaceRoot };
 	return config;
 };
 
@@ -121,7 +140,7 @@ const safePathSegment = (value: string) =>
 const sleep = (ms: number, signal?: AbortSignal) =>
 	new Promise<void>((resolve, reject) => {
 		if (signal?.aborted) {
-			reject(new Error("debug sleep aborted"));
+			reject(new Error("debug wait aborted"));
 			return;
 		}
 		let timeout: ReturnType<typeof setTimeout>;
@@ -131,7 +150,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 		};
 		const abort = () => {
 			cleanup();
-			reject(new Error("debug sleep aborted"));
+			reject(new Error("debug wait aborted"));
 		};
 		timeout = setTimeout(() => {
 			cleanup();
@@ -140,46 +159,29 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 		signal?.addEventListener("abort", abort, { once: true });
 	});
 
-const debugContext = (input: {
-	readonly scenario: string;
+const scenarioContext = (input: {
+	readonly scenario: DebugScenario;
 	readonly cycle: number;
-	readonly instructions: readonly string[];
-	readonly expectedState: string;
-}) => JSON.stringify(input, null, 2);
-
-const operatorActions = (): readonly OperatorAction[] => [
-	{
-		id: "release_once",
-		label: "Release once",
-		tone: "primary",
-		requiresComment: true,
-		confirm: {
-			title: "Release the blocked debug item?",
-			message:
-				"The item will become pending for one cycle and then block again.",
+	readonly stepDelayMs: number;
+}) =>
+	JSON.stringify(
+		{
+			cycle: input.cycle,
+			objective: input.scenario.objective,
+			steps: input.scenario.steps,
+			artifacts: input.scenario.artifacts,
+			dashboardExpectation:
+				"Three realistic long-running Work Items should run concurrently and emit progress, waits, artifacts, and completion events.",
+			toolPlan: [
+				"For each step: call debug_progress, call debug_wait, then continue to the next step.",
+				"Write at least one requested artifact with debug_write_artifact before finishing.",
+				"Finish with debug_finish only after all steps are complete.",
+			],
+			stepDelayMs: input.stepDelayMs,
 		},
-	},
-	{
-		id: "pause_wave",
-		label: "Pause wave",
-		tone: "secondary",
-	},
-	{
-		id: "resume_wave",
-		label: "Resume wave",
-		tone: "secondary",
-	},
-	{
-		id: "cancel_live",
-		label: "Cancel live work",
-		tone: "danger",
-		confirm: {
-			title: "Cancel synthetic live work?",
-			message:
-				"The next discovery tick will return cancellable work as cancelled.",
-		},
-	},
-];
+		null,
+		2,
+	);
 
 export default definePlotExtension<DebugConfig>({
 	id: "plot-debug-lab",
@@ -187,14 +189,8 @@ export default definePlotExtension<DebugConfig>({
 	create({ config, paths, work: makeWork, registerTool }) {
 		const bootMs = Date.now();
 		const completedKeys = new Set<string>();
-		const startedAt = new Map<string, number>();
 		const log: DebugLogEntry[] = [];
 		let discoverCount = 0;
-		let operatorSequence = 0;
-		let releaseSequence = 0;
-		let completedReleaseSequence = 0;
-		let pauseWave = false;
-		let cancelLiveSequence = 0;
 
 		const workspaceRoot =
 			config.workspaceRoot ?? join(paths.sessionDir, "debug-workspaces");
@@ -213,58 +209,53 @@ export default definePlotExtension<DebugConfig>({
 		const workspaceFor = (id: string) =>
 			join(workspaceRoot, safePathSegment(id));
 
-		const notCompleted = (candidate: PlotExtensionWork) =>
-			!completedKeys.has(stableKey(candidate));
-
 		const addWork = (
 			items: PlotExtensionWork[],
 			candidate: PlotExtensionWork,
 		) => {
-			if (notCompleted(candidate)) items.push(makeWork(candidate));
+			if (!completedKeys.has(stableKey(candidate)))
+				items.push(makeWork(candidate));
 		};
 
 		registerTool(({ work, runId }) =>
 			defineTool({
-				name: "debug_report",
-				label: "Debug report",
+				name: "debug_progress",
+				label: "Debug progress",
 				description:
-					"Record a structured debug checkpoint for this synthetic Work Item.",
+					"Record a realistic progress checkpoint for this long-running debug Work Item.",
 				promptSnippet:
-					"Use debug_report when a debug scenario asks you to mark a checkpoint.",
+					"Use debug_progress at the start of each scenario step and before final handoff.",
 				parameters: {
 					type: "object",
 					properties: {
-						message: { type: "string" },
-						phase: { type: "string" },
+						step: { type: "string" },
+						status: { type: "string" },
+						note: { type: "string" },
 					},
-					required: ["message"],
+					required: ["step", "status", "note"],
 				},
 				execute: async (params) => {
-					const message =
-						typeof params.message === "string" ? params.message : "checkpoint";
-					const phase =
-						typeof params.phase === "string" ? params.phase : "agent";
+					const step = typeof params.step === "string" ? params.step : "step";
+					const status =
+						typeof params.status === "string" ? params.status : "in_progress";
+					const note =
+						typeof params.note === "string" ? params.note : "progress";
 					await appendLog({
 						at: new Date().toISOString(),
-						kind: `tool:${phase}`,
+						kind: `progress:${status}`,
 						workId: work.id,
 						version: work.version,
 						runId,
-						message,
+						message: `${step}: ${note}`,
 					});
 					return {
 						content: [
 							{
 								type: "text",
-								text: `debug checkpoint recorded for ${work.id}: ${message}`,
+								text: `progress recorded for ${work.id}: ${step} (${status})`,
 							},
 						],
-						details: {
-							workId: work.id,
-							version: work.version,
-							runId,
-							logEntries: log.length,
-						},
+						details: { workId: work.id, version: work.version, step, status },
 					};
 				},
 			}),
@@ -272,46 +263,49 @@ export default definePlotExtension<DebugConfig>({
 
 		registerTool(({ work, runId }) =>
 			defineTool({
-				name: "debug_sleep",
-				label: "Debug sleep",
+				name: "debug_wait",
+				label: "Debug wait",
 				description:
-					"Sleep for a requested duration so Plot dashboards can show running, draining, interruption, and timeout states.",
+					"Wait for a realistic amount of time so the dashboards can show a live long-running agent session.",
 				parameters: {
 					type: "object",
 					properties: {
 						milliseconds: { type: "integer" },
 						reason: { type: "string" },
 					},
-					required: ["milliseconds"],
+					required: ["reason"],
 				},
 				execute: async (params, context) => {
 					const milliseconds = positiveInteger(
 						typeof params.milliseconds === "number"
 							? params.milliseconds
 							: undefined,
-						config.shortSleepMs,
+						config.stepDelayMs,
 					);
+					const reason =
+						typeof params.reason === "string" ? params.reason : "debug wait";
 					await appendLog({
 						at: new Date().toISOString(),
-						kind: "tool:sleep:start",
+						kind: "wait:start",
 						workId: work.id,
 						version: work.version,
 						runId,
-						message: `${milliseconds}ms`,
+						message: `${milliseconds}ms: ${reason}`,
 					});
 					await sleep(milliseconds, context.signal);
 					await appendLog({
 						at: new Date().toISOString(),
-						kind: "tool:sleep:done",
+						kind: "wait:done",
 						workId: work.id,
 						version: work.version,
 						runId,
+						message: reason,
 					});
 					return {
 						content: [
 							{
 								type: "text",
-								text: `slept ${milliseconds}ms for ${work.id}`,
+								text: `waited ${milliseconds}ms for ${work.id}: ${reason}`,
 							},
 						],
 					};
@@ -321,10 +315,10 @@ export default definePlotExtension<DebugConfig>({
 
 		registerTool(({ work, runId }) =>
 			defineTool({
-				name: "debug_workspace_note",
-				label: "Debug workspace note",
+				name: "debug_write_artifact",
+				label: "Debug write artifact",
 				description:
-					"Write a small artifact into this Work Item workspace to test per-work cwd and artifact inspection.",
+					"Write a realistic markdown artifact into this Work Item workspace.",
 				parameters: {
 					type: "object",
 					properties: {
@@ -337,7 +331,7 @@ export default definePlotExtension<DebugConfig>({
 					const filename =
 						typeof params.filename === "string"
 							? safePathSegment(params.filename)
-							: "debug-note.txt";
+							: "debug-artifact.md";
 					const body = typeof params.body === "string" ? params.body : "debug";
 					const targetWorkspace = work.workspace ?? workspaceFor(work.id);
 					await mkdir(targetWorkspace, { recursive: true });
@@ -345,7 +339,7 @@ export default definePlotExtension<DebugConfig>({
 					await writeFile(target, body, "utf8");
 					await appendLog({
 						at: new Date().toISOString(),
-						kind: "tool:workspace_note",
+						kind: "artifact:write",
 						workId: work.id,
 						version: work.version,
 						runId,
@@ -364,7 +358,7 @@ export default definePlotExtension<DebugConfig>({
 				name: "debug_finish",
 				label: "Debug finish",
 				description:
-					"End the current synthetic debug run after the requested checkpoints are complete.",
+					"Finish the current realistic debug Work Item after its handoff artifact is written.",
 				parameters: {
 					type: "object",
 					properties: { summary: { type: "string" } },
@@ -375,7 +369,7 @@ export default definePlotExtension<DebugConfig>({
 						typeof params.summary === "string" ? params.summary : "debug done";
 					await appendLog({
 						at: new Date().toISOString(),
-						kind: "tool:finish",
+						kind: "finish",
 						workId: work.id,
 						version: work.version,
 						message: summary,
@@ -400,275 +394,36 @@ export default definePlotExtension<DebugConfig>({
 					);
 				}
 
-				const now = Date.now();
-				const cycle = Math.floor((now - bootMs) / config.cycleMs);
+				const cycle = Math.floor((Date.now() - bootMs) / config.cycleMs);
+				const version = `cycle-${cycle}`;
 				const items: PlotExtensionWork[] = [];
-
-				const controlVersion = `operator-${releaseSequence}`;
-				const controlBase = {
-					id: "debug:operator-control",
-					version: controlVersion,
-					title: "Operator action control",
-					subject: "debug:operators",
-					display: {
-						kind: "debug",
-						primary: "ACTION",
-						title: "Operator action control",
-						subtitle: `operator sequence ${operatorSequence}`,
-						version: controlVersion,
-						labels: ["blocked", "actions", pauseWave ? "paused" : "live"],
-					},
-					context: {
-						debugContext: debugContext({
-							scenario: "operator action released work",
-							cycle,
-							expectedState: "pending -> running -> done",
-							instructions: [
-								"Call debug_report with phase 'operator'.",
-								"Call debug_finish with a one-line summary.",
-							],
-						}),
-					},
-				} satisfies PlotExtensionWork;
-				if (releaseSequence <= completedReleaseSequence) {
-					items.push(
-						makeWork({
-							...controlBase,
-							status: "blocked",
-							blockedReason:
-								"Synthetic blocked item. Use Release once, Pause wave, Resume wave, or Cancel live work from the dashboard.",
-							operatorActions: operatorActions(),
-						}),
-					);
-				} else {
-					items.push(makeWork(controlBase));
-				}
-
-				items.push(
-					makeWork({
-						id: "debug:waiting-clock",
-						version: `wait-${cycle}`,
-						title: "Waiting clock",
-						subject: "debug:waiting",
-						status: "waiting",
-						blockedReason:
-							"Synthetic waiting state: visible, claimed by the source, not dispatched.",
+				for (const scenario of SCENARIOS) {
+					addWork(items, {
+						id: `debug:${scenario.id}`,
+						version,
+						title: scenario.title,
+						subject: `debug:${scenario.id}`,
+						workspace: workspaceFor(scenario.id),
 						display: {
 							kind: "debug",
-							primary: "WAIT",
-							title: "Waiting clock",
-							subtitle: `cycle ${cycle}`,
-							version: `wait-${cycle}`,
-							labels: ["waiting", "held"],
-						},
-					}),
-				);
-
-				if (!pauseWave) {
-					for (let index = 1; index <= config.waveSize; index += 1) {
-						const version = `wave-${cycle}`;
-						addWork(items, {
-							id: `debug:wave:${index}`,
+							primary: scenario.primary,
+							title: scenario.title,
+							subtitle: scenario.subtitle,
 							version,
-							title: `Queued wave item ${index}`,
-							subject: "debug:wave",
-							workspace: workspaceFor(`wave-${index}`),
-							display: {
-								kind: "debug",
-								primary: `W${index}`,
-								title: `Queued wave item ${index}`,
-								subtitle: `cycle ${cycle}; concurrency should leave some pending`,
-								version,
-								labels: ["pending", "running", "done"],
-							},
-							context: {
-								debugContext: debugContext({
-									scenario: "queued/running/done wave",
-									cycle,
-									expectedState: "pending -> running -> done",
-									instructions: [
-										"Call debug_report with phase 'start'.",
-										`Call debug_sleep for ${config.shortSleepMs} milliseconds.`,
-										"Call debug_finish with a short summary.",
-									],
-								}),
-							},
-						});
-					}
-				}
-
-				addWork(items, {
-					id: "debug:tool-sampler",
-					version: `tools-${cycle}`,
-					title: "Tool and workspace sampler",
-					subject: "debug:tools",
-					workspace: workspaceFor("tool-sampler"),
-					display: {
-						kind: "debug",
-						primary: "TOOL",
-						title: "Tool and workspace sampler",
-						subtitle:
-							"custom tools, details payloads, terminate, workspace artifacts",
-						version: `tools-${cycle}`,
-						labels: ["tools", "workspace", "terminate"],
-					},
-					context: {
-						debugContext: debugContext({
-							scenario: "custom tools and workspace artifacts",
-							cycle,
-							expectedState: "running with tool timeline -> done",
-							instructions: [
-								"Call debug_report with phase 'tool-sampler'.",
-								"Call debug_workspace_note with filename 'artifact.txt'.",
-								`Call debug_sleep for ${config.shortSleepMs} milliseconds.`,
-								"Call debug_finish with a summary mentioning the artifact.",
-							],
-						}),
-					},
-				});
-
-				if (config.includeDrain) {
-					const drain: PlotExtensionWork = {
-						id: "debug:drain-on-disappear",
-						version: `drain-${cycle}`,
-						title: "Drain after disappearing",
-						subject: "debug:drain",
-						workspace: workspaceFor("drain-on-disappear"),
-						display: {
-							kind: "debug",
-							primary: "DRAIN",
-							title: "Drain after disappearing",
-							subtitle: "extension omits this work after it starts",
-							version: `drain-${cycle}`,
-							labels: ["draining", "disappears"],
+							labels: scenario.labels,
 						},
 						context: {
-							debugContext: debugContext({
-								scenario: "draining when work disappears mid-run",
+							debugContext: scenarioContext({
+								scenario,
 								cycle,
-								expectedState: "running -> draining -> done/released",
-								instructions: [
-									"Call debug_report with phase 'drain-start'.",
-									`Call debug_sleep for ${config.longSleepMs} milliseconds so discovery can omit this item while it is still running.`,
-									"Call debug_finish after the sleep if the run was allowed to drain.",
-								],
+								stepDelayMs: config.stepDelayMs,
 							}),
 						},
-					};
-					const drainStartedAt = startedAt.get(stableKey(drain));
-					if (
-						drainStartedAt === undefined ||
-						now - drainStartedAt < config.drainAfterMs
-					) {
-						addWork(items, drain);
-					}
+					});
 				}
-
-				if (config.includeCancellation) {
-					const cancelBase = {
-						id: "debug:cancel-on-command",
-						version: `cancel-${cycle}-${cancelLiveSequence}`,
-						title: "Cancellation target",
-						subject: "debug:cancel",
-						workspace: workspaceFor("cancel-on-command"),
-						display: {
-							kind: "debug",
-							primary: "CANCEL",
-							title: "Cancellation target",
-							subtitle:
-								"auto-cancels after start or when operator requests cancellation",
-							version: `cancel-${cycle}-${cancelLiveSequence}`,
-							labels: ["cancelled", "interrupted"],
-						},
-						context: {
-							debugContext: debugContext({
-								scenario: "source cancellation",
-								cycle,
-								expectedState: "running -> interrupted/removed",
-								instructions: [
-									"Call debug_report with phase 'cancel-start'.",
-									`Call debug_sleep for ${config.longSleepMs} milliseconds.`,
-									"If not interrupted, call debug_finish.",
-								],
-							}),
-						},
-					} satisfies PlotExtensionWork;
-					const cancelStarted = startedAt.has(stableKey(cancelBase));
-					if (cancelStarted && !completedKeys.has(stableKey(cancelBase))) {
-						addWork(items, { ...cancelBase, status: "cancelled" });
-					} else {
-						addWork(items, cancelBase);
-					}
-				}
-
-				if (config.includeFailure) {
-					items.push(
-						makeWork({
-							id: "debug:workspace-failure",
-							version: "always-fails",
-							title: "Workspace preparation failure",
-							subject: "debug:failure",
-							workspace: "/dev/null/plot-debug-workspace-failure",
-							display: {
-								kind: "debug",
-								primary: "FAIL",
-								title: "Workspace preparation failure",
-								subtitle:
-									"expected mkdir failure; exercises failed + retry wake",
-								version: "always-fails",
-								labels: ["failed", "retry", "wake"],
-							},
-							context: {
-								debugContext: debugContext({
-									scenario: "runner setup failure",
-									cycle,
-									expectedState: "failed -> scheduled wake -> retry",
-									instructions: [
-										"This prompt should not run because workspace creation is expected to fail before agent start.",
-									],
-								}),
-							},
-						}),
-					);
-				}
-
-				if (config.includeTimeout) {
-					items.push(
-						makeWork({
-							id: "debug:timeout-run",
-							version: "timeout-loop",
-							title: "Timeout target",
-							subject: "debug:timeout",
-							workspace: workspaceFor("timeout-run"),
-							display: {
-								kind: "debug",
-								primary: "TIME",
-								title: "Timeout target",
-								subtitle: "long sleep should exceed maxRunDurationMs",
-								version: "timeout-loop",
-								labels: ["timed_out", "retry", "wake"],
-							},
-							context: {
-								debugContext: debugContext({
-									scenario: "max run duration timeout",
-									cycle,
-									expectedState: "running -> timed_out -> scheduled wake",
-									instructions: [
-										"Call debug_report with phase 'timeout-start'.",
-										`Call debug_sleep for ${config.longSleepMs * 3} milliseconds.`,
-										"Do not call debug_finish unless the sleep returns.",
-									],
-								}),
-							},
-						}),
-					);
-				}
-
 				return items;
 			},
 			async started(event) {
-				const key = stableKey(event.work);
-				startedAt.set(key, Date.now());
 				await appendLog({
 					at: new Date().toISOString(),
 					kind: "hook:started",
@@ -678,11 +433,7 @@ export default definePlotExtension<DebugConfig>({
 				});
 			},
 			async completed(event) {
-				const key = stableKey(event.work);
-				completedKeys.add(key);
-				if (event.work.id === "debug:operator-control") {
-					completedReleaseSequence = releaseSequence;
-				}
+				completedKeys.add(stableKey(event.work));
 				await appendLog({
 					at: new Date().toISOString(),
 					kind: "hook:completed",
@@ -702,7 +453,6 @@ export default definePlotExtension<DebugConfig>({
 				});
 			},
 			async interrupted(event) {
-				completedKeys.add(stableKey(event.work));
 				await appendLog({
 					at: new Date().toISOString(),
 					kind: "hook:interrupted",
@@ -718,20 +468,6 @@ export default definePlotExtension<DebugConfig>({
 					workId: event.work.id,
 					version: event.work.version,
 					runId: event.runId,
-				});
-			},
-			async operatorAction(event) {
-				operatorSequence += 1;
-				if (event.actionId === "release_once") releaseSequence += 1;
-				if (event.actionId === "pause_wave") pauseWave = true;
-				if (event.actionId === "resume_wave") pauseWave = false;
-				if (event.actionId === "cancel_live") cancelLiveSequence += 1;
-				await appendLog({
-					at: event.timestamp,
-					kind: `hook:operator:${event.actionId}`,
-					workId: event.work.id,
-					version: event.work.version,
-					message: event.comment,
 				});
 			},
 			async shutdown() {

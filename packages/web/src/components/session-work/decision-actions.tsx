@@ -1,6 +1,6 @@
 /**
- * The operator-action controls for a blocked decision. The river stays
- * fixed-height; mutable controls live in the detail drawer.
+ * The operator-action controls for a blocked decision. Mutable controls live in
+ * the detail drawer so the river stays a scannable status surface.
  */
 
 import { useRef, useState } from "react";

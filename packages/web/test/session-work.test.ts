@@ -333,6 +333,31 @@ test("buildMotion resolves the live line through the stream chain", () => {
 	}
 });
 
+test("buildMotion keeps lastDisplay visible when streams are between chunks", () => {
+	const motion = buildMotion(
+		projection({
+			work: {
+				busy: work("busy", { status: "running", currentRunId: "run-1" }),
+			},
+			attempts: {
+				"run-1": attempt("run-1", "busy", {
+					activity: "working",
+					lastDisplay: "Reading session-work.tsx",
+					streams: {},
+				}),
+			},
+		}),
+	);
+	const item = motion[0];
+	expect(item?.kind).toBe("active");
+	if (item?.kind === "active") {
+		expect(item.line).toEqual({
+			text: "Reading session-work.tsx",
+			llm: false,
+		});
+	}
+});
+
 test("buildMotion tags a message stream as LLM-authored", () => {
 	const motion = buildMotion(
 		projection({
@@ -367,18 +392,14 @@ test("buildMotion tags a thinking-only line as LLM and a subtitle as plain", () 
 		llm: true,
 	});
 
-	const rb = attempt("rb", "b", {});
-	delete (rb as { activity?: string }).activity;
 	const subtitle = buildMotion(
 		projection({
 			work: {
 				b: work("b", {
 					status: "running",
-					currentRunId: "rb",
 					subtitle: "queued behind CI",
 				}),
 			},
-			attempts: { rb },
 		}),
 	)[0];
 	expect(subtitle?.kind === "active" && subtitle.line).toEqual({

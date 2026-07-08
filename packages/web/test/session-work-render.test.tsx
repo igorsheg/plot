@@ -84,7 +84,7 @@ const detailValue: WorkDetailContextValue = {
 	},
 };
 
-test("session work river keeps busy-row heights fixed", () => {
+test("session work river keeps row anatomy stable", () => {
 	const html = renderToString(
 		<SessionWorkProvider value={workValue}>
 			<WorkDetailProvider value={detailValue}>
@@ -93,7 +93,13 @@ test("session work river keeps busy-row heights fixed", () => {
 		</SessionWorkProvider>,
 	);
 
-	expect(html.match(/\bh-14\b/g)?.length).toBe(5);
-	expect(html.match(/\bh-8\b/g)?.length).toBe(1);
+	expect(
+		html.match(/data-density="work"[^>]*data-slot="work-item-frame"/g)?.length,
+	).toBe(5);
+	expect(
+		html.match(/data-density="settled"[^>]*data-slot="work-item-frame"/g)
+			?.length,
+	).toBe(1);
+	expect(html.match(/data-slot="work-item-subline"/g)?.length).toBe(5);
 	expect(html).not.toContain("Approve");
 });

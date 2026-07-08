@@ -1,72 +1,12 @@
 import { cva } from "../ui/variants.js";
 import { textVariants } from "../ui/text.js";
 
-export const riverClass = cva({
-	base: "w-full",
-});
-
 export const groupClass = cva({
-	base: "m-0 list-none gap-[18px] p-0",
-});
-
-export const itemClass = cva({
-	base: "min-w-0 list-none",
-});
-
-export const rowClass = cva({
-	base: "min-w-0",
-	variants: {
-		size: {
-			work: "h-14",
-			settled: "h-8",
-			subline: "h-5",
-			content: null,
-		},
-	},
-	defaultVariants: {
-		size: "content",
-	},
-});
-
-export const edgeClass = cva({
-	base: "whitespace-nowrap",
+	base: "m-0 list-none p-0",
 });
 
 export const hairlineClass = cva({
 	base: "border-t border-border",
-});
-
-export const openButtonClass = cva({
-	base: "group -mx-2 flex w-full cursor-pointer rounded-md px-2 py-1 text-left hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-	variants: {
-		align: {
-			work: "items-start gap-3",
-			settled: "items-baseline gap-3",
-		},
-	},
-});
-
-export const workLineClass = cva({
-	base: "block h-5 min-w-0 max-w-full truncate",
-	variants: {
-		kind: {
-			empty: null,
-			live: textVariants({ size: "sm" }),
-			reason: textVariants({ size: "sm" }),
-		},
-		fill: {
-			false: null,
-			true: "flex-1",
-		},
-	},
-	defaultVariants: {
-		fill: false,
-		kind: "live",
-	},
-});
-
-export const settledLineClass = cva({
-	base: ["min-w-0 flex-1 truncate", textVariants({ size: "sm" })],
 });
 
 export const drawerHeaderRowClass = cva({

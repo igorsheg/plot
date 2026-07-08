@@ -26,7 +26,7 @@ import { formatShortAge } from "../../lib/relative-time.js";
 import Stack, { VStack } from "../ui/stack.js";
 import { Text, textVariants } from "../ui/text.js";
 import { StreamedProse } from "../ui/streamed.js";
-import { Caret, dotClass, type DotKind } from "./atoms.js";
+import { dotClass, type DotKind } from "./atoms.js";
 import { DecisionActions } from "./decision-actions.js";
 import {
 	useWorkDetail,
@@ -115,16 +115,13 @@ function ActiveBody({
 		<VStack gap={12}>
 			<SectionLabel>Now</SectionLabel>
 			{view.tool !== undefined && (
-				<Stack alignStart gap={8} className={timelineRowClass()}>
-					<pre
-						className={preWrapClass({
-							className: textVariants({ size: "sm" }),
-						})}
-					>
-						{view.tool}
-					</pre>
-					{view.streaming && <Caret />}
-				</Stack>
+				<pre
+					className={preWrapClass({
+						className: textVariants({ size: "sm" }),
+					})}
+				>
+					{view.tool}
+				</pre>
 			)}
 			{view.thinking !== undefined && <StreamedProse text={view.thinking} />}
 		</VStack>

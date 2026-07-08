@@ -1,8 +1,4 @@
-/**
- * Tiny presentational atoms shared by the river rows and the detail drawer: the
- * status dot (one vocabulary) and the streaming caret. Kept here (not in
- * `session-work.tsx`) so the drawer can reuse them without an import cycle.
- */
+/** Shared work-state dot vocabulary used by the river and detail drawer. */
 
 import { cva } from "../ui/variants.js";
 
@@ -27,19 +23,3 @@ export const dotClass = cva({
 		offset: false,
 	},
 });
-
-export function Dot({ kind }: { readonly kind: DotKind }) {
-	return (
-		<span aria-hidden="true" className={dotClass({ kind, offset: true })} />
-	);
-}
-
-/** Blinking stream caret — rendered only while an attempt is streaming. */
-export function Caret() {
-	return (
-		<span
-			aria-hidden="true"
-			className="inline-block h-3 w-1.5 shrink-0 animate-pulse bg-muted-foreground motion-reduce:animate-none"
-		/>
-	);
-}

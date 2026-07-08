@@ -1,46 +1,39 @@
 ---
 name: plot-debug-lab
-description: Synthetic extension that continuously exercises Plot scheduling, projection, TUI, web, tools, hooks, operator actions, retries, drains, cancellations, and timeouts.
-version: 1.0.0
+description: Three realistic long-running synthetic work streams for debugging Plot TUI and web behavior without stress-testing every edge state.
+version: 2.0.0
 plot:
-  queueCapacity: 128
+  queueCapacity: 32
   eventCapacity: 512
-  eventBufferCapacity: 2048
+  eventBufferCapacity: 1024
   tickIntervalMs: 5000
-  maxRunDurationMs: 20000
-  stallTimeoutMs: 15000
+  maxRunDurationMs: 600000
+  stallTimeoutMs: 120000
 agent:
   thinking: minimal
-  maxTurns: 3
+  maxTurns: 8
   allowProjectConfig: true
 extension:
   source: ./debug.extension.ts
-  maxConcurrentRuns: 4
+  maxConcurrentRuns: 3
   config:
-    cycleMs: 90000
-    waveSize: 6
-    shortSleepMs: 2500
-    longSleepMs: 45000
-    drainAfterMs: 8000
-    includeFailure: true
-    includeTimeout: true
-    includeCancellation: true
-    includeDrain: true
-    # Set to e.g. 12 to test discover() failures and last-known-work retention.
+    cycleMs: 900000
+    stepDelayMs: 20000
+    # Set to e.g. 20 to test discover() failures while keeping the realistic workload shape.
     simulateDiscoveryFailureEvery: 0
 resources:
   contextFiles: false
   appendSystemPrompt:
     - |
       You are running inside Plot's debug lab. This is synthetic work for UI/runtime inspection.
-      Follow the scenario instructions exactly, prefer the registered debug_* tools, keep final messages short, and never ask a human for next steps.
+      Treat the scenario as realistic operational work. Use the registered debug_* tools, keep progress concrete, and never ask a human for next steps.
 ---
 
 # Plot debug lab: {{ work.title }}
 
-This Work Item is synthetic and exists to exercise Plot's runtime and dashboard projections.
+This Work Item is one of three realistic long-running synthetic streams. It exists to make the TUI and web dashboard look like normal Plot usage instead of a stress test.
 
-Debug scenario JSON:
+Scenario JSON:
 
 ```json
 {{ debugContext }}
@@ -48,6 +41,7 @@ Debug scenario JSON:
 
 Rules:
 
-1. Follow the scenario JSON instructions in order.
-2. Use the registered `debug_*` tools when instructed.
-3. Keep any final natural-language response to one short status line.
+1. For each scenario step, call `debug_progress`, then `debug_wait` with the configured `stepDelayMs` unless you have a specific shorter reason.
+2. Write at least one requested markdown artifact with `debug_write_artifact`.
+3. Finish only after every scenario step is complete by calling `debug_finish` with a concise handoff summary.
+4. Keep any final natural-language response to one short status line.

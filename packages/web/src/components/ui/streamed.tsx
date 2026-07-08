@@ -19,8 +19,7 @@
  * `React.memo` on the primitives so an unchanged `text` between polls is a
  * no-op. Code highlighting (Shiki) is intentionally bypassed via `code`/`pre`
  * overrides — a stream snippet is not a document, and we want synchronous,
- * token-styled output. Images are stripped. The streaming caret stays OUR
- * `Caret`, rendered by callers after the primitive.
+ * token-styled output. Images are stripped.
  */
 
 import { memo } from "react";

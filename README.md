@@ -105,7 +105,7 @@ Needs an authenticated `gh` and provider auth (`plot auth login`).
 plot --workflow examples/debug/WORKFLOW.md
 ```
 
-Synthetic long-running work for inspecting every Plot state in the TUI and web dashboard: queued, running, waiting, blocked, draining, failed, interrupted, timed out, operator actions, custom tools, and retry wakes.
+Three realistic long-running synthetic work streams for inspecting concurrent Plot sessions in the TUI and web dashboard without forcing failure, cancellation, or timeout edge cases.
 
 ## Watch it work
 

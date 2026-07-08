@@ -5,7 +5,7 @@ const motionVars =
 
 export const dockNavClass = cva({
 	base: [
-		"group/dock flex h-dvh w-[280px] flex-col items-start justify-center gap-3",
+		"group/dock flex h-dvh w-fit max-w-[calc(100vw-2rem)] flex-col items-start justify-center gap-3 pr-3",
 		motionVars,
 	],
 });
@@ -33,12 +33,12 @@ export const dockLineClass = cva({
 });
 
 export const dockLineTitleShellClass = cva({
-	base: "w-[220px] overflow-hidden whitespace-nowrap transition-[opacity,translate] duration-[var(--dock-exit)] ease-[var(--dock-ease-exit)] group-hover/dock:duration-[var(--dock-enter)] group-hover/dock:ease-[var(--dock-ease-enter)] group-focus-within/dock:duration-[var(--dock-enter)] group-focus-within/dock:ease-[var(--dock-ease-enter)]",
+	base: "max-w-[220px] overflow-hidden whitespace-nowrap transition-[opacity,translate] duration-[var(--dock-exit)] ease-[var(--dock-ease-exit)] group-hover/dock:duration-[var(--dock-enter)] group-hover/dock:ease-[var(--dock-ease-enter)] group-focus-within/dock:duration-[var(--dock-enter)] group-focus-within/dock:ease-[var(--dock-ease-enter)]",
 	variants: {
 		visible: {
 			false:
-				"-translate-x-1 opacity-0 group-hover/dock:translate-x-0 group-hover/dock:opacity-100 group-focus-within/dock:translate-x-0 group-focus-within/dock:opacity-100",
-			true: "translate-x-0 opacity-100",
+				"w-0 -translate-x-1 opacity-0 group-hover/dock:w-auto group-hover/dock:translate-x-0 group-hover/dock:opacity-100 group-focus-within/dock:w-auto group-focus-within/dock:translate-x-0 group-focus-within/dock:opacity-100",
+			true: "w-auto translate-x-0 opacity-100",
 		},
 	},
 });

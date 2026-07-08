@@ -1,17 +1,14 @@
 # Plot debug lab extension
 
-A synthetic, long-running Plot extension for debugging the live TUI and web dashboard.
+A realistic, long-running Plot extension for debugging the live TUI and web dashboard.
 
-It continuously creates Work Items that exercise:
+It creates exactly three concurrent synthetic Work Items:
 
-- `pending`, `running`, `waiting`, `blocked`, `draining`, `done`, `failed`, `cancelled/interrupted`, and `timed_out` paths
-- display hints: primary text, titles, subtitles, versions, labels, and subjects
-- per-source concurrency and queued pending rows
-- custom tools, tool details, tool termination, and workspace artifacts
-- lifecycle hooks: started, completed, failed, interrupted, timedOut, operatorAction, shutdown
-- operator actions from the TUI/web dashboard
-- retry backoff and scheduled wake projection after failure/timeout
-- optional discovery failures while retaining last-known work
+- `INC` — triage a checkout latency regression
+- `REL` — prepare a release readiness brief
+- `DEP` — plan a dependency upgrade campaign
+
+Each item has its own workspace, emits progress checkpoints, waits between stages, writes markdown artifacts, and finishes with a handoff summary. The workload recurs on a configurable cycle so you can leave it running while inspecting the TUI and web UI.
 
 ## Run
 
@@ -27,18 +24,15 @@ In another terminal:
 plot web
 ```
 
-The extension is designed to run forever. Stop it with the normal TUI quit/shutdown flow.
+The extension is designed to run for a long time without intentionally creating failures, cancellations, or timeout noise.
 
 ## What to look for
 
-- `WAIT` stays visible and is never dispatched.
-- `ACTION` is blocked and exposes operator buttons. Use **Release once** to turn it into runnable work.
-- `W1`..`W6` create enough work to show source concurrency and pending/running transitions.
-- `TOOL` writes an artifact under the session debug workspace and terminates through a custom tool result.
-- `DRAIN` disappears from discovery while running, so the dashboard can show `draining`.
-- `CANCEL` is returned as `cancelled` after start, so Plot interrupts and releases it.
-- `FAIL` uses an intentionally invalid workspace under `/dev/null` to trigger a failed attempt and retry wake.
-- `TIME` asks the agent to sleep longer than `maxRunDurationMs`, producing timeout and retry behavior.
+- Three Work Items should start together because `maxConcurrentRuns` is `3`.
+- Each row should look like normal operational work rather than a synthetic state matrix.
+- Agent attempts should show progress tool calls, wait periods, artifact writes, and completion.
+- Completed work disappears until the next `cycleMs` interval creates a new version.
+- Artifacts and extension hook logs are written under the session debug workspace.
 
 Extension events are appended to:
 
@@ -46,17 +40,19 @@ Extension events are appended to:
 <sessionDir>/debug-workspaces/extension-events.jsonl
 ```
 
+Per-work artifacts are written under:
+
+```txt
+<sessionDir>/debug-workspaces/<work-id>/
+```
+
 ## Config
 
 Edit `WORKFLOW.md` under `extension.config`:
 
-- `cycleMs`: new wave/version interval
-- `waveSize`: number of queued wave items per cycle
-- `shortSleepMs`: sleep used by normal synthetic runs
-- `longSleepMs`: sleep used for drain/cancel/timeout scenarios
-- `drainAfterMs`: how long after start before `DRAIN` disappears from discovery
-- `includeFailure`, `includeTimeout`, `includeCancellation`, `includeDrain`: scenario toggles
+- `cycleMs`: how often the three streams recur with a new version
+- `stepDelayMs`: default wait time between scenario steps
 - `simulateDiscoveryFailureEvery`: `0` disables; a positive number throws every Nth discover tick
 - `workspaceRoot`: optional absolute directory for debug artifacts
 
-This extension intentionally spends agent turns. Reduce `waveSize`, disable timeout/failure scenarios, or increase `cycleMs` when you only need a small UI sample.
+The default workflow runs three concurrent items, each with three staged waits, and avoids intentional failure/timeout/cancellation states. If you want the old edge-state stress behavior, keep it as a separate example rather than mixing it into this realistic dashboard workload.

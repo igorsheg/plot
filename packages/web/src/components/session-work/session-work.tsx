@@ -27,8 +27,8 @@ import {
 } from "../../lib/relative-time.js";
 import { Text } from "../ui/text.js";
 import { StreamedLine } from "../ui/streamed.js";
-import Stack, { VStack } from "../ui/stack.js";
-import { Caret, Dot, type DotKind } from "./atoms.js";
+import { VStack } from "../ui/stack.js";
+import { WorkItem } from "./work-item.js";
 import {
 	SessionWorkProvider,
 	useSessionWork,
@@ -55,17 +55,7 @@ import {
 	type DetailView,
 } from "./detail-view-model.js";
 import { WorkDrawer } from "./drawer.js";
-import {
-	edgeClass,
-	hairlineClass,
-	groupClass,
-	itemClass,
-	openButtonClass,
-	riverClass,
-	rowClass,
-	settledLineClass,
-	workLineClass,
-} from "./styles.js";
+import { hairlineClass, groupClass } from "./styles.js";
 import {
 	buildAttention,
 	buildMotion,
@@ -89,89 +79,7 @@ const isOpen = (view: DetailView | undefined, ref: DetailRef): boolean =>
 const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
 
 function EmptySubline() {
-	return (
-		<span aria-hidden="true" className={workLineClass({ kind: "empty" })}>
-			&nbsp;
-		</span>
-	);
-}
-
-function RowInner({
-	dot,
-	edge,
-	children,
-}: {
-	readonly dot: DotKind;
-	readonly edge?: string | undefined;
-	readonly children: ReactNode;
-}) {
-	return (
-		<>
-			<Dot kind={dot} />
-			<VStack flex1 gap={4} className={rowClass()}>
-				{children}
-			</VStack>
-			{edge !== undefined && (
-				<span className={edgeClass()}>
-					<Text as="span" size="sm" variant="secondary">
-						{edge}
-					</Text>
-				</span>
-			)}
-		</>
-	);
-}
-
-/** A non-interactive row (queued, diagnostic). */
-function Row({
-	dot,
-	edge,
-	children,
-}: {
-	readonly dot: DotKind;
-	readonly edge?: string | undefined;
-	readonly children: ReactNode;
-}) {
-	return (
-		<Stack as="li" alignStart gap={12} className={rowClass({ size: "work" })}>
-			<RowInner dot={dot} edge={edge}>
-				{children}
-			</RowInner>
-		</Stack>
-	);
-}
-
-/** An openable live-work row: the whole fixed-height row is a button. */
-function OpenableRow({
-	dot,
-	edge,
-	open,
-	onOpen,
-	children,
-}: {
-	readonly dot: DotKind;
-	readonly edge?: string | undefined;
-	readonly open: boolean;
-	readonly onOpen: () => void;
-	readonly children: ReactNode;
-}) {
-	return (
-		<li className={itemClass()}>
-			<button
-				aria-expanded={open}
-				className={openButtonClass({
-					align: "work",
-					className: rowClass({ size: "work" }),
-				})}
-				onClick={onOpen}
-				type="button"
-			>
-				<RowInner dot={dot} edge={edge}>
-					{children}
-				</RowInner>
-			</button>
-		</li>
-	);
+	return <WorkItem.Subline empty />;
 }
 
 const ageEdge = (
@@ -184,22 +92,28 @@ function DecisionRow({ item }: { readonly item: DecisionItem }) {
 	const { state } = useSessionWork();
 	const detail = useWorkDetail();
 	const ref = workRef(item.workKey);
+	const edge = ageEdge(state.nowMs, item.sinceMs);
 	return (
-		<OpenableRow
-			dot="attention"
-			edge={ageEdge(state.nowMs, item.sinceMs)}
-			onOpen={() => detail.actions.open(ref)}
-			open={isOpen(detail.state.view, ref)}
-		>
-			<Text as="p">{item.title}</Text>
-			{item.reason !== undefined ? (
-				<span className={workLineClass({ kind: "reason" })}>
-					<StreamedLine text={item.reason} />
-				</span>
-			) : (
-				<EmptySubline />
-			)}
-		</OpenableRow>
+		<WorkItem.Root>
+			<WorkItem.Frame
+				interactive
+				onClick={() => detail.actions.open(ref)}
+				open={isOpen(detail.state.view, ref)}
+			>
+				<WorkItem.Dot kind="attention" />
+				<WorkItem.Body>
+					<WorkItem.Title>{item.title}</WorkItem.Title>
+					{item.reason !== undefined ? (
+						<WorkItem.Subline>
+							<StreamedLine text={item.reason} />
+						</WorkItem.Subline>
+					) : (
+						<EmptySubline />
+					)}
+				</WorkItem.Body>
+				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+			</WorkItem.Frame>
+		</WorkItem.Root>
 	);
 }
 
@@ -207,33 +121,44 @@ function FailureRow({ item }: { readonly item: FailureItem }) {
 	const { state } = useSessionWork();
 	const detail = useWorkDetail();
 	const ref = workRef(item.key);
+	const edge = ageEdge(state.nowMs, item.sinceMs);
 	return (
-		<OpenableRow
-			dot="attention"
-			edge={ageEdge(state.nowMs, item.sinceMs)}
-			onOpen={() => detail.actions.open(ref)}
-			open={isOpen(detail.state.view, ref)}
-		>
-			<Text as="p">{item.title}</Text>
-			{item.line !== undefined ? (
-				<span className={workLineClass({ kind: "live" })}>
-					<StreamedLine text={item.line} tone="danger" />
-				</span>
-			) : (
-				<EmptySubline />
-			)}
-		</OpenableRow>
+		<WorkItem.Root>
+			<WorkItem.Frame
+				interactive
+				onClick={() => detail.actions.open(ref)}
+				open={isOpen(detail.state.view, ref)}
+			>
+				<WorkItem.Dot kind="attention" />
+				<WorkItem.Body>
+					<WorkItem.Title>{item.title}</WorkItem.Title>
+					{item.line !== undefined ? (
+						<WorkItem.Subline>
+							<StreamedLine text={item.line} tone="danger" />
+						</WorkItem.Subline>
+					) : (
+						<EmptySubline />
+					)}
+				</WorkItem.Body>
+				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+			</WorkItem.Frame>
+		</WorkItem.Root>
 	);
 }
 
 function DiagnosticRow({ item }: { readonly item: DiagnosticItem }) {
 	return (
-		<Row dot="attention">
-			<Text as="p" truncate variant="error">
-				{item.text}
-			</Text>
-			<EmptySubline />
-		</Row>
+		<WorkItem.Root>
+			<WorkItem.Frame>
+				<WorkItem.Dot kind="attention" />
+				<WorkItem.Body>
+					<WorkItem.Title tone="error" truncate>
+						{item.text}
+					</WorkItem.Title>
+					<EmptySubline />
+				</WorkItem.Body>
+			</WorkItem.Frame>
+		</WorkItem.Root>
 	);
 }
 
@@ -249,31 +174,32 @@ function ActiveRow({ item }: { readonly item: ActiveItem }) {
 			: item.verifying
 				? { text: verifyingLine(item.line.text), llm: false }
 				: item.line;
+	const edge = ageEdge(state.nowMs, item.sinceMs);
 	return (
-		<OpenableRow
-			dot="active"
-			edge={ageEdge(state.nowMs, item.sinceMs)}
-			onOpen={() => detail.actions.open(ref)}
-			open={isOpen(detail.state.view, ref)}
-		>
-			<Text as="p">{item.title}</Text>
-			{line !== undefined ? (
-				<Stack alignCenter gap={8} className={rowClass({ size: "subline" })}>
-					{line.llm ? (
-						<span className={workLineClass({ fill: true, kind: "live" })}>
-							<StreamedLine text={line.text} tone="secondary" />
-						</span>
+		<WorkItem.Root>
+			<WorkItem.Frame
+				interactive
+				onClick={() => detail.actions.open(ref)}
+				open={isOpen(detail.state.view, ref)}
+			>
+				<WorkItem.Dot kind="active" />
+				<WorkItem.Body>
+					<WorkItem.Title>{item.title}</WorkItem.Title>
+					{line !== undefined ? (
+						<WorkItem.Subline>
+							{line.llm ? (
+								<StreamedLine text={line.text} tone="secondary" />
+							) : (
+								line.text
+							)}
+						</WorkItem.Subline>
 					) : (
-						<span className={workLineClass({ fill: true, kind: "live" })}>
-							{line.text}
-						</span>
+						<EmptySubline />
 					)}
-					{item.streaming && <Caret />}
-				</Stack>
-			) : (
-				<EmptySubline />
-			)}
-		</OpenableRow>
+				</WorkItem.Body>
+				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+			</WorkItem.Frame>
+		</WorkItem.Root>
 	);
 }
 
@@ -284,18 +210,20 @@ function QueuedRow({ item }: { readonly item: QueuedItem }) {
 			? undefined
 			: `wakes in ${formatCountdown(item.wakeDueAtMs - state.nowMs)}`;
 	return (
-		<Row dot="queued" edge={edge}>
-			<Text as="p" variant="secondary">
-				{item.title}
-			</Text>
-			{item.sub !== undefined ? (
-				<Text as="p" size="sm" truncate variant="secondary">
-					{item.sub}
-				</Text>
-			) : (
-				<EmptySubline />
-			)}
-		</Row>
+		<WorkItem.Root>
+			<WorkItem.Frame>
+				<WorkItem.Dot kind="queued" />
+				<WorkItem.Body>
+					<WorkItem.Title tone="secondary">{item.title}</WorkItem.Title>
+					{item.sub !== undefined ? (
+						<WorkItem.Subline tone="secondary">{item.sub}</WorkItem.Subline>
+					) : (
+						<EmptySubline />
+					)}
+				</WorkItem.Body>
+				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+			</WorkItem.Frame>
+		</WorkItem.Root>
 	);
 }
 
@@ -329,32 +257,23 @@ function SettledRow({ item }: { readonly item: SettledItem }) {
 			? age
 			: `${age} · ${formatDuration(item.durationMs)}`;
 	return (
-		<li className={itemClass()}>
-			<button
-				aria-expanded={isOpen(detail.state.view, ref)}
-				className={openButtonClass({
-					align: "settled",
-					className: rowClass({ size: "settled" }),
-				})}
+		<WorkItem.Root>
+			<WorkItem.Frame
+				density="settled"
+				interactive
 				onClick={() => detail.actions.open(ref)}
-				type="button"
+				open={isOpen(detail.state.view, ref)}
 			>
-				<span className="shrink-0">
-					<Text as="span">{item.label}</Text>
-				</span>
-				<span className={settledLineClass()}>
+				<WorkItem.Label>{item.label}</WorkItem.Label>
+				<WorkItem.Message>
 					<StreamedLine
 						text={item.message}
 						tone={item.failed ? "danger" : "secondary"}
 					/>
-				</span>
-				<span className={edgeClass()}>
-					<Text as="span" size="sm" variant="secondary">
-						{edge}
-					</Text>
-				</span>
-			</button>
-		</li>
+				</WorkItem.Message>
+				<WorkItem.Edge>{edge}</WorkItem.Edge>
+			</WorkItem.Frame>
+		</WorkItem.Root>
 	);
 }
 
@@ -387,7 +306,7 @@ export function SessionWork() {
 		);
 	}
 	return (
-		<VStack gap={40} className={riverClass()}>
+		<VStack gap={20}>
 			{hasAttention && (
 				<VStack as="ul" className={groupClass()}>
 					{state.attention.map((item) => (

@@ -94,7 +94,8 @@ const attemptFor = (
  * Live line resolution, mirroring the old `attemptActivity` chain minus the
  * blocked-reason and status fallbacks (those carry their own affordances). The
  * result is tagged: only message/thinking streams are LLM-authored markdown;
- * tool commands, the activity label, and the subtitle stay plain text.
+ * tool commands, the last display line, the activity label, and the subtitle
+ * stay plain text.
  */
 const liveLine = (
 	work: SerializedDashboardProjection["work"][string],
@@ -106,6 +107,8 @@ const liveLine = (
 		return { text: attempt.streams.message, llm: true };
 	if (attempt?.streams.thinking !== undefined)
 		return { text: attempt.streams.thinking, llm: true };
+	if (attempt?.lastDisplay !== undefined)
+		return { text: attempt.lastDisplay, llm: false };
 	if (attempt?.activity !== undefined)
 		return { text: attempt.activity, llm: false };
 	if (work.subtitle !== undefined) return { text: work.subtitle, llm: false };
