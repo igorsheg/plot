@@ -1,6 +1,8 @@
 # CLI
 
-`plot` is the command-line entry point for opening dashboards, running workflows, managing provider auth, and inspecting runs.
+`plot` is the command-line entry point for opening dashboards, running workflows, managing provider auth, inspecting runs, and calling the public session protocol.
+
+The CLI is the stable automation surface. Human commands, JSON output, `plot api`, `plot events`, `plot serve api --stdio`, and the web gateway all speak the same session protocol records.
 
 ## Main commands
 
@@ -10,6 +12,8 @@ plot open [workflow]
 plot open [workflow] --web
 plot run [workflow]
 plot runs
+plot api schema
+plot events wait <run-id> --type tick_completed
 plot auth
 plot models [search]
 plot init [workflow]
@@ -20,6 +24,9 @@ plot doctor [workflow]
 - `plot open [workflow]` opens the terminal dashboard for a workflow.
 - `plot open [workflow] --web` opens the browser dashboard.
 - `plot run [workflow]` runs one workflow pass without a dashboard.
+- `plot runs` lists shared registry runs.
+- `plot api schema` prints the public session protocol schema.
+- `plot events wait <run-id> --type <event>` blocks until a live run emits an event.
 - `plot auth` shows provider authentication status.
 - `plot models` lists provider/model ids available to Plot auth.
 - `plot init` creates a starter workflow.
@@ -43,6 +50,41 @@ Common registry options:
 - `--cwd <path>`: project root used by registry operations.
 - `--registry-dir <path>`: alternate run registry state directory.
 - `--json`: print raw IPC responses for commands that return a single response.
+
+## API commands
+
+```bash
+plot api schema
+plot api ping <run-id>
+plot api snapshot <run-id>
+```
+
+`plot api` is for deterministic clients and agents. It prints JSON protocol records and accepts unique run id prefixes anywhere `<run-id>` is shown.
+
+- `schema`: print the bundled session protocol schema, including protocol version and method names.
+- `ping`: send `ping` to a live run.
+- `snapshot`: send `session.snapshot` to a live run and print the response.
+
+Current public session protocol methods:
+
+- `ping`
+- `session.start`
+- `session.shutdown`
+- `session.snapshot`
+- `session.tick`
+- `session.dispatch.pause`
+- `session.dispatch.resume`
+- `agent.interrupt`
+- `operator.observe`
+
+## Event commands
+
+```bash
+plot events stream <run-id> [--after <sequence>]
+plot events wait <run-id> --type <event-type> [--after <sequence>] [--timeout-ms <ms>]
+```
+
+`events stream` prints live protocol records as JSONL. `events wait` prints the first matching event record as pretty JSON. Use session event names such as `tick_completed`, `attempt_completed`, or `agent_event` for relayed inner-agent records.
 
 ## Auth and model commands
 
@@ -86,7 +128,7 @@ plot serve api [workflow] --stdio
 plot serve registry
 ```
 
-`serve` is for advanced integrations and background daemons. Most users should start with `plot`, `plot open`, or `plot run`.
+`serve` starts transports and daemons. `plot serve api --stdio` exposes the same session protocol as newline-delimited JSON for one workflow process. Most automation should prefer `plot api`, `plot events`, and `plot runs` unless it needs to own a protocol process directly.
 
 ## Workflow/session options
 

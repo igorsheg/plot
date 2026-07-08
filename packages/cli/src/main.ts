@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 import { runCommand as runCittyCommand } from "citty";
 import { runPlotCli } from "./cli.js";
-import { apiCommand } from "./commands/api.js";
+import { serveApiCommand } from "./commands/serve-api.js";
 
 const args = process.argv.slice(2);
 const run =
 	args[0] === "__internal-api-stdio"
-		? runCittyCommand(apiCommand, {
+		? runCittyCommand(serveApiCommand, {
 				rawArgs: ["--stdio", ...args.slice(1)],
 				showUsage: false,
 			})

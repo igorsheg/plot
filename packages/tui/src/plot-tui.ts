@@ -8,7 +8,7 @@ import {
 	sessionProtocolVersion,
 	type ClientRequest,
 	type ServerRecord,
-	type SessionCommand,
+	type SessionProtocolMethod,
 } from "@plot/session/protocol";
 import { PlotDashboard } from "./dashboard.js";
 import {
@@ -112,7 +112,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		});
 	};
 	const request = async (
-		command: SessionCommand,
+		method: SessionProtocolMethod,
 		params?: unknown,
 	): Promise<ServerRecord> => {
 		const id = `tui-${++requestIndex}`;
@@ -120,7 +120,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			protocol: sessionProtocolVersion,
 			kind: "request",
 			id,
-			command,
+			method,
 		};
 		if (params !== undefined) record.params = params;
 		return runIpc.runRegistry.submit(run.id, record);
@@ -150,7 +150,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
-			void request("request_tick").catch(fail);
+			void request("session.tick").catch(fail);
 		},
 		refresh,
 		toggleDebug: render,

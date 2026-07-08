@@ -57,7 +57,7 @@ describe("session serve", () => {
 				protocol: sessionProtocolVersion,
 				kind: "request",
 				id: "t1",
-				command: "ping",
+				method: "ping",
 			})}\n`,
 		]);
 

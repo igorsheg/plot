@@ -1,45 +1,34 @@
 import { defineCommand, type ParsedArgs } from "citty";
 import { stringifyJsonl } from "@plot/common/jsonl";
-import { errorMessage, type Mutable } from "@plot/common/primitives";
+import { errorMessage } from "@plot/common/primitives";
 import { defaultProtocolLimits } from "@plot/session/protocol";
-import { sendRunIpcRequest, streamRunRecords } from "@plot/registry/ipc";
-import type { RunIpcOptions, RunRequest } from "@plot/registry/ipc";
-import { runRegistryArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { writeCliStderr } from "../io.js";
 import { str } from "../options.js";
 import { formatRunResponse } from "../run-output.js";
+import {
+	jsonText,
+	resolveRunId,
+	resolveRunIdPrefix,
+	runControlFix,
+	runRegistryArgs,
+	sendRunRequest,
+	streamRunProtocolRecords,
+	writeRunControlError,
+} from "../run-client.js";
 
-const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
+export { resolveRunIdPrefix };
 
-class RunIdResolutionError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "RunIdResolutionError";
-	}
-}
-
-const runIpcOptions = (args: ParsedArgs): RunIpcOptions => {
-	const options: Mutable<RunIpcOptions> = {
-		cwd: str(args, "cwd") ?? process.cwd(),
-	};
-	const runRegistryDir = str(args, "registry-dir");
-	if (runRegistryDir !== undefined) options.runRegistryDir = runRegistryDir;
-	return options;
-};
-
-const runControlFix = (error: unknown): string =>
-	error instanceof RunIdResolutionError
-		? "Use `plot runs list` to copy a current run id. Short unique prefixes are accepted."
-		: "Start the daemon with `plot serve registry`, `plot open`, or `plot open --web`.";
-
-const request = async (args: ParsedArgs, value: RunRequest) => {
+const request = async (
+	args: ParsedArgs,
+	value: Parameters<typeof sendRunRequest>[1],
+) => {
 	const io = getCliIo();
 	try {
-		const response = await sendRunIpcRequest(runIpcOptions(args), value);
+		const response = await sendRunRequest(args, value);
 		await io.writeStdout(
 			args["json"] === true
-				? json(response)
+				? jsonText(response)
 				: `${formatRunResponse(response)}\n`,
 		);
 	} catch (error) {
@@ -51,33 +40,6 @@ const request = async (args: ParsedArgs, value: RunRequest) => {
 	}
 };
 
-export const resolveRunIdPrefix = (
-	input: string,
-	runs: readonly { readonly id: string }[],
-): string => {
-	const matches = runs.filter((run) => run.id.startsWith(input));
-	if (matches.length === 1) return matches[0]!.id;
-	if (matches.length === 0)
-		throw new RunIdResolutionError(`Run not found: ${input}`);
-	throw new RunIdResolutionError(
-		`Run id "${input}" is ambiguous: ${matches.map((run) => run.id.slice(0, 8)).join(", ")}`,
-	);
-};
-
-const resolveRunId = async (
-	args: ParsedArgs,
-	input: string,
-): Promise<string> => {
-	if (input.length >= 36) return input;
-	const response = await sendRunIpcRequest(runIpcOptions(args), {
-		type: "list",
-	});
-	if (response.type === "error") throw new Error(response.error);
-	if (response.type !== "list_result")
-		throw new Error(`Unexpected run list response: ${response.type}`);
-	return resolveRunIdPrefix(input, response.runs);
-};
-
 const requestRun = async (args: ParsedArgs, type: "status" | "stop") => {
 	const runId = str(args, "runId");
 	if (runId === undefined) throw new Error("run id required");
@@ -85,10 +47,7 @@ const requestRun = async (args: ParsedArgs, type: "status" | "stop") => {
 	try {
 		id = await resolveRunId(args, runId);
 	} catch (error) {
-		await writeCliStderr(
-			getCliIo(),
-			`Error: ${errorMessage(error)}\nFix: ${runControlFix(error)}\n`,
-		);
+		await writeRunControlError(error);
 		throw error;
 	}
 	if (type === "status") return request(args, { type: "status", id });
@@ -98,7 +57,7 @@ const requestRun = async (args: ParsedArgs, type: "status" | "stop") => {
 const jsonFlag = {
 	json: {
 		type: "boolean",
-		description: "Print the raw IPC response as JSON.",
+		description: "Print the raw response as JSON.",
 		default: false,
 	},
 } as const;
@@ -108,7 +67,7 @@ const parseAfterSequence = (args: ParsedArgs): number => {
 	if (after === undefined) return 0;
 	const sequence = Number(after);
 	if (Number.isInteger(sequence) && sequence >= 0) return sequence;
-	throw new RunIdResolutionError("--after must be a non-negative integer");
+	throw new Error("--after must be a non-negative integer");
 };
 
 const streamEvents = async (args: ParsedArgs) => {
@@ -116,13 +75,11 @@ const streamEvents = async (args: ParsedArgs) => {
 	try {
 		const runId = str(args, "runId");
 		if (runId === undefined) throw new Error("run id required");
-		const id = await resolveRunId(args, runId);
-		for await (const record of streamRunRecords(
-			runIpcOptions(args),
-			id,
+		for await (const record of streamRunProtocolRecords(
+			args,
+			runId,
 			parseAfterSequence(args),
 		)) {
-			// eslint-disable-next-line no-await-in-loop -- preserve streamed run output order.
 			await io.writeStdout(
 				stringifyJsonl(record, {
 					maxLineBytes: defaultProtocolLimits.maxOutputLineBytes,
@@ -174,7 +131,7 @@ export const stopRunCommand = defineCommand({
 });
 
 export const logsRunCommand = defineCommand({
-	meta: { name: "logs", description: "Stream run protocol records." },
+	meta: { name: "logs", description: "Stream run protocol records as JSONL." },
 	args: {
 		...runIdArg,
 		after: {

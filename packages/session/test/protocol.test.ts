@@ -14,13 +14,13 @@ import {
 import type { SessionRuntime } from "../src/runtime.js";
 
 const request = (
-	command: ClientRequest["command"],
+	method: ClientRequest["method"],
 	params = {},
 ): ClientRequest => ({
 	protocol: sessionProtocolVersion,
 	kind: "request",
-	id: command,
-	command,
+	id: method,
+	method,
 	params,
 });
 
@@ -58,7 +58,7 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 
 test("protocol codec decodes valid requests and rejects invalid records", () => {
 	const decoded = decodeClientRequestLine(JSON.stringify(request("ping")));
-	expect(decoded.command).toBe("ping");
+	expect(decoded.method).toBe("ping");
 	expect(() =>
 		decodeClientRequestLine(JSON.stringify({ kind: "request" })),
 	).toThrow(ProtocolBoundaryError);
@@ -92,19 +92,19 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 		}),
 	});
 
-	await protocol.submit(request("start"));
-	await protocol.submit(request("pause_dispatch"));
-	await protocol.submit(request("resume_dispatch"));
-	await protocol.submit(request("interrupt_agent_run", { runId: "run-1" }));
+	await protocol.submit(request("session.start"));
+	await protocol.submit(request("session.dispatch.pause"));
+	await protocol.submit(request("session.dispatch.resume"));
+	await protocol.submit(request("agent.interrupt", { runId: "run-1" }));
 	await protocol.submit(
-		request("record_operator_observation", {
+		request("operator.observe", {
 			sourceId: "source-1",
 			workKey: "work-1",
 			actionId: "approve",
 			actionLabel: "Approve",
 		}),
 	);
-	await protocol.submit(request("shutdown"));
+	await protocol.submit(request("session.shutdown"));
 	await protocol.close();
 
 	expect(calls).toEqual([
@@ -132,7 +132,7 @@ test("protocol adapter reports request queue overflow", async () => {
 		runtime: runtime({ start: async () => blockedStart }),
 	});
 	const output = protocol.output();
-	const started = protocol.submit(request("start"));
+	const started = protocol.submit(request("session.start"));
 	await Promise.resolve();
 	void protocol.submit(request("ping"));
 	const accepted = await protocol.submit({
@@ -186,7 +186,7 @@ test("server record round trip", () => {
 	);
 });
 
-test("rejects pre-v3 protocol lines", () => {
+test("rejects stale protocol lines", () => {
 	const line =
 		'{"protocol":"plot.session.v2","kind":"event","sequence":1,"event":{}}';
 	expect(() => decodeServerRecordLine(line)).toThrow(ProtocolBoundaryError);

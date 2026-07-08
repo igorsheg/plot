@@ -430,7 +430,7 @@ const operatorObservationResponse = async (
 				protocol: sessionProtocolVersion,
 				kind: "request",
 				id: `web_observation_${randomUUID()}`,
-				command: "record_operator_observation",
+				method: "operator.observe",
 				params: { ...body, actor: "web" },
 			})
 			.catch(() => undefined);

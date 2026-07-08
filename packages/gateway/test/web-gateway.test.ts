@@ -5,7 +5,10 @@ import { describe, expect, test } from "bun:test";
 import { AsyncQueue } from "@plot/common/async-queue";
 import { startRunIpcServer } from "@plot/registry/ipc";
 import type { RunRecord } from "@plot/registry/record";
-import type { ServerRecord } from "@plot/session/protocol";
+import {
+	sessionProtocolVersion,
+	type ServerRecord,
+} from "@plot/session/protocol";
 import type { RuntimeEvent } from "@plot/session/runtime";
 import {
 	gaplessRunEventRecords,
@@ -41,7 +44,7 @@ const serverEvent = (
 	sequence: number,
 	event: SessionRuntimeEvent["event"],
 ): EventServerRecord => ({
-	protocol: "plot.session.v3",
+	protocol: sessionProtocolVersion,
 	kind: "event",
 	event: {
 		kind: "session_event",

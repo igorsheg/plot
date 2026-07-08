@@ -18,21 +18,38 @@ import {
 	type SessionRuntime,
 } from "./runtime.js";
 
-export const sessionProtocolVersion = "plot.session.v3";
+export const sessionProtocolVersion = "plot.session.v4";
 
-const sessionCommands = [
+export const sessionProtocolMethods = [
 	"ping",
-	"start",
-	"shutdown",
-	"get_state",
-	"request_tick",
-	"pause_dispatch",
-	"resume_dispatch",
-	"interrupt_agent_run",
-	"record_operator_observation",
+	"session.start",
+	"session.shutdown",
+	"session.snapshot",
+	"session.tick",
+	"session.dispatch.pause",
+	"session.dispatch.resume",
+	"agent.interrupt",
+	"operator.observe",
 ] as const;
 
-export type SessionCommand = (typeof sessionCommands)[number];
+export type SessionProtocolMethod = (typeof sessionProtocolMethods)[number];
+
+export const sessionProtocolSchema = {
+	protocol: sessionProtocolVersion,
+	schemaVersion: 1,
+	transport: "jsonl",
+	request: {
+		kind: "request",
+		id: "string",
+		method: [...sessionProtocolMethods],
+		params: "method-specific object",
+	},
+	records: {
+		welcome: ["protocol", "kind", "sessionId", "limits"],
+		event: ["protocol", "kind", "event"],
+		response: ["protocol", "kind", "id", "method", "ok", "data", "error"],
+	},
+} as const;
 
 export interface ProtocolLimits {
 	readonly maxInputLineBytes: number;
@@ -52,7 +69,7 @@ export interface ClientRequest {
 	readonly protocol: typeof sessionProtocolVersion;
 	readonly kind: "request";
 	readonly id: string;
-	readonly command: SessionCommand;
+	readonly method: SessionProtocolMethod;
 	readonly params?: unknown;
 }
 
@@ -73,7 +90,7 @@ export interface SuccessResponse {
 	readonly protocol: typeof sessionProtocolVersion;
 	readonly kind: "response";
 	readonly id: string;
-	readonly command: SessionCommand;
+	readonly method: SessionProtocolMethod;
 	readonly ok: true;
 	readonly lastSequence?: number;
 	readonly data?: unknown;
@@ -91,7 +108,7 @@ export interface ErrorResponse {
 	readonly protocol: typeof sessionProtocolVersion;
 	readonly kind: "response";
 	readonly id?: string;
-	readonly command?: SessionCommand;
+	readonly method?: SessionProtocolMethod;
 	readonly ok: false;
 	readonly error: {
 		readonly code: ProtocolErrorCode;
@@ -122,8 +139,10 @@ export class ProtocolBoundaryError extends Error {
 	}
 }
 
-const asSessionCommand = (value: unknown): SessionCommand | undefined =>
-	sessionCommands.find((command) => command === value);
+const asSessionProtocolMethod = (
+	value: unknown,
+): SessionProtocolMethod | undefined =>
+	sessionProtocolMethods.find((method) => method === value);
 
 const requireString = (label: string, value: unknown): string => {
 	if (typeof value === "string" && value.length > 0) return value;
@@ -212,17 +231,17 @@ export const decodeClientRequest = (value: unknown): ClientRequest => {
 			code: "invalid_request",
 			message: "request id must be a non-empty string of at most 128 chars",
 		});
-	const command = asSessionCommand(value["command"]);
-	if (command === undefined)
+	const method = asSessionProtocolMethod(value["method"]);
+	if (method === undefined)
 		throw new ProtocolBoundaryError({
 			code: "invalid_request",
-			message: `unknown command: ${String(value["command"])}`,
+			message: `unknown method: ${String(value["method"])}`,
 		});
 	const request: Mutable<ClientRequest> = {
 		protocol: sessionProtocolVersion,
 		kind: "request",
 		id,
-		command,
+		method,
 	};
 	if (value["params"] !== undefined) request.params = value["params"];
 	return request;
@@ -255,17 +274,17 @@ export const decodeServerRecord = (value: unknown): ServerRecord => {
 			message: `unknown server record kind: ${String(kind)}`,
 		});
 	if (value["ok"] === true) {
-		const command = asSessionCommand(value["command"]);
-		if (command === undefined)
+		const method = asSessionProtocolMethod(value["method"]);
+		if (method === undefined)
 			throw new ProtocolBoundaryError({
 				code: "invalid_request",
-				message: `unknown command: ${String(value["command"])}`,
+				message: `unknown method: ${String(value["method"])}`,
 			});
 		const response: Mutable<SuccessResponse> = {
 			protocol: sessionProtocolVersion,
 			kind,
 			id: requireString("response id", value["id"]),
-			command,
+			method,
 			ok: true,
 		};
 		if (typeof value["lastSequence"] === "number")
@@ -294,8 +313,8 @@ export const decodeServerRecord = (value: unknown): ServerRecord => {
 		};
 		if (typeof value["id"] === "string" && value["id"].length > 0)
 			response.id = value["id"];
-		const command = asSessionCommand(value["command"]);
-		if (command !== undefined) response.command = command;
+		const method = asSessionProtocolMethod(value["method"]);
+		if (method !== undefined) response.method = method;
 		return response;
 	}
 	throw new ProtocolBoundaryError({
@@ -383,7 +402,7 @@ export const makeSuccess = (input: {
 		protocol: typeof sessionProtocolVersion;
 		kind: "response";
 		id: string;
-		command: SessionCommand;
+		method: SessionProtocolMethod;
 		ok: true;
 		lastSequence?: number;
 		data?: unknown;
@@ -391,7 +410,7 @@ export const makeSuccess = (input: {
 		protocol: sessionProtocolVersion,
 		kind: "response",
 		id: input.request.id,
-		command: input.request.command,
+		method: input.request.method,
 		ok: true,
 	};
 	if (input.lastSequence !== undefined)
@@ -416,7 +435,7 @@ export const makeError = (input: {
 		protocol: typeof sessionProtocolVersion;
 		kind: "response";
 		id?: string;
-		command?: SessionCommand;
+		method?: SessionProtocolMethod;
 		ok: false;
 		error: typeof error;
 	} = {
@@ -427,7 +446,7 @@ export const makeError = (input: {
 	};
 	if (input.request !== undefined) {
 		response.id = input.request.id;
-		response.command = input.request.command;
+		response.method = input.request.method;
 	}
 	return response;
 };
@@ -442,7 +461,7 @@ const decodeInterruptParams = (
 	)
 		throw new ProtocolBoundaryError({
 			code: "invalid_request",
-			message: "interrupt_agent_run requires a non-empty runId",
+			message: "agent.interrupt requires a non-empty runId",
 		});
 	const input: { runId: string; workKey?: string } = { runId: params["runId"] };
 	if (typeof params["workKey"] === "string" && params["workKey"].length > 0)
@@ -454,7 +473,7 @@ const decodeObservationParams = (params: unknown): OperatorObservationInput => {
 	if (!isRecord(params))
 		throw new ProtocolBoundaryError({
 			code: "invalid_request",
-			message: "record_operator_observation requires params",
+			message: "operator.observe requires params",
 		});
 	for (const key of [
 		"sourceId",
@@ -466,7 +485,7 @@ const decodeObservationParams = (params: unknown): OperatorObservationInput => {
 		if (typeof value !== "string" || value.length === 0)
 			throw new ProtocolBoundaryError({
 				code: "invalid_request",
-				message: `record_operator_observation requires a non-empty ${key}`,
+				message: `operator.observe requires a non-empty ${key}`,
 			});
 	}
 	const input: {
@@ -558,50 +577,49 @@ export const makeSessionProtocol = (
 	const handleRequest = async (
 		request: ClientRequest,
 	): Promise<ServerRecord> => {
-		switch (request.command) {
+		switch (request.method) {
 			case "ping":
 				return makeSuccess({ request, data: { pong: true } });
-			case "start":
+			case "session.start":
 				await options.runtime.start();
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: { started: true },
 				});
-			case "shutdown":
+			case "session.shutdown":
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: { accepted: await options.runtime.shutdown() },
 				});
-			case "get_state":
+			case "session.snapshot":
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: await options.runtime.state(),
 				});
-
-			case "request_tick":
+			case "session.tick":
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: { result: await options.runtime.tickOnce() },
 				});
-			case "pause_dispatch":
+			case "session.dispatch.pause":
 				await options.runtime.pauseDispatch();
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: { paused: true },
 				});
-			case "resume_dispatch":
+			case "session.dispatch.resume":
 				await options.runtime.resumeDispatch();
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: { resumed: true },
 				});
-			case "record_operator_observation": {
+			case "operator.observe": {
 				const params = decodeObservationParams(request.params);
 				return makeSuccess({
 					request,
@@ -611,7 +629,7 @@ export const makeSessionProtocol = (
 					},
 				});
 			}
-			case "interrupt_agent_run": {
+			case "agent.interrupt": {
 				const params = decodeInterruptParams(request.params);
 				return makeSuccess({
 					request,

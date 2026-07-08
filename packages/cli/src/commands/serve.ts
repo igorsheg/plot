@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { apiCommand } from "./api.js";
+import { serveApiCommand } from "./serve-api.js";
 import { serveRegistryCommand } from "./registry.js";
 
 export const serveCommand = defineCommand({
@@ -8,7 +8,7 @@ export const serveCommand = defineCommand({
 		description: "Serve Plot transports and background daemons.",
 	},
 	subCommands: {
-		api: apiCommand,
+		api: serveApiCommand,
 		registry: serveRegistryCommand,
 	},
 });

@@ -1,72 +1,85 @@
-import { defineCommand } from "citty";
-import type { Mutable } from "@plot/common/primitives";
-import { sessionCommandArgs, pathArgs, workflowPathArg } from "../args.js";
+import { defineCommand, type ParsedArgs } from "citty";
+import {
+	sessionProtocolSchema,
+	type SessionProtocolMethod,
+} from "@plot/session/protocol";
 import { getCliIo } from "../cli-context.js";
-import { openBrowser } from "../io.js";
-import { baseOptions, int, str, workflowPathFromArgs } from "../options.js";
-import { resolvePlotCommand } from "../plot-command.js";
-import { runApiStdio, type ApiStdioOptions } from "../runtime.js";
-import { runPlotWebGateway } from "@plot/gateway";
+import { str } from "../options.js";
+import {
+	jsonText,
+	runRegistryArgs,
+	submitRunProtocolRequest,
+	writeRunControlError,
+} from "../run-client.js";
+
+const runIdArg = {
+	runId: {
+		type: "positional",
+		description:
+			"Live run id. A unique prefix from `plot runs list` is accepted.",
+		required: true,
+	},
+} as const;
+
+const writeProtocolRecord = async (
+	runId: string | undefined,
+	method: SessionProtocolMethod,
+	args: ParsedArgs,
+) => {
+	if (runId === undefined) throw new Error("run id required");
+	try {
+		const record = await submitRunProtocolRequest(args, runId, method);
+		await getCliIo().writeStdout(jsonText(record));
+	} catch (error) {
+		await writeRunControlError(error);
+		throw error;
+	}
+};
+
+export const apiSchemaCommand = defineCommand({
+	meta: {
+		name: "schema",
+		description: "Print the Plot session protocol schema.",
+	},
+	args: {
+		json: {
+			type: "boolean",
+			description: "Print the schema as JSON. This is the default.",
+			default: true,
+		},
+	},
+	run: async () => {
+		await getCliIo().writeStdout(jsonText(sessionProtocolSchema));
+	},
+});
+
+export const apiPingCommand = defineCommand({
+	meta: {
+		name: "ping",
+		description: "Ping a live run through the session protocol.",
+	},
+	args: { ...runIdArg, ...runRegistryArgs },
+	run: ({ args }) => writeProtocolRecord(str(args, "runId"), "ping", args),
+});
+
+export const apiSnapshotCommand = defineCommand({
+	meta: {
+		name: "snapshot",
+		description: "Print a live run session snapshot through the protocol.",
+	},
+	args: { ...runIdArg, ...runRegistryArgs },
+	run: ({ args }) =>
+		writeProtocolRecord(str(args, "runId"), "session.snapshot", args),
+});
 
 export const apiCommand = defineCommand({
 	meta: {
 		name: "api",
-		description: "Serve the Plot API for custom clients and frontends.",
+		description: "Inspect and call Plot's public session protocol.",
 	},
-	args: {
-		...workflowPathArg,
-		...sessionCommandArgs,
-		stdio: {
-			type: "boolean",
-			description: "Serve the run API over newline-delimited JSON on stdio.",
-		},
-		http: {
-			type: "boolean",
-			description:
-				"Serve the run API over HTTP. Default when --stdio is omitted.",
-		},
-		port: {
-			type: "string",
-			description: "HTTP API port. Default: random free port.",
-			valueHint: "port",
-		},
-		host: {
-			type: "string",
-			description: "HTTP API host. Default: 127.0.0.1.",
-			valueHint: "host",
-		},
-		open: {
-			type: "boolean",
-			description: "Open the HTTP API/dashboard in a browser.",
-		},
-		cwd: pathArgs.cwd,
-	},
-	run: ({ args }) => {
-		const io = getCliIo();
-		if (args.stdio === true) {
-			io.protectStdout?.();
-			const stdioOptions = baseOptions(args) as Mutable<ApiStdioOptions>;
-			if (io.createAgentSession !== undefined)
-				stdioOptions.createAgentSession = io.createAgentSession;
-			stdioOptions.stdin = io.stdin;
-			stdioOptions.writeLine = io.writeStdout;
-			return runApiStdio(stdioOptions);
-		}
-		const options: Mutable<Parameters<typeof runPlotWebGateway>[0]> = {
-			cwd: str(args, "cwd") ?? process.cwd(),
-			open: args["open"] === true,
-			openUrl: openBrowser,
-			cli: resolvePlotCommand(),
-		};
-		const agentDir = str(args, "agent-dir");
-		const workflowPath = workflowPathFromArgs(args);
-		const port = int(args, "port");
-		const host = str(args, "host");
-		if (agentDir !== undefined) options.agentDir = agentDir;
-		if (workflowPath !== undefined) options.workflowPath = workflowPath;
-		if (port !== undefined) options.port = port;
-		if (host !== undefined) options.host = host;
-		if (io.writeStderr !== undefined) options.writeStderr = io.writeStderr;
-		return runPlotWebGateway(options);
+	subCommands: {
+		schema: apiSchemaCommand,
+		ping: apiPingCommand,
+		snapshot: apiSnapshotCommand,
 	},
 });

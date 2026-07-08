@@ -23,6 +23,7 @@ import {
 import {
 	decodeClientRequestLine,
 	encodeServerRecordLine,
+	sessionProtocolVersion,
 } from "@plot/session/protocol";
 import type { ServerRecord } from "@plot/session/protocol";
 
@@ -48,13 +49,13 @@ class FakeChild implements RunChildProcess {
 		this.writes.push(line);
 		const request = decodeClientRequestLine(line);
 		this.emit({
-			protocol: "plot.session.v3",
+			protocol: sessionProtocolVersion,
 			kind: "response",
 			id: request.id,
-			command: request.command,
+			method: request.method,
 			ok: true,
 			data:
-				request.command === "get_state"
+				request.method === "session.snapshot"
 					? { sessionId: this.sessionId, ...this.state }
 					: {},
 		});
@@ -91,16 +92,16 @@ test("runRegistry IPC codecs validate required protocol fields", () => {
 		decodeRunRequest({
 			type: "protocol_request",
 			id: "run-1",
-			request: { kind: "request", id: "client-1", command: "ping" },
+			request: { kind: "request", id: "client-1", method: "ping" },
 		}),
 	).toThrow();
 	const response = decodeRunResponse({
 		type: "protocol_response",
 		record: {
-			protocol: "plot.session.v3",
+			protocol: sessionProtocolVersion,
 			kind: "response",
 			id: "client-1",
-			command: "ping",
+			method: "ping",
 			ok: true,
 		},
 	});
@@ -149,7 +150,7 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 			});
 			queueMicrotask(() =>
 				child?.emit({
-					protocol: "plot.session.v3",
+					protocol: sessionProtocolVersion,
 					kind: "welcome",
 					sessionId: "session-runRegistry",
 					limits: {
@@ -181,8 +182,8 @@ test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () =>
 		args: ["./packages/cli/src/main.ts", "__internal-api-stdio", "--cwd", cwd],
 	});
 	expect(
-		child?.writes.map((line) => decodeClientRequestLine(line).command),
-	).toEqual(["start", "get_state", "shutdown"]);
+		child?.writes.map((line) => decodeClientRequestLine(line).method),
+	).toEqual(["session.start", "session.snapshot", "session.shutdown"]);
 	expect(child?.killed).toBe(true);
 	expect(stopped).toMatchObject({ status: "stopped", stderrTail: "stuvwxyz" });
 });
@@ -395,7 +396,7 @@ test("runRegistry IPC opens the existing shared run registry", async () => {
 		spawnChild: () => {
 			queueMicrotask(() =>
 				child.emit({
-					protocol: "plot.session.v3",
+					protocol: sessionProtocolVersion,
 					kind: "welcome",
 					sessionId: "session-shared",
 					limits: {
@@ -426,12 +427,12 @@ test("runRegistry IPC opens the existing shared run registry", async () => {
 		});
 		expect(
 			await opened.runRegistry.submit("run-shared", {
-				protocol: "plot.session.v3",
+				protocol: sessionProtocolVersion,
 				kind: "request",
 				id: "client-1",
-				command: "ping",
+				method: "ping",
 			}),
-		).toMatchObject({ id: "client-1", command: "ping", ok: true });
+		).toMatchObject({ id: "client-1", method: "ping", ok: true });
 		await opened.close();
 		expect(await runRegistry.status("run-shared")).toMatchObject({
 			status: "online",
@@ -470,7 +471,7 @@ test("runRegistry IPC survives a client disconnecting from a protocol stream", a
 			const child = new FakeChild("session-stream");
 			queueMicrotask(() =>
 				child.emit({
-					protocol: "plot.session.v3",
+					protocol: sessionProtocolVersion,
 					kind: "welcome",
 					sessionId: "session-stream",
 					limits: {
@@ -527,7 +528,7 @@ test("runRegistry prune removes ended records and keeps live runs", async () => 
 			child = new FakeChild("session-live");
 			queueMicrotask(() =>
 				child?.emit({
-					protocol: "plot.session.v3",
+					protocol: sessionProtocolVersion,
 					kind: "welcome",
 					sessionId: "session-live",
 					limits: {

@@ -65,11 +65,11 @@ interface LiveRun {
 
 const noop = () => {};
 
-const makeRequest = (command: ClientRequest["command"]): ClientRequest => ({
+const makeRequest = (method: ClientRequest["method"]): ClientRequest => ({
 	protocol: sessionProtocolVersion,
 	kind: "request",
-	id: `runRegistry_${command}_${randomUUID()}`,
-	command,
+	id: `runRegistry_${method.replaceAll(".", "_")}_${randomUUID()}`,
+	method,
 	params: {},
 });
 
@@ -163,7 +163,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		if (
 			record.kind === "response" &&
 			record.ok &&
-			record.command === "get_state"
+			record.method === "session.snapshot"
 		)
 			await this.update(live, stateUpdates(record.data));
 		if (record.kind === "event") {
@@ -236,7 +236,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		await this.options.store.upsert(record);
 		try {
 			await process.waitForWelcome(this.options.spawnDeadlineMs);
-			await this.send(live, makeRequest("start"));
+			await this.send(live, makeRequest("session.start"));
 			await this.syncRunRecord(live);
 			await this.setStatus(live, "online");
 			return cloneRunRecord(live.record);
@@ -247,11 +247,11 @@ export class RunRegistry implements RunRegistryRuntime {
 	}
 
 	private async syncRunRecord(live: LiveRun): Promise<void> {
-		const record = await this.send(live, makeRequest("get_state"));
+		const record = await this.send(live, makeRequest("session.snapshot"));
 		if (
 			record.kind === "response" &&
 			record.ok &&
-			record.command === "get_state"
+			record.method === "session.snapshot"
 		)
 			await this.update(live, stateUpdates(record.data));
 	}
@@ -281,7 +281,9 @@ export class RunRegistry implements RunRegistryRuntime {
 		const live = this.live.get(id);
 		if (live === undefined) return this.options.store.get(id);
 		await this.setStatus(live, "stopping");
-		await this.send(live, makeRequest("shutdown")).catch(() => undefined);
+		await this.send(live, makeRequest("session.shutdown")).catch(
+			() => undefined,
+		);
 		live.process.kill("SIGTERM");
 		live.cleanup();
 		live.events.close();

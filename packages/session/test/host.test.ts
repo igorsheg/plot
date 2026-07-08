@@ -14,6 +14,7 @@ import type {
 	PiAgentSessionRunOptions,
 } from "../src/pi-runner.js";
 import { parseWorkflowText } from "../src/workflow.js";
+import { sessionProtocolVersion } from "../src/protocol.js";
 
 const waitForRuntimeEvent = async <A>(
 	iterable: AsyncIterable<A>,
@@ -208,10 +209,10 @@ Do it
 		const welcome = await host.protocol.welcome();
 		await host.shutdown();
 		const accepted = await host.protocol.submit({
-			protocol: "plot.session.v3",
+			protocol: sessionProtocolVersion,
 			kind: "request",
 			id: "after-close",
-			command: "ping",
+			method: "ping",
 		});
 
 		expect(welcome).toMatchObject({

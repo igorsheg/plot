@@ -161,7 +161,7 @@ describe("plot CLI", () => {
 		expect(output).toContain("doctor");
 		expect(output).not.toContain("plot tui");
 		expect(output).not.toContain("plot web");
-		expect(output).not.toContain("plot api");
+		expect(output).toContain("plot api schema");
 		expect(output).not.toContain("plot ls");
 		expect(output).toContain("plot docs cli");
 		expect(output).not.toContain("--request-queue-capacity");
@@ -196,9 +196,9 @@ describe("plot CLI", () => {
 		expect(output).toContain("[PROVIDERNAME]");
 	});
 
-	test("old command names show a suggestion", async () => {
+	test("unknown command names show typo suggestions only", async () => {
 		const stdout: string[] = [];
-		await runPlotCli(["list-models"], {
+		await runPlotCli(["runns"], {
 			stdin: chunks([]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -206,8 +206,8 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain("Unknown command: list-models");
-		expect(output).toContain("Did you mean: plot models");
+		expect(output).toContain("Unknown command: runns");
+		expect(output).toContain("Did you mean: plot runs");
 	});
 
 	test("runs the root TUI entrypoint when no subcommand is provided", async () => {
@@ -455,6 +455,39 @@ describe("plot CLI", () => {
 		expect(output).toContain("--workflow");
 	});
 
+	test("prints public API schema", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["api", "schema"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const schema = JSON.parse(stdout.join("")) as {
+			protocol: string;
+			request: { method: string[] };
+		};
+		expect(schema.protocol).toBe(sessionProtocolVersion);
+		expect(schema.request.method).toContain("session.snapshot");
+		expect(schema.request.method).toContain("operator.observe");
+	});
+
+	test("prints event wait help", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["events", "wait", "--help"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("Wait for one run event type");
+		expect(output).toContain("--type");
+		expect(output).toContain("--timeout-ms");
+	});
+
 	test("prints run logs help", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["runs", "logs", "--help"], {
@@ -465,7 +498,7 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain("Stream run protocol records.");
+		expect(output).toContain("Stream run protocol records as JSONL.");
 		expect(output).toContain("RUNID");
 		expect(output).toContain("--after");
 		expect(output).toContain("--registry-dir");
@@ -587,7 +620,7 @@ describe("plot CLI", () => {
 				],
 				{
 					stdin: chunks([
-						`{"protocol":"${sessionProtocolVersion}","kind":"request","id":"req-1","command":"ping"}\n`,
+						`{"protocol":"${sessionProtocolVersion}","kind":"request","id":"req-1","method":"ping"}\n`,
 					]),
 					writeStdout: (line) => {
 						stdout.push(line);
@@ -610,7 +643,7 @@ describe("plot CLI", () => {
 			expect.objectContaining({
 				kind: "response",
 				id: "req-1",
-				command: "ping",
+				method: "ping",
 				ok: true,
 			}),
 		);

@@ -6,10 +6,12 @@ import {
 } from "citty";
 import { sessionCommandArgs } from "./args.js";
 import { setCliIo } from "./cli-context.js";
+import { apiCommand } from "./commands/api.js";
 import { authCommand } from "./commands/auth.js";
 import { configCommand } from "./commands/config.js";
 import { docsCommand } from "./commands/docs.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { eventsCommand } from "./commands/events.js";
 import { initCommand } from "./commands/init.js";
 import { modelsCommand } from "./commands/models.js";
 import { openCommand } from "./commands/open.js";
@@ -27,6 +29,8 @@ const subCommands = {
 	open: openCommand,
 	run: runCommand,
 	runs: runsCommand,
+	api: apiCommand,
+	events: eventsCommand,
 	auth: authCommand,
 	models: modelsCommand,
 	init: initCommand,
@@ -118,21 +122,6 @@ const editDistance = (left: string, right: string): number => {
 };
 
 const commandSuggestion = (input: string): string | undefined => {
-	const legacy = new Map([
-		["tui", "open"],
-		["web", "open --web"],
-		["api", "serve api"],
-		["registry", "serve registry"],
-		["list-models", "models"],
-		["ls", "runs"],
-		["list", "runs"],
-		["status", "runs show"],
-		["logs", "runs logs"],
-		["stop", "runs stop"],
-		["prune", "runs clean"],
-	]);
-	const legacySuggestion = legacy.get(input);
-	if (legacySuggestion !== undefined) return legacySuggestion;
 	const scored = commandNames
 		.map((name) => ({ name, distance: editDistance(input, name) }))
 		.toSorted((left, right) => left.distance - right.distance);
@@ -151,7 +140,8 @@ USAGE
   plot open [workflow] --web    Open the browser dashboard
   plot run [workflow]           Run one workflow pass without a dashboard
   plot runs                     List runs in the shared registry
-  plot runs show <run-id>       Show one run (short id prefixes work)
+  plot api schema               Print the public session protocol schema
+  plot events wait <run-id>      Wait for a live run event
 
 START HERE
   plot init
@@ -161,10 +151,11 @@ START HERE
 
 COMMANDS
   open, run                     Start workflows
-  runs                          Inspect and manage registry runs
+  runs, events                  Inspect and coordinate live runs
+  api                           Inspect and call the public session protocol
   auth, models                  Manage provider auth and models
   init, doctor, config          Set up and validate a project
-  docs, serve                   Read docs or serve advanced transports
+  docs, serve                   Read docs or serve transports/daemons
 
 HELP
   plot help <command>            Show command details
