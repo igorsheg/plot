@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
-import { isRecord } from "@plot/common/primitives";
+import { errorMessage, isRecord } from "@plot/common/primitives";
 import type { RuntimeEvent } from "./runtime.js";
 
 /** Replay a session-owned durable event log. Missing files are empty logs. */
@@ -63,12 +63,12 @@ const isRuntimeEvent = (record: unknown): record is RuntimeEvent => {
 	return true;
 };
 
-const noop = () => {};
 const historyLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
 
 export interface SessionEventLogWriter {
 	readonly append: (event: RuntimeEvent) => Promise<void>;
 	readonly close: () => Promise<void>;
+	readonly lastError: () => string | undefined;
 }
 
 export const createSessionEventLogWriter = (
@@ -76,6 +76,11 @@ export const createSessionEventLogWriter = (
 ): SessionEventLogWriter => {
 	let stream: WriteStream | undefined;
 	let pending: Promise<void> = Promise.resolve();
+	let lastError: string | undefined;
+	const recordError = (error: unknown): void => {
+		lastError = errorMessage(error);
+		stream = undefined;
+	};
 	return {
 		append: (event) => {
 			if (!shouldWriteSessionEvent(event)) return pending;
@@ -84,27 +89,29 @@ export const createSessionEventLogWriter = (
 					if (stream === undefined) {
 						await mkdir(dirname(path), { recursive: true });
 						stream = createWriteStream(path, { flags: "a" });
-						stream.on("error", () => {
-							stream = undefined;
-						});
+						stream.on("error", recordError);
 					}
 					const target = stream;
 					if (target === undefined) return;
 					const line = stringifyJsonl(event, historyLimits);
-					await new Promise<void>((resolve) => {
-						target.write(line, () => resolve());
+					await new Promise<void>((resolve, reject) => {
+						target.write(line, (error?: Error | null) => {
+							if (error == null) resolve();
+							else reject(error);
+						});
 					});
 					return undefined;
 				})
-				.catch(noop);
+				.catch(recordError);
 			return pending;
 		},
 		close: async () => {
-			await pending.catch(noop);
+			await pending.catch(recordError);
 			const target = stream;
 			if (target === undefined) return;
 			await new Promise<void>((resolve) => target.end(resolve));
 			stream = undefined;
 		},
+		lastError: () => lastError,
 	};
 };

@@ -28,6 +28,7 @@ export interface RuntimeState {
 	running: Map<string, WorkRun>;
 	scheduledWakes: ScheduledWake[];
 	nextRunIndex: number;
+	runIdPrefix: string;
 }
 export interface TimedOutRun {
 	run: WorkRun;
@@ -74,7 +75,7 @@ export interface RunHandle {
 	controller: AbortController;
 }
 
-export const initialState: RuntimeState = {
+export const initialRuntimeState = (runIdPrefix: string): RuntimeState => ({
 	tickId: 0,
 	facts: new Map(),
 	observations: [],
@@ -84,7 +85,10 @@ export const initialState: RuntimeState = {
 	running: new Map(),
 	scheduledWakes: [],
 	nextRunIndex: 0,
-};
+	runIdPrefix,
+});
+
+export const initialState: RuntimeState = initialRuntimeState("run");
 export const boundStateHistory = (
 	state: RuntimeState,
 	limit: number,
@@ -556,7 +560,7 @@ export const startEligibleRuns = (
 			continue;
 		}
 		const run: WorkRun = {
-			runId: `run-${nextRunIndex}`,
+			runId: `${state.runIdPrefix}-${nextRunIndex}`,
 			sourceId: selection.source.id,
 			workKey: work.workKey,
 		};

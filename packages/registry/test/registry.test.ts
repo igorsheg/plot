@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -18,6 +18,7 @@ import {
 	resolveRunIpcSocketPath,
 	startRunIpcDaemon,
 	sendRunIpcRequest,
+	streamRunRecordsGapless,
 	startRunIpcServer,
 } from "../src/ipc.js";
 import {
@@ -78,6 +79,12 @@ class FakeChild implements RunChildProcess {
 
 	emitStderr(text: string): void {
 		this.stderrQueue.offer(text, { force: true });
+	}
+}
+
+class SilentChild extends FakeChild {
+	override write(line: string): void {
+		this.writes.push(line);
 	}
 }
 
@@ -214,6 +221,43 @@ test("runRegistry marks a child that exits before welcome as error", async () =>
 	});
 });
 
+test("runRegistry times out unanswered child protocol requests", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "plot-runRegistry-timeout-"));
+	const store = createMemoryRunStore();
+	let child: SilentChild | undefined;
+	const runRegistry = new RunRegistry({
+		cwd,
+		store,
+		id: () => "run-timeout",
+		requestTimeoutMs: 10,
+		spawnChild: () => {
+			child = new SilentChild();
+			queueMicrotask(() =>
+				child?.emit({
+					protocol: sessionProtocolVersion,
+					kind: "welcome",
+					sessionId: "session-timeout",
+					limits: {
+						maxInputLineBytes: 1_000,
+						maxOutputLineBytes: 1_000,
+						maxPendingRequests: 4,
+						maxBufferedEvents: 4,
+					},
+				}),
+			);
+			return child;
+		},
+	});
+
+	await expect(runRegistry.spawn()).rejects.toThrow("session.start timed out");
+
+	expect(child?.killed).toBe(true);
+	expect(await store.get("run-timeout")).toMatchObject({
+		status: "error",
+		stderrTail: expect.stringContaining("session.start timed out"),
+	});
+});
+
 test("file run store ignores a corrupt final record", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "plot-run-store-corrupt-"));
 	const path = join(cwd, "runs.json");
@@ -297,6 +341,75 @@ test("runRegistry attach is live-only", async () => {
 		records.push(record);
 
 	expect(records).toEqual([]);
+});
+
+test("gapless run stream replays durable events for stopped runs", async () => {
+	const cwd = await mkdtemp(join("/tmp", "plot-runRegistry-gapless-"));
+	const registryDir = join(cwd, "registry");
+	const sessionFile = join(cwd, "session.jsonl");
+	await writeFile(
+		sessionFile,
+		`${JSON.stringify({
+			kind: "session_event",
+			sessionId: "session-stopped",
+			sequence: 1,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			event: { type: "session_started" },
+		})}\n`,
+	);
+	const runRegistry = new RunRegistry({
+		cwd,
+		store: createMemoryRunStore([
+			{
+				id: "run-stopped",
+				status: "stopped",
+				cwd,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				sessionId: "session-stopped",
+				sessionFile,
+			},
+		]),
+	});
+	const server = await startRunIpcServer({
+		options: { cwd, runRegistryDir: registryDir },
+		runRegistry,
+	});
+	try {
+		const records: ServerRecord[] = [];
+		for await (const record of streamRunRecordsGapless(
+			{ cwd, runRegistryDir: registryDir },
+			"run-stopped",
+			0,
+		))
+			records.push(record);
+
+		expect(records.map((record) => record.kind)).toEqual(["event"]);
+		expect(records[0]).toMatchObject({
+			kind: "event",
+			event: { sequence: 1 },
+		});
+	} finally {
+		server.server.close();
+		await server.runRegistry.shutdown();
+	}
+});
+
+test("runRegistry IPC socket path is private on Unix", async () => {
+	if (process.platform === "win32") return;
+	const cwd = await mkdtemp(join("/tmp", "plot-runRegistry-private-"));
+	const registryDir = join(cwd, "registry");
+	const server = await startRunIpcServer({
+		options: { cwd, runRegistryDir: registryDir },
+	});
+	try {
+		const dirMode = (await stat(registryDir)).mode & 0o777;
+		const socketMode = (await stat(server.socketPath)).mode & 0o777;
+		expect(dirMode).toBe(0o700);
+		expect(socketMode).toBe(0o600);
+	} finally {
+		server.server.close();
+		await server.runRegistry.shutdown();
+	}
 });
 
 test("registry daemon shuts down cleanly on SIGTERM", async () => {

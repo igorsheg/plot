@@ -3,7 +3,7 @@ import type {
 	AgentSessionEvent,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PiAgentSessionPort } from "../src/pi-runner.js";
@@ -77,6 +77,41 @@ describe("session serve", () => {
 				return record.kind === "response" && record.id === "t1" && record.ok;
 			}),
 		).toBe(true);
+	});
+
+	test("serveSessionStdio shuts down host cleanup when stdin ends", async () => {
+		const dir = await makeWorkflowDir();
+		const marker = join(dir, "shutdown.txt");
+		await writeFile(
+			join(dir, "extension.ts"),
+			`import { appendFile } from "node:fs/promises";
+export default {
+  id: "stdio-shutdown-hook",
+  create: () => ({
+    discover: () => [],
+    shutdown: async () => appendFile(${JSON.stringify(marker)}, "x"),
+  }),
+};
+`,
+		);
+		await writeFile(
+			join(dir, "WORKFLOW.md"),
+			`---
+extension:
+  source: ./extension.ts
+---
+Prompt
+`,
+		);
+
+		await serveSessionStdio({
+			cwd: dir,
+			sessionId: "serve-stdin-end-shutdown",
+			stdin: chunks([]),
+			writeLine: () => {},
+		});
+
+		expect(await readFile(marker, "utf8")).toBe("x");
 	});
 
 	test("runSessionOnce streams runtime events to onEvent", async () => {

@@ -486,6 +486,8 @@ describe("plot CLI", () => {
 		expect(output).toContain("Wait for one run event type");
 		expect(output).toContain("--type");
 		expect(output).toContain("--timeout-ms");
+		expect(output).toContain("--work-key");
+		expect(output).toContain("--run-id");
 	});
 
 	test("prints run logs help", async () => {

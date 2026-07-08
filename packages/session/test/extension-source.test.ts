@@ -106,10 +106,10 @@ describe("extension source adapter", () => {
 		expect(first.started).toHaveLength(1);
 		expect(second.completions).toHaveLength(1);
 		expect(third.started).toHaveLength(0);
-		expect(lifecycle).toEqual([
-			"started:github:acme/web:pr:42:run-0",
-			"completed:github:acme/web:pr:42:ok",
-		]);
+		expect(lifecycle[0]).toMatch(
+			/^started:github:acme\/web:pr:42:run-[0-9a-f-]+-0$/,
+		);
+		expect(lifecycle[1]).toBe("completed:github:acme/web:pr:42:ok");
 	});
 
 	test("rejects invalid discovered work at the source boundary", async () => {

@@ -3,7 +3,7 @@ import type { ParsedArgs } from "citty";
 import { errorMessage, type Mutable } from "@plot/common/primitives";
 import {
 	sendRunIpcRequest,
-	streamRunRecords,
+	streamRunRecordsGapless,
 	type RunIpcOptions,
 	type RunRequest,
 } from "@plot/registry/ipc";
@@ -119,5 +119,5 @@ export const streamRunProtocolRecords = async function* (
 	afterSequence: number,
 ): AsyncIterable<ServerRecord> {
 	const id = await resolveRunId(args, runIdInput);
-	yield* streamRunRecords(runIpcOptions(args), id, afterSequence);
+	yield* streamRunRecordsGapless(runIpcOptions(args), id, afterSequence);
 };

@@ -54,6 +54,7 @@ export interface RunRegistryOptions {
 	readonly spawnDeadlineMs?: number;
 	readonly eventCapacity?: number;
 	readonly stderrLimitBytes?: number;
+	readonly requestTimeoutMs?: number;
 }
 
 interface LiveRun {
@@ -115,7 +116,12 @@ export class RunRegistry implements RunRegistryRuntime {
 	private readonly options: Required<
 		Pick<
 			RunRegistryOptions,
-			"now" | "id" | "spawnDeadlineMs" | "eventCapacity" | "stderrLimitBytes"
+			| "now"
+			| "id"
+			| "spawnDeadlineMs"
+			| "eventCapacity"
+			| "stderrLimitBytes"
+			| "requestTimeoutMs"
 		>
 	> &
 		RunRegistryOptions;
@@ -128,6 +134,7 @@ export class RunRegistry implements RunRegistryRuntime {
 			spawnDeadlineMs: options.spawnDeadlineMs ?? 10_000,
 			eventCapacity: options.eventCapacity ?? 1024,
 			stderrLimitBytes: options.stderrLimitBytes ?? 16 * 1024,
+			requestTimeoutMs: options.requestTimeoutMs ?? 30_000,
 		};
 	}
 
@@ -196,6 +203,7 @@ export class RunRegistry implements RunRegistryRuntime {
 		});
 		const process = new RunProcessInstance(child, {
 			stderrLimitBytes: this.options.stderrLimitBytes,
+			requestTimeoutMs: this.options.requestTimeoutMs,
 		});
 		const record: Mutable<RunRecord> = {
 			id: this.options.id(),
@@ -265,6 +273,7 @@ export class RunRegistry implements RunRegistryRuntime {
 				this.options.stderrLimitBytes,
 			),
 		});
+		live.process.kill("SIGTERM");
 		live.cleanup();
 		live.events.close();
 		this.live.delete(live.record.id);

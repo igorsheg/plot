@@ -45,6 +45,79 @@ const eventType = (record: ServerRecord): string | undefined => {
 	return record.event.event.type;
 };
 
+interface EventFilterFields {
+	readonly workKey?: string;
+	readonly runId?: string;
+	readonly sourceId?: string;
+	readonly status?: string;
+	readonly tickId?: string;
+}
+
+const eventFilterFields = (record: ServerRecord): EventFilterFields => {
+	if (record.kind !== "event") return {};
+	const event = record.event;
+	if (event.kind === "agent_event")
+		return {
+			workKey: event.workKey,
+			runId: event.runId,
+			sourceId: event.sourceId,
+		};
+	const sessionEvent = event.event;
+	if (sessionEvent.type === "tick_started")
+		return { tickId: String(sessionEvent.tickId) };
+	if (sessionEvent.type === "tick_completed")
+		return { tickId: String(sessionEvent.result.tickId) };
+	if (sessionEvent.type === "work_observed")
+		return {
+			workKey: sessionEvent.work.workKey,
+			sourceId: sessionEvent.work.sourceId,
+			status: sessionEvent.work.status,
+		};
+	if (sessionEvent.type === "work_removed")
+		return { workKey: sessionEvent.workKey };
+	if (sessionEvent.type === "wake_scheduled") {
+		const fields: { workKey?: string } = {};
+		if (sessionEvent.workKey !== undefined)
+			fields.workKey = sessionEvent.workKey;
+		return fields;
+	}
+	if (sessionEvent.type === "attempt_started")
+		return {
+			workKey: sessionEvent.run.workKey,
+			runId: sessionEvent.run.runId,
+			sourceId: sessionEvent.run.sourceId,
+		};
+	if (sessionEvent.type === "attempt_completed")
+		return {
+			workKey: sessionEvent.completion.workKey,
+			runId: sessionEvent.completion.runId,
+			sourceId: sessionEvent.completion.sourceId,
+			status: sessionEvent.completion.status,
+		};
+	return {};
+};
+
+const filterValue = (args: ParsedArgs, field: string): string | undefined =>
+	str(args, field);
+
+const matchesEventFilters = (
+	record: ServerRecord,
+	args: ParsedArgs,
+): boolean => {
+	const fields = eventFilterFields(record);
+	for (const [arg, value] of [
+		["work-key", fields.workKey],
+		["run-id", fields.runId],
+		["source-id", fields.sourceId],
+		["status", fields.status],
+		["tick-id", fields.tickId],
+	] as const) {
+		const expected = filterValue(args, arg);
+		if (expected !== undefined && value !== expected) return false;
+	}
+	return true;
+};
+
 const streamEvents = async (args: ParsedArgs) => {
 	const io = getCliIo();
 	try {
@@ -101,7 +174,11 @@ const waitForEvent = async (args: ParsedArgs) => {
 				throw new Error(`timed out waiting for event type ${type}`);
 			if (next.done === true)
 				throw new Error(`stream closed before event type ${type}`);
-			if (eventType(next.value) !== type) continue;
+			if (
+				eventType(next.value) !== type ||
+				!matchesEventFilters(next.value, args)
+			)
+				continue;
 			// eslint-disable-next-line no-await-in-loop -- emit only the matched event before returning.
 			await io.writeStdout(jsonText(next.value));
 			return;
@@ -143,6 +220,31 @@ export const eventsWaitCommand = defineCommand({
 			type: "string",
 			description: "Maximum wait in milliseconds. Default: no timeout.",
 			valueHint: "ms",
+		},
+		"work-key": {
+			type: "string",
+			description: "Only match events for this Work Item key.",
+			valueHint: "work-key",
+		},
+		"run-id": {
+			type: "string",
+			description: "Only match events for this Agent Run id.",
+			valueHint: "run-id",
+		},
+		"source-id": {
+			type: "string",
+			description: "Only match events for this source id.",
+			valueHint: "source-id",
+		},
+		status: {
+			type: "string",
+			description: "Only match events with this work or completion status.",
+			valueHint: "status",
+		},
+		"tick-id": {
+			type: "string",
+			description: "Only match tick events for this tick id.",
+			valueHint: "tick-id",
 		},
 		...afterArg,
 		...runRegistryArgs,

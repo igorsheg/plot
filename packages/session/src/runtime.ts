@@ -9,6 +9,7 @@ import type {
 	Completion,
 	Diagnostic,
 	PlotAgentEvent,
+	ScheduledWake,
 	TickResult,
 	WorkRecord,
 	WorkRun,
@@ -98,6 +99,15 @@ export interface SessionRuntimeState {
 	readonly sessionDir?: string | undefined;
 	readonly sessionFile?: string | undefined;
 	readonly lastSequence?: number | undefined;
+	readonly eventLogError?: string | undefined;
+}
+
+export interface SchedulerSnapshotState {
+	readonly tickId: number;
+	readonly work: readonly WorkRecord[];
+	readonly running: readonly WorkRun[];
+	readonly scheduledWakes: readonly ScheduledWake[];
+	readonly diagnostics: readonly Diagnostic[];
 }
 
 export interface SessionRuntime {
@@ -105,6 +115,7 @@ export interface SessionRuntime {
 	readonly start: () => Promise<void>;
 	readonly tickOnce: () => Promise<TickSummary>;
 	readonly state: () => Promise<SessionRuntimeState>;
+	readonly schedulerSnapshot: () => Promise<SchedulerSnapshotState>;
 
 	readonly pauseDispatch: () => Promise<void>;
 	readonly resumeDispatch: () => Promise<void>;
@@ -246,12 +257,37 @@ export const makeSessionRuntime = (
 			await agent.start();
 		},
 		tickOnce: async () => toTickSummary(await agent.tickOnce()),
-		state: async () => ({
-			sessionId,
-			...options.state,
-			sessionFile: options.sessionFile,
-			lastSequence: liveSequence,
-		}),
+		state: async () => {
+			const state: {
+				readonly sessionId: string;
+				readonly workflowName?: string | undefined;
+				readonly workflowPath?: string | undefined;
+				readonly cwd?: string | undefined;
+				readonly cwdName?: string | undefined;
+				readonly sessionDir?: string | undefined;
+				readonly sessionFile?: string | undefined;
+				lastSequence?: number | undefined;
+				eventLogError?: string | undefined;
+			} = {
+				sessionId,
+				...options.state,
+				sessionFile: options.sessionFile,
+				lastSequence: liveSequence,
+			};
+			const eventLogError = eventLog?.lastError();
+			if (eventLogError !== undefined) state.eventLogError = eventLogError;
+			return state;
+		},
+		schedulerSnapshot: async () => {
+			const snapshot = await agent.snapshot();
+			return {
+				tickId: snapshot.tickId,
+				work: [...snapshot.work.values()],
+				running: [...snapshot.running.values()],
+				scheduledWakes: snapshot.scheduledWakes ?? [],
+				diagnostics: snapshot.diagnostics,
+			};
+		},
 
 		pauseDispatch: () => agent.pauseDispatch(),
 		resumeDispatch: () => agent.resumeDispatch(),

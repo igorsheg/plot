@@ -36,6 +36,19 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 		diagnostics: [],
 	}),
 	state: async () => ({ sessionId: "session-1" }),
+	schedulerSnapshot: async () => ({
+		tickId: 1,
+		work: [
+			{
+				workKey: "work-1",
+				sourceId: "source-1",
+				status: "pending",
+			},
+		],
+		running: [],
+		scheduledWakes: [],
+		diagnostics: [],
+	}),
 	pauseDispatch: async () => {},
 	resumeDispatch: async () => {},
 	interruptAgentRun: async () => true,
@@ -104,6 +117,7 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 			actionLabel: "Approve",
 		}),
 	);
+
 	await protocol.submit(request("session.shutdown"));
 	await protocol.close();
 
@@ -115,6 +129,44 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 		"observe:work-1:approve",
 		"shutdown",
 	]);
+});
+
+test("protocol exposes JSON-safe live scheduler state", async () => {
+	const protocol = makeSessionProtocol({ runtime: runtime() });
+	const output = protocol.output();
+
+	await protocol.submit(request("work.list"));
+
+	for await (const record of output) {
+		if (record.kind !== "response" || record.method !== "work.list") continue;
+		expect(record).toMatchObject({
+			ok: true,
+			data: { work: [{ workKey: "work-1", sourceId: "source-1" }] },
+		});
+		break;
+	}
+	await protocol.close();
+});
+
+test("protocol shutdown can be owned by the embedding host", async () => {
+	const calls: string[] = [];
+	const protocol = makeSessionProtocol({
+		runtime: runtime({
+			shutdown: async () => {
+				calls.push("runtime.shutdown");
+				return true;
+			},
+		}),
+		shutdown: async () => {
+			calls.push("host.shutdown");
+			return true;
+		},
+	});
+
+	await protocol.submit(request("session.shutdown"));
+	await protocol.close();
+
+	expect(calls).toEqual(["host.shutdown"]);
 });
 
 test("protocol adapter reports request queue overflow", async () => {

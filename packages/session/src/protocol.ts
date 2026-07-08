@@ -28,6 +28,10 @@ export const sessionProtocolMethods = [
 	"session.tick",
 	"session.dispatch.pause",
 	"session.dispatch.resume",
+	"scheduler.snapshot",
+	"work.list",
+	"work.get",
+	"attempt.list",
 	"agent.interrupt",
 	"operator.observe",
 ] as const;
@@ -510,6 +514,19 @@ const decodeObservationParams = (params: unknown): OperatorObservationInput => {
 	return input;
 };
 
+const decodeWorkGetParams = (params: unknown): { workKey: string } => {
+	if (
+		!isRecord(params) ||
+		typeof params["workKey"] !== "string" ||
+		params["workKey"].length === 0
+	)
+		throw new ProtocolBoundaryError({
+			code: "invalid_request",
+			message: "work.get requires a non-empty workKey",
+		});
+	return { workKey: params["workKey"] };
+};
+
 export interface SessionProtocol {
 	readonly welcome: () => Promise<ServerRecord>;
 	readonly submit: (request: ClientRequest) => Promise<boolean>;
@@ -521,6 +538,7 @@ export interface SessionProtocol {
 export interface SessionProtocolOptions {
 	readonly runtime: SessionRuntime;
 	readonly limits?: ProtocolLimits;
+	readonly shutdown?: () => Promise<boolean> | boolean;
 }
 
 interface QueuedRequest {
@@ -587,18 +605,53 @@ export const makeSessionProtocol = (
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: { started: true },
 				});
-			case "session.shutdown":
+			case "session.shutdown": {
+				const accepted = await (options.shutdown ?? options.runtime.shutdown)();
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
-					data: { accepted: await options.runtime.shutdown() },
+					data: { accepted },
 				});
+			}
 			case "session.snapshot":
 				return makeSuccess({
 					request,
 					lastSequence: await options.runtime.lastEventSequence(),
 					data: await options.runtime.state(),
 				});
+			case "scheduler.snapshot":
+				return makeSuccess({
+					request,
+					lastSequence: await options.runtime.lastEventSequence(),
+					data: await options.runtime.schedulerSnapshot(),
+				});
+			case "work.list": {
+				const snapshot = await options.runtime.schedulerSnapshot();
+				return makeSuccess({
+					request,
+					lastSequence: await options.runtime.lastEventSequence(),
+					data: { work: snapshot.work },
+				});
+			}
+			case "work.get": {
+				const params = decodeWorkGetParams(request.params);
+				const snapshot = await options.runtime.schedulerSnapshot();
+				return makeSuccess({
+					request,
+					lastSequence: await options.runtime.lastEventSequence(),
+					data: {
+						work: snapshot.work.find((work) => work.workKey === params.workKey),
+					},
+				});
+			}
+			case "attempt.list": {
+				const snapshot = await options.runtime.schedulerSnapshot();
+				return makeSuccess({
+					request,
+					lastSequence: await options.runtime.lastEventSequence(),
+					data: { attempts: snapshot.running },
+				});
+			}
 			case "session.tick":
 				return makeSuccess({
 					request,

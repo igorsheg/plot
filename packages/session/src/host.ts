@@ -233,12 +233,17 @@ export const createSessionHost = async (
 			await runtime.shutdown();
 		},
 	});
+	let shutdownPromise: Promise<void> | undefined;
+	const shutdown = (): Promise<void> => {
+		shutdownPromise ??= shutdownHostParts(parts);
+		return shutdownPromise;
+	};
 	return {
 		runtime,
 		paths,
 		workflow,
 		metadata,
-		shutdown: () => shutdownHostParts(parts),
+		shutdown,
 	};
 };
 
@@ -256,7 +261,14 @@ export const createProtocolSessionHost = async (
 			host.workflow.runtime.plot?.eventBufferCapacity ??
 			1024,
 	});
-	const protocol = makeSessionProtocol({ runtime: host.runtime, limits });
+	const protocol = makeSessionProtocol({
+		runtime: host.runtime,
+		limits,
+		shutdown: async () => {
+			await host.shutdown();
+			return true;
+		},
+	});
 	return {
 		...host,
 		limits,

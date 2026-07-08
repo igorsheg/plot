@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import { createConnection, createServer, type Server } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
@@ -20,6 +20,7 @@ import {
 	type ClientRequest,
 	type ServerRecord,
 } from "@plot/session/protocol";
+import { runEventRecords } from "./events.js";
 
 export type RunRequest =
 	| { readonly type: "spawn"; readonly options?: RunSpawnOptions }
@@ -211,6 +212,16 @@ export const resolveRunIpcSocketPath = (options: RunIpcOptions): string =>
 	join(resolveRunIpcDir(options), "runRegistry.sock");
 
 const runIpcLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
+const RUN_IPC_DIR_MODE = 0o700;
+const RUN_IPC_SOCKET_MODE = 0o600;
+
+const restrictPrivatePath = async (
+	path: string,
+	mode: number,
+): Promise<void> => {
+	if (process.platform === "win32") return;
+	await chmod(path, mode);
+};
 
 const write = (socket: { write: (text: string) => void }, response: unknown) =>
 	socket.write(stringifyJsonl(response, runIpcLimits));
@@ -313,6 +324,7 @@ export const startRunIpcServer = async (input: {
 }> => {
 	const socketPath = resolveRunIpcSocketPath(input.options);
 	await mkdir(dirname(socketPath), { recursive: true });
+	await restrictPrivatePath(dirname(socketPath), RUN_IPC_DIR_MODE);
 	await removeStaleSocketIfNeeded(socketPath);
 	const runRegistry = input.runRegistry ?? makeRunRegistry(input.options);
 	await runRegistry.recoverAfterRestart();
@@ -370,6 +382,7 @@ export const startRunIpcServer = async (input: {
 		unlinkSync(socketPath);
 		await listen();
 	}
+	await restrictPrivatePath(socketPath, RUN_IPC_SOCKET_MODE);
 	return { runRegistry, server, socketPath };
 };
 
@@ -405,6 +418,22 @@ export const streamRunRecords = (
 	afterSequence = 0,
 ): AsyncIterable<ServerRecord> =>
 	createRunIpcClient(options).attachRecords(runId, afterSequence);
+
+/** Stream durable session events first, then continue with live protocol records. */
+export async function* streamRunRecordsGapless(
+	options: RunIpcOptions,
+	runId: string,
+	afterSequence = 0,
+): AsyncIterable<ServerRecord> {
+	const client = createRunIpcClient(options);
+	const run = await client.status(runId);
+	if (run === undefined) throw runMissing(runId);
+	yield* runEventRecords({
+		run,
+		after: afterSequence,
+		liveRecords: client.attachRecords(runId, afterSequence),
+	});
+}
 
 export const createRunIpcClient = (
 	options: RunIpcOptions,

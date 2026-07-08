@@ -47,26 +47,31 @@ export const serveSessionStdio = async (
 	options: ServeSessionStdioOptions,
 ): Promise<void> => {
 	const host = await createProtocolSessionHost(options);
-	await options.writeLine(
-		encodeServerRecordLine(await host.protocol.welcome()),
-	);
-	void (async () => {
+	const outputDone = (async () => {
 		for await (const record of host.protocol.output())
 			await options.writeLine(encodeServerRecordLine(record));
 	})();
-	const decoder = new TextDecoder();
-	let buffer = "";
-	for await (const chunk of options.stdin) {
-		buffer += typeof chunk === "string" ? chunk : decoder.decode(chunk);
-		for (;;) {
-			const index = buffer.indexOf("\n");
-			if (index === -1) break;
-			const line = buffer.slice(0, index).trim();
-			buffer = buffer.slice(index + 1);
-			if (line !== "") {
-				// eslint-disable-next-line no-await-in-loop -- stdin protocol requests are submitted in order.
-				await host.protocol.submit(decodeClientRequestLine(line));
+	try {
+		await options.writeLine(
+			encodeServerRecordLine(await host.protocol.welcome()),
+		);
+		const decoder = new TextDecoder();
+		let buffer = "";
+		for await (const chunk of options.stdin) {
+			buffer += typeof chunk === "string" ? chunk : decoder.decode(chunk);
+			for (;;) {
+				const index = buffer.indexOf("\n");
+				if (index === -1) break;
+				const line = buffer.slice(0, index).trim();
+				buffer = buffer.slice(index + 1);
+				if (line !== "") {
+					// eslint-disable-next-line no-await-in-loop -- stdin protocol requests are submitted in order.
+					await host.protocol.submit(decodeClientRequestLine(line));
+				}
 			}
 		}
+	} finally {
+		await host.shutdown();
+		await outputDone;
 	}
 };

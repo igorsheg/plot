@@ -21,12 +21,33 @@ export interface RunChildProcess {
 interface PendingRequest {
 	readonly resolve: (record: ServerRecord) => void;
 	readonly reject: (error: Error) => void;
+	readonly timeout: ReturnType<typeof setTimeout>;
 }
 
 async function* emptyAsyncIterable(): AsyncIterable<string | Uint8Array> {}
 
 const toError = (error: unknown): Error =>
 	error instanceof Error ? error : new Error(String(error));
+
+export class RunProcessRequestTimeoutError extends Error {
+	override readonly name = "RunProcessRequestTimeoutError";
+	readonly requestId: string;
+	readonly method: ClientRequest["method"];
+	readonly timeoutMs: number;
+
+	constructor(input: {
+		readonly requestId: string;
+		readonly method: ClientRequest["method"];
+		readonly timeoutMs: number;
+	}) {
+		super(
+			`run protocol request ${input.method} timed out after ${input.timeoutMs}ms`,
+		);
+		this.requestId = input.requestId;
+		this.method = input.method;
+		this.timeoutMs = input.timeoutMs;
+	}
+}
 
 export const trimTail = (value: string, maxBytes: number): string => {
 	const bytes = new TextEncoder().encode(value);
@@ -97,6 +118,7 @@ export class RunProcessInstance {
 		private readonly child: RunChildProcess,
 		private readonly options: {
 			readonly stderrLimitBytes: number;
+			readonly requestTimeoutMs: number;
 			readonly maxLineBytes?: number;
 		},
 	) {
@@ -145,10 +167,25 @@ export class RunProcessInstance {
 		const id = request.id || `run_process_${randomUUID()}`;
 		const fullRequest = { ...request, id };
 		return new Promise((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
+			const timeout = setTimeout(() => {
+				const pending = this.pending.get(id);
+				if (pending === undefined) return;
+				this.pending.delete(id);
+				reject(
+					new RunProcessRequestTimeoutError({
+						requestId: id,
+						method: fullRequest.method,
+						timeoutMs: this.options.requestTimeoutMs,
+					}),
+				);
+			}, this.options.requestTimeoutMs);
+			timeout.unref?.();
+			this.pending.set(id, { resolve, reject, timeout });
 			Promise.resolve(
 				this.child.write(encodeClientRequestLine(fullRequest)),
 			).catch((error: unknown) => {
+				const pending = this.pending.get(id);
+				if (pending !== undefined) clearTimeout(pending.timeout);
 				this.pending.delete(id);
 				reject(toError(error));
 			});
@@ -197,8 +234,12 @@ export class RunProcessInstance {
 			this.resolveWelcome(record);
 		}
 		if (record.kind === "response" && typeof record.id === "string") {
-			this.pending.get(record.id)?.resolve(record);
-			this.pending.delete(record.id);
+			const pending = this.pending.get(record.id);
+			if (pending !== undefined) {
+				clearTimeout(pending.timeout);
+				pending.resolve(record);
+				this.pending.delete(record.id);
+			}
 		}
 		for (const listener of this.recordListeners) listener(record);
 	}
@@ -208,7 +249,10 @@ export class RunProcessInstance {
 		this.exited = true;
 		const error = new Error(`run process exited. Stderr: ${this.stderrTail}`);
 		if (this.welcome === undefined) this.rejectWelcome(error);
-		for (const pending of this.pending.values()) pending.reject(error);
+		for (const pending of this.pending.values()) {
+			clearTimeout(pending.timeout);
+			pending.reject(error);
+		}
 		this.pending.clear();
 		for (const listener of this.exitListeners) listener(error);
 	}
@@ -217,7 +261,10 @@ export class RunProcessInstance {
 		if (this.exited) return;
 		this.exited = true;
 		if (this.welcome === undefined) this.rejectWelcome(error);
-		for (const pending of this.pending.values()) pending.reject(error);
+		for (const pending of this.pending.values()) {
+			clearTimeout(pending.timeout);
+			pending.reject(error);
+		}
 		this.pending.clear();
 		for (const listener of this.exitListeners) listener(error);
 	}

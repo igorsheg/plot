@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { AsyncQueue } from "@plot/common/async-queue";
 import { EventHub } from "@plot/common/event-stream";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
@@ -36,7 +37,7 @@ import {
 	completionDiagnostic,
 	drainMessages,
 	hookDiagnostic,
-	initialState,
+	initialRuntimeState,
 	interruptRunningWork,
 	snapshotFrom,
 	startEligibleRuns,
@@ -153,8 +154,9 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 				1,
 				`source ${source.id} maxConcurrentRuns must be a positive integer`,
 			);
-	let state = initialState,
-		snapshotCache = snapshotFrom(initialState),
+	const startingState = initialRuntimeState(`run-${randomUUID()}`);
+	let state = startingState,
+		snapshotCache = snapshotFrom(startingState),
 		lifecycle: AgentLifecycle = "new",
 		dispatchPaused = false,
 		activeTickToken: number | undefined,

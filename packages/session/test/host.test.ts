@@ -222,6 +222,47 @@ Do it
 		expect(accepted).toBe(false);
 	});
 
+	test("protocol session.shutdown runs host-owned extension cleanup once", async () => {
+		const cwd = await makeTempDir();
+		const marker = join(cwd, "shutdown.txt");
+		await writeFile(
+			join(cwd, "extension.ts"),
+			`import { appendFile } from "node:fs/promises";
+export default {
+  id: "shutdown-hook",
+  create: () => ({
+    discover: () => [],
+    shutdown: async () => appendFile(${JSON.stringify(marker)}, "x"),
+  }),
+};
+`,
+		);
+		await writeFile(
+			join(cwd, "WORKFLOW.md"),
+			`---
+extension:
+  source: ./extension.ts
+---
+Prompt
+`,
+		);
+		const host = await createProtocolSessionHost({
+			cwd,
+			sessionId: "session-protocol-shutdown-hook",
+		});
+
+		const accepted = await host.protocol.submit({
+			protocol: sessionProtocolVersion,
+			kind: "request",
+			id: "shutdown",
+			method: "session.shutdown",
+		});
+		await host.shutdown();
+
+		expect(accepted).toBe(true);
+		expect(await readFile(marker, "utf8")).toBe("x");
+	});
+
 	test("shutdown interrupts an active agent run", async () => {
 		const cwd = await makeTempDir();
 		await writeFile(join(cwd, "WORKFLOW.md"), "Long running workflow");
