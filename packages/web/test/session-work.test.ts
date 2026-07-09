@@ -15,7 +15,6 @@ import {
 import {
 	buildDetail,
 	capTimeline,
-	factsLine,
 	formatTokens,
 	openableRefs,
 	settledKey,
@@ -530,13 +529,16 @@ test("buildDetail maps a blocked work item to a decision view", () => {
 	if (view?.kind === "decision") {
 		expect(view.title).toBe("pick");
 		expect(view.reason).toBe("Which contract wins?");
-		expect(view.wordLine).toBe("blocked · 1m");
-		expect(view.factsLine).toBe("118k tokens · $0.42");
+		expect(view.stage).toBe("blocked");
+		expect(view.check).toBeUndefined();
+		expect(view.metrics.tokens).toBe(118_000);
+		expect(view.metrics.cost).toBe(0.42);
+		expect(view.metrics.elapsed).toBe("1m");
 		expect(view.decision.workKey).toBe("pick");
 	}
 });
 
-test("buildDetail maps a running work item to an active view with streams", () => {
+test("buildDetail maps a running work item to an active view", () => {
 	const view = buildDetail(
 		projection({
 			work: {
@@ -557,11 +559,11 @@ test("buildDetail maps a running work item to an active view with streams", () =
 	);
 	expect(view?.kind).toBe("active");
 	if (view?.kind === "active") {
-		expect(view.wordLine).toBe("running · 3m · turn 14");
-		expect(view.tool).toBe("Reading dock");
-		expect(view.thinking).toBe("hmm");
-		expect(view.streaming).toBe(true);
-		expect(view.factsLine).toBe("92k tokens · $0.31");
+		expect(view.stage).toBe("working");
+		expect(view.metrics.turn).toBe(14);
+		expect(view.metrics.tokens).toBe(92_000);
+		expect(view.metrics.cost).toBe(0.31);
+		expect(view.metrics.elapsed).toBe("3m");
 	}
 });
 
@@ -585,7 +587,8 @@ test("buildDetail detects a failed active work item", () => {
 	expect(view?.kind).toBe("failed");
 	if (view?.kind === "failed") {
 		expect(view.message).toBe("boom");
-		expect(view.wordLine).toBe("failed · 2m ago · took 3m");
+		expect(view.stage).toBe("failed");
+		expect(view.metrics.elapsed).toBe("2m");
 	}
 });
 
@@ -617,9 +620,12 @@ test("buildDetail resolves a settled ref, reading timeline via the runId", () =>
 	expect(view?.kind).toBe("settled");
 	if (view?.kind === "settled") {
 		expect(view.message).toBe("shipped");
-		expect(view.wordLine).toBe("done · 4m ago · took 41s");
-		expect(view.factsLine).toBe("64k tokens · $0.19 · checks passed");
-		expect(view.timeline).toHaveLength(1);
+		expect(view.stage).toBe("done");
+		expect(view.check).toBe("passed");
+		expect(view.metrics.tokens).toBe(64_000);
+		expect(view.metrics.cost).toBe(0.19);
+		expect(view.metrics.elapsed).toBe("41s");
+		expect(view.events).toHaveLength(1);
 	}
 });
 
@@ -740,18 +746,6 @@ test("formatTokens is coarse across boundaries", () => {
 	expect(formatTokens(118_000)).toBe("118k");
 	expect(formatTokens(1_200_000)).toBe("1.2m");
 	expect(formatTokens(2_000_000)).toBe("2m");
-});
-
-test("factsLine omits missing tokens, cost, and non-terminal checks", () => {
-	expect(factsLine({})).toBeUndefined();
-	expect(factsLine({ tokens: 118_000 })).toBe("118k tokens");
-	expect(factsLine({ cost: 0.42 })).toBe("$0.42");
-	expect(factsLine({ check: "failed" })).toBe("checks failed");
-	expect(factsLine({ check: "not-run" })).toBeUndefined();
-	expect(factsLine({ tokens: 118_000, check: "running" })).toBe("118k tokens");
-	expect(factsLine({ tokens: 118_000, cost: 0.42, check: "passed" })).toBe(
-		"118k tokens · $0.42 · checks passed",
-	);
 });
 
 test("capTimeline keeps the newest 30 entries", () => {

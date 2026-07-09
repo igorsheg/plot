@@ -14,11 +14,7 @@ import {
 	type TokenUsageProjection,
 	type WorkCheck,
 } from "@plot/projection";
-import {
-	formatDuration,
-	formatRelative,
-	formatShortAge,
-} from "../../lib/relative-time.js";
+import { formatDuration, formatShortAge } from "../../lib/relative-time.js";
 import {
 	parseOperatorActions,
 	type AttentionItem,
@@ -38,13 +34,24 @@ export interface DecisionActionTarget {
 	readonly actions: readonly OperatorActionView[];
 }
 
+/** The footer ledger — turn, tokens, cost, elapsed; each part is optional. */
+export interface DetailMetrics {
+	readonly turn: number;
+	readonly tokens: number | undefined;
+	readonly cost: number | undefined;
+	readonly elapsed: string | undefined;
+}
+
 interface DetailCommon {
 	readonly ref: DetailRef;
 	readonly title: string;
-	readonly wordLine: string;
-	readonly factsLine: string | undefined;
-	readonly attemptRunId: string | undefined;
-	readonly timeline: readonly TimelineEntry[];
+	readonly subtitle: string | undefined;
+	readonly labels: readonly string[];
+	readonly url: string | undefined;
+	readonly stage: string;
+	readonly check: WorkCheck | undefined;
+	readonly metrics: DetailMetrics;
+	readonly events: readonly TimelineEntry[];
 }
 
 export type DetailView =
@@ -53,12 +60,7 @@ export type DetailView =
 			readonly reason: string | undefined;
 			readonly decision: DecisionActionTarget;
 	  })
-	| (DetailCommon & {
-			readonly kind: "active";
-			readonly tool: string | undefined;
-			readonly thinking: string | undefined;
-			readonly streaming: boolean;
-	  })
+	| (DetailCommon & { readonly kind: "active" })
 	| (DetailCommon & { readonly kind: "settled"; readonly message: string })
 	| (DetailCommon & { readonly kind: "failed"; readonly message: string });
 
@@ -84,67 +86,27 @@ const tokenTotal = (tokens?: TokenUsageProjection): number | undefined => {
 	return (tokens.input ?? 0) + (tokens.output ?? 0);
 };
 
-/** One quiet line: `118k tokens · $0.42 · checks passed`; missing parts omitted. */
-export const factsLine = (input: {
-	readonly tokens?: number | undefined;
-	readonly cost?: number | undefined;
-	readonly check?: WorkCheck | undefined;
-}): string | undefined => {
-	const parts: string[] = [];
-	if (input.tokens !== undefined)
-		parts.push(`${formatTokens(input.tokens)} tokens`);
-	if (input.cost !== undefined) parts.push(`$${input.cost.toFixed(2)}`);
-	if (input.check === "passed") parts.push("checks passed");
-	else if (input.check === "failed") parts.push("checks failed");
-	return parts.length === 0 ? undefined : parts.join(" · ");
-};
+/** `not-run` and absent both read as "no check to show". */
+const normalizeCheck = (check: WorkCheck | undefined): WorkCheck | undefined =>
+	check === undefined || check === "not-run" ? undefined : check;
 
-const withAge = (
-	word: string,
+const sinceAge = (
 	sinceMs: number | undefined,
 	nowMs: number,
-): string =>
-	sinceMs === undefined ? word : `${word} · ${formatShortAge(nowMs - sinceMs)}`;
+): string | undefined =>
+	sinceMs === undefined ? undefined : formatShortAge(nowMs - sinceMs);
 
-const activeWordLine = (
-	nowMs: number,
-	startedAtMs: number | undefined,
-	turnCount: number,
-): string => {
-	const parts = ["running"];
-	if (startedAtMs !== undefined)
-		parts.push(formatShortAge(nowMs - startedAtMs));
-	parts.push(`turn ${turnCount}`);
-	return parts.join(" · ");
-};
-
-const settledWordLine = (
-	word: string,
-	nowMs: number,
-	atMs: number,
-	durationMs: number | undefined,
-): string => {
-	const parts = [word, formatRelative(atMs, nowMs)];
-	if (durationMs !== undefined)
-		parts.push(`took ${formatDuration(durationMs)}`);
-	return parts.join(" · ");
-};
-
-const failedActiveWordLine = (
-	nowMs: number,
-	attempt: SerializedDashboardProjection["attempts"][string] | undefined,
-): string => {
-	const atMs = attempt?.lastEventAtMs;
-	if (atMs === undefined) return "failed";
-	const duration =
-		attempt?.startedAtMs === undefined ? undefined : atMs - attempt.startedAtMs;
-	return settledWordLine(
-		"failed",
-		nowMs,
-		atMs,
-		duration !== undefined && duration > 0 ? duration : undefined,
-	);
-};
+const metricsOf = (input: {
+	readonly turn: number | undefined;
+	readonly tokens: number | undefined;
+	readonly cost: number | undefined;
+	readonly elapsed: string | undefined;
+}): DetailMetrics => ({
+	turn: input.turn ?? 0,
+	tokens: input.tokens,
+	cost: input.cost,
+	elapsed: input.elapsed,
+});
 
 /** Chronological, capped to the newest 30 (terminal convention: newest last). */
 export const capTimeline = (
@@ -171,6 +133,14 @@ const timelineOf = (
 				})),
 			);
 
+const identityOf = (
+	work: SerializedDashboardProjection["work"][string],
+): Pick<DetailCommon, "subtitle" | "labels" | "url"> => ({
+	subtitle: work.subtitle,
+	labels: work.labels,
+	url: work.url,
+});
+
 const buildWorkDetail = (
 	projection: SerializedDashboardProjection,
 	work: SerializedDashboardProjection["work"][string],
@@ -178,20 +148,28 @@ const buildWorkDetail = (
 ): DetailView | undefined => {
 	const attempt = attemptOf(projection, work.currentRunId);
 	const title = workLabel(work);
-	const timeline = timelineOf(attempt);
-	const attemptRunId = work.currentRunId;
+	const events = timelineOf(attempt);
+	const identity = identityOf(work);
 	const tokens = tokenTotal(attempt?.tokens);
 	const cost = attempt?.tokens?.cost;
+	const turn = attempt?.turnCount;
+	const check = normalizeCheck(attempt?.check);
 	const ref = workRef(work.workKey);
 	if (work.status === "failed") {
 		return {
 			kind: "failed",
 			ref,
 			title,
-			attemptRunId,
-			timeline,
-			wordLine: failedActiveWordLine(nowMs, attempt),
-			factsLine: factsLine({ tokens, cost, check: attempt?.check }),
+			...identity,
+			stage: "failed",
+			check,
+			metrics: metricsOf({
+				turn,
+				tokens,
+				cost,
+				elapsed: sinceAge(attempt?.lastEventAtMs, nowMs),
+			}),
+			events,
 			message: attempt?.lastDisplay ?? attempt?.activity ?? "Attempt failed.",
 		};
 	}
@@ -200,17 +178,16 @@ const buildWorkDetail = (
 			kind: "active",
 			ref,
 			title,
-			attemptRunId,
-			timeline,
-			wordLine: activeWordLine(
-				nowMs,
-				attempt?.startedAtMs,
-				attempt?.turnCount ?? 0,
-			),
-			factsLine: factsLine({ tokens, cost }),
-			tool: attempt?.streams.tool,
-			thinking: attempt?.streams.thinking,
-			streaming: attempt?.streaming ?? false,
+			...identity,
+			stage: "working",
+			check,
+			metrics: metricsOf({
+				turn,
+				tokens,
+				cost,
+				elapsed: sinceAge(attempt?.startedAtMs, nowMs),
+			}),
+			events,
 		};
 	}
 	const isDecision =
@@ -220,10 +197,16 @@ const buildWorkDetail = (
 			kind: "decision",
 			ref,
 			title,
-			attemptRunId,
-			timeline,
-			wordLine: withAge("blocked", attempt?.lastEventAtMs, nowMs),
-			factsLine: factsLine({ tokens, cost }),
+			...identity,
+			stage: "blocked",
+			check,
+			metrics: metricsOf({
+				turn,
+				tokens,
+				cost,
+				elapsed: sinceAge(attempt?.lastEventAtMs, nowMs),
+			}),
+			events,
 			reason: work.blockedReason,
 			decision: {
 				sourceId: work.sourceId,
@@ -238,29 +221,29 @@ const buildWorkDetail = (
 const buildSettledDetail = (
 	projection: SerializedDashboardProjection,
 	item: CompletedWorkProjection,
-	nowMs: number,
 ): DetailView => {
 	const attempt = attemptOf(projection, item.runId);
-	const timeline = timelineOf(attempt);
+	const events = timelineOf(attempt);
 	const failed = item.status === "failed" || item.status === "error";
 	const usage = item.tokens ?? attempt?.tokens;
-	const facts = factsLine({
-		tokens: tokenTotal(usage),
-		cost: usage?.cost,
-		check: attempt?.check,
-	});
 	const common: DetailCommon = {
 		ref: { kind: "settled", key: settledKey(item) },
 		title: item.label,
-		wordLine: settledWordLine(
-			failed ? "failed" : "done",
-			nowMs,
-			item.atMs,
-			item.durationMs,
-		),
-		factsLine: facts,
-		attemptRunId: item.runId,
-		timeline,
+		subtitle: undefined,
+		labels: item.labels ?? [],
+		url: item.url,
+		stage: failed ? "failed" : "done",
+		check: normalizeCheck(attempt?.check),
+		metrics: metricsOf({
+			turn: attempt?.turnCount,
+			tokens: tokenTotal(usage),
+			cost: usage?.cost,
+			elapsed:
+				item.durationMs === undefined
+					? undefined
+					: formatDuration(item.durationMs),
+		}),
+		events,
 	};
 	return failed
 		? { ...common, kind: "failed", message: item.message }
@@ -281,7 +264,7 @@ export const buildDetail = (
 		const item = projection.completed.find((c) => settledKey(c) === ref.key);
 		return item === undefined
 			? undefined
-			: buildSettledDetail(projection, item, nowMs);
+			: buildSettledDetail(projection, item);
 	}
 	const work = projection.work[ref.workKey];
 	if (work !== undefined) {
@@ -289,9 +272,7 @@ export const buildDetail = (
 		if (detail !== undefined) return detail;
 	}
 	const done = projection.completed.find((c) => c.workKey === ref.workKey);
-	return done === undefined
-		? undefined
-		: buildSettledDetail(projection, done, nowMs);
+	return done === undefined ? undefined : buildSettledDetail(projection, done);
 };
 
 export const refEquals = (a: DetailRef, b: DetailRef): boolean =>

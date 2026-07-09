@@ -37,17 +37,13 @@ import {
 import {
 	WorkDetailProvider,
 	useWorkDetail,
-	type TranscriptPanel,
 	type WorkDetailContextValue,
 } from "./detail-context.js";
 import {
 	closeDetail,
 	openDetail,
 	stepDetail,
-	toggleTranscript,
 	$detailView,
-	$transcriptQuery,
-	$transcriptRef,
 } from "./detail-store.js";
 import {
 	refEquals,
@@ -332,9 +328,6 @@ export function SessionWork() {
 	);
 }
 
-const errorText = (caught: unknown): string =>
-	caught instanceof Error ? caught.message : String(caught);
-
 const act = (input: Omit<OperatorObservationInput, "actor">): void =>
 	void $actOnWork.mutate(input);
 
@@ -354,8 +347,6 @@ export function StoreSessionWorkProvider({
 	const nowMs = useStore($nowMs);
 	const actState = useStore($actOnWork);
 	const detailView = useStore($detailView);
-	const transcriptQuery = useStore($transcriptQuery);
-	const transcriptRef = useStore($transcriptRef);
 	if (run === undefined) return null;
 	const attention = projection === undefined ? [] : buildAttention(projection);
 	const acting = actState.loading ?? false;
@@ -370,23 +361,12 @@ export function StoreSessionWorkProvider({
 		},
 		actions: { act, acting },
 	};
-	const transcript: TranscriptPanel = {
-		expanded: transcriptRef !== undefined,
-		loading: transcriptQuery.loading ?? false,
-		entries: (transcriptQuery.data?.entries ?? []).slice(-40),
-		notRecorded: transcriptQuery.data?.notRecorded ?? false,
-		error:
-			transcriptQuery.error === undefined
-				? undefined
-				: errorText(transcriptQuery.error),
-	};
 	const detailValue: WorkDetailContextValue = {
-		state: { view: detailView, nowMs, transcript },
+		state: { view: detailView, nowMs },
 		actions: {
 			open: openDetail,
 			close: closeDetail,
 			step: stepDetail,
-			toggleTranscript,
 			act,
 			acting,
 		},

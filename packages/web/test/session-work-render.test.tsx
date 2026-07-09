@@ -66,19 +66,11 @@ const detailValue: WorkDetailContextValue = {
 	state: {
 		view: undefined,
 		nowMs: 1_000_000,
-		transcript: {
-			expanded: false,
-			loading: false,
-			entries: [],
-			notRecorded: false,
-			error: undefined,
-		},
 	},
 	actions: {
 		open: noop,
 		close: noop,
 		step: noop,
-		toggleTranscript: noop,
 		act: noop,
 		acting: false,
 	},

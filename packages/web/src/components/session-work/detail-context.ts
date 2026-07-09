@@ -5,29 +5,18 @@
  */
 
 import type { OperatorObservationInput } from "@plot/session/runtime";
-import type { TranscriptEntry } from "@plot/session/transcript";
 import { createContext, createElement, type ReactNode, use } from "react";
 import type { DetailRef, DetailView } from "./detail-view-model.js";
-
-export interface TranscriptPanel {
-	readonly expanded: boolean;
-	readonly loading: boolean;
-	readonly entries: readonly TranscriptEntry[];
-	readonly notRecorded: boolean;
-	readonly error: string | undefined;
-}
 
 export interface WorkDetailState {
 	readonly view: DetailView | undefined;
 	readonly nowMs: number;
-	readonly transcript: TranscriptPanel;
 }
 
 export interface WorkDetailActions {
 	readonly open: (ref: DetailRef) => void;
 	readonly close: () => void;
 	readonly step: (direction: 1 | -1) => void;
-	readonly toggleTranscript: () => void;
 	readonly act: (input: Omit<OperatorObservationInput, "actor">) => void;
 	readonly acting: boolean;
 }

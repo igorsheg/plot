@@ -14,6 +14,7 @@ export type { Icon };
 
 // Phosphor icons in use across the app, re-exported through the seam.
 export {
+	ArrowUpRightIcon,
 	CheckCircleIcon,
 	CircleHalfTiltIcon,
 	CircleNotchIcon,
