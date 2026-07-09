@@ -97,7 +97,15 @@ async function createIsolatedInstall(
 	}
 
 	createPlotShim(installDir);
-	await $`node ${join(installDir, "plot")} --help`.cwd(installDir);
+	const help = await $`node ${join(installDir, "plot")} --help`
+		.cwd(installDir)
+		.quiet();
+	if (!help.stdout.toString().includes(`plot v${options.version}`)) {
+		throw new Error(
+			`${manager} install printed the wrong Plot version; expected ${options.version}`,
+		);
+	}
+	await $`node ${join(installDir, "plot")} docs quickstart`.cwd(installDir);
 	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
 		installDir,
 	);

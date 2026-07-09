@@ -53,7 +53,19 @@ try {
 		throw new Error("missing plot bin after install");
 	}
 
-	await $`./node_modules/.bin/plot --help`.cwd(tempDir);
+	const manifest = (await Bun.file(
+		join(tempDir, "node_modules", "plot-ai", "package.json"),
+	).json()) as { readonly version?: string };
+	const version = manifest.version;
+	if (version === undefined) throw new Error("plot-ai package has no version");
+	const help = await $`./node_modules/.bin/plot --help`.cwd(tempDir).quiet();
+	const helpText = help.stdout.toString();
+	if (!helpText.includes(`plot v${version}`)) {
+		throw new Error(
+			`plot --help printed the wrong version; expected ${version}`,
+		);
+	}
+	await $`./node_modules/.bin/plot docs quickstart`.cwd(tempDir);
 	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
 		tempDir,
 	);

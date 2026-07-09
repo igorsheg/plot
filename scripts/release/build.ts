@@ -52,6 +52,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 	}
 
 	chmodSync(join(binDir, "plot"), 0o755);
+	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), { recursive: true });
 
 	writeJson(join(packageDir, "package.json"), {
 		name: target.packageName,
@@ -68,7 +69,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 		bin: {
 			plot: "bin/plot",
 		},
-		files: ["bin", "package.json"],
+		files: ["bin", "docs", "package.json"],
 	});
 
 	await $`npm pack`.cwd(packageDir);
