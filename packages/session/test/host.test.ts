@@ -173,19 +173,42 @@ Do it
 		);
 		const session = new FakePiSession();
 		let createOptions: PiAgentSessionRunOptions | undefined;
+		let created!: () => void;
+		const createdPromise = new Promise<void>((resolve) => {
+			created = resolve;
+		});
 		const host = await createSessionHost({
 			cwd,
 			sessionId: "host-extension-options",
 			createAgentSession: async (options) => {
 				createOptions = options;
+				created();
 				return { session };
 			},
 		});
-
-		await host.runtime.start();
-		await host.runtime.tickOnce();
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		await host.shutdown();
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const tickUntilCreated = async (): Promise<void> => {
+			if (createOptions !== undefined) return;
+			await host.runtime.tickOnce();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			return tickUntilCreated();
+		};
+		try {
+			await host.runtime.start();
+			await Promise.race([
+				createdPromise,
+				tickUntilCreated(),
+				new Promise<never>((_, reject) => {
+					timeout = setTimeout(
+						() => reject(new Error("agent session was not created")),
+						1000,
+					);
+				}),
+			]);
+		} finally {
+			if (timeout) clearTimeout(timeout);
+			await host.shutdown();
+		}
 
 		expect(createOptions?.cwd).toBe(workCwd);
 		expect(createOptions?.customTools?.map((tool) => tool.name)).toEqual([
