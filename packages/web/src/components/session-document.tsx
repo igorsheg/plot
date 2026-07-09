@@ -1,30 +1,39 @@
 import { useStore } from "@nanostores/react";
+import { motion } from "motion/react";
 import { $selectedRun } from "../app/runs-store.js";
 import {
+	sessionDetailClass,
+	sessionDetailInnerClass,
 	sessionDocumentClass,
 	sessionMainClass,
+	sessionSplitClass,
 } from "./session-document.styles.js";
 import {
 	SessionHeader,
 	StoreSessionHeaderProvider,
 } from "./session-header/session-header.js";
+import { useWorkDetail } from "./session-work/detail-context.js";
 import {
 	SessionWork,
 	StoreSessionWorkProvider,
 } from "./session-work/session-work.js";
+import { WorkDetail } from "./session-work/work-detail.js";
 import { VStack } from "./ui/stack.js";
 import { Text } from "./ui/text.js";
+
+const DETAIL_WIDTH = 420;
+const DETAIL_EASE = [0.32, 0.72, 0, 1] as const;
 
 function EmptySelection() {
 	return (
 		<VStack as="main" className={sessionMainClass()}>
 			<VStack
 				as="article"
+				center
 				className={sessionDocumentClass({ state: "empty" })}
 				gap={12}
-				center
 			>
-				<Text variant="heading1" as="h1">
+				<Text as="h1" variant="heading1">
 					No active sessions.
 				</Text>
 				<Text variant="secondary">
@@ -35,18 +44,47 @@ function EmptySelection() {
 	);
 }
 
+/**
+ * The session body: the document (header + river) beside the work detail. The
+ * detail is a flowed sibling — opening it animates the column's width so the
+ * whole document is pushed left, rather than floating over it. Consumes only the
+ * detail open state; the document and the panel own their own contexts.
+ */
+function SessionSplit() {
+	const { state } = useWorkDetail();
+	const open = state.view !== undefined;
+	return (
+		<div className={sessionSplitClass()}>
+			<VStack as="main" className={sessionMainClass()}>
+				<VStack as="article" className={sessionDocumentClass()} gap={48}>
+					<StoreSessionHeaderProvider>
+						<SessionHeader />
+					</StoreSessionHeaderProvider>
+					<SessionWork />
+				</VStack>
+			</VStack>
+			<motion.div
+				animate={{ width: open ? DETAIL_WIDTH : 0 }}
+				className={sessionDetailClass()}
+				initial={false}
+				transition={{ duration: 0.5, ease: DETAIL_EASE }}
+			>
+				<div
+					className={sessionDetailInnerClass()}
+					style={{ width: DETAIL_WIDTH }}
+				>
+					<WorkDetail />
+				</div>
+			</motion.div>
+		</div>
+	);
+}
+
 function SessionDocument() {
 	return (
-		<VStack as="main" className={sessionMainClass()}>
-			<VStack as="article" className={sessionDocumentClass()} gap={48}>
-				<StoreSessionHeaderProvider>
-					<SessionHeader />
-				</StoreSessionHeaderProvider>
-				<StoreSessionWorkProvider>
-					<SessionWork />
-				</StoreSessionWorkProvider>
-			</VStack>
-		</VStack>
+		<StoreSessionWorkProvider>
+			<SessionSplit />
+		</StoreSessionWorkProvider>
 	);
 }
 

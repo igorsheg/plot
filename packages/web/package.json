@@ -3,7 +3,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "bun ../../scripts/web-dev.ts",
+		"dev": "concurrently --kill-others --names api,vite \"bun run dev:api\" \"bun run dev:vite\"",
+		"dev:api": "bun ../cli/src/main.ts serve api --http --host 127.0.0.1 --port 4317 --cwd ../..",
+		"dev:vite": "vite --host 127.0.0.1",
 		"build": "vite build",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"lint": "oxlint src test --tsconfig tsconfig.json",
@@ -40,6 +42,7 @@
 		"@storybook/react-vite": "^10.4.6",
 		"@types/react": "^19.2.7",
 		"@types/react-dom": "^19.2.3",
+		"concurrently": "^10.0.3",
 		"storybook": "^10.4.6",
 		"typescript": "^7.0.2"
 	}

@@ -54,7 +54,6 @@ import {
 	type DetailRef,
 	type DetailView,
 } from "./detail-view-model.js";
-import { WorkDrawer } from "./drawer.js";
 import { hairlineClass, groupClass } from "./styles.js";
 import {
 	buildAttention,
@@ -299,13 +298,10 @@ export function SessionWork() {
 	const hasSettled = state.settled.length > 0;
 	if (!hasAttention && !hasMotion && !hasSettled) {
 		return (
-			<>
-				<Text as="p" variant="secondary">
-					Nothing in flight. The workflow decides what runs — watch this space
-					or check the workflow file.
-				</Text>
-				<WorkDrawer />
-			</>
+			<Text as="p" variant="secondary">
+				Nothing in flight. The workflow decides what runs — watch this space or
+				check the workflow file.
+			</Text>
 		);
 	}
 	return (
@@ -332,7 +328,6 @@ export function SessionWork() {
 					))}
 				</VStack>
 			)}
-			<WorkDrawer />
 		</VStack>
 	);
 }

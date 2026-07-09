@@ -1,7 +1,7 @@
 import { cva } from "../components/ui/variants.js";
 
 export const appShellClass = cva({
-	base: "min-h-full bg-background text-foreground",
+	base: "h-dvh overflow-hidden bg-background text-foreground",
 });
 
 export const dockAnchorClass = cva({
