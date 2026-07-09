@@ -33,8 +33,8 @@ src/style.css         Tailwind v4 raw tokens, Coss semantic tokens, and base sel
 - Do not rebuild the old Console model by inertia: no Fleet, Brief, lanes, replay scrub, palette, or optimistic queue unless re-proven.
 - Keep gateway parsing at `src/data/`; views do not parse raw JSON.
 - Port external UI primitives only when rendered. No closed component system.
-- Use `@phosphor-icons/react` for icons throughout Plot web; do not mix icon sets.
-- Import Phosphor icons by their modern `*Icon` exports, e.g. `XIcon`, not deprecated aliases like `X`.
+- Import every icon from `src/components/ui/icons.tsx`, never from `@phosphor-icons/react` directly; that module is the single vendor seam. Add a re-export there (by the modern `*Icon` name, e.g. `XIcon`) when a new Phosphor icon is needed.
+- Plot's own state glyphs are vendored in that module; render work-item status with `WorkStateIcon`, not ad-hoc inline SVGs.
 - `src/style.css` is the Plot web design system: raw tokens, semantic aliases, Tailwind v4 theme entries, and base selectors only.
 - Do not put component/block/domain selectors in `src/style.css`; colocate that styling with the owning component using idiomatic Tailwind utilities/composition.
 - Visible text renders through `src/components/ui/text.tsx`; do not define typography styles in component CSS or inline styles.

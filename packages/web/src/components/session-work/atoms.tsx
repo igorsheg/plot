@@ -1,25 +1,28 @@
-/** Shared work-state dot vocabulary used by the river and detail drawer. */
+/** Shared work-state icon vocabulary used by the river and detail drawer. */
 
-import { cva } from "../ui/variants.js";
+import { cn } from "../../lib/utils.js";
+import { WorkStateIcon, type WorkState } from "../ui/icons.js";
 
-export type DotKind = "active" | "queued" | "attention" | "done";
+const STATE_COLOR: Record<WorkState, string> = {
+	attention: "text-destructive",
+	active: "text-foreground",
+	queued: "text-muted-foreground",
+	done: "text-muted-foreground",
+	canceled: "text-muted-foreground",
+};
 
-export const dotClass = cva({
-	base: "size-2 shrink-0 rounded-full",
-	variants: {
-		kind: {
-			active: "bg-foreground",
-			queued:
-				"bg-transparent shadow-[inset_0_0_0_1.5px_var(--muted-foreground)]",
-			attention: "bg-destructive",
-			done: "bg-muted-foreground",
-		},
-		offset: {
-			false: null,
-			true: "mt-2",
-		},
-	},
-	defaultVariants: {
-		offset: false,
-	},
-});
+/** The one state glyph, sized once and coloured for its work state. */
+export function StateIcon({
+	state,
+	className,
+}: {
+	readonly state: WorkState;
+	readonly className?: string;
+}) {
+	return (
+		<WorkStateIcon
+			state={state}
+			className={cn("size-4 shrink-0", STATE_COLOR[state], className)}
+		/>
+	);
+}

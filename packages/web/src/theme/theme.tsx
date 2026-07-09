@@ -1,5 +1,9 @@
 import { useStore } from "@nanostores/react";
-import { CircleHalfTiltIcon, MoonIcon, SunIcon } from "@phosphor-icons/react";
+import {
+	CircleHalfTiltIcon,
+	MoonIcon,
+	SunIcon,
+} from "../components/ui/icons.js";
 import { atom, onMount } from "nanostores";
 import { createElement, type ReactNode } from "react";
 import { Button } from "../components/ui/button.js";

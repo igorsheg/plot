@@ -7,7 +7,7 @@ import {
 	InfoIcon,
 	WarningCircleIcon,
 	WarningIcon,
-} from "@phosphor-icons/react";
+} from "./icons.js";
 import type React from "react";
 import { cn } from "../../lib/utils.js";
 import { buttonVariants } from "./button.js";

@@ -1,14 +1,6 @@
 import { cva } from "../ui/variants.js";
 import { textVariants } from "../ui/text.js";
 
-export const ghostStripClass = cva({
-	base: "relative h-10 opacity-25",
-});
-
-export const ghostStripLineClass = cva({
-	base: "absolute inset-x-0 top-[19px] h-[1.5px] bg-muted-foreground",
-});
-
 export const sparklineRootClass = cva({
 	base: [
 		"inline-flex items-center whitespace-nowrap",

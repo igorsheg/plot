@@ -3,7 +3,7 @@
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "./icons.js";
 import type React from "react";
 import { cn } from "../../lib/utils.js";
 import { Button } from "./button.js";

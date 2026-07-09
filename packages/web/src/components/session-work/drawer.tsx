@@ -9,7 +9,7 @@
  * stays where the user is and the live river behind stays interactive.
  */
 
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "../ui/icons.js";
 import { Button } from "../ui/button.js";
 import {
 	Sheet,
@@ -26,7 +26,8 @@ import { formatShortAge } from "../../lib/relative-time.js";
 import Stack, { VStack } from "../ui/stack.js";
 import { Text, textVariants } from "../ui/text.js";
 import { StreamedProse } from "../ui/streamed.js";
-import { dotClass, type DotKind } from "./atoms.js";
+import type { WorkState } from "../ui/icons.js";
+import { StateIcon } from "./atoms.js";
 import { DecisionActions } from "./decision-actions.js";
 import {
 	useWorkDetail,
@@ -49,11 +50,11 @@ import {
 	transcriptToggleClass,
 } from "./styles.js";
 
-const headerDot: Record<DetailView["kind"], DotKind> = {
+const headerIcon: Record<DetailView["kind"], WorkState> = {
 	decision: "attention",
 	active: "active",
 	settled: "done",
-	failed: "attention",
+	failed: "canceled",
 };
 
 function SectionLabel({ children }: { readonly children: ReactNode }) {
@@ -69,10 +70,7 @@ function DrawerHeader({ view }: { readonly view: DetailView }) {
 		<SheetHeader>
 			<Stack alignCenter between gap={12} className={drawerHeaderRowClass()}>
 				<Stack alignCenter gap={8} className={drawerHeaderRowClass()}>
-					<span
-						aria-hidden="true"
-						className={dotClass({ kind: headerDot[view.kind] })}
-					/>
+					<StateIcon state={headerIcon[view.kind]} />
 					<span className={nowrapClass()}>
 						<Text as="span" size="sm" variant="secondary">
 							{view.wordLine}

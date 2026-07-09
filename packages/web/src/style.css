@@ -136,6 +136,10 @@
 	--font-mono:
 		"Geist Pixel", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
 		"Liberation Mono", "Courier New", monospace;
+	/* Geist Pixel carries a taller x-height than Barlow, so at a shared px it
+	 * reads larger. Normalise its x-height to Barlow's without changing the
+	 * nominal size (keeps time-edge lanes and line-heights aligned). Tune here. */
+	--mono-size-adjust: 0.5;
 	--background: var(--color-white);
 	--foreground: var(--color-neutral-800);
 	--card: var(--color-white);
@@ -265,5 +269,9 @@
 
 	body {
 		@apply relative bg-background font-sans text-foreground antialiased;
+	}
+
+	.font-mono {
+		font-size-adjust: var(--mono-size-adjust);
 	}
 }

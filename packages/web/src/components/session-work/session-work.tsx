@@ -100,18 +100,18 @@ function DecisionRow({ item }: { readonly item: DecisionItem }) {
 				onClick={() => detail.actions.open(ref)}
 				open={isOpen(detail.state.view, ref)}
 			>
-				<WorkItem.Dot kind="attention" />
-				<WorkItem.Body>
+				<WorkItem.Line>
+					<WorkItem.Icon state="attention" />
 					<WorkItem.Title>{item.title}</WorkItem.Title>
-					{item.reason !== undefined ? (
-						<WorkItem.Subline>
-							<StreamedLine text={item.reason} />
-						</WorkItem.Subline>
-					) : (
-						<EmptySubline />
-					)}
-				</WorkItem.Body>
-				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+					{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+				</WorkItem.Line>
+				{item.reason !== undefined ? (
+					<WorkItem.Subline>
+						<StreamedLine text={item.reason} />
+					</WorkItem.Subline>
+				) : (
+					<EmptySubline />
+				)}
 			</WorkItem.Frame>
 		</WorkItem.Root>
 	);
@@ -129,18 +129,18 @@ function FailureRow({ item }: { readonly item: FailureItem }) {
 				onClick={() => detail.actions.open(ref)}
 				open={isOpen(detail.state.view, ref)}
 			>
-				<WorkItem.Dot kind="attention" />
-				<WorkItem.Body>
+				<WorkItem.Line>
+					<WorkItem.Icon state="attention" />
 					<WorkItem.Title>{item.title}</WorkItem.Title>
-					{item.line !== undefined ? (
-						<WorkItem.Subline>
-							<StreamedLine text={item.line} tone="danger" />
-						</WorkItem.Subline>
-					) : (
-						<EmptySubline />
-					)}
-				</WorkItem.Body>
-				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+					{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+				</WorkItem.Line>
+				{item.line !== undefined ? (
+					<WorkItem.Subline>
+						<StreamedLine text={item.line} tone="danger" />
+					</WorkItem.Subline>
+				) : (
+					<EmptySubline />
+				)}
 			</WorkItem.Frame>
 		</WorkItem.Root>
 	);
@@ -150,13 +150,13 @@ function DiagnosticRow({ item }: { readonly item: DiagnosticItem }) {
 	return (
 		<WorkItem.Root>
 			<WorkItem.Frame>
-				<WorkItem.Dot kind="attention" />
-				<WorkItem.Body>
+				<WorkItem.Line>
+					<WorkItem.Icon state="attention" />
 					<WorkItem.Title tone="error" truncate>
 						{item.text}
 					</WorkItem.Title>
-					<EmptySubline />
-				</WorkItem.Body>
+				</WorkItem.Line>
+				<EmptySubline />
 			</WorkItem.Frame>
 		</WorkItem.Root>
 	);
@@ -182,22 +182,22 @@ function ActiveRow({ item }: { readonly item: ActiveItem }) {
 				onClick={() => detail.actions.open(ref)}
 				open={isOpen(detail.state.view, ref)}
 			>
-				<WorkItem.Dot kind="active" />
-				<WorkItem.Body>
+				<WorkItem.Line>
+					<WorkItem.Icon state="active" />
 					<WorkItem.Title>{item.title}</WorkItem.Title>
-					{line !== undefined ? (
-						<WorkItem.Subline>
-							{line.llm ? (
-								<StreamedLine text={line.text} tone="secondary" />
-							) : (
-								line.text
-							)}
-						</WorkItem.Subline>
-					) : (
-						<EmptySubline />
-					)}
-				</WorkItem.Body>
-				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+					{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+				</WorkItem.Line>
+				{line !== undefined ? (
+					<WorkItem.Subline>
+						{line.llm ? (
+							<StreamedLine text={line.text} tone="secondary" />
+						) : (
+							line.text
+						)}
+					</WorkItem.Subline>
+				) : (
+					<EmptySubline />
+				)}
 			</WorkItem.Frame>
 		</WorkItem.Root>
 	);
@@ -212,16 +212,16 @@ function QueuedRow({ item }: { readonly item: QueuedItem }) {
 	return (
 		<WorkItem.Root>
 			<WorkItem.Frame>
-				<WorkItem.Dot kind="queued" />
-				<WorkItem.Body>
+				<WorkItem.Line>
+					<WorkItem.Icon state="queued" />
 					<WorkItem.Title tone="secondary">{item.title}</WorkItem.Title>
-					{item.sub !== undefined ? (
-						<WorkItem.Subline tone="secondary">{item.sub}</WorkItem.Subline>
-					) : (
-						<EmptySubline />
-					)}
-				</WorkItem.Body>
-				{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+					{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+				</WorkItem.Line>
+				{item.sub !== undefined ? (
+					<WorkItem.Subline tone="secondary">{item.sub}</WorkItem.Subline>
+				) : (
+					<EmptySubline />
+				)}
 			</WorkItem.Frame>
 		</WorkItem.Root>
 	);
@@ -264,14 +264,17 @@ function SettledRow({ item }: { readonly item: SettledItem }) {
 				onClick={() => detail.actions.open(ref)}
 				open={isOpen(detail.state.view, ref)}
 			>
-				<WorkItem.Label>{item.label}</WorkItem.Label>
-				<WorkItem.Message>
-					<StreamedLine
-						text={item.message}
-						tone={item.failed ? "danger" : "secondary"}
-					/>
-				</WorkItem.Message>
-				<WorkItem.Edge>{edge}</WorkItem.Edge>
+				<WorkItem.Line>
+					<WorkItem.Icon state={item.failed ? "canceled" : "done"} />
+					<WorkItem.Label>{item.label}</WorkItem.Label>
+					<WorkItem.Message>
+						<StreamedLine
+							text={item.message}
+							tone={item.failed ? "danger" : "secondary"}
+						/>
+					</WorkItem.Message>
+					<WorkItem.Edge>{edge}</WorkItem.Edge>
+				</WorkItem.Line>
 			</WorkItem.Frame>
 		</WorkItem.Root>
 	);

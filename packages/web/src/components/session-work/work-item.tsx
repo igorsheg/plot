@@ -1,7 +1,8 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import type { WorkState } from "../ui/icons.js";
 import { Text, type TextVariant, textVariants } from "../ui/text.js";
 import { cva } from "../ui/variants.js";
-import { dotClass, type DotKind } from "./atoms.js";
+import { StateIcon } from "./atoms.js";
 
 type Density = "work" | "settled";
 type Tone = Extract<TextVariant, "body" | "secondary" | "error">;
@@ -11,11 +12,11 @@ const rootClass = cva({
 });
 
 const frameClass = cva({
-	base: "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] rounded-lg border-0 bg-transparent text-left",
+	base: "flex w-full flex-col gap-y-1 rounded-lg border-0 bg-transparent text-left",
 	variants: {
 		density: {
-			work: "items-start gap-x-3 p-2",
-			settled: "items-center gap-x-3 px-2 py-1",
+			work: "p-2",
+			settled: "px-2 py-1",
 		},
 		interactive: {
 			false: null,
@@ -24,12 +25,26 @@ const frameClass = cva({
 	},
 });
 
-const bodyClass = cva({
-	base: "grid min-w-0 grid-rows-[auto_--spacing(5)] gap-y-1",
+// The title line: baseline-aligns its text so the edge time rests on the
+// title's baseline; the icon opts out and centres on the line instead.
+const lineClass = cva({
+	base: "flex min-w-0 items-baseline gap-x-3",
 });
 
+// The icon lane: `self-center` centres the glyph on the title's line box; the
+// 1px downward nudge is an optical correction that seats it on the title text.
+const iconClass = cva({
+	base: "inline-flex shrink-0 translate-y-px self-center",
+});
+
+const titleClass = cva({
+	base: "min-w-0 flex-1",
+});
+
+// `ps-7` = the icon lane (size-4) + the line gap (gap-x-3), so the subline
+// aligns under the title rather than under the icon.
 const sublineClass = cva({
-	base: "block h-5 min-w-0 max-w-full truncate",
+	base: "block h-5 min-w-0 truncate ps-7",
 	variants: {
 		tone: {
 			body: textVariants({ size: "sm" }),
@@ -40,7 +55,7 @@ const sublineClass = cva({
 });
 
 const edgeClass = cva({
-	base: "whitespace-nowrap",
+	base: "shrink-0 whitespace-nowrap",
 });
 
 const labelClass = cva({
@@ -103,26 +118,23 @@ export function Frame({
 	);
 }
 
-export function Dot({ kind }: { readonly kind: DotKind }): ReactNode {
-	return (
-		<span
-			aria-hidden="true"
-			className={dotClass({ kind, offset: true })}
-			data-kind={kind}
-			data-slot="work-item-dot"
-		/>
-	);
-}
-
-export function Body({
+export function Line({
 	children,
 }: {
 	readonly children: ReactNode;
 }): ReactNode {
 	return (
-		<div className={bodyClass()} data-slot="work-item-body">
+		<div className={lineClass()} data-slot="work-item-line">
 			{children}
 		</div>
+	);
+}
+
+export function Icon({ state }: { readonly state: WorkState }): ReactNode {
+	return (
+		<span className={iconClass()} data-slot="work-item-icon" data-state={state}>
+			<StateIcon state={state} />
+		</span>
 	);
 }
 
@@ -136,9 +148,11 @@ export function Title({
 	readonly truncate?: boolean;
 }): ReactNode {
 	return (
-		<Text as="p" data-slot="work-item-title" truncate={truncate} variant={tone}>
-			{children}
-		</Text>
+		<span className={titleClass()} data-slot="work-item-title">
+			<Text as="p" truncate={truncate} variant={tone}>
+				{children}
+			</Text>
+		</span>
 	);
 }
 
@@ -158,7 +172,7 @@ export function Subline({
 			data-empty={empty ? "" : undefined}
 			data-slot="work-item-subline"
 		>
-			{empty ? "\u00A0" : children}
+			{empty ? " " : children}
 		</span>
 	);
 }
@@ -202,11 +216,11 @@ export function Message({
 }
 
 export const WorkItem = {
-	Body,
-	Dot,
 	Edge,
 	Frame,
+	Icon,
 	Label,
+	Line,
 	Message,
 	Root,
 	Subline,

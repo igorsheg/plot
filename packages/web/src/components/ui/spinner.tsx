@@ -1,4 +1,4 @@
-import { CircleNotchIcon } from "@phosphor-icons/react";
+import { CircleNotchIcon } from "./icons.js";
 import type React from "react";
 import { cn } from "../../lib/utils.js";
 
