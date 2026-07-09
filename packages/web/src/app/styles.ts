@@ -9,5 +9,5 @@ export const dockAnchorClass = cva({
 });
 
 export const themeAnchorClass = cva({
-	base: "fixed right-[var(--plot-space-4)] top-[var(--plot-space-4)] z-40",
+	base: "fixed left-[var(--plot-space-4)] top-[var(--plot-space-4)] z-40",
 });
