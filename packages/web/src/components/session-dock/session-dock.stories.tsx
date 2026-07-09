@@ -4,14 +4,42 @@ import {
 	SessionDockProvider,
 	type SessionDockContextValue,
 } from "./context.js";
+import { DEFAULT_DOCK_MOTION, type DockMotion } from "./motion.js";
 import type { DockLineItem } from "./view-model.js";
 
+/**
+ * Line navigator with live animation knobs. The whole line — height, title,
+ * width, colour — reveals on one shared ease-out; hover a line to feel it, tune
+ * enter/exit/curve in the panel. The errored session ("deploy") draws a longer
+ * destructive line. Dial it in here, then copy the numbers into
+ * `DEFAULT_DOCK_MOTION` in motion.ts.
+ */
 const meta = {
 	title: "Session/Dock",
 	parameters: { layout: "fullscreen" },
-} satisfies Meta;
+	args: DEFAULT_DOCK_MOTION,
+	argTypes: {
+		enterMs: {
+			name: "enter (reveal)",
+			control: { type: "range", min: 0, max: 600, step: 10 },
+			description: "Height grow, title fade/slide, line widen — on hover/focus",
+		},
+		exitMs: {
+			name: "exit (collapse)",
+			control: { type: "range", min: 0, max: 600, step: 10 },
+			description: "The same, in reverse, on hover/focus out",
+		},
+		curve: {
+			name: "curve (both ways)",
+			control: "text",
+			description: "One shared cubic-bezier(...) for enter and exit",
+		},
+	},
+} satisfies Meta<DockMotion>;
 
 export default meta;
+
+type Story = StoryObj<DockMotion>;
 
 const NOW = 1_720_000_000_000;
 
@@ -50,29 +78,20 @@ const past: readonly DockLineItem[] = [
 	},
 ];
 
-function dock(value: SessionDockContextValue): StoryObj {
+const actions = { select: () => {}, toggleExpanded: () => {} };
+
+function dock(state: SessionDockContextValue["state"]): Story {
 	return {
-		render: () => (
-			<SessionDockProvider value={value}>
-				<SessionDock />
+		render: (args) => (
+			<SessionDockProvider value={{ state, actions }}>
+				<SessionDock motion={args} />
 			</SessionDockProvider>
 		),
 	};
 }
 
-const actions = { select: () => {}, toggleExpanded: () => {} };
-
-/**
- * Line navigator. Selected reads its title; others are hairlines that reveal on
- * hover. The errored session ("deploy") draws a longer destructive line.
- */
-export const Default = dock({
-	state: { live, past, expanded: false, nowMs: NOW },
-	actions,
-});
+/** Selected reads its title; others are hairlines that reveal on hover. */
+export const Default = dock({ live, past, expanded: false, nowMs: NOW });
 
 /** Past group revealed. */
-export const Expanded = dock({
-	state: { live, past, expanded: true, nowMs: NOW },
-	actions,
-});
+export const Expanded = dock({ live, past, expanded: true, nowMs: NOW });

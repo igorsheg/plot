@@ -7,7 +7,6 @@
 
 import { useStore } from "@nanostores/react";
 import { atom } from "nanostores";
-import { motion } from "motion/react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type ReactNode,
@@ -32,6 +31,11 @@ import {
 	type SessionDockContextValue,
 } from "./context.js";
 import {
+	DEFAULT_DOCK_MOTION,
+	dockMotionVars,
+	type DockMotion,
+} from "./motion.js";
+import {
 	dockLineButtonClass,
 	dockLineClass,
 	dockLineTitleShellClass,
@@ -43,24 +47,9 @@ import {
 	dockLineOrder,
 	dockShortcutId,
 	GHOST_LINE_KEY,
-	LINE_WIDTH,
 	nextDockKey,
 	type DockLineItem,
 } from "./view-model.js";
-
-const lineVariants = {
-	normal: { width: LINE_WIDTH.normal },
-	attention: { width: LINE_WIDTH.attention },
-	active: { width: LINE_WIDTH.active },
-	hover: { width: LINE_WIDTH.hover },
-} as const;
-
-const lineTransition = {
-	type: "spring",
-	stiffness: 520,
-	damping: 36,
-	mass: 0.7,
-} as const;
 
 interface LineHandlers {
 	readonly tabbable: boolean;
@@ -99,18 +88,16 @@ function DockLine({
 	const pointerActivation = useRef(false);
 	const textVariant = attention ? "error" : selected ? "body" : "secondary";
 	const visible = selected;
+	const size = selected ? "active" : attention ? "attention" : "normal";
 	return (
-		<motion.button
+		<button
 			ref={setRef}
 			type="button"
 			aria-current={selected ? "page" : undefined}
 			aria-label={ariaLabel}
 			className={dockLineButtonClass({ visible })}
 			data-dock-key={id}
-			initial={false}
-			animate={selected ? "active" : attention ? "attention" : "normal"}
 			tabIndex={handlers.tabbable ? 0 : -1}
-			whileHover="hover"
 			onClick={(event) => {
 				onClick();
 				if (pointerActivation.current) event.currentTarget.blur();
@@ -121,20 +108,19 @@ function DockLine({
 				pointerActivation.current = true;
 			}}
 		>
-			<motion.span
+			<span
 				aria-hidden="true"
 				className={dockLineClass({
+					size,
 					tone: attention ? "attention" : "default",
 				})}
-				transition={lineTransition}
-				variants={lineVariants}
 			/>
 			<span className={dockLineTitleShellClass({ visible })}>
 				<Text as="span" size="sm" variant={textVariant}>
 					{title}
 				</Text>
 			</span>
-		</motion.button>
+		</button>
 	);
 }
 
@@ -147,9 +133,14 @@ interface RenderedLine {
 	readonly onClick: () => void;
 }
 
-export function SessionDock() {
+export function SessionDock({
+	motion: motionProp,
+}: {
+	readonly motion?: Partial<DockMotion>;
+} = {}) {
 	const { state, actions } = useSessionDock();
 	const { live, past, expanded, nowMs } = state;
+	const anim = { ...DEFAULT_DOCK_MOTION, ...motionProp };
 	const buttons = useRef(new Map<string, HTMLButtonElement>());
 	const register = useCallback((key: string, el: HTMLButtonElement | null) => {
 		if (el === null) buttons.current.delete(key);
@@ -248,7 +239,12 @@ export function SessionDock() {
 	];
 
 	return (
-		<nav aria-label="Sessions" className={dockNavClass()} onKeyDown={onKeyDown}>
+		<nav
+			aria-label="Sessions"
+			className={dockNavClass()}
+			onKeyDown={onKeyDown}
+			style={dockMotionVars(anim)}
+		>
 			{rendered.map((line) => (
 				<DockLine
 					key={line.id}
