@@ -41,6 +41,6 @@
 		"@types/react": "^19.2.7",
 		"@types/react-dom": "^19.2.3",
 		"storybook": "^10.4.6",
-		"typescript": "^5.8.2"
+		"typescript": "^7.0.2"
 	}
 }

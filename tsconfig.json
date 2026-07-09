@@ -3,9 +3,7 @@
 	"compilerOptions": {
 		"noEmit": true,
 		"allowImportingTsExtensions": true,
-		"jsx": "react-jsx",
-		"ignoreDeprecations": "5.0",
-		"baseUrl": "."
+		"jsx": "react-jsx"
 	},
 	"include": ["packages/**/*.ts", "*.extension.ts"]
 }
