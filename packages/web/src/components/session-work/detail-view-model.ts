@@ -1,9 +1,9 @@
 /**
  * Pure view-model for the work-detail drawer — no React. `buildDetail` resolves
  * an open reference against the projection into a `DetailView` discriminated
- * union (decision | active | settled | failed) carrying exactly the fields the
- * drawer sections render. `openableRefs` + `stepRef` drive the ↑/↓ walker; every
- * builder here is unit-tested in isolation.
+ * union (decision | held | active | settled | failed) carrying exactly the fields
+ * the drawer sections render. `openableRefs` + `stepRef` drive the ↑/↓ walker;
+ * every builder here is unit-tested in isolation.
  */
 
 import {
@@ -18,6 +18,7 @@ import { formatDuration, formatShortAge } from "../../lib/relative-time.js";
 import {
 	parseOperatorActions,
 	type AttentionItem,
+	type LiveLine,
 	type MotionItem,
 	type OperatorActionView,
 	type SettledItem,
@@ -60,7 +61,15 @@ export type DetailView =
 			readonly reason: string | undefined;
 			readonly decision: DecisionActionTarget;
 	  })
-	| (DetailCommon & { readonly kind: "active" })
+	| (DetailCommon & {
+			readonly kind: "held";
+			readonly reason: string | undefined;
+			readonly decision: DecisionActionTarget | undefined;
+	  })
+	| (DetailCommon & {
+			readonly kind: "active";
+			readonly narrative: LiveLine | undefined;
+	  })
 	| (DetailCommon & { readonly kind: "settled"; readonly message: string })
 	| (DetailCommon & { readonly kind: "failed"; readonly message: string });
 
@@ -133,6 +142,18 @@ const timelineOf = (
 				})),
 			);
 
+const activeNarrativeOf = (
+	attempt: SerializedDashboardProjection["attempts"][string] | undefined,
+): LiveLine | undefined => {
+	if (attempt?.streams.message !== undefined)
+		return { text: attempt.streams.message, llm: true };
+	if (attempt?.streams.thinking !== undefined)
+		return { text: attempt.streams.thinking, llm: true };
+	if (attempt?.lastNarrative !== undefined)
+		return { text: attempt.lastNarrative.text, llm: true };
+	return undefined;
+};
+
 const identityOf = (
 	work: SerializedDashboardProjection["work"][string],
 ): Pick<DetailCommon, "subtitle" | "labels" | "url"> => ({
@@ -155,24 +176,6 @@ const buildWorkDetail = (
 	const turn = attempt?.turnCount;
 	const check = normalizeCheck(attempt?.check);
 	const ref = workRef(work.workKey);
-	if (work.status === "failed") {
-		return {
-			kind: "failed",
-			ref,
-			title,
-			...identity,
-			stage: "failed",
-			check,
-			metrics: metricsOf({
-				turn,
-				tokens,
-				cost,
-				elapsed: sinceAge(attempt?.lastEventAtMs, nowMs),
-			}),
-			events,
-			message: attempt?.lastDisplay ?? attempt?.activity ?? "Attempt failed.",
-		};
-	}
 	if (work.status === "running" || work.status === "draining") {
 		return {
 			kind: "active",
@@ -188,11 +191,10 @@ const buildWorkDetail = (
 				elapsed: sinceAge(attempt?.startedAtMs, nowMs),
 			}),
 			events,
+			narrative: activeNarrativeOf(attempt),
 		};
 	}
-	const isDecision =
-		work.status === "blocked" || (work.operatorActions?.length ?? 0) > 0;
-	if (isDecision) {
+	if (work.status === "blocked") {
 		return {
 			kind: "decision",
 			ref,
@@ -215,6 +217,33 @@ const buildWorkDetail = (
 			},
 		};
 	}
+	if (work.status === "waiting") {
+		const actions = parseOperatorActions(work.operatorActions);
+		return {
+			kind: "held",
+			ref,
+			title,
+			...identity,
+			stage: "waiting",
+			check,
+			metrics: metricsOf({
+				turn,
+				tokens,
+				cost,
+				elapsed: sinceAge(attempt?.lastEventAtMs, nowMs),
+			}),
+			events,
+			reason: work.blockedReason,
+			decision:
+				actions.length === 0
+					? undefined
+					: {
+							sourceId: work.sourceId,
+							workKey: work.workKey,
+							actions,
+						},
+		};
+	}
 	return undefined;
 };
 
@@ -224,7 +253,7 @@ const buildSettledDetail = (
 ): DetailView => {
 	const attempt = attemptOf(projection, item.runId);
 	const events = timelineOf(attempt);
-	const failed = item.status === "failed" || item.status === "error";
+	const failed = item.status !== "succeeded" && item.status !== "done";
 	const usage = item.tokens ?? attempt?.tokens;
 	const common: DetailCommon = {
 		ref: { kind: "settled", key: settledKey(item) },
@@ -232,7 +261,7 @@ const buildSettledDetail = (
 		subtitle: undefined,
 		labels: item.labels ?? [],
 		url: item.url,
-		stage: failed ? "failed" : "done",
+		stage: failed ? `run ${item.status}` : "run succeeded",
 		check: normalizeCheck(attempt?.check),
 		metrics: metricsOf({
 			turn: attempt?.turnCount,
@@ -267,10 +296,7 @@ export const buildDetail = (
 			: buildSettledDetail(projection, item);
 	}
 	const work = projection.work[ref.workKey];
-	if (work !== undefined) {
-		const detail = buildWorkDetail(projection, work, nowMs);
-		if (detail !== undefined) return detail;
-	}
+	if (work !== undefined) return buildWorkDetail(projection, work, nowMs);
 	const done = projection.completed.find((c) => c.workKey === ref.workKey);
 	return done === undefined ? undefined : buildSettledDetail(projection, done);
 };
@@ -284,7 +310,8 @@ export const refEquals = (a: DetailRef, b: DetailRef): boolean =>
 
 /**
  * Openable references in river order: attention (decisions + failures) →
- * motion (active) → settled. Queued and diagnostic rows are not openable.
+ * motion (active + actionable held) → settled. Queued, passive held, and
+ * diagnostic rows are not openable.
  */
 export const openableRefs = (input: {
 	readonly attention: readonly AttentionItem[];
@@ -297,7 +324,11 @@ export const openableRefs = (input: {
 			refs.push(workRef(item.key));
 	}
 	for (const item of input.motion) {
-		if (item.kind === "active") refs.push(workRef(item.key));
+		if (
+			item.kind === "active" ||
+			(item.kind === "held" && item.actions.length > 0)
+		)
+			refs.push(workRef(item.key));
 	}
 	for (const item of input.settled)
 		refs.push({ kind: "settled", key: item.key });

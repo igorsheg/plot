@@ -94,7 +94,7 @@ export const River: StoryObj = {
 				<WorkItem.Root>
 					<WorkItem.Frame density="settled" interactive onClick={noop}>
 						<WorkItem.Line>
-							<WorkItem.Icon state="done" />
+							<WorkItem.Icon state="history" />
 							<WorkItem.Label>committed</WorkItem.Label>
 							<WorkItem.Message>
 								refine host message pump · c634736
@@ -106,7 +106,7 @@ export const River: StoryObj = {
 				<WorkItem.Root>
 					<WorkItem.Frame density="settled" interactive onClick={noop}>
 						<WorkItem.Line>
-							<WorkItem.Icon state="canceled" />
+							<WorkItem.Icon state="history" />
 							<WorkItem.Label>test failed</WorkItem.Label>
 							<WorkItem.Message>
 								<span style={{ color: "var(--destructive-foreground)" }}>

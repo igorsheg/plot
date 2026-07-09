@@ -322,7 +322,7 @@ export const beginTick = (
 		const nextRecord: WorkRecord = {
 			workKey: record.workKey,
 			sourceId: record.sourceId,
-			status: completion.status === "succeeded" ? "done" : "failed",
+			status: "pending",
 		};
 		if (record.subject !== undefined) nextRecord.subject = record.subject;
 		if (record.display !== undefined) nextRecord.display = record.display;

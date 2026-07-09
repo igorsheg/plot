@@ -7,8 +7,8 @@ const STATE_COLOR: Record<WorkState, string> = {
 	attention: "text-destructive",
 	active: "text-foreground",
 	queued: "text-muted-foreground",
-	done: "text-muted-foreground",
-	canceled: "text-muted-foreground",
+	held: "text-muted-foreground",
+	history: "text-muted-foreground",
 };
 
 /** The one state glyph, sized once and coloured for its work state. */

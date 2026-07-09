@@ -10,6 +10,7 @@ import type { DetailRef, DetailView } from "./detail-view-model.js";
 
 export interface WorkDetailState {
 	readonly view: DetailView | undefined;
+	readonly open: boolean;
 	readonly nowMs: number;
 }
 

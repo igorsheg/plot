@@ -681,9 +681,14 @@ describe("task-agnostic Plot agent", () => {
 
 	test("failed runner work becomes a completion and diagnostic", async () => {
 		const key = "fail:1";
+		let selected = false;
 		const source: WorkSource = {
 			id: "fail-source",
-			selectWork: () => [{ workKey: key }],
+			selectWork: () => {
+				if (selected) return [];
+				selected = true;
+				return [{ workKey: key }];
+			},
 		};
 		const runner: WorkRunner = {
 			run: () => {
@@ -700,6 +705,7 @@ describe("task-agnostic Plot agent", () => {
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({ level: "error", workKey: key }),
 		);
+		expect(result.snapshot.work.get(key)?.status).toBe("pending");
 	});
 
 	test("run lifecycle messages survive a saturated mailbox", async () => {

@@ -20,9 +20,7 @@ export type WorkStatus =
 	| "waiting"
 	| "running"
 	| "blocked"
-	| "draining"
-	| "done"
-	| "failed";
+	| "draining";
 export type AttemptStage =
 	| "starting"
 	| "working"
@@ -77,6 +75,10 @@ export interface AttemptStreams {
 	readonly thinking?: string | undefined;
 	readonly message?: string | undefined;
 }
+export interface AttemptNarrative {
+	readonly kind: "message" | "thinking";
+	readonly text: string;
+}
 export interface TokenUsageProjection {
 	readonly input?: number | undefined;
 	readonly output?: number | undefined;
@@ -125,6 +127,7 @@ export interface AgentAttemptProjection {
 	readonly commands: readonly string[];
 	readonly observations: readonly string[];
 	readonly streams: AttemptStreams;
+	readonly lastNarrative?: AttemptNarrative | undefined;
 	readonly phases: readonly PhaseEntry[];
 	readonly timeline: readonly TimelineEntry[];
 	readonly activeTool?: ActiveTool | undefined;

@@ -200,7 +200,7 @@ const detailView: DetailView = {
 };
 
 const detailValue: WorkDetailContextValue = {
-	state: { view: detailView, nowMs: NOW },
+	state: { open: true, view: detailView, nowMs: NOW },
 	actions: { open: noop, close: noop, step: noop, act: noop, acting: false },
 };
 

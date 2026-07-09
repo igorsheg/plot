@@ -6,7 +6,7 @@ export const sessionSplitClass = cva({
 });
 
 export const sessionMainClass = cva({
-	base: "min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] pb-[var(--plot-page-bottom)] pl-[calc(var(--plot-rhythm)*20)] pr-[var(--plot-space-8)] pt-[var(--plot-page-top)]",
+	base: "min-w-0 flex-1 overflow-hidden pl-[calc(var(--plot-rhythm)*20)]",
 });
 
 export const sessionDocumentClass = cva({

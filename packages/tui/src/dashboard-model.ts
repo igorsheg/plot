@@ -100,6 +100,38 @@ const emptyThroughput = () => ({
 	rate: 0,
 	graph: sparkChars[0]?.repeat(throughputBuckets) ?? "",
 });
+const throughputBucketsFor = (input: {
+	readonly samples: readonly {
+		readonly atMs: number;
+		readonly tokens: number;
+	}[];
+	readonly windowStart: number;
+	readonly bucketMs: number;
+}) => {
+	const buckets = Array.from({ length: throughputBuckets }, () => 0);
+	for (let i = 1; i < input.samples.length; i++) {
+		const previous = input.samples[i - 1];
+		const current = input.samples[i];
+		if (previous === undefined || current === undefined) continue;
+		const delta = current.tokens - previous.tokens;
+		const duration = current.atMs - previous.atMs;
+		if (delta <= 0 || duration <= 0) continue;
+		const segmentStart = Math.max(previous.atMs, input.windowStart);
+		const segmentEnd = current.atMs;
+		if (segmentEnd <= segmentStart) continue;
+		for (let bucket = 0; bucket < throughputBuckets; bucket++) {
+			const bucketStart = input.windowStart + bucket * input.bucketMs;
+			const bucketEnd = bucketStart + input.bucketMs;
+			const overlap = Math.max(
+				0,
+				Math.min(segmentEnd, bucketEnd) - Math.max(segmentStart, bucketStart),
+			);
+			if (overlap > 0)
+				buckets[bucket] = (buckets[bucket] ?? 0) + delta * (overlap / duration);
+		}
+	}
+	return buckets;
+};
 const throughput = (projection: DashboardProjection, nowMs: number) => {
 	const windowStart = nowMs - throughputWindowMs;
 	const recent = projection.tokenSamples.filter((s) => s.atMs >= windowStart);
@@ -109,12 +141,10 @@ const throughput = (projection: DashboardProjection, nowMs: number) => {
 	if (!first || !last || last.atMs <= first.atMs) return emptyThroughput();
 	const rate = ((last.tokens - first.tokens) * 1000) / (last.atMs - first.atMs);
 	const bucketMs = throughputWindowMs / throughputBuckets;
-	const tokensAtOrBefore = (atMs: number) =>
-		recent.findLast((sample) => sample.atMs <= atMs)?.tokens ?? first.tokens;
-	const buckets = Array.from({ length: throughputBuckets }, (_, index) => {
-		const start = windowStart + index * bucketMs;
-		const end = start + bucketMs;
-		return Math.max(0, tokensAtOrBefore(end) - tokensAtOrBefore(start));
+	const buckets = throughputBucketsFor({
+		samples: recent,
+		windowStart,
+		bucketMs,
 	});
 	const max = Math.max(...buckets, 1);
 	const graph = buckets
@@ -176,7 +206,7 @@ const workRow = (
 				? ""
 				: formatAgo(nowMs - attempt.lastEventAtMs),
 		stale,
-		attention: work.status === "blocked" || work.status === "failed",
+		attention: work.status === "blocked",
 	};
 	if (attempt) row.attempt = attempt;
 	return row;
@@ -193,7 +223,6 @@ export const dashboardModelFrom = (
 	nowMs = Date.now(),
 ): DashboardModel => {
 	const work = [...projection.work.values()]
-		.filter((w) => w.status !== "done")
 		.map((w) =>
 			workRow(
 				w,

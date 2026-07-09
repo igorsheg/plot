@@ -23,6 +23,14 @@ export const $selectedProjection = atom<
 	SerializedDashboardProjection | undefined
 >(undefined);
 
+export const shouldAcceptProjectionBaseline = (input: {
+	readonly current: SerializedDashboardProjection | undefined;
+	readonly baseline: SerializedDashboardProjection;
+}): boolean =>
+	input.current === undefined ||
+	input.current.sessionId !== input.baseline.sessionId ||
+	input.baseline.frontier >= input.current.frontier;
+
 onMount($selectedProjection, () => {
 	let continuation: AbortController | undefined;
 	const closeContinuation = () => {
@@ -60,6 +68,9 @@ onMount($selectedProjection, () => {
 			$selectedProjection.set(undefined);
 			return;
 		}
+		const current = $selectedProjection.get();
+		if (!shouldAcceptProjectionBaseline({ current, baseline: projection }))
+			return;
 		$selectedProjection.set(projection);
 		openContinuation(run, projection);
 	};

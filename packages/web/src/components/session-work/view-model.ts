@@ -71,6 +71,16 @@ export type MotionItem =
 			readonly title: string;
 			readonly sub?: string | undefined;
 			readonly wakeDueAtMs?: number | undefined;
+	  }
+	| {
+			readonly kind: "held";
+			readonly key: string;
+			readonly workKey: string;
+			readonly sourceId: string;
+			readonly title: string;
+			readonly sub?: string | undefined;
+			readonly reason?: string | undefined;
+			readonly actions: readonly OperatorActionView[];
 	  };
 
 export interface SettledItem {
@@ -115,10 +125,6 @@ const liveLine = (
 	return undefined;
 };
 
-const hasActions = (
-	work: SerializedDashboardProjection["work"][string],
-): boolean => (work.operatorActions?.length ?? 0) > 0;
-
 /** `sinceMs` unknown sorts last; otherwise oldest event first. */
 const byOldestSince = (
 	a: { readonly sinceMs?: number | undefined },
@@ -160,15 +166,7 @@ export const buildAttention = (
 	for (const work of Object.values(projection.work)) {
 		const attempt = attemptFor(projection, work);
 		const sinceMs = attempt?.lastEventAtMs;
-		if (work.status === "failed") {
-			pending.push({
-				kind: "failure",
-				key: work.workKey,
-				title: workLabel(work),
-				sinceMs,
-				line: attempt?.lastDisplay ?? attempt?.activity,
-			});
-		} else if (work.status === "blocked" || hasActions(work)) {
+		if (work.status === "blocked") {
 			pending.push({
 				kind: "decision",
 				key: work.workKey,
@@ -197,6 +195,7 @@ export const buildMotion = (
 ): readonly MotionItem[] => {
 	const active: Extract<MotionItem, { kind: "active" }>[] = [];
 	const queued: Extract<MotionItem, { kind: "queued" }>[] = [];
+	const held: Extract<MotionItem, { kind: "held" }>[] = [];
 	for (const work of Object.values(projection.work)) {
 		if (work.status === "running" || work.status === "draining") {
 			const attempt = attemptFor(projection, work);
@@ -209,7 +208,7 @@ export const buildMotion = (
 				streaming: attempt?.streaming ?? false,
 				verifying: attempt?.stage === "verifying",
 			});
-		} else if (work.status === "waiting" || work.status === "pending") {
+		} else if (work.status === "pending") {
 			queued.push({
 				kind: "queued",
 				key: work.workKey,
@@ -217,11 +216,23 @@ export const buildMotion = (
 				sub: work.subtitle,
 				wakeDueAtMs: earliestWake(projection, work.workKey),
 			});
+		} else if (work.status === "waiting") {
+			held.push({
+				kind: "held",
+				key: work.workKey,
+				workKey: work.workKey,
+				sourceId: work.sourceId,
+				title: workLabel(work),
+				sub: work.subtitle,
+				reason: work.blockedReason,
+				actions: parseOperatorActions(work.operatorActions),
+			});
 		}
 	}
 	active.sort(byOldestSince);
 	queued.sort((a, b) => a.title.localeCompare(b.title));
-	return [...active, ...queued];
+	held.sort((a, b) => a.title.localeCompare(b.title));
+	return [...active, ...queued, ...held];
 };
 
 const earliestWake = (
@@ -243,7 +254,7 @@ export const buildSettled = (
 		key: `${item.workKey}:${item.runId ?? "run"}:${item.atMs}`,
 		label: item.label,
 		message: item.message,
-		failed: item.status === "failed" || item.status === "error",
+		failed: item.status !== "succeeded" && item.status !== "done",
 		atMs: item.atMs,
 		durationMs: item.durationMs,
 	}));

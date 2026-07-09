@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 import { SessionWorkProvider } from "../src/components/session-work/context.js";
 import { WorkDetailProvider } from "../src/components/session-work/detail-context.js";
 import { SessionWork } from "../src/components/session-work/session-work.js";
+import { WorkDetail } from "../src/components/session-work/work-detail.js";
 import type { SessionWorkContextValue } from "../src/components/session-work/context.js";
 import type { WorkDetailContextValue } from "../src/components/session-work/detail-context.js";
 
@@ -64,6 +65,7 @@ const workValue: SessionWorkContextValue = {
 
 const detailValue: WorkDetailContextValue = {
 	state: {
+		open: false,
 		view: undefined,
 		nowMs: 1_000_000,
 	},
@@ -94,4 +96,41 @@ test("session work river keeps row anatomy stable", () => {
 	).toBe(1);
 	expect(html.match(/data-slot="work-item-subline"/g)?.length).toBe(5);
 	expect(html).not.toContain("Approve");
+});
+
+test("work detail reserves an active prose well for streamed agent text", () => {
+	const html = renderToString(
+		<WorkDetailProvider
+			value={{
+				state: {
+					open: true,
+					nowMs: 1_000_000,
+					view: {
+						kind: "active",
+						ref: { kind: "work", workKey: "active" },
+						title: "Running work",
+						subtitle: undefined,
+						labels: [],
+						url: undefined,
+						stage: "working",
+						check: undefined,
+						metrics: {
+							turn: 1,
+							tokens: undefined,
+							cost: undefined,
+							elapsed: "1s",
+						},
+						events: [],
+						narrative: { text: "Streaming **answer**", llm: true },
+					},
+				},
+				actions: detailValue.actions,
+			}}
+		>
+			<WorkDetail />
+		</WorkDetailProvider>,
+	);
+
+	expect(html).toContain('data-slot="work-detail-active-prose"');
+	expect(html).toContain("Streaming");
 });

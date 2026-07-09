@@ -183,7 +183,7 @@ describe("Plot TUI projection", () => {
 			Date.parse("2026-06-15T00:00:20.000Z"),
 		).pulse;
 		expect(pulse.throughput).toBe("1 tok/s");
-		expect(pulse.throughputGraph).toBe("▁▁▁▁▁▁▁█");
+		expect(pulse.throughputGraph).toBe("▁▁▁▁▁▁▄█");
 	});
 
 	test("dedupes message_end and turn_end usage for one response", () => {

@@ -257,7 +257,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 			const nextRecord: WorkRecord = {
 				workKey: record.workKey,
 				sourceId: record.sourceId,
-				status: "failed",
+				status: "pending",
 			};
 			if (record.subject !== undefined) nextRecord.subject = record.subject;
 			if (record.display !== undefined) nextRecord.display = record.display;

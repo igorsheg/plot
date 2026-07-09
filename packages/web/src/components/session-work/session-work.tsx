@@ -44,6 +44,7 @@ import {
 	openDetail,
 	stepDetail,
 	$detailView,
+	$openDetail,
 } from "./detail-store.js";
 import {
 	refEquals,
@@ -67,6 +68,7 @@ type FailureItem = Extract<AttentionItem, { kind: "failure" }>;
 type DiagnosticItem = Extract<AttentionItem, { kind: "diagnostic" }>;
 type ActiveItem = Extract<MotionItem, { kind: "active" }>;
 type QueuedItem = Extract<MotionItem, { kind: "queued" }>;
+type HeldItem = Extract<MotionItem, { kind: "held" }>;
 
 const isOpen = (view: DetailView | undefined, ref: DetailRef): boolean =>
 	view !== undefined && refEquals(view.ref, ref);
@@ -222,6 +224,43 @@ function QueuedRow({ item }: { readonly item: QueuedItem }) {
 	);
 }
 
+function HeldRow({ item }: { readonly item: HeldItem }) {
+	const detail = useWorkDetail();
+	const ref = workRef(item.workKey);
+	const subline = item.reason ?? item.sub;
+	const body = (
+		<>
+			<WorkItem.Line>
+				<WorkItem.Icon state="held" />
+				<WorkItem.Title tone="secondary">{item.title}</WorkItem.Title>
+			</WorkItem.Line>
+			{subline !== undefined ? (
+				<WorkItem.Subline tone="secondary">{subline}</WorkItem.Subline>
+			) : (
+				<EmptySubline />
+			)}
+		</>
+	);
+	if (item.actions.length > 0) {
+		return (
+			<WorkItem.Root>
+				<WorkItem.Frame
+					interactive
+					onClick={() => detail.actions.open(ref)}
+					open={isOpen(detail.state.view, ref)}
+				>
+					{body}
+				</WorkItem.Frame>
+			</WorkItem.Root>
+		);
+	}
+	return (
+		<WorkItem.Root>
+			<WorkItem.Frame>{body}</WorkItem.Frame>
+		</WorkItem.Root>
+	);
+}
+
 function AttentionRow({ item }: { readonly item: AttentionItem }) {
 	switch (item.kind) {
 		case "decision":
@@ -239,6 +278,8 @@ function MotionRow({ item }: { readonly item: MotionItem }) {
 			return <ActiveRow item={item} />;
 		case "queued":
 			return <QueuedRow item={item} />;
+		case "held":
+			return <HeldRow item={item} />;
 	}
 }
 
@@ -260,7 +301,7 @@ function SettledRow({ item }: { readonly item: SettledItem }) {
 				open={isOpen(detail.state.view, ref)}
 			>
 				<WorkItem.Line>
-					<WorkItem.Icon state={item.failed ? "canceled" : "done"} />
+					<WorkItem.Icon state="history" />
 					<WorkItem.Label>{item.label}</WorkItem.Label>
 					<WorkItem.Message>
 						<StreamedLine
@@ -347,6 +388,7 @@ export function StoreSessionWorkProvider({
 	const nowMs = useStore($nowMs);
 	const actState = useStore($actOnWork);
 	const detailView = useStore($detailView);
+	const openDetailRef = useStore($openDetail);
 	if (run === undefined) return null;
 	const attention = projection === undefined ? [] : buildAttention(projection);
 	const acting = actState.loading ?? false;
@@ -362,7 +404,7 @@ export function StoreSessionWorkProvider({
 		actions: { act, acting },
 	};
 	const detailValue: WorkDetailContextValue = {
-		state: { view: detailView, nowMs },
+		state: { open: openDetailRef !== undefined, view: detailView, nowMs },
 		actions: {
 			open: openDetail,
 			close: closeDetail,

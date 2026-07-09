@@ -130,6 +130,31 @@ test("projection caps token throughput samples", () => {
 	expect(projection.tokenSamples.at(-1)?.tokens).toBe(130);
 });
 
+test("projection retains the last prose after live streams close", () => {
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		sessionEvent(1, {
+			type: "attempt_started",
+			run: { runId: "run-1", workKey: "work-1", sourceId: "source-1" },
+		}),
+	);
+	projection = reduceProjectableEvent(
+		projection,
+		agentEvent(2, "run-1", { type: "message_delta", text: "A result" }),
+	);
+	projection = reduceProjectableEvent(
+		projection,
+		agentEvent(3, "run-1", { type: "message_end" }),
+	);
+
+	const attempt = projection.attempts.get("run-1");
+	expect(attempt?.streams).toEqual({});
+	expect(attempt?.lastNarrative).toEqual({
+		kind: "message",
+		text: "A result",
+	});
+});
+
 test("projection hydration ignores malformed active tool entries", () => {
 	const projection = emptyProjection("session-1", "workflow");
 	const hydrated = hydrateDashboardProjection({
@@ -200,6 +225,25 @@ test("completed work keeps source display labels", () => {
 	);
 
 	expect(completed.completed[0]?.labels).toEqual(["done"]);
+	expect(completed.work.get("work-1")?.status).toBe("pending");
+	expect(completed.work.get("work-1")?.currentRunId).toBeUndefined();
+	expect(completed.completed[0]?.message).toBe("run succeeded");
+});
+
+test("projection ignores terminal attempt outcomes as current work status", () => {
+	const projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		sessionEvent(1, {
+			type: "work_observed",
+			work: {
+				workKey: "work-1",
+				sourceId: "source-1",
+				status: "failed",
+			} as never,
+		}),
+	);
+
+	expect(projection.work.get("work-1")?.status).toBe("pending");
 });
 
 test("debug events name agent event payloads", () => {

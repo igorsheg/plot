@@ -73,6 +73,10 @@ const ACTIVE: DetailView = {
 	stage: "working",
 	check: "running",
 	metrics: { turn: 3, tokens: 12_000, cost: 0.08, elapsed: "24s" },
+	narrative: {
+		text: "I'm tracing the message pump and extracting the dispatch seam before touching protocol ownership.",
+		llm: true,
+	},
 	events: [
 		{ kind: "read", text: "host.ts · protocol.ts", atMs: NOW - 60_000 },
 		{ kind: "search", text: "dispatch call sites", atMs: NOW - 50_000 },
@@ -89,7 +93,7 @@ const SETTLED: DetailView = {
 	subtitle: undefined,
 	labels: ["merged"],
 	url: "https://github.com/plot/plot/commit/c634736",
-	stage: "done",
+	stage: "run succeeded",
 	check: "passed",
 	metrics: { turn: 8, tokens: 86_000, cost: 0.61, elapsed: "1m 04s" },
 	events: [
@@ -122,7 +126,7 @@ const FAILED: DetailView = {
 };
 
 const detailValue = (view: DetailView): WorkDetailContextValue => ({
-	state: { view, nowMs: NOW },
+	state: { open: true, view, nowMs: NOW },
 	actions: {
 		open: () => {},
 		close: () => {},

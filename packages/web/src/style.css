@@ -194,7 +194,6 @@
 	--plot-page-top: calc(var(--plot-rhythm) * 16);
 	--plot-page-bottom: calc(var(--plot-rhythm) * 12);
 	color-scheme: light;
-	scrollbar-gutter: stable;
 }
 
 .dark {
@@ -265,6 +264,7 @@
 		width: 100%;
 		height: 100%;
 		margin: 0;
+		overflow: hidden;
 	}
 
 	body {

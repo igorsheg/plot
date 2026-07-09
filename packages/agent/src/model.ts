@@ -104,9 +104,7 @@ export type WorkStatus =
 	| "waiting"
 	| "running"
 	| "blocked"
-	| "draining"
-	| "done"
-	| "failed";
+	| "draining";
 
 export interface WorkRecord {
 	workKey: string;

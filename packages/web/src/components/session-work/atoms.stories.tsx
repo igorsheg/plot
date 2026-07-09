@@ -13,9 +13,9 @@ export default meta;
 const STATES: readonly { state: WorkState; note: string }[] = [
 	{ state: "attention", note: "decision or failure" },
 	{ state: "active", note: "running now" },
-	{ state: "queued", note: "waiting / wakes later" },
-	{ state: "done", note: "settled" },
-	{ state: "canceled", note: "settled, failed" },
+	{ state: "queued", note: "ready to dispatch / wakes later" },
+	{ state: "held", note: "waiting on external state" },
+	{ state: "history", note: "recent run history" },
 ];
 
 /** The work-state vocabulary: one vendored glyph per state. */

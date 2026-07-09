@@ -65,7 +65,6 @@ const attentionLines = (selected: WorkRowModel): readonly DashboardLine[] => {
 			? [selected.work.blockedReason]
 			: []),
 		...(actions.length === 0 ? [] : [`actions: ${actions.join(" · ")}`]),
-		...(selected.status === "failed" ? [quoteActivity(selected.activity)] : []),
 		...(selected.stale ? [`stale · last event ${selected.lastEventAgo}`] : []),
 	];
 	return lines.length === 0

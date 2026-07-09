@@ -971,10 +971,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 							workspace: prWorkspacePath(repo, pr.number),
 							...(eligibility.kind === "hold"
 								? {
-										status:
-											eligibility.label === "reviewed"
-												? ("waiting" as const)
-												: ("blocked" as const),
+										status: "waiting" as const,
 										blockedReason: eligibility.reason,
 									}
 								: {}),

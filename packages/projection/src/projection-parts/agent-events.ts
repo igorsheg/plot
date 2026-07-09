@@ -152,6 +152,7 @@ export const reduceAgentEvent = (
 					lastDisplay: activity.summary,
 					meaningfulCount: prev.meaningfulCount + 1,
 					streams: { ...prev.streams, thinking: text },
+					lastNarrative: { kind: "thinking", text },
 				},
 				e,
 			);
@@ -169,6 +170,7 @@ export const reduceAgentEvent = (
 					lastDisplay: activity.summary,
 					meaningfulCount: prev.meaningfulCount + 1,
 					streams: { ...prev.streams, message: text },
+					lastNarrative: { kind: "message", text },
 				},
 				e,
 			);

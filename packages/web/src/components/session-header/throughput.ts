@@ -24,6 +24,38 @@ export const formatTps = (value: number): string => {
 	return `${(value / 1000).toFixed(1)}k`;
 };
 
+const bucketDeltas = (input: {
+	readonly samples: readonly {
+		readonly atMs: number;
+		readonly tokens: number;
+	}[];
+	readonly windowStart: number;
+	readonly bucketMs: number;
+}): readonly number[] => {
+	const buckets = Array.from({ length: THROUGHPUT_BUCKETS }, () => 0);
+	for (let i = 1; i < input.samples.length; i++) {
+		const previous = input.samples[i - 1];
+		const current = input.samples[i];
+		if (previous === undefined || current === undefined) continue;
+		const delta = current.tokens - previous.tokens;
+		const duration = current.atMs - previous.atMs;
+		if (delta <= 0 || duration <= 0) continue;
+		const segmentStart = Math.max(previous.atMs, input.windowStart);
+		const segmentEnd = current.atMs;
+		if (segmentEnd <= segmentStart) continue;
+		for (let bucket = 0; bucket < THROUGHPUT_BUCKETS; bucket++) {
+			const bucketStart = input.windowStart + bucket * input.bucketMs;
+			const bucketEnd = bucketStart + input.bucketMs;
+			const overlap = Math.max(
+				0,
+				Math.min(segmentEnd, bucketEnd) - Math.max(segmentStart, bucketStart),
+			);
+			if (overlap > 0)
+				buckets[bucket] = (buckets[bucket] ?? 0) + delta * (overlap / duration);
+		}
+	}
+	return buckets;
+};
 export const tokenThroughput = (
 	projection: Pick<SerializedDashboardProjection, "tokenSamples"> | undefined,
 	nowMs: number,
@@ -40,12 +72,10 @@ export const tokenThroughput = (
 		return emptyThroughput();
 	const rate = ((last.tokens - first.tokens) * 1000) / (last.atMs - first.atMs);
 	const bucketMs = THROUGHPUT_WINDOW_MS / THROUGHPUT_BUCKETS;
-	const tokensAtOrBefore = (atMs: number): number =>
-		recent.findLast((sample) => sample.atMs <= atMs)?.tokens ?? first.tokens;
-	const buckets = Array.from({ length: THROUGHPUT_BUCKETS }, (_, index) => {
-		const start = windowStart + index * bucketMs;
-		const end = start + bucketMs;
-		return Math.max(0, tokensAtOrBefore(end) - tokensAtOrBefore(start));
+	const buckets = bucketDeltas({
+		samples: recent,
+		windowStart,
+		bucketMs,
 	});
 	const max = Math.max(...buckets, 1);
 	const graph = buckets

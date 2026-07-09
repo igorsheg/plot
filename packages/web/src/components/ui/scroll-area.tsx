@@ -11,12 +11,16 @@ export function ScrollArea({
 	scrollbarGutter = false,
 	fill = false,
 	clampContentMinWidth = true,
+	viewportRef,
+	contentRef,
 	...props
 }: ScrollAreaPrimitive.Root.Props & {
 	scrollFade?: boolean;
 	scrollbarGutter?: boolean;
 	fill?: boolean;
 	clampContentMinWidth?: boolean;
+	viewportRef?: React.Ref<HTMLDivElement>;
+	contentRef?: React.Ref<HTMLDivElement>;
 }): React.ReactElement {
 	return (
 		<ScrollAreaPrimitive.Root
@@ -32,10 +36,12 @@ export function ScrollArea({
 						"data-has-overflow-y:pe-2.5 data-has-overflow-x:pb-2.5",
 				)}
 				data-slot="scroll-area-viewport"
+				ref={viewportRef}
 			>
 				<ScrollAreaPrimitive.Content
 					className={cn(fill && "size-full")}
 					data-slot="scroll-area-content"
+					ref={contentRef}
 					style={clampContentMinWidth ? { minWidth: 0 } : undefined}
 				>
 					{children}

@@ -18,6 +18,7 @@ import {
 	StoreSessionWorkProvider,
 } from "./session-work/session-work.js";
 import { WorkDetail } from "./session-work/work-detail.js";
+import { ScrollArea } from "./ui/scroll-area.js";
 import { VStack } from "./ui/stack.js";
 import { Text } from "./ui/text.js";
 
@@ -27,19 +28,24 @@ const DETAIL_EASE = [0.32, 0.72, 0, 1] as const;
 function EmptySelection() {
 	return (
 		<VStack as="main" className={sessionMainClass()}>
-			<VStack
-				as="article"
-				center
-				className={sessionDocumentClass({ state: "empty" })}
-				gap={12}
-			>
-				<Text as="h1" variant="heading1">
-					No active sessions.
-				</Text>
-				<Text variant="secondary">
-					The dock only shows live sessions. Start one and it will appear here.
-				</Text>
-			</VStack>
+			<ScrollArea scrollFade scrollbarGutter>
+				<div className="min-h-full px-[var(--plot-space-8)] pt-[var(--plot-page-top)] pb-[var(--plot-page-bottom)]">
+					<VStack
+						as="article"
+						center
+						className={sessionDocumentClass({ state: "empty" })}
+						gap={12}
+					>
+						<Text as="h1" variant="heading1">
+							No active sessions.
+						</Text>
+						<Text variant="secondary">
+							The dock only shows live sessions. Start one and it will appear
+							here.
+						</Text>
+					</VStack>
+				</div>
+			</ScrollArea>
 		</VStack>
 	);
 }
@@ -52,16 +58,20 @@ function EmptySelection() {
  */
 function SessionSplit() {
 	const { state } = useWorkDetail();
-	const open = state.view !== undefined;
+	const open = state.open;
 	return (
 		<div className={sessionSplitClass()}>
 			<VStack as="main" className={sessionMainClass()}>
-				<VStack as="article" className={sessionDocumentClass()} gap={48}>
-					<StoreSessionHeaderProvider>
-						<SessionHeader />
-					</StoreSessionHeaderProvider>
-					<SessionWork />
-				</VStack>
+				<ScrollArea scrollFade scrollbarGutter>
+					<div className="min-h-full px-[var(--plot-space-8)] pt-[var(--plot-page-top)] pb-[var(--plot-page-bottom)]">
+						<VStack as="article" className={sessionDocumentClass()} gap={48}>
+							<StoreSessionHeaderProvider>
+								<SessionHeader />
+							</StoreSessionHeaderProvider>
+							<SessionWork />
+						</VStack>
+					</div>
+				</ScrollArea>
 			</VStack>
 			<motion.div
 				animate={{ width: open ? DETAIL_WIDTH : 0 }}

@@ -79,10 +79,10 @@ const ITEMS: readonly Item[] = [
 	},
 	{
 		key: "settled",
-		state: "done",
+		state: "history",
 		title: "committed refine host message pump",
 		edge: "8m",
-		word: "settled · c634736",
+		word: "run succeeded · c634736",
 		body: "Committed the message-pump refactor. 6 files changed, tests green.",
 		timeline: [{ kind: "commit", text: "c634736", at: "8m" }],
 	},

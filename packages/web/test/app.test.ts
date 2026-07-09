@@ -5,6 +5,7 @@ import {
 	pastRuns,
 	selectedRunFrom,
 } from "../src/app/runs-store.js";
+import { shouldAcceptProjectionBaseline } from "../src/app/projection-store.js";
 import { reduceSerializedProjection } from "../src/data/projection-client.js";
 import { runEventsUrl, runProjectionUrl } from "../src/data/routes.js";
 import { projectionEventFromSse } from "../src/data/sse.js";
@@ -126,6 +127,30 @@ test("projection reducer ignores duplicate or stale stream events", () => {
 		event: { type: "session_shutdown" },
 	});
 	expect(next).toBe(projection);
+});
+
+test("projection baseline sync ignores stale snapshots behind live SSE", () => {
+	const current = serializeDashboardProjection({
+		...emptyProjection("session-1", "workflow"),
+		frontier: 10,
+	});
+	const stale = { ...current, frontier: 8 };
+	const same = { ...current, frontier: 10 };
+	const newer = { ...current, frontier: 11 };
+	const otherSession = { ...stale, sessionId: "session-2" };
+
+	expect(shouldAcceptProjectionBaseline({ current, baseline: stale })).toBe(
+		false,
+	);
+	expect(shouldAcceptProjectionBaseline({ current, baseline: same })).toBe(
+		true,
+	);
+	expect(shouldAcceptProjectionBaseline({ current, baseline: newer })).toBe(
+		true,
+	);
+	expect(
+		shouldAcceptProjectionBaseline({ current, baseline: otherSession }),
+	).toBe(true);
 });
 
 test("SSE client exposes EventSource messages as an abortable async iterable", async () => {

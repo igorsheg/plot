@@ -91,48 +91,15 @@ const CircleOpen = glyph(
 	<circle cx={12} cy={12} r={9} stroke="currentColor" strokeWidth={2} />,
 );
 
-const CircleCheck = glyph(
-	"CircleCheck",
-	<>
-		<circle
-			cx={12}
-			cy={12}
-			r={9}
-			stroke="currentColor"
-			strokeWidth={2}
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		/>
-		<path
-			d="M8 12.875L10.625 15.5L15 9"
-			stroke="currentColor"
-			strokeWidth={2}
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		/>
-	</>,
-);
-
-const CircleX = glyph(
-	"CircleX",
-	<path
-		d="M15 9L9 15M15 15L9 9M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z"
-		stroke="currentColor"
-		strokeWidth={2}
-		strokeLinecap="round"
-		strokeLinejoin="round"
-	/>,
-);
-
 /** The work-item lifecycle vocabulary the river and drawer speak. */
-export type WorkState = "attention" | "active" | "queued" | "done" | "canceled";
+export type WorkState = "attention" | "active" | "queued" | "held" | "history";
 
 const STATE_GLYPH: Record<WorkState, ReturnType<typeof glyph>> = {
 	attention: CircleOpen,
 	active: CircleHalf,
 	queued: CircleDashed,
-	done: CircleCheck,
-	canceled: CircleX,
+	held: CircleOpen,
+	history: CircleOpen,
 };
 
 /** One status glyph, selected by work state. Colour comes from `color`/CSS. */

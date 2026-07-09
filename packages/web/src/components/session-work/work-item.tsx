@@ -59,11 +59,14 @@ const edgeClass = cva({
 });
 
 const labelClass = cva({
-	base: "shrink-0",
+	base: "min-w-0 shrink truncate",
 });
 
 const messageClass = cva({
-	base: ["min-w-0 flex-1 truncate", textVariants({ size: "sm" })],
+	base: [
+		"min-w-0 flex-1 overflow-hidden truncate whitespace-nowrap [&_*]:!inline [&_*]:max-w-full [&_*]:truncate",
+		textVariants({ size: "sm" }),
+	],
 });
 
 export function Root({
@@ -198,7 +201,9 @@ export function Label({
 }): ReactNode {
 	return (
 		<span className={labelClass()} data-slot="work-item-label">
-			<Text as="span">{children}</Text>
+			<Text as="span" truncate>
+				{children}
+			</Text>
 		</span>
 	);
 }

@@ -22,6 +22,18 @@ const debug = (p: DashboardProjection, e: ProjectableEvent) => ({
 	),
 });
 
+const completionMessage = (completion: {
+	readonly status: string;
+	readonly error?: string | undefined;
+}): string => {
+	if (completion.error !== undefined) return completion.error;
+	if (completion.status === "succeeded") return "run succeeded";
+	if (completion.status === "failed") return "run failed";
+	if (completion.status === "timed_out") return "run timed out";
+	if (completion.status === "interrupted") return "run interrupted";
+	return `run ${completion.status}`;
+};
+
 export const reduceEvent = (
 	p0: DashboardProjection,
 	e: ProjectableEvent,
@@ -128,7 +140,7 @@ export const reduceEvent = (
 		if (item)
 			work.set(key, {
 				...item,
-				status: c.status === "succeeded" ? "done" : "failed",
+				status: "pending",
 				currentRunId: undefined,
 			});
 		const completedMutable: {
@@ -147,7 +159,7 @@ export const reduceEvent = (
 			runId,
 			label: item ? workLabel(item) : key,
 			status: c.status,
-			message: c.error ?? "completed",
+			message: completionMessage(c),
 			atMs: at(e),
 		};
 		if (a?.startedAtMs !== undefined)

@@ -50,9 +50,7 @@ export const stepDetail = (direction: 1 | -1): void => {
 	if (next !== undefined) openDetail(next);
 };
 
-// Switching sessions closes the drawer; a work item that resolves to nothing
-// (gone from both the live map and completed) closes it gracefully.
+// Switching sessions closes the drawer; transient unresolved projection state does
+// not. `$openDetail` is the durable UI intent, while `$detailView` is only the
+// currently resolvable content for that intent.
 $selectedRunId.listen(() => closeDetail());
-$detailView.listen((view) => {
-	if (view === undefined && $openDetail.get() !== undefined) closeDetail();
-});

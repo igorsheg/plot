@@ -14,6 +14,8 @@ import { ArrowUpRightIcon, XIcon } from "../ui/icons.js";
 import { Badge } from "../ui/badge.js";
 import { Button } from "../ui/button.js";
 import Stack, { VStack } from "../ui/stack.js";
+import { ScrollArea } from "../ui/scroll-area.js";
+import { useStickToBottom } from "../ui/stick-to-bottom.js";
 import { StreamedProse } from "../ui/streamed.js";
 import { Text } from "../ui/text.js";
 import { StateIcon } from "./atoms.js";
@@ -27,9 +29,10 @@ import {
 
 const HEADER_STATE: Record<DetailView["kind"], WorkState> = {
 	decision: "attention",
+	held: "held",
 	active: "active",
-	settled: "done",
-	failed: "canceled",
+	settled: "history",
+	failed: "history",
 };
 
 const CHECK: Record<
@@ -95,7 +98,7 @@ function Status({ view }: { readonly view: DetailView }) {
 	);
 }
 
-/** The one activity view: a dense ring buffer of the latest events. */
+/** The activity ticker: capped by the view-model, scrollable when it fills. */
 function Ticker({
 	events,
 	nowMs,
@@ -103,47 +106,78 @@ function Ticker({
 	readonly events: readonly TimelineEntry[];
 	readonly nowMs: number;
 }) {
+	const stick = useStickToBottom({ resize: "auto", initial: "auto" });
 	if (events.length === 0) return null;
-	const shown = events.slice(-6);
 	return (
-		<div className="flex flex-col gap-1">
-			{shown.map((event, index) => (
-				<div
-					className="flex items-baseline gap-3"
-					key={`${event.atMs}:${index}`}
-				>
-					<span className="w-12 shrink-0">
-						<Text as="span" size="sm" variant="mono-secondary">
-							{event.kind}
-						</Text>
-					</span>
-					<Text
-						as="p"
-						size="sm"
-						truncate
-						variant={index === shown.length - 1 ? "mono" : "mono-secondary"}
+		<ScrollArea
+			className="min-h-0 flex-1"
+			contentRef={stick.contentRef}
+			scrollFade
+			scrollbarGutter
+			viewportRef={stick.scrollRef}
+		>
+			<div className="flex flex-col gap-1 px-6 pt-4 pb-4">
+				{events.map((event, index) => (
+					<div
+						className="flex items-baseline gap-3"
+						key={`${event.atMs}:${index}`}
 					>
-						{event.text}
-					</Text>
-					<span className="ms-auto shrink-0 ps-3">
-						<Text as="span" size="sm" variant="mono-secondary">
-							{formatShortAge(nowMs - event.atMs)}
+						<span className="w-12 shrink-0">
+							<Text as="span" size="sm" variant="mono-secondary">
+								{event.kind}
+							</Text>
+						</span>
+						<Text
+							as="p"
+							size="sm"
+							truncate
+							variant={index === events.length - 1 ? "mono" : "mono-secondary"}
+						>
+							{event.text}
 						</Text>
-					</span>
-				</div>
-			))}
+						<span className="ms-auto shrink-0 ps-3">
+							<Text as="span" size="sm" variant="mono-secondary">
+								{formatShortAge(nowMs - event.atMs)}
+							</Text>
+						</span>
+					</div>
+				))}
+			</div>
+		</ScrollArea>
+	);
+}
+
+/** Active prose reserves height; ScrollArea owns overflow in `NarrativePane`. */
+function ActiveNarrative({
+	view,
+}: {
+	readonly view: Extract<DetailView, { kind: "active" }>;
+}) {
+	return (
+		<div aria-label="Agent response" data-slot="work-detail-active-prose">
+			{view.narrative === undefined ? (
+				<Text as="p" size="sm" variant="secondary">
+					Waiting for agent response…
+				</Text>
+			) : (
+				<StreamedProse text={view.narrative.text} />
+			)}
 		</div>
 	);
 }
 
 /**
- * The semantic narrative — a decision's reason, or a settled/failed outcome.
- * Shares the scroll region with the ticker, free to grow. Active items speak
- * through the ticker alone.
+ * The semantic narrative — live active prose, a decision's reason, or a
+ * settled/failed outcome. Active prose is height-stable; the other narratives
+ * can grow with the scroll region.
  */
 function Narrative({ view }: { readonly view: DetailView }) {
 	switch (view.kind) {
 		case "decision":
+			return view.reason === undefined ? null : (
+				<StreamedProse text={view.reason} />
+			);
+		case "held":
 			return view.reason === undefined ? null : (
 				<StreamedProse text={view.reason} />
 			);
@@ -152,8 +186,31 @@ function Narrative({ view }: { readonly view: DetailView }) {
 		case "failed":
 			return <StreamedProse text={view.message} tone="danger" />;
 		case "active":
-			return null;
+			return <ActiveNarrative view={view} />;
 	}
+}
+
+function NarrativePane({ view }: { readonly view: DetailView }) {
+	const stick = useStickToBottom({ resize: "auto", initial: "auto" });
+	if (
+		(view.kind === "decision" || view.kind === "held") &&
+		view.reason === undefined
+	) {
+		return null;
+	}
+	return (
+		<ScrollArea
+			className={view.kind === "active" ? "h-40" : "max-h-48"}
+			contentRef={stick.contentRef}
+			scrollFade
+			scrollbarGutter
+			viewportRef={stick.scrollRef}
+		>
+			<div className="min-w-0 p-6">
+				<Narrative view={view} />
+			</div>
+		</ScrollArea>
+	);
 }
 
 /** The pinned footer ledger: `turn N · Xk tok · $Y · elapsed`. */
@@ -242,21 +299,19 @@ export function WorkDetail() {
 				{view.kind === "decision" && view.decision.actions.length > 0 && (
 					<DecisionActions target={view.decision} />
 				)}
+				{view.kind === "held" && view.decision !== undefined && (
+					<DecisionActions target={view.decision} />
+				)}
 			</VStack>
 			{/* log — narrative and ticker share the rest, free to grow and scroll */}
-			<VStack
-				gap={24}
+			<div
 				style={{
-					flex: 1,
-					minHeight: 0,
-					overflowY: "auto",
-					padding: "8px 24px 24px",
-					scrollbarGutter: "stable",
+					borderBottom: "1px solid var(--border)",
 				}}
 			>
-				<Narrative view={view} />
-				<Ticker events={view.events} nowMs={state.nowMs} />
-			</VStack>
+				<NarrativePane view={view} />
+			</div>
+			<Ticker events={view.events} nowMs={state.nowMs} />
 			<Stack
 				alignCenter
 				between

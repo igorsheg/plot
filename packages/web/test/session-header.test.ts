@@ -43,7 +43,22 @@ test("tokenThroughput turns projection samples into total token TPS", () => {
 	);
 	expect(model.rate).toBe(5);
 	expect(model.graph).toHaveLength(THROUGHPUT_BUCKETS);
-	expect(model.graph).toBe("▁▁▁▁▁▁▁█");
+	expect(model.graph).toBe("▁▁▁▁▁▁▄█");
+});
+
+test("tokenThroughput spreads sparse accounting deltas across elapsed buckets", () => {
+	const model = tokenThroughput(
+		{
+			tokenSamples: [
+				{ atMs: AT - 60_000, tokens: 0 },
+				{ atMs: AT, tokens: 800 },
+			],
+		},
+		AT,
+	);
+
+	expect(model.rate).toBeCloseTo(13.333, 3);
+	expect(model.graph).toBe("████████");
 });
 
 test("tokenThroughput returns empty buckets without enough samples", () => {

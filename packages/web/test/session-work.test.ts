@@ -4,6 +4,7 @@ import type {
 	TimelineEntry,
 } from "@plot/projection";
 import { fetchAttemptTranscript, parseTranscript } from "../src/data/api.js";
+import { $selectedProjection } from "../src/app/projection-store.js";
 import {
 	buildAttention,
 	buildMotion,
@@ -22,12 +23,27 @@ import {
 	type DetailRef,
 } from "../src/components/session-work/detail-view-model.js";
 import {
+	$detailView,
+	$openDetail,
+} from "../src/components/session-work/detail-store.js";
+import {
 	formatCountdown,
 	formatDuration,
 	formatShortAge,
 } from "../src/lib/relative-time.js";
 
 const NOW = 1_000_000;
+
+test("detail open ref survives transient unresolved projection state", () => {
+	const ref: DetailRef = { kind: "work", workKey: "missing" };
+	$openDetail.set(ref);
+	$selectedProjection.set(undefined);
+
+	expect($detailView.get()).toBeUndefined();
+	expect($openDetail.get()).toEqual(ref);
+
+	$openDetail.set(undefined);
+});
 const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
 
 const work = (
@@ -164,47 +180,52 @@ test("buildAttention turns blocked work into a decision with reason", () => {
 	]);
 });
 
-test("buildAttention makes a decision from operatorActions without blocked", () => {
-	const attention = buildAttention(
-		projection({
-			work: {
-				review: work("review", {
-					status: "waiting",
-					operatorActions: [{ id: "merge", label: "Merge" }],
-				}),
-			},
-		}),
-	);
-	expect(attention).toHaveLength(1);
-	const item = attention[0];
-	expect(item?.kind).toBe("decision");
-	if (item?.kind === "decision") {
-		expect(item.actions.map((action) => action.id)).toEqual(["merge"]);
-	}
+test("operator actions on waiting work are neutral held affordances", () => {
+	const value = projection({
+		work: {
+			review: work("review", {
+				status: "waiting",
+				blockedReason: "reviewed at this head",
+				operatorActions: [{ id: "review-again", label: "Review again" }],
+			}),
+		},
+	});
+
+	expect(buildAttention(value)).toEqual([]);
+	expect(buildMotion(value)).toEqual([
+		{
+			kind: "held",
+			key: "review",
+			workKey: "review",
+			sourceId: "source",
+			title: "review",
+			sub: undefined,
+			reason: "reviewed at this head",
+			actions: [
+				{
+					id: "review-again",
+					label: "Review again",
+					tone: "primary",
+					disabledReason: undefined,
+					requiresComment: false,
+					confirmTitle: undefined,
+				},
+			],
+		},
+	]);
 });
 
-test("buildAttention turns failed work into a failure with the attempt line", () => {
+test("buildAttention leaves attempt failures to diagnostics and history", () => {
 	const attention = buildAttention(
 		projection({
 			work: {
-				broken: work("broken", { status: "failed", currentRunId: "run-1" }),
+				pending: work("pending", { status: "pending" }),
 			},
-			attempts: {
-				"run-1": attempt("run-1", "broken", {
-					lastDisplay: "bun test: 2 failed",
-					lastEventAtMs: 500,
-				}),
-			},
+			diagnostics: ["work run failed"],
 		}),
 	);
 	expect(attention).toEqual([
-		{
-			kind: "failure",
-			key: "broken",
-			title: "broken",
-			sinceMs: 500,
-			line: "bun test: 2 failed",
-		},
+		{ kind: "diagnostic", key: "diagnostic:0", text: "work run failed" },
 	]);
 });
 
@@ -230,7 +251,7 @@ test("buildAttention caps diagnostics at 3 after decisions and failures", () => 
 	).toEqual(["one", "two", "three"]);
 });
 
-test("buildAttention orders decisions and failures oldest-first, unknown last", () => {
+test("buildAttention orders decisions oldest-first, unknown last", () => {
 	const attention = buildAttention(
 		projection({
 			work: {
@@ -241,7 +262,8 @@ test("buildAttention orders decisions and failures oldest-first, unknown last", 
 				}),
 				unknown: work("unknown", { status: "blocked", blockedReason: "c" }),
 				older: work("older", {
-					status: "failed",
+					status: "blocked",
+					blockedReason: "a",
 					currentRunId: "run-old",
 				}),
 			},
@@ -258,12 +280,16 @@ test("buildAttention orders decisions and failures oldest-first, unknown last", 
 	]);
 });
 
-test("buildMotion puts running work before waiting, startedAtMs ascending", () => {
+test("buildMotion puts active work before queued work before held work", () => {
 	const motion = buildMotion(
 		projection({
 			work: {
 				second: work("second", { status: "running", currentRunId: "run-2" }),
-				queuedItem: work("a-queued", { status: "waiting" }),
+				queuedItem: work("a-queued", { status: "pending" }),
+				heldItem: work("b-held", {
+					status: "waiting",
+					blockedReason: "draft pull request",
+				}),
 				first: work("first", { status: "draining", currentRunId: "run-1" }),
 			},
 			attempts: {
@@ -276,6 +302,7 @@ test("buildMotion puts running work before waiting, startedAtMs ascending", () =
 		["active", "first"],
 		["active", "second"],
 		["queued", "a-queued"],
+		["held", "b-held"],
 	]);
 });
 
@@ -415,7 +442,7 @@ test("buildSettled carries the LLM-authored message verbatim for the streamdown 
 					workKey: "w",
 					runId: "r",
 					label: "w",
-					status: "done",
+					status: "succeeded",
 					message: "Shipped `Button` — 12 tests pass",
 					atMs: 10,
 				},
@@ -432,7 +459,7 @@ test("buildSettled caps at 7 and maps failed statuses", () => {
 	const completed = Array.from({ length: 9 }, (_, i) => ({
 		workKey: `done-${i}`,
 		label: `done-${i}`,
-		status: i === 1 ? "failed" : i === 2 ? "error" : "done",
+		status: i === 1 ? "failed" : i === 2 ? "timed_out" : "succeeded",
 		message: `message ${i}`,
 		atMs: 100 - i,
 		durationMs: i === 0 ? 41_000 : undefined,
@@ -457,7 +484,7 @@ test("decisionCount counts only decisions", () => {
 		projection({
 			work: {
 				one: work("one", { status: "blocked", blockedReason: "a" }),
-				two: work("two", { status: "failed" }),
+				two: work("two", { status: "pending" }),
 			},
 			diagnostics: ["noise"],
 		}),
@@ -564,32 +591,100 @@ test("buildDetail maps a running work item to an active view", () => {
 		expect(view.metrics.tokens).toBe(92_000);
 		expect(view.metrics.cost).toBe(0.31);
 		expect(view.metrics.elapsed).toBe("3m");
+		expect(view.narrative).toEqual({ text: "hmm", llm: true });
 	}
 });
 
-test("buildDetail detects a failed active work item", () => {
+test("buildDetail active narrative prefers live prose and retains the last prose", () => {
+	const withMessage = buildDetail(
+		projection({
+			work: {
+				busy: work("busy", { status: "running", currentRunId: "run-1" }),
+			},
+			attempts: {
+				"run-1": attempt("run-1", "busy", {
+					streams: {
+						tool: "Reading files",
+						thinking: "thinking",
+						message: "**answer**",
+					},
+				}),
+			},
+		}),
+		workRef("busy"),
+		NOW,
+	);
+	const toolOnly = buildDetail(
+		projection({
+			work: {
+				tooling: work("tooling", { status: "running", currentRunId: "run-2" }),
+			},
+			attempts: {
+				"run-2": attempt("run-2", "tooling", {
+					streams: { tool: "Running bun test" },
+				}),
+			},
+		}),
+		workRef("tooling"),
+		NOW,
+	);
+	const retained = buildDetail(
+		projection({
+			work: {
+				retained: work("retained", {
+					status: "running",
+					currentRunId: "run-3",
+				}),
+			},
+			attempts: {
+				"run-3": attempt("run-3", "retained", {
+					streams: {},
+					lastNarrative: { kind: "message", text: "previous answer" },
+				}),
+			},
+		}),
+		workRef("retained"),
+		NOW,
+	);
+
+	expect(withMessage?.kind).toBe("active");
+	if (withMessage?.kind === "active") {
+		expect(withMessage.narrative).toEqual({ text: "**answer**", llm: true });
+	}
+	expect(retained?.kind).toBe("active");
+	if (retained?.kind === "active") {
+		expect(retained.narrative).toEqual({
+			text: "previous answer",
+			llm: true,
+		});
+	}
+	expect(toolOnly?.kind).toBe("active");
+	if (toolOnly?.kind === "active") {
+		expect(toolOnly.narrative).toBeUndefined();
+	}
+});
+
+test("buildDetail does not turn failed attempts into current work detail", () => {
 	const view = buildDetail(
 		projection({
 			work: {
-				broken: work("broken", { status: "failed", currentRunId: "run-3" }),
+				broken: work("broken", { status: "pending" }),
 			},
-			attempts: {
-				"run-3": attempt("run-3", "broken", {
-					lastDisplay: "boom",
-					lastEventAtMs: NOW - 120_000,
-					startedAtMs: NOW - 300_000,
-				}),
-			},
+			completed: [
+				{
+					workKey: "broken",
+					runId: "run-3",
+					label: "broken",
+					status: "failed",
+					message: "boom",
+					atMs: NOW - 120_000,
+				},
+			],
 		}),
 		workRef("broken"),
 		NOW,
 	);
-	expect(view?.kind).toBe("failed");
-	if (view?.kind === "failed") {
-		expect(view.message).toBe("boom");
-		expect(view.stage).toBe("failed");
-		expect(view.metrics.elapsed).toBe("2m");
-	}
+	expect(view).toBeUndefined();
 });
 
 test("buildDetail resolves a settled ref, reading timeline via the runId", () => {
@@ -597,7 +692,7 @@ test("buildDetail resolves a settled ref, reading timeline via the runId", () =>
 		workKey: "done-1",
 		runId: "run-9",
 		label: "done-1",
-		status: "done",
+		status: "succeeded",
 		message: "shipped",
 		atMs: NOW - 240_000,
 		durationMs: 41_000,
@@ -620,7 +715,7 @@ test("buildDetail resolves a settled ref, reading timeline via the runId", () =>
 	expect(view?.kind).toBe("settled");
 	if (view?.kind === "settled") {
 		expect(view.message).toBe("shipped");
-		expect(view.stage).toBe("done");
+		expect(view.stage).toBe("run succeeded");
 		expect(view.check).toBe("passed");
 		expect(view.metrics.tokens).toBe(64_000);
 		expect(view.metrics.cost).toBe(0.19);
@@ -634,7 +729,7 @@ test("buildDetail detects a failed settled item", () => {
 		workKey: "port-icon",
 		runId: "run-x",
 		label: "port-icon",
-		status: "error",
+		status: "failed",
 		message: "2 failed",
 		atMs: NOW - 60_000,
 	};
@@ -654,7 +749,7 @@ test("buildDetail follows a work ref into completed when it settles out", () => 
 					workKey: "gone",
 					runId: "r",
 					label: "gone",
-					status: "done",
+					status: "succeeded",
 					message: "m",
 					atMs: NOW - 1_000,
 				},
@@ -667,14 +762,21 @@ test("buildDetail follows a work ref into completed when it settles out", () => 
 	if (view?.kind === "settled") expect(view.title).toBe("gone");
 });
 
-test("buildDetail returns undefined for queued, diagnostic, and missing refs", () => {
+test("buildDetail maps waiting work to held while queued remains closed", () => {
 	expect(
 		buildDetail(
-			projection({ work: { q: work("q", { status: "waiting" }) } }),
+			projection({ work: { q: work("q", { status: "pending" }) } }),
 			workRef("q"),
 			NOW,
 		),
 	).toBeUndefined();
+	expect(
+		buildDetail(
+			projection({ work: { h: work("h", { status: "waiting" }) } }),
+			workRef("h"),
+			NOW,
+		)?.kind,
+	).toBe("held");
 	expect(buildDetail(projection({}), workRef("nope"), NOW)).toBeUndefined();
 	expect(
 		buildDetail(projection({}), { kind: "settled", key: "x" }, NOW),
@@ -689,13 +791,15 @@ const walkerProjection = (): SerializedDashboardProjection =>
 				blockedReason: "b",
 				currentRunId: "rd",
 			}),
-			fail: work("fail", { status: "failed", currentRunId: "rf" }),
 			act: work("act", { status: "running", currentRunId: "ra" }),
-			q: work("q", { status: "waiting" }),
+			heldAction: work("heldAction", {
+				status: "waiting",
+				operatorActions: [{ id: "review-now", label: "Review now" }],
+			}),
+			q: work("q", { status: "pending" }),
 		},
 		attempts: {
 			rd: attempt("rd", "dec", { lastEventAtMs: 100 }),
-			rf: attempt("rf", "fail", { lastEventAtMs: 200 }),
 			ra: attempt("ra", "act", { startedAtMs: 50 }),
 		},
 		completed: [
@@ -703,7 +807,7 @@ const walkerProjection = (): SerializedDashboardProjection =>
 				workKey: "s",
 				runId: "rs",
 				label: "s",
-				status: "done",
+				status: "succeeded",
 				message: "m",
 				atMs: 1,
 			},
@@ -720,11 +824,11 @@ const walkerRefs = (): readonly DetailRef[] => {
 	});
 };
 
-test("openableRefs lists attention, then motion, then settled; skips queued and diagnostics", () => {
+test("openableRefs lists attention, then active/actionable-held motion, then settled", () => {
 	expect(walkerRefs()).toEqual([
 		{ kind: "work", workKey: "dec" },
-		{ kind: "work", workKey: "fail" },
 		{ kind: "work", workKey: "act" },
+		{ kind: "work", workKey: "heldAction" },
 		{ kind: "settled", key: "s:rs:1" },
 	]);
 });

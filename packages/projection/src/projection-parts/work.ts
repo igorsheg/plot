@@ -3,6 +3,16 @@ import { str } from "./helpers.js";
 import type { WorkItemProjection, WorkStatus } from "./types.js";
 
 const display = (v: unknown) => (isRecord(v) ? v : {});
+const workStatus = (value: unknown): WorkStatus | undefined => {
+	const status = str(value);
+	return status === "pending" ||
+		status === "waiting" ||
+		status === "running" ||
+		status === "blocked" ||
+		status === "draining"
+		? status
+		: undefined;
+};
 
 export const displayWork = (
 	value: unknown,
@@ -19,10 +29,7 @@ export const displayWork = (
 		labels: Array.isArray(d["labels"])
 			? d["labels"].filter((x): x is string => typeof x === "string")
 			: (previous?.labels ?? []),
-		status:
-			(str(work["status"]) as WorkStatus | undefined) ??
-			previous?.status ??
-			"pending",
+		status: workStatus(work["status"]) ?? previous?.status ?? "pending",
 	};
 	const subject = str(work["subject"]);
 	const subtitle = str(d["subtitle"]);
