@@ -1,17 +1,11 @@
 import {
 	createAgentSession,
 	type AgentSessionEvent,
-	type CreateAgentSessionOptions,
 	type PromptOptions,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { AsyncQueue } from "@plot/common/async-queue";
-import {
-	errorMessage,
-	isPositiveInteger,
-	isRecord,
-	type Mutable,
-} from "@plot/common/primitives";
+import { isRecord } from "@plot/common/primitives";
 import type { WorkResult } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import { Eta } from "eta";
@@ -22,17 +16,15 @@ export interface PiAgentSessionPort {
 	) => () => void;
 	readonly prompt: (text: string, options?: PromptOptions) => Promise<void>;
 	readonly dispose: () => void;
-	/** pi's durable transcript file; present on real sessions. */
 	readonly sessionFile?: string | undefined;
 	readonly sessionId?: string | undefined;
 }
 
-/** Synthetic event carrying the Agent Transcript reference into the stream. */
 export const transcriptEventType = "plot_transcript";
 
 export interface PiAgentSessionRunOptions {
-	readonly cwd?: string;
-	readonly customTools?: ToolDefinition[];
+	readonly cwd?: string | undefined;
+	readonly customTools?: ToolDefinition[] | undefined;
 }
 
 export type CreatePiAgentSession = (
@@ -56,21 +48,6 @@ export interface PiWorkRunnerConfig {
 	}) => Promise<void> | void;
 }
 
-export type PiWorkRunnerErrorPhase = "create" | "prompt" | "event" | "dispose";
-
-export class PiWorkRunnerError extends Error {
-	override readonly name = "PiWorkRunnerError";
-	readonly phase: PiWorkRunnerErrorPhase;
-
-	constructor(input: {
-		readonly phase: PiWorkRunnerErrorPhase;
-		readonly message: string;
-	}) {
-		super(input.message);
-		this.phase = input.phase;
-	}
-}
-
 const eta = new Eta({
 	tags: ["{{", "}}"],
 	parse: { exec: "#", interpolate: "", raw: "~" },
@@ -87,70 +64,42 @@ const resolveValue = async <A>(
 		: value;
 
 const promptData = (context: WorkRunnerContext): Record<string, unknown> => {
-	const templateContext = context.work.templateContext;
-	if (templateContext === undefined) return {};
-	return isRecord(templateContext)
-		? templateContext
-		: { value: templateContext };
+	const data = context.work.templateContext;
+	return data === undefined ? {} : isRecord(data) ? data : { value: data };
 };
 
-const renderPrompt = (template: string, context: WorkRunnerContext): string => {
-	try {
-		return eta.renderString(template, promptData(context));
-	} catch (error) {
-		throw new PiWorkRunnerError({
-			phase: "prompt",
-			message: errorMessage(error),
-		});
-	}
+const positive = (value: number, name: string): number => {
+	if (!Number.isInteger(value) || value < 1)
+		throw new Error(`${name} must be a positive integer`);
+	return value;
 };
 
-const defaultContinuationPrompt = (turnNumber: number, maxTurns: number) => `
+const continuationPrompt = (turn: number, maxTurns: number) => `
 Continuation guidance:
 
 - The previous agent turn completed normally, but this work is still active.
-- This is continuation turn #${turnNumber} of ${maxTurns} for the current Agent Run.
+- This is continuation turn #${turn} of ${maxTurns} for the current Agent Run.
 - Resume from the current workspace and conversation context instead of restarting from scratch.
 - Focus on remaining work and do not end the turn while the work stays active unless truly blocked.
 `;
 
-const positiveInteger = (value: number, field: string): number => {
-	if (isPositiveInteger(value)) return value;
-	throw new PiWorkRunnerError({
-		phase: "prompt",
-		message: `${field} must be a positive integer`,
-	});
-};
-
 const defaultCreateAgentSession: CreatePiAgentSession = async (perRun) => {
-	const options: CreateAgentSessionOptions = {};
-	if (perRun?.cwd !== undefined) options.cwd = perRun.cwd;
-	if (perRun?.customTools !== undefined)
-		options.customTools = perRun.customTools;
-	const result = await createAgentSession(options);
-	return { session: result.session };
-};
-
-const disposeSession = (session: PiAgentSessionPort): void => {
-	try {
-		session.dispose();
-	} catch (error) {
-		throw new PiWorkRunnerError({
-			phase: "dispose",
-			message: errorMessage(error),
-		});
-	}
+	const { session } = await createAgentSession({
+		cwd: perRun?.cwd,
+		customTools: perRun?.customTools,
+	} as Parameters<typeof createAgentSession>[0]);
+	return { session };
 };
 
 async function* promptSession(input: {
 	readonly createAgentSession: CreatePiAgentSession;
-	readonly create?: PiAgentSessionRunOptions;
+	readonly create?: PiAgentSessionRunOptions | undefined;
 	readonly prompt: string;
-	readonly promptOptions?: PromptOptions;
+	readonly promptOptions?: PromptOptions | undefined;
 	readonly signal: AbortSignal;
 	readonly maxTurns: number;
 	readonly eventCapacity: number;
-	readonly shouldContinue?: WorkRunnerContext["shouldContinue"];
+	readonly shouldContinue?: WorkRunnerContext["shouldContinue"] | undefined;
 }): AsyncIterable<AgentSessionEvent> {
 	const queue = new AsyncQueue<AgentSessionEvent>({
 		capacity: input.eventCapacity,
@@ -159,71 +108,43 @@ async function* promptSession(input: {
 	let session: PiAgentSessionPort | undefined;
 	let unsubscribe: (() => void) | undefined;
 	let disposed = false;
-
-	const abort = () =>
-		queue.fail(
-			new PiWorkRunnerError({
-				phase: session === undefined ? "create" : "prompt",
-				message: "agent session interrupted",
-			}),
-		);
+	const abort = () => queue.fail(new Error("agent session interrupted"));
 
 	if (input.signal.aborted) abort();
 	input.signal.addEventListener("abort", abort, { once: true });
-
 	void (async () => {
 		try {
 			if (input.signal.aborted) return;
 			session = (await input.createAgentSession(input.create)).session;
 			if (disposed || input.signal.aborted) {
-				disposeSession(session);
+				session.dispose();
 				return;
 			}
-			if (session.sessionFile !== undefined) {
-				const event: Mutable<{
-					readonly type: typeof transcriptEventType;
-					readonly sessionFile: string;
-					readonly sessionId?: string | undefined;
-				}> = {
+			if (session.sessionFile)
+				queue.offer({
 					type: transcriptEventType,
 					sessionFile: session.sessionFile,
-				};
-				if (session.sessionId !== undefined)
-					event.sessionId = session.sessionId;
-				queue.offer(event as unknown as AgentSessionEvent);
-			}
+					sessionId: session.sessionId,
+				} as unknown as AgentSessionEvent);
 			unsubscribe = session.subscribe((event) => {
-				if (queue.offer(event)) return;
-				queue.fail(
-					new PiWorkRunnerError({
-						phase: "event",
-						message: "agent session event queue is full",
-					}),
-				);
+				if (!queue.offer(event))
+					queue.fail(new Error("agent session event queue is full"));
 			});
-			for (let turnNumber = 1; turnNumber <= input.maxTurns; turnNumber++) {
+			for (let turn = 1; turn <= input.maxTurns; turn++) {
 				if (input.signal.aborted) return;
-				// eslint-disable-next-line no-await-in-loop -- continuation turns are sequential agent prompts.
+				// Turns share one conversation and must run in order.
+				// eslint-disable-next-line no-await-in-loop
 				await session.prompt(
-					turnNumber === 1
-						? input.prompt
-						: defaultContinuationPrompt(turnNumber, input.maxTurns),
+					turn === 1 ? input.prompt : continuationPrompt(turn, input.maxTurns),
 					input.promptOptions,
 				);
-				if (turnNumber >= input.maxTurns) break;
-				// eslint-disable-next-line no-await-in-loop -- continuation policy depends on the completed turn.
-				if (!(await input.shouldContinue?.(turnNumber))) break;
+				// eslint-disable-next-line no-await-in-loop
+				if (turn === input.maxTurns || !(await input.shouldContinue?.(turn)))
+					break;
 			}
 			queue.close();
 		} catch (error) {
-			queue.fail(
-				error instanceof PiWorkRunnerError
-					? error
-					: new PiWorkRunnerError({
-							phase: session === undefined ? "create" : "prompt",
-							message: errorMessage(error),
-						}),
-			);
+			queue.fail(error);
 		}
 	})();
 
@@ -233,40 +154,31 @@ async function* promptSession(input: {
 		disposed = true;
 		input.signal.removeEventListener("abort", abort);
 		unsubscribe?.();
-		if (session !== undefined) disposeSession(session);
+		session?.dispose();
 	}
 }
 
 export const makePiWorkRunner = (config: PiWorkRunnerConfig): WorkRunner => ({
 	run: async (context): Promise<WorkResult> => {
-		const promptTemplate = await resolveValue(config.prompt, context);
-		const prompt = renderPrompt(promptTemplate, context);
-		const create =
-			config.create === undefined
-				? undefined
-				: await resolveValue(config.create, context);
-		const promptOptions =
-			config.promptOptions === undefined
-				? undefined
-				: await resolveValue(config.promptOptions, context);
-		const maxTurns = positiveInteger(config.maxTurns ?? 20, "maxTurns");
-		const eventCapacity = positiveInteger(
-			config.eventCapacity ?? 256,
-			"eventCapacity",
-		);
-		const sessionInput: Mutable<Parameters<typeof promptSession>[0]> = {
+		const template = await resolveValue(config.prompt, context);
+		const prompt = eta.renderString(template, promptData(context));
+		const create = config.create
+			? await resolveValue(config.create, context)
+			: undefined;
+		const promptOptions = config.promptOptions
+			? await resolveValue(config.promptOptions, context)
+			: undefined;
+		for await (const event of promptSession({
 			createAgentSession:
 				config.createAgentSession ?? defaultCreateAgentSession,
+			create,
 			prompt,
+			promptOptions,
 			signal: context.signal,
-			maxTurns,
-			eventCapacity,
-		};
-		if (create !== undefined) sessionInput.create = create;
-		if (promptOptions !== undefined) sessionInput.promptOptions = promptOptions;
-		if (context.shouldContinue !== undefined)
-			sessionInput.shouldContinue = context.shouldContinue;
-		for await (const event of promptSession(sessionInput)) {
+			maxTurns: positive(config.maxTurns ?? 20, "maxTurns"),
+			eventCapacity: positive(config.eventCapacity ?? 256, "eventCapacity"),
+			shouldContinue: context.shouldContinue,
+		})) {
 			context.reportActivity();
 			await config.onEvent?.({ context, event });
 		}

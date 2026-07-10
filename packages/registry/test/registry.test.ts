@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -102,28 +102,28 @@ test("runRegistry IPC codecs validate required protocol fields", () => {
 			request: { kind: "request", id: "client-1", method: "ping" },
 		}),
 	).toThrow();
-	const response = decodeRunResponse({
-		type: "protocol_response",
-		record: {
-			protocol: sessionProtocolVersion,
-			kind: "response",
-			id: "client-1",
-			method: "ping",
-			ok: true,
-		},
-	});
-	expect(response.type).toBe("protocol_response");
-	if (response.type !== "protocol_response") throw new Error("bad response");
-	expect(response.record).toMatchObject({ kind: "response", id: "client-1" });
 	expect(() =>
 		decodeRunResponse({ type: "protocol_response", record: { kind: "nope" } }),
 	).toThrow();
 });
 
-test("runRegistry requires an explicit CLI command for real child processes", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "plot-run-command-"));
-	const runRegistry = new RunRegistry({ cwd, store: createMemoryRunStore() });
-	await expect(runRegistry.spawn()).rejects.toThrow("CLI command");
+test("file run store continues after a failed mutation", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-store-recovery-"));
+	const parent = join(dir, "blocked");
+	await writeFile(parent, "not a directory");
+	const store = createFileRunStore(join(parent, "runs.json"));
+	const record = {
+		id: "run-1",
+		status: "stopped" as const,
+		cwd: dir,
+		createdAt: "2026-01-01T00:00:00.000Z",
+	};
+
+	await expect(store.upsert(record)).rejects.toBeInstanceOf(Error);
+	await rm(parent);
+	await mkdir(parent);
+	await expect(store.upsert(record)).resolves.toBeUndefined();
+	expect(await store.get("run-1")).toMatchObject({ id: "run-1" });
 });
 
 test("runRegistry spawns, bounds stderr, and stops child lifecycle", async () => {

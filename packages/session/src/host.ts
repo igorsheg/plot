@@ -1,7 +1,6 @@
 import { basename, resolve } from "node:path";
 import { setFact } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
-import { isPositiveInteger, type Mutable } from "@plot/common/primitives";
 import { createSessionId } from "./runtime.js";
 import {
 	makeCreatePiAgentSession,
@@ -16,7 +15,7 @@ import {
 import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
 import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";
 import { makeSessionProtocol, type SessionProtocol } from "./protocol.js";
-import { makeSessionRuntime, type SessionRuntimeOptions } from "./runtime.js";
+import { makeSessionRuntime } from "./runtime.js";
 import type { SessionRuntime } from "./runtime.js";
 import { loadDiscoveredWorkflow, type WorkflowDefinition } from "./workflow.js";
 
@@ -41,10 +40,6 @@ export interface ProtocolSessionHost extends SessionHost {
 	readonly limits: ProtocolLimits;
 }
 
-export interface SessionHostPart {
-	readonly shutdown?: () => Promise<void> | void;
-}
-
 export interface CreateSessionHostOptions {
 	readonly cwd: string;
 	readonly workflowPath?: string;
@@ -62,34 +57,25 @@ export interface CreateSessionHostOptions {
 	readonly stallTimeoutMs?: number;
 }
 
-export class SessionHostError extends Error {
-	override readonly name = "SessionHostError";
-	readonly phase: "config";
-
-	constructor(message: string) {
-		super(message);
-		this.phase = "config";
-	}
-}
-
-const workflowSourceId = "workflow";
-const workflowSubject = "workflow";
 const workflowWorkKey = "workflow:default";
 const workflowCompletedFact = "workflow:default:completed";
 
-const positiveInteger = (value: number, field: string): number => {
-	if (isPositiveInteger(value)) return value;
-	throw new SessionHostError(`${field} must be a positive integer`);
+const positive = (value: number, name: string): number => {
+	if (!Number.isInteger(value) || value < 1)
+		throw new Error(`${name} must be a positive integer`);
+	return value;
 };
 
-const workflowName = (workflow: WorkflowDefinition): string =>
-	workflow.runtime.name ??
-	(workflow.path === undefined ? "workflow" : basename(workflow.path));
+const optionalPositive = (
+	value: number | undefined,
+	name: string,
+): number | undefined =>
+	value === undefined ? undefined : positive(value, name);
 
 const makeOneShotWorkflowSource = (
 	workflow: WorkflowDefinition,
 ): WorkSource => ({
-	id: workflowSourceId,
+	id: "workflow",
 	reconcile: ({ snapshot }) =>
 		snapshot.completions.some(
 			(completion) => completion.workKey === workflowWorkKey,
@@ -102,76 +88,45 @@ const makeOneShotWorkflowSource = (
 		return [
 			{
 				workKey: workflowWorkKey,
-				subject: workflowSubject,
+				subject: "workflow",
 				templateContext: { workflow: workflow.config },
 			},
 		];
 	},
 });
 
-const shutdownHostParts = async (
-	parts: readonly SessionHostPart[],
-): Promise<void> => {
-	let failure: unknown;
-	for (const part of parts.toReversed()) {
-		try {
-			// eslint-disable-next-line no-await-in-loop -- shutdown order is reverse construction order.
-			await part.shutdown?.();
-		} catch (error) {
-			failure ??= error;
-		}
-	}
-	if (failure !== undefined) throw failure;
-};
-
-const makeProtocolLimits = (input: {
-	readonly requestQueueCapacity: number;
-	readonly eventBufferCapacity: number;
-}): ProtocolLimits => ({
-	...defaultProtocolLimits,
-	maxPendingRequests: positiveInteger(
-		input.requestQueueCapacity,
-		"requestQueueCapacity",
-	),
-	maxBufferedEvents: positiveInteger(
-		input.eventBufferCapacity,
-		"eventBufferCapacity",
-	),
-});
-
-const makeMetadata = (input: {
-	readonly workflow: WorkflowDefinition;
-	readonly paths: SessionPaths;
-}): SessionHostMetadata => ({
-	workflowName: workflowName(input.workflow),
-	workflowPath: input.workflow.path ?? "WORKFLOW.md",
-	cwd: input.paths.cwd,
-	cwdName: basename(input.paths.cwd),
-	sessionDir: input.paths.sessionDir,
-});
-
 export const createSessionHost = async (
 	options: CreateSessionHostOptions,
 ): Promise<SessionHost> => {
 	const paths = resolveSessionPaths(options);
-	const discoveryOptions: Mutable<
-		Parameters<typeof loadDiscoveredWorkflow>[0]
-	> = { cwd: paths.cwd };
-	if (options.workflowPath !== undefined)
-		discoveryOptions.workflowPath = resolve(paths.cwd, options.workflowPath);
-	const workflow = await loadDiscoveredWorkflow(discoveryOptions);
+	const workflow = await loadDiscoveredWorkflow({
+		cwd: paths.cwd,
+		workflowPath:
+			options.workflowPath === undefined
+				? undefined
+				: resolve(paths.cwd, options.workflowPath),
+	});
 	const plot = workflow.runtime.plot;
-	const requestQueueCapacity = positiveInteger(
+	const requestQueueCapacity = positive(
 		options.requestQueueCapacity ?? plot?.queueCapacity ?? 64,
 		"requestQueueCapacity",
 	);
-	const eventCapacity = positiveInteger(
+	const eventCapacity = positive(
 		options.eventCapacity ?? plot?.eventCapacity ?? 256,
 		"eventCapacity",
 	);
-	const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
-	const maxRunDurationMs = options.maxRunDurationMs ?? plot?.maxRunDurationMs;
-	const stallTimeoutMs = options.stallTimeoutMs ?? plot?.stallTimeoutMs;
+	const tickIntervalMs = optionalPositive(
+		options.tickIntervalMs ?? plot?.tickIntervalMs,
+		"tickIntervalMs",
+	);
+	const maxRunDurationMs = optionalPositive(
+		options.maxRunDurationMs ?? plot?.maxRunDurationMs,
+		"maxRunDurationMs",
+	);
+	const stallTimeoutMs = optionalPositive(
+		options.stallTimeoutMs ?? plot?.stallTimeoutMs,
+		"stallTimeoutMs",
+	);
 	const sessionId = options.sessionId ?? createSessionId();
 	const extensionBundle = workflow.runtime.extension
 		? await makePlotExtensionSourceBundleFromWorkflow({ workflow, paths })
@@ -179,13 +134,13 @@ export const createSessionHost = async (
 	const sources = extensionBundle
 		? [extensionBundle.source]
 		: [makeOneShotWorkflowSource(workflow)];
-	const factoryOptions: Mutable<
-		Parameters<typeof makeCreatePiAgentSession>[0]
-	> = { workflow, paths };
-	if (options.agentSessionOverrides !== undefined)
-		factoryOptions.overrides = options.agentSessionOverrides;
 	const createAgentSession =
-		options.createAgentSession ?? makeCreatePiAgentSession(factoryOptions);
+		options.createAgentSession ??
+		makeCreatePiAgentSession({
+			workflow,
+			paths,
+			overrides: options.agentSessionOverrides,
+		});
 	let runtime: SessionRuntime;
 	const runner = makePiWorkRunner({
 		createAgentSession,
@@ -194,56 +149,53 @@ export const createSessionHost = async (
 		maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
 		onEvent: async ({ context, event }) => {
 			await runtime.appendAgentEvent({
-				sourceId: String(context.sourceId),
-				runId: String(context.run.runId),
-				workKey: String(context.work.workKey),
+				sourceId: context.sourceId,
+				runId: context.run.runId,
+				workKey: context.work.workKey,
 				event,
 			});
 		},
 	});
-	const agentOptions: NonNullable<SessionRuntimeOptions["agent"]> = {
-		queueCapacity: requestQueueCapacity,
+	const metadata: SessionHostMetadata = {
+		workflowName:
+			workflow.runtime.name ??
+			(workflow.path ? basename(workflow.path) : "workflow"),
+		workflowPath: workflow.path ?? "WORKFLOW.md",
+		cwd: paths.cwd,
+		cwdName: basename(paths.cwd),
+		sessionDir: paths.sessionDir,
 	};
-	if (tickIntervalMs !== undefined)
-		agentOptions.tickIntervalMs = tickIntervalMs;
-	if (maxRunDurationMs !== undefined)
-		agentOptions.maxRunDurationMs = maxRunDurationMs;
-	if (stallTimeoutMs !== undefined)
-		agentOptions.stallTimeoutMs = stallTimeoutMs;
-	const metadata = makeMetadata({ workflow, paths });
 	const sessionFile = sessionEventLogPath(paths.sessionDir, sessionId);
-	const runtimeOptions: SessionRuntimeOptions = {
+	runtime = makeSessionRuntime({
 		id: sessionId,
 		sources,
 		runner: extensionBundle?.wrapRunner(runner) ?? runner,
-		state: {
-			workflowName: metadata.workflowName,
-			workflowPath: metadata.workflowPath,
-			cwd: metadata.cwd,
-			cwdName: metadata.cwdName,
-			sessionDir: metadata.sessionDir,
-		},
+		state: metadata,
 		sessionFile,
 		eventCapacity,
-		agent: agentOptions,
-	};
-	try {
-		runtime = makeSessionRuntime(runtimeOptions);
-	} catch (error) {
-		await extensionBundle?.shutdown();
-		throw error;
-	}
-	const parts: SessionHostPart[] = [];
-	if (extensionBundle !== undefined)
-		parts.push({ shutdown: () => extensionBundle.shutdown() });
-	parts.push({
-		shutdown: async () => {
-			await runtime.shutdown();
-		},
+		agent: {
+			queueCapacity: requestQueueCapacity,
+			tickIntervalMs,
+			maxRunDurationMs,
+			stallTimeoutMs,
+		} as NonNullable<Parameters<typeof makeSessionRuntime>[0]["agent"]>,
 	});
 	let shutdownPromise: Promise<void> | undefined;
 	const shutdown = (): Promise<void> => {
-		shutdownPromise ??= shutdownHostParts(parts);
+		shutdownPromise ??= (async () => {
+			let failure: unknown;
+			try {
+				await runtime.shutdown();
+			} catch (error) {
+				failure = error;
+			}
+			try {
+				await extensionBundle?.shutdown();
+			} catch (error) {
+				failure ??= error;
+			}
+			if (failure !== undefined) throw failure;
+		})();
 		return shutdownPromise;
 	};
 	return {
@@ -259,16 +211,21 @@ export const createProtocolSessionHost = async (
 	options: CreateSessionHostOptions,
 ): Promise<ProtocolSessionHost> => {
 	const host = await createSessionHost(options);
-	const limits = makeProtocolLimits({
-		requestQueueCapacity:
+	const limits: ProtocolLimits = {
+		...defaultProtocolLimits,
+		maxPendingRequests: positive(
 			options.requestQueueCapacity ??
-			host.workflow.runtime.plot?.queueCapacity ??
-			64,
-		eventBufferCapacity:
+				host.workflow.runtime.plot?.queueCapacity ??
+				64,
+			"requestQueueCapacity",
+		),
+		maxBufferedEvents: positive(
 			options.eventBufferCapacity ??
-			host.workflow.runtime.plot?.eventBufferCapacity ??
-			1024,
-	});
+				host.workflow.runtime.plot?.eventBufferCapacity ??
+				1024,
+			"eventBufferCapacity",
+		),
+	};
 	const protocol = makeSessionProtocol({
 		runtime: host.runtime,
 		limits,

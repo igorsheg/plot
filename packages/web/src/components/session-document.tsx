@@ -32,9 +32,9 @@ function EmptySelection() {
 				<div className="min-h-full px-[var(--plot-space-8)] pt-[var(--plot-page-top)] pb-[var(--plot-page-bottom)]">
 					<VStack
 						as="article"
-						center
 						className={sessionDocumentClass({ state: "empty" })}
 						gap={12}
+						justify="center"
 					>
 						<Text as="h1" variant="heading1">
 							No active sessions.

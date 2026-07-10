@@ -1,4 +1,3 @@
-import type { Mutable } from "@plot/common/primitives";
 import {
 	workLabel,
 	type ActivityTone,
@@ -195,8 +194,9 @@ const workRow = (
 	const stale =
 		attempt?.lastEventAtMs !== undefined &&
 		nowMs - attempt.lastEventAtMs > 120_000;
-	const row: Mutable<WorkRowModel> = {
+	return {
 		work,
+		attempt,
 		label: workLabel(work),
 		status: work.status,
 		meta: [age, tokens, check].filter(Boolean).join(" · "),
@@ -208,8 +208,6 @@ const workRow = (
 		stale,
 		attention: work.status === "blocked",
 	};
-	if (attempt) row.attempt = attempt;
-	return row;
 };
 const shortRunId = (runId: string | undefined) =>
 	runId === undefined
@@ -243,42 +241,44 @@ export const dashboardModelFrom = (
 			.map((c) => c.label)
 			.filter((label, _i, xs) => xs.filter((x) => x === label).length > 1),
 	);
-	const pulse: Mutable<PulseModel> = {
+	const pulse: PulseModel = {
+		tick: projection.pulse
+			? {
+					id: projection.pulse.tickId,
+					ago: formatAgo(nowMs - projection.pulse.atMs),
+					found: projection.pulse.found,
+					started: projection.pulse.started,
+				}
+			: undefined,
+		nextTick:
+			projection.pulse &&
+			tickIntervalMs !== undefined &&
+			projection.status !== "stopped" &&
+			projection.status !== "shutting_down"
+				? {
+						inSeconds: Math.ceil(
+							Math.max(0, projection.pulse.atMs + tickIntervalMs - nowMs) /
+								1000,
+						),
+					}
+				: undefined,
+		nextWake: nextWake
+			? {
+					inSeconds: Math.ceil(Math.max(0, nextWake.dueAtMs - nowMs) / 1000),
+					kind: nextWake.workKey ? "retry" : "wake",
+					reason: nextWake.reason,
+				}
+			: undefined,
 		runningCount: projection.attempts.size,
+		maxConcurrentRuns: projection.runtime.maxConcurrentRuns,
 		totalTokens: formatTokens(projection.usageTotals.tokens),
+		totalCost:
+			projection.usageTotals.cost === undefined
+				? undefined
+				: formatCost(projection.usageTotals.cost),
 		throughput: `${formatTokens(Math.round(tokenThroughput.rate))} tok/s`,
 		throughputGraph: tokenThroughput.graph,
 	};
-	if (projection.pulse)
-		pulse.tick = {
-			id: projection.pulse.tickId,
-			ago: formatAgo(nowMs - projection.pulse.atMs),
-			found: projection.pulse.found,
-			started: projection.pulse.started,
-		};
-	if (
-		projection.pulse &&
-		tickIntervalMs !== undefined &&
-		projection.status !== "stopped" &&
-		projection.status !== "shutting_down"
-	)
-		pulse.nextTick = {
-			inSeconds: Math.ceil(
-				Math.max(0, projection.pulse.atMs + tickIntervalMs - nowMs) / 1000,
-			),
-		};
-	if (nextWake) {
-		const wakeModel: Mutable<PulseNextWakeModel> = {
-			inSeconds: Math.ceil(Math.max(0, nextWake.dueAtMs - nowMs) / 1000),
-			kind: nextWake.workKey ? ("retry" as const) : ("wake" as const),
-		};
-		if (nextWake.reason) wakeModel.reason = nextWake.reason;
-		pulse.nextWake = wakeModel;
-	}
-	if (projection.runtime.maxConcurrentRuns !== undefined)
-		pulse.maxConcurrentRuns = projection.runtime.maxConcurrentRuns;
-	if (projection.usageTotals.cost !== undefined)
-		pulse.totalCost = formatCost(projection.usageTotals.cost);
 	return {
 		pulse,
 		attention: [
@@ -298,17 +298,14 @@ export const dashboardModelFrom = (
 		],
 		work,
 		scheduled: projection.scheduledWakes.slice(0, 5).map((wake) => {
-			const row: Mutable<ScheduledRowModel> = {
+			const item = wake.workKey ? projection.work.get(wake.workKey) : undefined;
+			return {
 				inSeconds: Math.ceil(Math.max(0, wake.dueAtMs - nowMs) / 1000),
+				reason: wake.reason,
+				workKey: wake.workKey,
+				label: item ? workLabel(item) : undefined,
+				attempt: wake.attempt,
 			};
-			if (wake.reason) row.reason = wake.reason;
-			if (wake.workKey) {
-				row.workKey = wake.workKey;
-				const item = projection.work.get(wake.workKey);
-				if (item !== undefined) row.label = workLabel(item);
-			}
-			if (wake.attempt !== undefined) row.attempt = wake.attempt;
-			return row;
 		}),
 		completed: projection.completed.slice(0, 5).map((entry) => {
 			const meta = [
@@ -322,16 +319,15 @@ export const dashboardModelFrom = (
 			]
 				.filter(Boolean)
 				.join(" · ");
-			const row: Mutable<CompletedRowModel> = {
+			return {
 				label: entry.label,
 				status: entry.status,
 				message: entry.message,
 				ago: formatAgo(nowMs - entry.atMs),
-				tone: entry.status === "succeeded" ? ("ok" as const) : ("bad" as const),
+				meta: meta || undefined,
+				tone: entry.status === "succeeded" ? "ok" : "bad",
+				url: entry.url,
 			};
-			if (meta) row.meta = meta;
-			if (entry.url) row.url = entry.url;
-			return row;
 		}),
 	};
 };

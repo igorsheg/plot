@@ -55,12 +55,10 @@ function Rail({ children }: { readonly children: ReactNode }) {
 /** Who and where: subtitle, labels, and an out-link, on one baseline row. */
 function Identity({ view }: { readonly view: DetailView }) {
 	return (
-		<Stack alignCenter gap={8} wrap>
+		<Stack align="center" gap={8} wrap>
 			{view.subtitle !== undefined && <Rail>{view.subtitle}</Rail>}
 			{view.labels.map((label) => (
-				<Badge key={label} variant="secondary">
-					{label}
-				</Badge>
+				<Badge key={label}>{label}</Badge>
 			))}
 			{view.url !== undefined && (
 				<a
@@ -275,8 +273,8 @@ export function WorkDetail() {
 					borderBottom: "1px solid var(--border)",
 				}}
 			>
-				<Stack alignStart between gap={12}>
-					<Stack alignCenter gap={8} style={{ minWidth: 0 }}>
+				<Stack align="flex-start" gap={12} justify="space-between">
+					<Stack align="center" gap={8} style={{ minWidth: 0 }}>
 						<StateIcon state={HEADER_STATE[view.kind]} />
 						<Text as="h2" truncate variant="heading3">
 							{view.title}
@@ -313,9 +311,9 @@ export function WorkDetail() {
 			</div>
 			<Ticker events={view.events} nowMs={state.nowMs} />
 			<Stack
-				alignCenter
-				between
+				align="center"
 				gap={12}
+				justify="space-between"
 				style={{ padding: "16px 24px", borderTop: "1px solid var(--border)" }}
 			>
 				<Metrics metrics={view.metrics} />

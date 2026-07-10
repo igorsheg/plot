@@ -2,7 +2,10 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { createSessionEventLogWriter } from "../src/history.js";
+import {
+	createSessionEventLogWriter,
+	readSessionEvents,
+} from "../src/history.js";
 import type { RuntimeEvent } from "../src/runtime.js";
 
 const event = (): RuntimeEvent => ({
@@ -11,6 +14,18 @@ const event = (): RuntimeEvent => ({
 	sequence: 1,
 	timestamp: "2026-01-01T00:00:00.000Z",
 	event: { type: "session_started" },
+});
+
+test("session event replay skips structurally invalid records", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-history-replay-"));
+	const path = join(dir, "events.jsonl");
+	await writeFile(
+		path,
+		`${JSON.stringify({ kind: "session_event" })}\n${JSON.stringify(event())}\n`,
+	);
+	const events = [];
+	for await (const record of readSessionEvents(path)) events.push(record);
+	expect(events).toEqual([event()]);
 });
 
 test("session event log writer rejects existing logs", async () => {

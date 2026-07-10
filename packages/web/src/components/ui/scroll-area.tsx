@@ -9,16 +9,12 @@ export function ScrollArea({
 	children,
 	scrollFade = false,
 	scrollbarGutter = false,
-	fill = false,
-	clampContentMinWidth = true,
 	viewportRef,
 	contentRef,
 	...props
 }: ScrollAreaPrimitive.Root.Props & {
 	scrollFade?: boolean;
 	scrollbarGutter?: boolean;
-	fill?: boolean;
-	clampContentMinWidth?: boolean;
 	viewportRef?: React.Ref<HTMLDivElement>;
 	contentRef?: React.Ref<HTMLDivElement>;
 }): React.ReactElement {
@@ -39,10 +35,9 @@ export function ScrollArea({
 				ref={viewportRef}
 			>
 				<ScrollAreaPrimitive.Content
-					className={cn(fill && "size-full")}
 					data-slot="scroll-area-content"
 					ref={contentRef}
-					style={clampContentMinWidth ? { minWidth: 0 } : undefined}
+					style={{ minWidth: 0 }}
 				>
 					{children}
 				</ScrollAreaPrimitive.Content>
@@ -54,7 +49,7 @@ export function ScrollArea({
 	);
 }
 
-export function ScrollBar({
+function ScrollBar({
 	className,
 	orientation = "vertical",
 	...props
@@ -76,5 +71,3 @@ export function ScrollBar({
 		</ScrollAreaPrimitive.Scrollbar>
 	);
 }
-
-export { ScrollAreaPrimitive };

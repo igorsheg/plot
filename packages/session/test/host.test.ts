@@ -345,6 +345,76 @@ Prompt
 		);
 	});
 
+	test("agent settings validate field types", async () => {
+		const cwd = await makeTempDir();
+		const plotDir = join(cwd, ".plot");
+		await mkdir(plotDir, { recursive: true });
+		await writeFile(join(plotDir, "settings.json"), '{"defaultModel":42}\n');
+		const createAgentSession = makeCreatePiAgentSession({
+			workflow: parseWorkflowText("Review"),
+			paths: resolveSessionPaths({ cwd }),
+		});
+
+		await expect(createAgentSession()).rejects.toThrow("defaultModel");
+	});
+
+	test("runtime API keys require a provider", async () => {
+		const cwd = await makeTempDir();
+		const createAgentSession = makeCreatePiAgentSession({
+			workflow: parseWorkflowText("Review"),
+			paths: resolveSessionPaths({ cwd }),
+			overrides: { apiKey: "secret" },
+		});
+
+		await expect(createAgentSession()).rejects.toThrow("--api-key requires");
+	});
+
+	test("shutdown still closes extensions and protocol after runtime failure", async () => {
+		const cwd = await makeTempDir();
+		const marker = join(cwd, "shutdown-after-error.txt");
+		await writeFile(
+			join(cwd, "extension.ts"),
+			`import { writeFile } from "node:fs/promises";
+export default {
+  id: "shutdown-error",
+  create: () => ({
+    discover: () => [],
+    shutdown: async () => writeFile(${JSON.stringify(marker)}, "done")
+  })
+};
+`,
+		);
+		await writeFile(
+			join(cwd, "WORKFLOW.md"),
+			`---
+extension:
+  source: ./extension.ts
+---
+Prompt
+`,
+		);
+		const host = await createProtocolSessionHost({
+			cwd,
+			sessionId: "session-shutdown-error",
+		});
+		(host.runtime as { shutdown: () => Promise<boolean> }).shutdown =
+			async () => {
+				throw new Error("runtime shutdown failed");
+			};
+
+		await expect(host.shutdown()).rejects.toThrow("runtime shutdown failed");
+
+		expect(await readFile(marker, "utf8")).toBe("done");
+		expect(
+			await host.protocol.submit({
+				protocol: sessionProtocolVersion,
+				kind: "request",
+				id: "closed",
+				method: "ping",
+			}),
+		).toBe(false);
+	});
+
 	test("shutdown runs runtime before extension cleanup", async () => {
 		const cwd = await makeTempDir();
 		await mkdir(join(cwd, "state"));

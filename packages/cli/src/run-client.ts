@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ParsedArgs } from "citty";
-import { errorMessage, type Mutable } from "@plot/common/primitives";
+import { errorMessage } from "@plot/common/primitives";
 import {
 	sendRunIpcRequest,
 	streamRunRecordsGapless,
@@ -30,14 +30,11 @@ export class RunIdResolutionError extends Error {
 	}
 }
 
-export const runIpcOptions = (args: ParsedArgs): RunIpcOptions => {
-	const options: Mutable<RunIpcOptions> = {
+export const runIpcOptions = (args: ParsedArgs): RunIpcOptions =>
+	({
 		cwd: str(args, "cwd") ?? process.cwd(),
-	};
-	const runRegistryDir = str(args, "registry-dir");
-	if (runRegistryDir !== undefined) options.runRegistryDir = runRegistryDir;
-	return options;
-};
+		runRegistryDir: str(args, "registry-dir"),
+	}) as RunIpcOptions;
 
 export const runControlFix = (error: unknown): string =>
 	error instanceof RunIdResolutionError
@@ -84,16 +81,13 @@ export const writeRunControlError = async (error: unknown): Promise<void> => {
 export const protocolRequest = (
 	method: SessionProtocolMethod,
 	params?: unknown,
-): ClientRequest => {
-	const request: Mutable<ClientRequest> = {
-		protocol: sessionProtocolVersion,
-		kind: "request",
-		id: `cli_${method.replaceAll(".", "_")}_${randomUUID()}`,
-		method,
-	};
-	if (params !== undefined) request.params = params;
-	return request;
-};
+): ClientRequest => ({
+	protocol: sessionProtocolVersion,
+	kind: "request",
+	id: `cli_${method.replaceAll(".", "_")}_${randomUUID()}`,
+	method,
+	params,
+});
 
 export const submitRunProtocolRequest = async (
 	args: ParsedArgs,

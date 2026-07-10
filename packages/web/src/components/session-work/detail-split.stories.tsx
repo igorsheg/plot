@@ -135,8 +135,13 @@ function Detail({
 }) {
 	return (
 		<VStack style={{ height: "100%" }}>
-			<Stack alignStart between gap={12} style={{ padding: "20px 24px 12px" }}>
-				<Stack alignCenter gap={8}>
+			<Stack
+				align="flex-start"
+				gap={12}
+				justify="space-between"
+				style={{ padding: "20px 24px 12px" }}
+			>
+				<Stack align="center" gap={8}>
 					<StateIcon state={item.state} />
 					<Text as="span" variant="secondary" size="sm">
 						{item.word}
@@ -168,7 +173,7 @@ function Detail({
 					<Text variant="label">Timeline</Text>
 					<VStack gap={8}>
 						{item.timeline.map((row, index) => (
-							<Stack alignStart gap={12} key={`${row.at}:${index}`}>
+							<Stack align="flex-start" gap={12} key={`${row.at}:${index}`}>
 								<span style={{ width: 56, flexShrink: 0 }}>
 									<Text as="span" variant="mono-secondary" size="sm">
 										{row.kind}
@@ -195,7 +200,7 @@ function Detail({
 function MockHeader() {
 	return (
 		<VStack as="header" gap={24}>
-			<Stack alignCenter between gap={16}>
+			<Stack align="center" gap={16} justify="space-between">
 				<Text as="h1" variant="heading1">
 					pr-review
 				</Text>
@@ -203,11 +208,11 @@ function MockHeader() {
 					Stop
 				</Button>
 			</Stack>
-			<Stack baseline between gap={16}>
+			<Stack align="baseline" gap={16} justify="space-between">
 				<Text as="span" variant="secondary" size="sm">
 					epic · started 12m ago
 				</Text>
-				<Stack baseline gap={12}>
+				<Stack align="baseline" gap={12}>
 					<Text as="span" variant="mono-secondary" size="sm">
 						48.3k · $0.42 · 1.2k tok/s
 					</Text>

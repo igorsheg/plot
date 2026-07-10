@@ -36,12 +36,11 @@ const toLogLevel = (
 const workflowPathLogField = (options: {
 	readonly cwd: string;
 	readonly workflowPath?: string | undefined;
-}) => {
-	const input: { cwd: string; workflowPath?: string } = { cwd: options.cwd };
-	if (options.workflowPath !== undefined)
-		input.workflowPath = options.workflowPath;
-	return resolveWorkflowPath(input);
-};
+}) =>
+	resolveWorkflowPath({
+		cwd: options.cwd,
+		workflowPath: options.workflowPath,
+	});
 const provideCliLogger = async <A>(
 	options: { readonly logLevel: LogLevelFlag },
 	work: () => Promise<A> | A,

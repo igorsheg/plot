@@ -12,13 +12,6 @@ export interface PlotCliIo {
 	readonly protectStdout?: () => void;
 }
 
-class PlotCliIoError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "PlotCliIoError";
-	}
-}
-
 export const openBrowser = (url: string): void => {
 	const [command, args]: [string, string[]] =
 		process.platform === "darwin"
@@ -32,26 +25,15 @@ export const openBrowser = (url: string): void => {
 };
 
 const writeStream = (stream: NodeJS.WritableStream, text: string) =>
-	new Promise<void>((resolve, reject) => {
-		let settled = false;
-		const finish = (error?: Error | null) => {
-			if (settled) return;
-			settled = true;
+	new Promise<void>((resolve, reject) =>
+		stream.write(text, (error?: Error | null) => {
 			if (error) reject(error);
 			else resolve();
-		};
-		stream.write(text, finish);
-	});
-
-export const writeProcessStdout = (text: string) =>
-	writeStream(process.stdout, text).catch((e) => {
-		throw new PlotCliIoError(errorMessage(e));
-	});
+		}),
+	);
 
 export const writeProcessStderr = (text: string) =>
-	writeStream(process.stderr, text).catch((e) => {
-		throw new PlotCliIoError(errorMessage(e));
-	});
+	writeStream(process.stderr, text);
 
 export const processCliIo = (): PlotCliIo => ({
 	stdin: process.stdin as AsyncIterable<string | Uint8Array>,

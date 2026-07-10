@@ -146,7 +146,7 @@ export interface CompletedWorkProjection {
 	readonly durationMs?: number | undefined;
 	readonly url?: string | undefined;
 	readonly labels?: readonly string[] | undefined;
-	readonly tokens?: TokenUsageProjection;
+	readonly tokens?: TokenUsageProjection | undefined;
 }
 export interface ScheduledWakeProjection {
 	readonly dueAtMs: number;

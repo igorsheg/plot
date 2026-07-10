@@ -78,12 +78,10 @@ export const reduceProjectableEvent = (
 	projection: DashboardProjection,
 	event: ProjectableEvent,
 ): DashboardProjection => {
-	const sequence = Number(event.sequence);
-	if (!Number.isFinite(sequence)) return reduceEvent(projection, event);
-	if (sequence <= projection.frontier) return projection;
+	if (event.sequence <= projection.frontier) return projection;
 	return {
 		...reduceEvent(projection, event),
-		frontier: sequence,
+		frontier: event.sequence,
 	};
 };
 

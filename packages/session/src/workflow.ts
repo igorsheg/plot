@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { errorMessage, type Mutable } from "@plot/common/primitives";
+import { errorMessage } from "@plot/common/primitives";
 
 export class WorkflowBoundaryError extends Error {
 	override readonly name = "WorkflowBoundaryError";
 	readonly phase: "read" | "parse";
-	readonly path?: string;
+	readonly path?: string | undefined;
 
 	constructor(input: {
 		readonly phase: "read" | "parse";
@@ -15,7 +15,7 @@ export class WorkflowBoundaryError extends Error {
 	}) {
 		super(input.message);
 		this.phase = input.phase;
-		if (input.path !== undefined) this.path = input.path;
+		this.path = input.path;
 	}
 }
 
@@ -23,7 +23,7 @@ export interface WorkflowDefinition {
 	readonly config: Record<string, unknown>;
 	readonly runtime: WorkflowRuntimeConfig;
 	readonly prompt: string;
-	readonly path?: string;
+	readonly path?: string | undefined;
 }
 
 export interface WorkflowFileSystem {
@@ -32,7 +32,7 @@ export interface WorkflowFileSystem {
 
 export interface WorkflowDiscoveryOptions {
 	readonly cwd: string;
-	readonly workflowPath?: string;
+	readonly workflowPath?: string | undefined;
 }
 
 export const DEFAULT_WORKFLOW_PATH = "WORKFLOW.md";
@@ -98,71 +98,49 @@ export interface WorkflowRuntimeConfig {
 	readonly extension?: WorkflowExtensionConfig;
 }
 
-class FieldError extends Error {}
-
-const fail = (path: string, expected: string): never => {
-	throw new FieldError(`${path} ${expected}`);
-};
-
-const section = (value: unknown, path: string): Record<string, unknown> => {
+const mapping = (value: unknown, name: string): Record<string, unknown> => {
 	if (typeof value !== "object" || value === null || Array.isArray(value))
-		fail(path, "must be a mapping");
+		throw new Error(`${name} must be a mapping`);
 	return value as Record<string, unknown>;
 };
 
-const checkKeys = (
-	record: Record<string, unknown>,
-	path: string,
+const fields = (
+	value: unknown,
+	name: string,
 	allowed: readonly string[],
-): void => {
+): Record<string, unknown> => {
+	const record = mapping(value, name);
 	for (const key of Object.keys(record))
 		if (!allowed.includes(key))
-			fail(
-				`${path}.${key}`,
-				`is not a recognized field (expected one of: ${allowed.join(", ")})`,
-			);
+			throw new Error(`${name}.${key} is not recognized`);
+	return record;
 };
 
-const nonEmptyString = (value: unknown, path: string): string => {
-	if (typeof value !== "string" || value.length === 0)
-		fail(path, "must be a non-empty string");
-	return value as string;
+const string = (value: unknown, name: string, empty = false): string => {
+	if (typeof value !== "string" || (!empty && value.length === 0))
+		throw new Error(
+			`${name} must be ${empty ? "a string" : "a non-empty string"}`,
+		);
+	return value;
 };
 
-const plainString = (value: unknown, path: string): string => {
-	if (typeof value !== "string") fail(path, "must be a string");
-	return value as string;
-};
-
-const boolean = (value: unknown, path: string): boolean => {
-	if (typeof value !== "boolean") fail(path, "must be a boolean");
-	return value as boolean;
-};
-
-const positiveInteger = (value: unknown, path: string): number => {
+const positiveInteger = (value: unknown, name: string): number => {
 	if (typeof value !== "number" || !Number.isInteger(value) || value < 1)
-		fail(path, "must be a positive integer");
-	return value as number;
+		throw new Error(`${name} must be a positive integer`);
+	return value;
 };
 
-const stringArray = (value: unknown, path: string): readonly string[] => {
-	if (!Array.isArray(value)) fail(path, "must be a list of non-empty strings");
-	return (value as unknown[]).map((item, index) =>
-		nonEmptyString(item, `${path}[${index}]`),
-	);
+const boolean = (value: unknown, name: string): boolean => {
+	if (typeof value !== "boolean") throw new Error(`${name} must be a boolean`);
+	return value;
 };
 
-const thinkingLevels = new Set([
-	"off",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-]);
+const strings = (value: unknown, name: string): readonly string[] => {
+	if (!Array.isArray(value)) throw new Error(`${name} must be a list`);
+	return value.map((item, index) => string(item, `${name}[${index}]`));
+};
 
-const parsePlotConfig = (value: unknown, path: string): WorkflowPlotConfig => {
-	const record = section(value, path);
+const decodePlot = (value: unknown): WorkflowPlotConfig => {
 	const keys = [
 		"tickIntervalMs",
 		"maxRunDurationMs",
@@ -171,20 +149,27 @@ const parsePlotConfig = (value: unknown, path: string): WorkflowPlotConfig => {
 		"eventCapacity",
 		"eventBufferCapacity",
 	] as const;
-	checkKeys(record, path, keys);
-	const config: { -readonly [K in keyof WorkflowPlotConfig]?: number } = {};
-	for (const key of keys)
-		if (record[key] !== undefined)
-			config[key] = positiveInteger(record[key], `${path}.${key}`);
-	return config;
+	const record = fields(value, "runtime.plot", keys);
+	return Object.fromEntries(
+		keys.flatMap((key) =>
+			record[key] === undefined
+				? []
+				: [[key, positiveInteger(record[key], `runtime.plot.${key}`)]],
+		),
+	);
 };
 
-const parseAgentConfig = (
-	value: unknown,
-	path: string,
-): WorkflowAgentConfig => {
-	const record = section(value, path);
-	checkKeys(record, path, [
+const thinkingLevels = new Set<WorkflowThinkingLevel>([
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+]);
+
+const decodeAgent = (value: unknown): WorkflowAgentConfig => {
+	const record = fields(value, "runtime.agent", [
 		"provider",
 		"model",
 		"thinking",
@@ -205,52 +190,43 @@ const parseAgentConfig = (
 		maxTurns?: number;
 	} = {};
 	if (record["provider"] !== undefined)
-		config.provider = nonEmptyString(record["provider"], `${path}.provider`);
+		config.provider = string(record["provider"], "runtime.agent.provider");
 	if (record["model"] !== undefined)
-		config.model = nonEmptyString(record["model"], `${path}.model`);
+		config.model = string(record["model"], "runtime.agent.model");
 	if (record["thinking"] !== undefined) {
-		const thinking = record["thinking"];
-		if (typeof thinking !== "string" || !thinkingLevels.has(thinking))
-			fail(
-				`${path}.thinking`,
-				"must be one of: off, minimal, low, medium, high, xhigh",
-			);
+		const thinking = string(record["thinking"], "runtime.agent.thinking");
+		if (!thinkingLevels.has(thinking as WorkflowThinkingLevel))
+			throw new Error(`runtime.agent.thinking is not recognized`);
 		config.thinking = thinking as WorkflowThinkingLevel;
 	}
 	if (record["tools"] !== undefined)
-		config.tools = stringArray(record["tools"], `${path}.tools`);
+		config.tools = strings(record["tools"], "runtime.agent.tools");
 	if (record["excludeTools"] !== undefined)
-		config.excludeTools = stringArray(
+		config.excludeTools = strings(
 			record["excludeTools"],
-			`${path}.excludeTools`,
+			"runtime.agent.excludeTools",
 		);
 	if (record["noTools"] !== undefined) {
-		const noTools = record["noTools"];
-		if (
-			noTools !== true &&
-			noTools !== false &&
-			noTools !== "all" &&
-			noTools !== "builtin"
-		)
-			fail(`${path}.noTools`, 'must be a boolean, "all", or "builtin"');
-		config.noTools = noTools as WorkflowAgentToolMode;
+		const mode = record["noTools"];
+		if (mode !== true && mode !== false && mode !== "all" && mode !== "builtin")
+			throw new Error(`runtime.agent.noTools is not recognized`);
+		config.noTools = mode;
 	}
 	if (record["allowProjectConfig"] !== undefined)
 		config.allowProjectConfig = boolean(
 			record["allowProjectConfig"],
-			`${path}.allowProjectConfig`,
+			"runtime.agent.allowProjectConfig",
 		);
 	if (record["maxTurns"] !== undefined)
-		config.maxTurns = positiveInteger(record["maxTurns"], `${path}.maxTurns`);
+		config.maxTurns = positiveInteger(
+			record["maxTurns"],
+			"runtime.agent.maxTurns",
+		);
 	return config;
 };
 
-const parseResourcesConfig = (
-	value: unknown,
-	path: string,
-): WorkflowResourcesConfig => {
-	const record = section(value, path);
-	checkKeys(record, path, [
+const decodeResources = (value: unknown): WorkflowResourcesConfig => {
+	const record = fields(value, "runtime.resources", [
 		"skills",
 		"prompts",
 		"contextFiles",
@@ -265,44 +241,45 @@ const parseResourcesConfig = (
 		appendSystemPrompt?: readonly string[];
 	} = {};
 	if (record["skills"] !== undefined)
-		config.skills = stringArray(record["skills"], `${path}.skills`);
+		config.skills = strings(record["skills"], "runtime.resources.skills");
 	if (record["prompts"] !== undefined)
-		config.prompts = stringArray(record["prompts"], `${path}.prompts`);
+		config.prompts = strings(record["prompts"], "runtime.resources.prompts");
 	if (record["contextFiles"] !== undefined)
 		config.contextFiles = boolean(
 			record["contextFiles"],
-			`${path}.contextFiles`,
+			"runtime.resources.contextFiles",
 		);
 	if (record["systemPrompt"] !== undefined)
-		config.systemPrompt = plainString(
+		config.systemPrompt = string(
 			record["systemPrompt"],
-			`${path}.systemPrompt`,
+			"runtime.resources.systemPrompt",
+			true,
 		);
 	if (record["appendSystemPrompt"] !== undefined)
-		config.appendSystemPrompt = stringArray(
+		config.appendSystemPrompt = strings(
 			record["appendSystemPrompt"],
-			`${path}.appendSystemPrompt`,
+			"runtime.resources.appendSystemPrompt",
 		);
 	return config;
 };
 
-const parseExtensionConfig = (
-	value: unknown,
-	path: string,
-): WorkflowExtensionConfig => {
-	const record = section(value, path);
-	checkKeys(record, path, ["source", "maxConcurrentRuns", "config"]);
+const decodeExtension = (value: unknown): WorkflowExtensionConfig => {
+	const record = fields(value, "runtime.extension", [
+		"source",
+		"maxConcurrentRuns",
+		"config",
+	]);
 	const config: {
 		source: string;
 		maxConcurrentRuns?: number;
 		config?: unknown;
 	} = {
-		source: nonEmptyString(record["source"], `${path}.source`),
+		source: string(record["source"], "runtime.extension.source"),
 	};
 	if (record["maxConcurrentRuns"] !== undefined)
 		config.maxConcurrentRuns = positiveInteger(
 			record["maxConcurrentRuns"],
-			`${path}.maxConcurrentRuns`,
+			"runtime.extension.maxConcurrentRuns",
 		);
 	if (record["config"] !== undefined) config.config = record["config"];
 	return config;
@@ -311,13 +288,7 @@ const parseExtensionConfig = (
 export const decodeWorkflowRuntimeConfig = (
 	value: Record<string, unknown>,
 ): WorkflowRuntimeConfig => {
-	checkKeys(value, "runtime", [
-		"name",
-		"plot",
-		"agent",
-		"resources",
-		"extension",
-	]);
+	const record = fields(value, "runtime", runtimeKeys);
 	const config: {
 		name?: string;
 		plot?: WorkflowPlotConfig;
@@ -325,22 +296,15 @@ export const decodeWorkflowRuntimeConfig = (
 		resources?: WorkflowResourcesConfig;
 		extension?: WorkflowExtensionConfig;
 	} = {};
-	if (value["name"] !== undefined)
-		config.name = nonEmptyString(value["name"], "runtime.name");
-	if (value["plot"] !== undefined)
-		config.plot = parsePlotConfig(value["plot"], "runtime.plot");
-	if (value["agent"] !== undefined)
-		config.agent = parseAgentConfig(value["agent"], "runtime.agent");
-	if (value["resources"] !== undefined)
-		config.resources = parseResourcesConfig(
-			value["resources"],
-			"runtime.resources",
-		);
-	if (value["extension"] !== undefined)
-		config.extension = parseExtensionConfig(
-			value["extension"],
-			"runtime.extension",
-		);
+	if (record["name"] !== undefined)
+		config.name = string(record["name"], "runtime.name");
+	if (record["plot"] !== undefined) config.plot = decodePlot(record["plot"]);
+	if (record["agent"] !== undefined)
+		config.agent = decodeAgent(record["agent"]);
+	if (record["resources"] !== undefined)
+		config.resources = decodeResources(record["resources"]);
+	if (record["extension"] !== undefined)
+		config.extension = decodeExtension(record["extension"]);
 	return config;
 };
 
@@ -362,15 +326,9 @@ const parseFrontMatter = (
 	frontMatter: string,
 	path: string | undefined,
 ): Record<string, unknown> => {
+	let parsed: unknown;
 	try {
-		const parsed = frontMatter.trim() === "" ? {} : parseYaml(frontMatter);
-		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-			throw new WorkflowBoundaryError({
-				phase: "parse",
-				path,
-				message: "workflow front matter must be a YAML mapping",
-			});
-		return parsed as Record<string, unknown>;
+		parsed = frontMatter.trim() === "" ? {} : parseYaml(frontMatter);
 	} catch (error) {
 		throw new WorkflowBoundaryError({
 			phase: "parse",
@@ -378,44 +336,23 @@ const parseFrontMatter = (
 			message: errorMessage(error),
 		});
 	}
-};
-
-const runtimeInputFromConfig = (
-	config: Record<string, unknown>,
-): Record<string, unknown> => {
-	const runtime = config["runtime"];
-	if (runtime !== undefined) {
-		if (
-			typeof runtime !== "object" ||
-			runtime === null ||
-			Array.isArray(runtime)
-		)
-			throw new WorkflowBoundaryError({
-				phase: "parse",
-				message: "runtime must be a mapping",
-			});
-		return runtime as Record<string, unknown>;
-	}
-	const input: Record<string, unknown> = {};
-	for (const key of runtimeKeys) {
-		if (config[key] !== undefined) input[key] = config[key];
-	}
-	return input;
-};
-
-const decodeRuntime = (
-	config: Record<string, unknown>,
-	path: string | undefined,
-): WorkflowRuntimeConfig => {
-	try {
-		return decodeWorkflowRuntimeConfig(runtimeInputFromConfig(config));
-	} catch (error) {
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
 		throw new WorkflowBoundaryError({
 			phase: "parse",
 			path,
-			message: errorMessage(error),
+			message: "workflow front matter must be a YAML mapping",
 		});
-	}
+	return parsed as Record<string, unknown>;
+};
+
+const runtimeInput = (config: Record<string, unknown>) => {
+	if (config["runtime"] !== undefined)
+		return mapping(config["runtime"], "runtime");
+	return Object.fromEntries(
+		runtimeKeys.flatMap((key) =>
+			config[key] === undefined ? [] : [[key, config[key]]],
+		),
+	);
 };
 
 export const parseWorkflowText = (
@@ -423,25 +360,30 @@ export const parseWorkflowText = (
 	path?: string,
 ): WorkflowDefinition => {
 	const match = frontMatterPattern.exec(text);
-	const frontMatter = match?.[1] ?? "";
-	const prompt = match ? text.slice(match[0].length).trim() : text.trim();
-	const config = parseFrontMatter(frontMatter, path);
-	const workflow: Mutable<WorkflowDefinition> = {
+	const config = parseFrontMatter(match?.[1] ?? "", path);
+	let runtime: WorkflowRuntimeConfig;
+	try {
+		runtime = decodeWorkflowRuntimeConfig(runtimeInput(config));
+	} catch (error) {
+		throw new WorkflowBoundaryError({
+			phase: "parse",
+			path,
+			message: errorMessage(error),
+		});
+	}
+	return {
 		config,
-		runtime: decodeRuntime(config, path),
-		prompt,
+		runtime,
+		prompt: (match ? text.slice(match[0].length) : text).trim(),
+		path,
 	};
-	if (path !== undefined) workflow.path = path;
-	return workflow;
 };
 
 export const resolveWorkflowPath = (
 	options: WorkflowDiscoveryOptions,
 ): string => {
-	const workflowPath = options.workflowPath ?? DEFAULT_WORKFLOW_PATH;
-	return isAbsolute(workflowPath)
-		? workflowPath
-		: resolve(options.cwd, workflowPath);
+	const path = options.workflowPath ?? DEFAULT_WORKFLOW_PATH;
+	return isAbsolute(path) ? path : resolve(options.cwd, path);
 };
 
 export const loadWorkflow = async (

@@ -300,6 +300,23 @@ describe("plot CLI", () => {
 		expect(stdout.at(-1)).toBe("anthropic\n");
 	});
 
+	test("config rejects malformed settings files", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-cli-config-invalid-"));
+		tempDirs.push(dir);
+		await runPlotCli(
+			["config", "set", "defaultProvider", "anthropic", "--cwd", dir],
+			{ stdin: chunks([]), writeStdout: () => {} },
+		);
+		await writeFile(join(dir, ".plot", "settings.json"), "[]\n");
+
+		await expect(
+			runPlotCli(["config", "get", "defaultProvider", "--cwd", dir], {
+				stdin: chunks([]),
+				writeStdout: () => {},
+			}),
+		).rejects.toThrow("JSON object");
+	});
+
 	test("prints usage instead of running TUI for an unknown subcommand", async () => {
 		const stdout: string[] = [];
 		const calls: unknown[] = [];

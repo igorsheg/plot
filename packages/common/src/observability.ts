@@ -75,8 +75,3 @@ export const withWideEvent = async <A>(
 		throw error;
 	}
 };
-
-export const withFields = async <A>(
-	_fields: Fields,
-	work: (() => Promise<A> | A) | Promise<A>,
-): Promise<A> => (typeof work === "function" ? work() : work);

@@ -1,4 +1,4 @@
-import { isRecord, type Mutable } from "@plot/common/primitives";
+import { isRecord } from "@plot/common/primitives";
 import {
 	appendStreamDelta,
 	piEventDisplay,
@@ -37,15 +37,13 @@ const activeTool = (tool: {
 	readonly check: string;
 	readonly target?: string | undefined;
 	readonly toolCallId?: string | undefined;
-}) => {
-	const active: Mutable<ActiveTool> = {
+}): ActiveTool =>
+	({
 		kind: tool.kind,
 		isCheck: tool.check === "running",
-	};
-	if (tool.target !== undefined) active.target = tool.target;
-	if (tool.toolCallId !== undefined) active.toolCallId = tool.toolCallId;
-	return active;
-};
+		target: tool.target,
+		toolCallId: tool.toolCallId,
+	}) as ActiveTool;
 
 const lifecycleActivity = (
 	prev: AgentAttemptProjection,
@@ -72,25 +70,20 @@ const freshUsage = (
 
 export const reduceAgentEvent = (
 	p: DashboardProjection,
-	e: ProjectableEvent,
-	payloadValue: unknown,
+	e: Extract<ProjectableEvent, { kind: "agent_event" }>,
 ): DashboardProjection => {
-	const payload = isRecord(payloadValue) ? payloadValue : undefined;
-	if (payload === undefined) return p;
-	const runId = str(payload["runId"]);
-	if (runId === undefined) return p;
-	const rawEvent = isRecord(payload["event"]) ? payload["event"] : {};
+	const runId = e.runId;
+	const rawEvent = isRecord(e.event) ? e.event : {};
 	const prev = p.attempts.get(runId);
 	if (prev === undefined) return p;
 	// Plot's own synthetic event: the Agent Transcript reference.
 	if (rawEvent["type"] === "plot_transcript") {
 		const path = str(rawEvent["sessionFile"]);
 		if (path === undefined) return p;
-		const id = str(rawEvent["sessionId"]);
-		const transcript: Mutable<
-			NonNullable<AgentAttemptProjection["transcript"]>
-		> = { path };
-		if (id !== undefined) transcript.id = id;
+		const transcript = {
+			path,
+			id: str(rawEvent["sessionId"]),
+		} as NonNullable<AgentAttemptProjection["transcript"]>;
 		return {
 			...p,
 			attempts: new Map(p.attempts).set(
@@ -256,18 +249,15 @@ export const reduceAgentEvent = (
 	} satisfies Record<typeof activity.type, () => AgentAttemptProjection>;
 	const next = handlers[activity.type]();
 	const attempts = new Map(p.attempts).set(runId, next);
-	const usageTotals =
-		appliedUsage === undefined
-			? p.usageTotals
-			: {
-					tokens: p.usageTotals.tokens + appliedUsage.total,
-					...(appliedUsage.cost === undefined &&
-					p.usageTotals.cost === undefined
-						? {}
-						: {
-								cost: (p.usageTotals.cost ?? 0) + (appliedUsage.cost ?? 0),
-							}),
-				};
+	const usageTotals = appliedUsage
+		? {
+				tokens: p.usageTotals.tokens + appliedUsage.total,
+				cost:
+					appliedUsage.cost === undefined && p.usageTotals.cost === undefined
+						? undefined
+						: (p.usageTotals.cost ?? 0) + (appliedUsage.cost ?? 0),
+			}
+		: p.usageTotals;
 	return {
 		...p,
 		attempts,

@@ -5,11 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { RuntimeSnapshot } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
-import {
-	PiWorkRunnerError,
-	makePiWorkRunner,
-	type PiAgentSessionPort,
-} from "../src/pi-runner.js";
+import { makePiWorkRunner, type PiAgentSessionPort } from "../src/pi-runner.js";
 
 class FakePiSession implements PiAgentSessionPort {
 	readonly prompts: {
@@ -149,12 +145,12 @@ test("pi runner validates continuation turn bounds", async () => {
 	expect(session.prompts[1]?.text).toContain("Continuation guidance");
 });
 
-test("pi runner fails on invalid maxTurns", async () => {
+test("pi runner rejects invalid turn bounds", async () => {
 	const runner = makePiWorkRunner({
 		createAgentSession: async () => ({ session: new FakePiSession() }),
 		prompt: "Start",
 		maxTurns: 0,
 	});
 
-	await expect(runner.run(context())).rejects.toBeInstanceOf(PiWorkRunnerError);
+	await expect(runner.run(context())).rejects.toThrow("positive integer");
 });

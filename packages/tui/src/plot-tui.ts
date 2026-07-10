@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
-import { errorMessage, type Mutable } from "@plot/common/primitives";
+import { errorMessage } from "@plot/common/primitives";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 import type { CreateSessionHostOptions } from "@plot/session/host";
 import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
@@ -63,29 +63,23 @@ const initialProjection = (input: {
 	);
 
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	const runIpcOptions: Mutable<RunIpcOptions> = { cwd: options.cwd };
-	if (options.cli !== undefined) runIpcOptions.cli = options.cli;
-	const runIpc = await openOrStartRunIpc(runIpcOptions);
-	const spawnInput: Mutable<Parameters<typeof runIpc.runRegistry.spawn>[0]> = {
+	const runIpc = await openOrStartRunIpc({
 		cwd: options.cwd,
-	};
-	if (options.sessionId !== undefined) spawnInput.sessionId = options.sessionId;
-	if (options.workflowPath !== undefined)
-		spawnInput.workflowPath = options.workflowPath;
-	const run = await runIpc.runRegistry.spawn(spawnInput);
-	const initialInput: Mutable<Parameters<typeof initialProjection>[0]> = {
+		cli: options.cli,
+	} as RunIpcOptions);
+	const run = await runIpc.runRegistry.spawn({
+		cwd: options.cwd,
+		sessionId: options.sessionId,
+		workflowPath: options.workflowPath,
+	} as Parameters<typeof runIpc.runRegistry.spawn>[0]);
+	let projection = initialProjection({
 		id: run.id,
+		sessionId: run.sessionId,
 		cwd: run.cwd,
-	};
-	if (run.sessionId !== undefined) initialInput.sessionId = run.sessionId;
-	if (run.cwdName !== undefined) initialInput.cwdName = run.cwdName;
-	if (run.workflowName !== undefined)
-		initialInput.workflowName = run.workflowName;
-	if (run.workflowPath !== undefined)
-		initialInput.workflowPath = run.workflowPath;
-	else if (options.workflowPath !== undefined)
-		initialInput.workflowPath = options.workflowPath;
-	let projection = initialProjection(initialInput);
+		cwdName: run.cwdName,
+		workflowName: run.workflowName,
+		workflowPath: run.workflowPath ?? options.workflowPath,
+	} as Parameters<typeof initialProjection>[0]);
 	let requestIndex = 0;
 	let resolveStopped!: () => void;
 	const stopped = new Promise<void>((resolve) => {
@@ -116,14 +110,13 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		params?: unknown,
 	): Promise<ServerRecord> => {
 		const id = `tui-${++requestIndex}`;
-		const record: Mutable<ClientRequest> = {
+		return runIpc.runRegistry.submit(run.id, {
 			protocol: sessionProtocolVersion,
 			kind: "request",
 			id,
 			method,
-		};
-		if (params !== undefined) record.params = params;
-		return runIpc.runRegistry.submit(run.id, record);
+			params,
+		} as ClientRequest);
 	};
 	const refresh = () => render();
 	const openUrl = (url: string) => {

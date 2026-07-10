@@ -159,6 +159,21 @@ describe("Plot web gateway", () => {
 		}
 	});
 
+	test("rejects malformed run creation bodies", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
+		const { gateway, stop } = await startTestGateway(dir);
+		try {
+			const response = await fetch(new URL("/api/runs", gateway.url), {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ cwd: 42 }),
+			});
+			expect(response.status).toBe(400);
+		} finally {
+			await stop();
+		}
+	});
+
 	test("streams run catalog updates as one SSE", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-web-gateway-"));
 		const { gateway, registryDir, stop } = await startTestGateway(dir);

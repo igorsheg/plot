@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { EventHub } from "@plot/common/event-stream";
-import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
+import { errorMessage, isRecord } from "@plot/common/primitives";
 import {
 	sessionProtocolVersion,
 	type ClientRequest,
 	type ServerRecord,
 } from "@plot/session/protocol";
-import { cloneRunRecord, type RunRecord, type RunStatus } from "./record.js";
+import type { RunRecord, RunStatus } from "./record.js";
 import {
 	RunProcessInstance,
 	createRunChildProcess,
@@ -76,7 +76,13 @@ const makeRequest = (method: ClientRequest["method"]): ClientRequest => ({
 
 const stateUpdates = (data: unknown): Partial<RunRecord> => {
 	if (!isRecord(data)) return {};
-	const updates: Partial<Mutable<RunRecord>> = {};
+	const updates: {
+		sessionId?: string;
+		workflowName?: string;
+		workflowPath?: string;
+		cwdName?: string;
+		sessionFile?: string;
+	} = {};
 	for (const key of [
 		"sessionId",
 		"workflowName",
@@ -193,8 +199,6 @@ export class RunRegistry implements RunRegistryRuntime {
 		const now = this.options.now();
 		const cwd = input.cwd ?? this.options.cwd;
 		const cli = this.options.cli;
-		if (cli === undefined && this.options.spawnChild === undefined)
-			throw new Error("run registry needs a CLI command to spawn runs");
 		const args = [...(cli?.args ?? []), ...childArgs({ ...input, cwd })];
 		const child = (this.options.spawnChild ?? createRunChildProcess)({
 			command: cli?.command ?? "plot-test",
@@ -205,19 +209,18 @@ export class RunRegistry implements RunRegistryRuntime {
 			stderrLimitBytes: this.options.stderrLimitBytes,
 			requestTimeoutMs: this.options.requestTimeoutMs,
 		});
-		const record: Mutable<RunRecord> = {
+		const record = {
 			id: this.options.id(),
 			status: "starting",
 			cwd,
 			cwdName: basename(cwd),
 			createdAt: now,
 			lastSeenAt: now,
-		};
-		if (input.label !== undefined) record.label = input.label;
-		if (child.pid !== undefined) record.pid = child.pid;
-		if (input.sessionId !== undefined) record.sessionId = input.sessionId;
-		if (input.workflowPath !== undefined)
-			record.workflowPath = input.workflowPath;
+			label: input.label,
+			pid: child.pid,
+			sessionId: input.sessionId,
+			workflowPath: input.workflowPath,
+		} as RunRecord;
 		const events = new EventHub<ServerRecord>(this.options.eventCapacity);
 		let cleanup: () => void = noop;
 		const live: LiveRun = {
@@ -247,7 +250,7 @@ export class RunRegistry implements RunRegistryRuntime {
 			await this.send(live, makeRequest("session.start"));
 			await this.syncRunRecord(live);
 			await this.setStatus(live, "online");
-			return cloneRunRecord(live.record);
+			return live.record;
 		} catch (error) {
 			await this.markError(live, error);
 			throw error;
@@ -299,7 +302,7 @@ export class RunRegistry implements RunRegistryRuntime {
 
 		this.live.delete(id);
 		await this.update(live, { status: "stopped" });
-		return cloneRunRecord(live.record);
+		return live.record;
 	}
 
 	async list(): Promise<readonly RunRecord[]> {
@@ -308,14 +311,12 @@ export class RunRegistry implements RunRegistryRuntime {
 		);
 		for (const live of this.live.values())
 			records.set(live.record.id, live.record);
-		return [...records.values()].map(cloneRunRecord);
+		return [...records.values()];
 	}
 
 	async status(id: string): Promise<RunRecord | undefined> {
 		const live = this.live.get(id);
-		return live === undefined
-			? this.options.store.get(id)
-			: cloneRunRecord(live.record);
+		return live === undefined ? this.options.store.get(id) : live.record;
 	}
 
 	async *attachRecords(
@@ -346,6 +347,6 @@ export class RunRegistry implements RunRegistryRuntime {
 		await Promise.all(
 			ended.map((record) => this.options.store.remove(record.id)),
 		);
-		return ended.map(cloneRunRecord);
+		return ended;
 	}
 }

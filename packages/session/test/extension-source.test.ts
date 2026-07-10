@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { makePlotAgent } from "@plot/agent/agent";
 import type { WorkRunner } from "@plot/agent/work-runner";
-import { loadPlotExtensionRuntimeFromWorkflow } from "../src/extension-loader.js";
+import {
+	loadPlotExtensionRuntimeFromWorkflow,
+	resolveToolDefinitions,
+} from "../src/extension-loader.js";
 import { makePlotExtensionSourceBundle } from "../src/extension-source.js";
 import type { SessionPaths } from "../src/paths.js";
 import type { WorkflowDefinition } from "../src/workflow.js";
@@ -607,6 +610,25 @@ describe("extension source adapter", () => {
 		expect(shouldContinue).toBe(true);
 		// One observe-driven poll per tick; completion processing does not re-poll.
 		expect(discoverCalls).toBe(2);
+	});
+
+	test("rejects duplicate extension tool names", async () => {
+		const tool = {
+			name: "duplicate",
+			label: "Duplicate",
+			description: "Duplicate tool",
+			parameters: { type: "object" as const },
+			execute: () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+		};
+		await expect(
+			resolveToolDefinitions({
+				tools: [tool, tool],
+				workflow,
+				paths,
+				config: undefined,
+				work: { id: "work:1" },
+			}),
+		).rejects.toThrow("duplicate extension tool name");
 	});
 
 	test("binds registered tools to the current work", async () => {

@@ -4,15 +4,6 @@ export interface JsonlLimits {
 	readonly maxLineBytes: number;
 }
 
-interface JsonlDecodeState {
-	readonly pending: string;
-}
-
-interface JsonlDecodeResult {
-	readonly lines: readonly string[];
-	readonly state: JsonlDecodeState;
-}
-
 export type JsonlErrorCode =
 	| "line_too_large"
 	| "record_too_large"
@@ -30,70 +21,49 @@ export class JsonlBoundaryError extends Error {
 	}) {
 		super(input.message);
 		this.code = input.code;
-		if (input.details !== undefined) this.details = input.details;
+		this.details = input.details;
 	}
 }
 
-const emptyJsonlDecodeState: JsonlDecodeState = { pending: "" };
+const lineSize = (line: string, limits: JsonlLimits): void => {
+	const bytes = byteLength(line);
+	if (bytes > limits.maxLineBytes)
+		throw new JsonlBoundaryError({
+			code: "line_too_large",
+			message: "JSONL line exceeds maxLineBytes",
+			details: { bytes, maxLineBytes: limits.maxLineBytes },
+		});
+};
 
 const trimCarriageReturn = (line: string): string =>
 	line.endsWith("\r") ? line.slice(0, -1) : line;
-
-const assertLineSize = (line: string, limits: JsonlLimits): void => {
-	const bytes = byteLength(line);
-	if (bytes <= limits.maxLineBytes) return;
-	throw new JsonlBoundaryError({
-		code: "line_too_large",
-		message: "JSONL line exceeds maxLineBytes",
-		details: { bytes, maxLineBytes: limits.maxLineBytes },
-	});
-};
-
-const splitJsonl = (
-	state: JsonlDecodeState,
-	chunk: string,
-	limits: JsonlLimits,
-): JsonlDecodeResult => {
-	const parts = `${state.pending}${chunk}`.split("\n");
-	const pending = parts.pop() ?? "";
-	const lines = parts.map(trimCarriageReturn);
-	for (const line of lines) assertLineSize(line, limits);
-	assertLineSize(pending, limits);
-	return { lines, state: { pending } };
-};
-
-const flushJsonl = (
-	state: JsonlDecodeState,
-	limits: JsonlLimits,
-): readonly string[] => {
-	if (state.pending === "") return [];
-	const line = trimCarriageReturn(state.pending);
-	assertLineSize(line, limits);
-	return [line];
-};
 
 export async function* jsonlLines(
 	chunks: AsyncIterable<string | Uint8Array>,
 	limits: JsonlLimits,
 ): AsyncIterable<string> {
 	const decoder = new TextDecoder();
-	let state = emptyJsonlDecodeState;
+	let pending = "";
 	for await (const chunk of chunks) {
-		const text =
+		pending +=
 			typeof chunk === "string"
 				? chunk
 				: decoder.decode(chunk, { stream: true });
-		const decoded = splitJsonl(state, text, limits);
-		state = decoded.state;
-		for (const line of decoded.lines) yield line;
+		let newline: number;
+		while ((newline = pending.indexOf("\n")) >= 0) {
+			const line = trimCarriageReturn(pending.slice(0, newline));
+			pending = pending.slice(newline + 1);
+			lineSize(line, limits);
+			yield line;
+		}
+		lineSize(pending, limits);
 	}
-	const finalText = decoder.decode();
-	if (finalText !== "") {
-		const decoded = splitJsonl(state, finalText, limits);
-		state = decoded.state;
-		for (const line of decoded.lines) yield line;
+	pending += decoder.decode();
+	if (pending) {
+		const line = trimCarriageReturn(pending);
+		lineSize(line, limits);
+		yield line;
 	}
-	for (const line of flushJsonl(state, limits)) yield line;
 }
 
 const jsonReplacer = (_key: string, value: unknown) =>

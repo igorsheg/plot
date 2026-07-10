@@ -6,6 +6,7 @@ import { getCliIo } from "../cli-context.js";
 import { writeCliStderr } from "../io.js";
 import { baseOptions, str } from "../options.js";
 import { renderRunEvent } from "../render.js";
+import type { RuntimeEvent } from "@plot/session/runtime";
 import { runInProcessOnce } from "../runtime.js";
 
 export const runCommand = defineCommand({
@@ -17,16 +18,16 @@ export const runCommand = defineCommand({
 	async run({ args, rawArgs }) {
 		const io = getCliIo();
 		void rawArgs;
-		const base = baseOptions(args);
-		base.sessionId = str(args, "session-id") ?? `oneshot-${randomUUID()}`;
 		try {
-			if (io.createAgentSession !== undefined)
-				base.createAgentSession = io.createAgentSession;
-			base.onEvent = async (event) => {
-				const line = renderRunEvent(event);
-				if (line) await io.writeStdout(line);
-			};
-			await runInProcessOnce(base);
+			await runInProcessOnce({
+				...baseOptions(args),
+				sessionId: str(args, "session-id") ?? `oneshot-${randomUUID()}`,
+				createAgentSession: io.createAgentSession,
+				onEvent: async (event: RuntimeEvent) => {
+					const line = renderRunEvent(event);
+					if (line) await io.writeStdout(line);
+				},
+			} as Parameters<typeof runInProcessOnce>[0]);
 		} catch (error) {
 			await writeCliStderr(
 				io,

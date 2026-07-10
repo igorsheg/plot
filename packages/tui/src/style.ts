@@ -42,13 +42,11 @@ const ansi = {
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
 	const cleaned = hex.replace("#", "");
-	if (cleaned.length !== 6) throw new Error(`Invalid hex color: ${hex}`);
-	const r = Number.parseInt(cleaned.substring(0, 2), 16);
-	const g = Number.parseInt(cleaned.substring(2, 4), 16);
-	const b = Number.parseInt(cleaned.substring(4, 6), 16);
-	if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b))
-		throw new Error(`Invalid hex color: ${hex}`);
-	return { r, g, b };
+	return {
+		r: Number.parseInt(cleaned.substring(0, 2), 16),
+		g: Number.parseInt(cleaned.substring(2, 4), 16),
+		b: Number.parseInt(cleaned.substring(4, 6), 16),
+	};
 }
 
 const cubeValues = [0, 95, 135, 175, 215, 255];

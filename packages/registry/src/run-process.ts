@@ -1,7 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { jsonlLines, stringifyJsonl } from "@plot/common/jsonl";
-import type { Mutable } from "@plot/common/primitives";
 import { decodeServerRecordLine } from "@plot/session/protocol";
 import {
 	defaultProtocolLimits,
@@ -10,7 +8,7 @@ import {
 } from "@plot/session/protocol";
 
 export interface RunChildProcess {
-	readonly pid?: number;
+	readonly pid?: number | undefined;
 	readonly stdout: AsyncIterable<string | Uint8Array>;
 	readonly stderr: AsyncIterable<string | Uint8Array>;
 	readonly write: (line: string) => Promise<void> | void;
@@ -24,30 +22,8 @@ interface PendingRequest {
 	readonly timeout: ReturnType<typeof setTimeout>;
 }
 
-async function* emptyAsyncIterable(): AsyncIterable<string | Uint8Array> {}
-
 const toError = (error: unknown): Error =>
 	error instanceof Error ? error : new Error(String(error));
-
-export class RunProcessRequestTimeoutError extends Error {
-	override readonly name = "RunProcessRequestTimeoutError";
-	readonly requestId: string;
-	readonly method: ClientRequest["method"];
-	readonly timeoutMs: number;
-
-	constructor(input: {
-		readonly requestId: string;
-		readonly method: ClientRequest["method"];
-		readonly timeoutMs: number;
-	}) {
-		super(
-			`run protocol request ${input.method} timed out after ${input.timeoutMs}ms`,
-		);
-		this.requestId = input.requestId;
-		this.method = input.method;
-		this.timeoutMs = input.timeoutMs;
-	}
-}
 
 export const trimTail = (value: string, maxBytes: number): string => {
 	const bytes = new TextEncoder().encode(value);
@@ -74,12 +50,13 @@ export const createRunChildProcess = (input: {
 	process.once("exit", killOnParentExit);
 	child.once("exit", () => process.off("exit", killOnParentExit));
 	child.once("error", () => process.off("exit", killOnParentExit));
-	const runChild: Mutable<RunChildProcess> = {
-		stdout: child.stdout ?? emptyAsyncIterable(),
-		stderr: child.stderr ?? emptyAsyncIterable(),
+	const runChild: RunChildProcess = {
+		pid: child.pid,
+		stdout: child.stdout!,
+		stderr: child.stderr!,
 		write: (line) =>
 			new Promise<void>((resolveWrite, rejectWrite) => {
-				child.stdin?.write(line, (error) => {
+				child.stdin!.write(line, (error) => {
 					if (error == null) resolveWrite();
 					else rejectWrite(error);
 				});
@@ -92,7 +69,6 @@ export const createRunChildProcess = (input: {
 			child.once("error", () => resolveExit());
 		}),
 	};
-	if (child.pid !== undefined) runChild.pid = child.pid;
 	return runChild;
 };
 
@@ -164,19 +140,15 @@ export class RunProcessInstance {
 	send(request: ClientRequest): Promise<ServerRecord> {
 		if (this.exited)
 			throw new Error(`run process is not running. Stderr: ${this.stderrTail}`);
-		const id = request.id || `run_process_${randomUUID()}`;
-		const fullRequest = { ...request, id };
+		const id = request.id;
+		const fullRequest = request;
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
-				const pending = this.pending.get(id);
-				if (pending === undefined) return;
-				this.pending.delete(id);
+				if (!this.pending.delete(id)) return;
 				reject(
-					new RunProcessRequestTimeoutError({
-						requestId: id,
-						method: fullRequest.method,
-						timeoutMs: this.options.requestTimeoutMs,
-					}),
+					new Error(
+						`run protocol request ${fullRequest.method} timed out after ${this.options.requestTimeoutMs}ms`,
+					),
 				);
 			}, this.options.requestTimeoutMs);
 			timeout.unref?.();
@@ -245,16 +217,7 @@ export class RunProcessInstance {
 	}
 
 	private handleExit(): void {
-		if (this.exited) return;
-		this.exited = true;
-		const error = new Error(`run process exited. Stderr: ${this.stderrTail}`);
-		if (this.welcome === undefined) this.rejectWelcome(error);
-		for (const pending of this.pending.values()) {
-			clearTimeout(pending.timeout);
-			pending.reject(error);
-		}
-		this.pending.clear();
-		for (const listener of this.exitListeners) listener(error);
+		this.fail(new Error(`run process exited. Stderr: ${this.stderrTail}`));
 	}
 
 	private fail(error: Error): void {

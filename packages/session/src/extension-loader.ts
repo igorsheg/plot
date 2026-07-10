@@ -1,14 +1,8 @@
 import { dirname, isAbsolute, resolve } from "node:path";
-import type {
-	AgentToolResult,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createJiti } from "jiti/static";
-import { logWideEvent } from "@plot/common/observability";
-import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
-import type { SessionPaths } from "./paths.js";
+import { isRecord } from "@plot/common/primitives";
 import type {
-	MaybePromise,
 	PlotExtension,
 	PlotExtensionRuntime,
 	PlotExtensionTool,
@@ -19,63 +13,8 @@ import type {
 	PlotToolExecutionContext,
 } from "@plot/sdk";
 import * as plotSdk from "@plot/sdk";
+import type { SessionPaths } from "./paths.js";
 import type { WorkflowDefinition } from "./workflow.js";
-
-export class PlotExtensionSourceError extends Error {
-	override readonly name = "PlotExtensionSourceError";
-	readonly phase: "load" | "config" | "create" | "discover" | "hook";
-	readonly source?: string;
-
-	constructor(input: {
-		readonly phase: PlotExtensionSourceError["phase"];
-		readonly message: string;
-		readonly source?: string | undefined;
-	}) {
-		super(input.message);
-		this.phase = input.phase;
-		if (input.source !== undefined) this.source = input.source;
-	}
-}
-
-export const runMaybePromise = async <A>(
-	phase: PlotExtensionSourceError["phase"],
-	source: string | undefined,
-	thunk: () => MaybePromise<A>,
-): Promise<A> => {
-	try {
-		return await Promise.resolve(thunk());
-	} catch (error) {
-		throw new PlotExtensionSourceError({
-			phase,
-			message: errorMessage(error),
-			source,
-		});
-	}
-};
-
-export const logHookError = (error: unknown, hook: string, source: string) =>
-	logWideEvent(
-		{
-			operation: "plot_extension.hook",
-			outcome: "error",
-			hook,
-			source_id: source,
-			error: errorMessage(error),
-		},
-		"error",
-	);
-
-export const validateExtensionWork = (
-	work: PlotExtensionWork,
-): PlotExtensionWork => {
-	if (typeof work.id !== "string" || work.id.length === 0)
-		throw new Error("extension work id must be a non-empty string");
-	if (work.workspace !== undefined && !isAbsolute(work.workspace))
-		throw new Error(
-			`work ${work.id} workspace must be an absolute path: ${work.workspace}`,
-		);
-	return work;
-};
 
 export interface LoadedPlotExtensionRuntime {
 	readonly extension: PlotExtension;
@@ -84,92 +23,60 @@ export interface LoadedPlotExtensionRuntime {
 	readonly config: unknown;
 }
 
-const extensionVirtualModules: Record<string, unknown> = {
-	"plot-ai/sdk": plotSdk,
-};
-
-const importExtensionModule = async (source: string): Promise<unknown> => {
-	const jiti = createJiti(import.meta.url, {
+const importExtensionModule = (source: string): Promise<unknown> =>
+	createJiti(import.meta.url, {
 		moduleCache: false,
 		tryNative: false,
-		virtualModules: extensionVirtualModules,
-	});
-	return jiti.import(source);
+		virtualModules: { "plot-ai/sdk": plotSdk },
+	}).import(source);
+
+const moduleExtension = (module: unknown): PlotExtension | undefined => {
+	if (!isRecord(module)) return;
+	const extension = module["default"] ?? module["extension"];
+	if (
+		!isRecord(extension) ||
+		typeof extension["id"] !== "string" ||
+		typeof extension["create"] !== "function"
+	)
+		return;
+	return extension as unknown as PlotExtension;
 };
 
-const getModuleExtension = (module: unknown): PlotExtension | undefined => {
-	if (!isRecord(module)) return undefined;
-	const candidate = module["default"] ?? module["extension"];
-	if (!isRecord(candidate)) return undefined;
-	if (typeof candidate["id"] !== "string" || candidate["id"].length === 0)
-		return undefined;
-	if (typeof candidate["create"] !== "function") return undefined;
-	return candidate as unknown as PlotExtension;
-};
-
-const resolveExtensionSourcePath = (options: {
-	readonly workflow: WorkflowDefinition;
-	readonly paths: SessionPaths;
-	readonly source: string;
-}) => {
-	if (isAbsolute(options.source)) return options.source;
-	const base =
-		options.workflow.path === undefined
-			? options.paths.cwd
-			: dirname(options.workflow.path);
-	return resolve(base, options.source);
-};
+const extensionSource = (
+	workflow: WorkflowDefinition,
+	paths: SessionPaths,
+	source: string,
+): string =>
+	isAbsolute(source)
+		? source
+		: resolve(workflow.path ? dirname(workflow.path) : paths.cwd, source);
 
 export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
 }): Promise<LoadedPlotExtensionRuntime> => {
-	const extensionConfig = options.workflow.runtime.extension;
-	if (extensionConfig === undefined)
-		throw new PlotExtensionSourceError({
-			phase: "load",
-			message: "workflow does not configure an extension source",
-		});
-	const source = resolveExtensionSourcePath({
-		workflow: options.workflow,
-		paths: options.paths,
-		source: extensionConfig.source,
-	});
-	let module: unknown;
-	try {
-		module = await importExtensionModule(source);
-	} catch (error) {
-		throw new PlotExtensionSourceError({
-			phase: "load",
-			source,
-			message: errorMessage(error),
-		});
-	}
-	const extension = getModuleExtension(module);
-	if (extension === undefined)
-		throw new PlotExtensionSourceError({
-			phase: "load",
-			source,
-			message:
-				"extension module must export a PlotExtension as default or extension",
-		});
+	const extensionConfig = options.workflow.runtime.extension!;
+	const source = extensionSource(
+		options.workflow,
+		options.paths,
+		extensionConfig.source,
+	);
+	const extension = moduleExtension(await importExtensionModule(source));
+	if (!extension)
+		throw new Error(
+			"extension module must export a PlotExtension as default or extension",
+		);
 	const config = extension.parseConfig
-		? await runMaybePromise("config", source, () =>
-				extension.parseConfig?.(extensionConfig.config),
-			)
+		? await extension.parseConfig(extensionConfig.config)
 		: extensionConfig.config;
 	const tools: PlotExtensionTool[] = [];
-	const runtime = await runMaybePromise("create", source, () =>
-		extension.create({
-			config,
-			workflow: options.workflow,
-			paths: options.paths,
-			work: (input) => validateExtensionWork(input),
-			registerTool: (tool) => {
-				tools.push(tool as PlotExtensionTool);
-			},
-		}),
-	);
+	const runtime = await extension.create({
+		config,
+		workflow: options.workflow,
+		paths: options.paths,
+		work: (work) => work,
+		registerTool: (tool) => tools.push(tool as PlotExtensionTool),
+	});
 	return { extension, runtime, tools, config };
 };
 
@@ -180,56 +87,50 @@ const normalizeToolArguments = (
 	if (schema.type === "object") {
 		const normalized: Record<string, unknown> = {};
 		if (!isRecord(value)) return normalized;
-		for (const [key, propertySchema] of Object.entries(
-			schema.properties ?? {},
-		)) {
+		for (const [key, property] of Object.entries(schema.properties ?? {}))
 			if (value[key] !== undefined)
-				normalized[key] = normalizeToolArguments(propertySchema, value[key]);
-		}
+				normalized[key] = normalizeToolArguments(property, value[key]);
 		return normalized;
 	}
-	if (schema.type === "array" && Array.isArray(value)) {
-		const items = schema.items;
-		if (items === undefined) return value;
-		return value.map((item) => normalizeToolArguments(items, item));
-	}
+	if (schema.type === "array" && schema.items && Array.isArray(value))
+		return value.map((item) => normalizeToolArguments(schema.items!, item));
 	return value;
 };
 
 const toPiToolDefinition = (
 	tool: PlotToolDefinition,
-): ToolDefinition<never, unknown> => {
-	const definition: Mutable<ToolDefinition<never, unknown>> = {
+): ToolDefinition<never, unknown> =>
+	({
 		name: tool.name,
 		label: tool.label,
 		description: tool.description,
-		parameters: tool.parameters as never,
-		prepareArguments: (args) =>
-			normalizeToolArguments(tool.parameters, args) as never,
-		execute: async (_toolCallId, params, signal) => {
-			const executionContext: Mutable<PlotToolExecutionContext> = {};
-			if (signal !== undefined) executionContext.signal = signal;
-			const normalizedParams = normalizeToolArguments(tool.parameters, params);
+		parameters: tool.parameters,
+		promptSnippet: tool.promptSnippet,
+		promptGuidelines: tool.promptGuidelines
+			? [...tool.promptGuidelines]
+			: undefined,
+		executionMode: tool.executionMode,
+		prepareArguments: (args: unknown) =>
+			normalizeToolArguments(tool.parameters, args),
+		execute: async (
+			_toolCallId: string,
+			params: unknown,
+			signal: AbortSignal | undefined,
+		) => {
 			const result = await tool.execute(
-				normalizedParams as Record<string, unknown>,
-				executionContext,
+				normalizeToolArguments(tool.parameters, params) as Record<
+					string,
+					unknown
+				>,
+				{ signal } as PlotToolExecutionContext,
 			);
-			const output: AgentToolResult<unknown> = {
+			return {
 				content: [...result.content],
 				details: result.details,
+				terminate: result.terminate,
 			};
-			if (result.terminate !== undefined) output.terminate = result.terminate;
-			return output;
 		},
-	};
-	if (tool.promptSnippet !== undefined)
-		definition.promptSnippet = tool.promptSnippet;
-	if (tool.promptGuidelines !== undefined)
-		definition.promptGuidelines = [...tool.promptGuidelines];
-	if (tool.executionMode !== undefined)
-		definition.executionMode = tool.executionMode;
-	return definition;
-};
+	}) as unknown as ToolDefinition<never, unknown>;
 
 export const resolveToolDefinitions = async (options: {
 	readonly tools: readonly PlotExtensionTool[];
@@ -239,26 +140,23 @@ export const resolveToolDefinitions = async (options: {
 	readonly work: PlotExtensionWork;
 	readonly runId?: string;
 }): Promise<ToolDefinition[]> => {
-	const context: Mutable<PlotToolContext> = {
+	const context = {
 		workflow: options.workflow,
 		paths: options.paths,
 		config: options.config,
 		work: options.work,
-	};
-	if (options.runId !== undefined) context.runId = options.runId;
-	const resolved = await Promise.all(
-		options.tools.map((tool) =>
-			typeof tool === "function" ? Promise.resolve(tool(context)) : tool,
+		runId: options.runId,
+	} as PlotToolContext;
+	const tools = await Promise.all(
+		options.tools.map(async (tool) =>
+			typeof tool === "function" ? await tool(context) : tool,
 		),
 	);
 	const names = new Set<string>();
-	for (const tool of resolved) {
+	for (const tool of tools) {
 		if (names.has(tool.name))
-			throw new PlotExtensionSourceError({
-				phase: "create",
-				message: `duplicate extension tool name: ${tool.name}`,
-			});
+			throw new Error(`duplicate extension tool name: ${tool.name}`);
 		names.add(tool.name);
 	}
-	return resolved.map(toPiToolDefinition);
+	return tools.map(toPiToolDefinition);
 };

@@ -39,7 +39,7 @@ export const reduceEvent = (
 	e: ProjectableEvent,
 ): DashboardProjection => {
 	const p = debug(p0, e);
-	if (e.kind === "agent_event") return reduceAgentEvent(p, e, e);
+	if (e.kind === "agent_event") return reduceAgentEvent(p, e);
 	const event = e.event;
 	if (event.type === "session_started")
 		return {
@@ -143,31 +143,19 @@ export const reduceEvent = (
 				status: "pending",
 				currentRunId: undefined,
 			});
-		const completedMutable: {
-			workKey: string;
-			runId: string;
-			label: string;
-			status: string;
-			message: string;
-			atMs: number;
-			durationMs?: number;
-			url?: string;
-			labels?: readonly string[];
-			tokens?: NonNullable<CompletedWorkProjection["tokens"]>;
-		} = {
+		const completed: CompletedWorkProjection = {
 			workKey: key,
 			runId,
 			label: item ? workLabel(item) : key,
 			status: c.status,
 			message: completionMessage(c),
 			atMs: at(e),
+			durationMs:
+				a?.startedAtMs === undefined ? undefined : at(e) - a.startedAtMs,
+			url: item?.url,
+			labels: item?.labels.length ? item.labels : undefined,
+			tokens: a?.tokens,
 		};
-		if (a?.startedAtMs !== undefined)
-			completedMutable.durationMs = at(e) - a.startedAtMs;
-		if (item?.url) completedMutable.url = item.url;
-		if (item?.labels.length) completedMutable.labels = item.labels;
-		if (a?.tokens) completedMutable.tokens = a.tokens;
-		const completed: CompletedWorkProjection = completedMutable;
 		return {
 			...p,
 			status: attempts.size > 0 ? "running" : "idle",

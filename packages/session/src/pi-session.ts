@@ -8,11 +8,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-	errorMessage,
-	hasErrnoCode,
-	type Mutable,
-} from "@plot/common/primitives";
+import { errorMessage, hasErrnoCode } from "@plot/common/primitives";
 import type {
 	CreatePiAgentSession,
 	PiAgentSessionRunOptions,
@@ -49,13 +45,13 @@ export interface AgentSessionOverrides {
 export interface AgentSessionFactoryOptions {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
-	readonly overrides?: AgentSessionOverrides;
+	readonly overrides?: AgentSessionOverrides | undefined;
 }
 
 interface AgentSettings {
 	readonly defaultProvider?: string;
 	readonly defaultModel?: string;
-	readonly defaultThinkingLevel?: AgentConfig["thinking"];
+	readonly defaultThinkingLevel?: NonNullable<AgentConfig["thinking"]>;
 }
 
 const thinkingLevels = new Set([
@@ -67,44 +63,36 @@ const thinkingLevels = new Set([
 	"xhigh",
 ]);
 
-const parseAgentSettings = (value: unknown, path: string): AgentSettings => {
+const parseSettings = (value: unknown): AgentSettings => {
 	if (value === undefined || value === null) return {};
 	if (typeof value !== "object" || Array.isArray(value))
-		throw new Error(`failed to read ${path}: settings must be a JSON object`);
-	const record = value as Record<string, unknown>;
+		throw new Error(`settings must be a JSON object`);
+	const input = value as Record<string, unknown>;
 	const settings: {
 		defaultProvider?: string;
 		defaultModel?: string;
-		defaultThinkingLevel?: AgentConfig["thinking"];
+		defaultThinkingLevel?: NonNullable<AgentConfig["thinking"]>;
 	} = {};
-	if ("defaultProvider" in record) {
-		if (typeof record["defaultProvider"] !== "string")
-			throw new Error(
-				`failed to read ${path}: defaultProvider must be a string`,
-			);
-		if (record["defaultProvider"].length > 0)
-			settings.defaultProvider = record["defaultProvider"];
+	for (const key of ["defaultProvider", "defaultModel"] as const) {
+		const field = input[key];
+		if (field === undefined) continue;
+		if (typeof field !== "string") throw new Error(`${key} must be a string`);
+		if (field.length > 0) settings[key] = field;
 	}
-	if ("defaultModel" in record) {
-		if (typeof record["defaultModel"] !== "string")
-			throw new Error(`failed to read ${path}: defaultModel must be a string`);
-		if (record["defaultModel"].length > 0)
-			settings.defaultModel = record["defaultModel"];
-	}
-	const thinking = record["defaultThinkingLevel"];
+	const thinking = input["defaultThinkingLevel"];
 	if (thinking !== undefined) {
 		if (typeof thinking !== "string" || !thinkingLevels.has(thinking))
-			throw new Error(
-				`failed to read ${path}: defaultThinkingLevel must be one of off, minimal, low, medium, high, xhigh`,
-			);
-		settings.defaultThinkingLevel = thinking as AgentConfig["thinking"];
+			throw new Error(`defaultThinkingLevel is not recognized`);
+		settings.defaultThinkingLevel = thinking as NonNullable<
+			AgentConfig["thinking"]
+		>;
 	}
 	return settings;
 };
 
-const readJson = async (path: string): Promise<unknown> => {
+const readSettings = async (path: string): Promise<AgentSettings> => {
 	try {
-		return JSON.parse(await readFile(path, "utf8")) as unknown;
+		return parseSettings(JSON.parse(await readFile(path, "utf8")));
 	} catch (error) {
 		if (hasErrnoCode(error, "ENOENT")) return {};
 		throw new Error(`failed to read ${path}: ${errorMessage(error)}`, {
@@ -123,26 +111,10 @@ const loadAgentSettings = async (
 ): Promise<AgentSettings> => {
 	const files = settingsPaths(paths);
 	const [global, project] = await Promise.all([
-		readJson(files.globalSettingsPath),
-		readJson(files.projectSettingsPath),
+		readSettings(files.globalSettingsPath),
+		readSettings(files.projectSettingsPath),
 	]);
-	const globalSettings = parseAgentSettings(global, files.globalSettingsPath);
-	const projectSettings = parseAgentSettings(
-		project,
-		files.projectSettingsPath,
-	);
-	return { ...globalSettings, ...projectSettings };
-};
-
-const settingsForPi = (settings: AgentSettings): Record<string, unknown> => {
-	const piSettings: Record<string, unknown> = {};
-	if (settings.defaultProvider !== undefined)
-		piSettings["defaultProvider"] = settings.defaultProvider;
-	if (settings.defaultModel !== undefined)
-		piSettings["defaultModel"] = settings.defaultModel;
-	if (settings.defaultThinkingLevel !== undefined)
-		piSettings["defaultThinkingLevel"] = settings.defaultThinkingLevel;
-	return piSettings;
+	return { ...global, ...project };
 };
 
 const toPiNoTools = (mode: AgentToolMode | undefined) => {
@@ -176,36 +148,34 @@ const resolvedAgent = (
 	workflow: WorkflowDefinition,
 	overrides: AgentSessionOverrides | undefined,
 ): AgentConfig => {
+	const configured = workflow.runtime.agent ?? {};
 	const selector = splitModelSelector(overrides?.model);
-	const provider = overrides?.provider ?? selector.provider;
-	const agent: Mutable<AgentConfig> = { ...workflow.runtime.agent };
-	if (provider !== undefined) agent.provider = provider;
-	if (selector.model !== undefined) agent.model = selector.model;
-	if (overrides?.thinking !== undefined) agent.thinking = overrides.thinking;
-	if (overrides?.tools !== undefined) agent.tools = [...overrides.tools];
-	if (overrides?.excludeTools !== undefined)
-		agent.excludeTools = [...overrides.excludeTools];
-	if (overrides?.noTools !== undefined) agent.noTools = overrides.noTools;
-	if (overrides?.allowProjectConfig !== undefined)
-		agent.allowProjectConfig = overrides.allowProjectConfig;
-	return agent;
+	return {
+		provider: overrides?.provider ?? selector.provider ?? configured.provider,
+		model: selector.model ?? configured.model,
+		thinking: overrides?.thinking ?? configured.thinking,
+		tools: overrides?.tools ?? configured.tools,
+		excludeTools: overrides?.excludeTools ?? configured.excludeTools,
+		noTools: overrides?.noTools ?? configured.noTools,
+		allowProjectConfig:
+			overrides?.allowProjectConfig ?? configured.allowProjectConfig,
+		maxTurns: configured.maxTurns,
+	} as AgentConfig;
 };
 
 const resolvedResources = (
 	workflow: WorkflowDefinition,
 	overrides: AgentSessionOverrides | undefined,
 ): ResourcesConfig => {
-	const resources: Mutable<ResourcesConfig> = { ...workflow.runtime.resources };
-	if (overrides?.skills !== undefined) resources.skills = [...overrides.skills];
-	if (overrides?.prompts !== undefined)
-		resources.prompts = [...overrides.prompts];
-	if (overrides?.contextFiles !== undefined)
-		resources.contextFiles = overrides.contextFiles;
-	if (overrides?.systemPrompt !== undefined)
-		resources.systemPrompt = overrides.systemPrompt;
-	if (overrides?.appendSystemPrompt !== undefined)
-		resources.appendSystemPrompt = [...overrides.appendSystemPrompt];
-	return resources;
+	const configured = workflow.runtime.resources ?? {};
+	return {
+		skills: overrides?.skills ?? configured.skills,
+		prompts: overrides?.prompts ?? configured.prompts,
+		contextFiles: overrides?.contextFiles ?? configured.contextFiles,
+		systemPrompt: overrides?.systemPrompt ?? configured.systemPrompt,
+		appendSystemPrompt:
+			overrides?.appendSystemPrompt ?? configured.appendSystemPrompt,
+	} as ResourcesConfig;
 };
 
 const findConfiguredModel = (
@@ -222,7 +192,7 @@ const resourceOptions = (
 	resources: ResourcesConfig,
 	overrides: AgentSessionOverrides | undefined,
 ) => {
-	const options: Mutable<ResourceLoaderOptions> = {
+	return {
 		additionalSkillPaths: withDefaultResourcePath(
 			paths.skillsDir,
 			paths,
@@ -238,12 +208,9 @@ const resourceOptions = (
 		noSkills: overrides?.noSkills ?? false,
 		noPromptTemplates: overrides?.noPromptTemplates ?? false,
 		noContextFiles: resources.contextFiles === false,
-	};
-	if (resources.systemPrompt !== undefined)
-		options.systemPrompt = resources.systemPrompt;
-	if (resources.appendSystemPrompt !== undefined)
-		options.appendSystemPrompt = [...resources.appendSystemPrompt];
-	return options;
+		systemPrompt: resources.systemPrompt,
+		appendSystemPrompt: resources.appendSystemPrompt,
+	} as ResourceLoaderOptions;
 };
 
 export const makeCreatePiAgentSession = (
@@ -254,16 +221,16 @@ export const makeCreatePiAgentSession = (
 		const agent = resolvedAgent(workflow, overrides);
 		const resources = resolvedResources(workflow, overrides);
 		const authStorage = AuthStorage.create(join(paths.agentDir, "auth.json"));
-		if (overrides?.apiKey !== undefined) {
+		if (overrides?.apiKey) {
 			if (agent.provider === undefined)
 				throw new Error(
 					"--api-key requires --provider or --model provider/model",
 				);
 			authStorage.setRuntimeApiKey(agent.provider, overrides.apiKey);
 		}
-		const settingsManager = SettingsManager.inMemory(
-			settingsForPi(await loadAgentSettings(paths)),
-		);
+		const settingsManager = SettingsManager.inMemory({
+			...(await loadAgentSettings(paths)),
+		});
 		const modelRegistry = ModelRegistry.create(
 			authStorage,
 			join(paths.agentDir, "models.json"),
@@ -283,26 +250,16 @@ export const makeCreatePiAgentSession = (
 			services.cwd,
 			paths.sessionDir,
 		);
-		const model = findConfiguredModel(modelRegistry, agent);
-		const thinkingLevel = agent.thinking;
-		const tools = agent.tools;
-		const excludeTools = agent.excludeTools;
-		const noTools = toPiNoTools(agent.noTools);
-		const createOptions: Parameters<typeof createAgentSessionFromServices>[0] =
-			{
-				services,
-				sessionManager,
-				sessionStartEvent: { type: "session_start", reason: "startup" },
-			};
-		if (model !== undefined) createOptions.model = model;
-		if (thinkingLevel !== undefined)
-			createOptions.thinkingLevel = thinkingLevel;
-		if (tools !== undefined) createOptions.tools = [...tools];
-		if (excludeTools !== undefined)
-			createOptions.excludeTools = [...excludeTools];
-		if (noTools !== undefined) createOptions.noTools = noTools;
-		if (perRun?.customTools !== undefined)
-			createOptions.customTools = perRun.customTools;
-		return createAgentSessionFromServices(createOptions);
+		return createAgentSessionFromServices({
+			services,
+			sessionManager,
+			sessionStartEvent: { type: "session_start", reason: "startup" },
+			model: findConfiguredModel(modelRegistry, agent),
+			thinkingLevel: agent.thinking,
+			tools: agent.tools,
+			excludeTools: agent.excludeTools,
+			noTools: toPiNoTools(agent.noTools),
+			customTools: perRun?.customTools,
+		} as Parameters<typeof createAgentSessionFromServices>[0]);
 	};
 };

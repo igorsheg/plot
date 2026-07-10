@@ -21,14 +21,11 @@ const isConfigKey = (value: string): value is ConfigKey =>
 	(configKeys as readonly string[]).includes(value);
 
 const configPath = (args: ParsedArgs): string => {
-	const options: { cwd: string; plotDir?: string; agentDir?: string } = {
+	const paths = resolveSessionPaths({
 		cwd: str(args, "cwd") ?? process.cwd(),
-	};
-	const plotDir = str(args, "plot-dir");
-	const agentDir = str(args, "agent-dir");
-	if (plotDir !== undefined) options.plotDir = plotDir;
-	if (agentDir !== undefined) options.agentDir = agentDir;
-	const paths = resolveSessionPaths(options);
+		plotDir: str(args, "plot-dir"),
+		agentDir: str(args, "agent-dir"),
+	} as Parameters<typeof resolveSessionPaths>[0]);
 	if (bool(args, "global"))
 		return resolve(paths.agentDir, "..", "settings.json");
 	return resolve(paths.plotDir, "settings.json");
@@ -42,7 +39,9 @@ const readSettings = async (path: string): Promise<Settings> => {
 		const settings: Settings = {};
 		for (const key of configKeys) {
 			const field = (value as Record<string, unknown>)[key];
-			if (typeof field === "string" && field.length > 0) settings[key] = field;
+			if (field !== undefined && typeof field !== "string")
+				throw new Error(`${path} ${key} must be a string`);
+			if (field) settings[key] = field;
 		}
 		return settings;
 	} catch (error) {

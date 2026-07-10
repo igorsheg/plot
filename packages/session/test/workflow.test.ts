@@ -8,7 +8,7 @@ import {
 } from "../src/workflow.js";
 
 describe("workflow", () => {
-	test("parses YAML front matter, strict runtime config, and prompt body", () => {
+	test("parses YAML front matter, runtime config, and prompt body", () => {
 		const workflow = parseWorkflowText(
 			`---
 plot:
@@ -49,13 +49,13 @@ Use the current task context.
 		);
 	});
 
-	test("rejects invalid runtime config at parse boundary", () => {
+	test("rejects invalid runtime config at the YAML boundary", () => {
 		expect(() =>
 			parseWorkflowText(`---\nplot:\n  maxRunDurationMs: nope\n---\nDo it.`),
 		).toThrow(WorkflowBoundaryError);
 	});
 
-	test("runtime validation error names nested field path", () => {
+	test("runtime validation errors name nested fields", () => {
 		expect(() =>
 			parseWorkflowText(
 				`---\nruntime:\n  agent:\n    maxTurns: nope\n---\nDo it.`,

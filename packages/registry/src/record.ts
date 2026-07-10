@@ -47,8 +47,6 @@ const optionalStringKeys = [
 
 type MutableRunRecord = { -readonly [K in keyof RunRecord]?: RunRecord[K] };
 
-export const cloneRunRecord = (record: RunRecord): RunRecord => ({ ...record });
-
 /** Validate a row read back from the run store file (untrusted: hand-edited or corrupt). */
 export const parseRunRecord = (value: unknown): RunRecord => {
 	if (!isRecord(value)) throw new Error("run record must be an object");

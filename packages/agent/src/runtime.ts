@@ -3,7 +3,6 @@ import { AsyncQueue } from "@plot/common/async-queue";
 import { EventHub } from "@plot/common/event-stream";
 import { logWideEvent, withWideEvent } from "@plot/common/observability";
 import { errorMessage } from "@plot/common/primitives";
-import * as Domain from "./model.js";
 import type {
 	Completion,
 	Diagnostic,
@@ -13,10 +12,10 @@ import type {
 	PlotAgentEvent,
 	ReconcileProposal,
 	RuntimeSnapshot,
+	ScheduledWake,
 	ScheduleWakeProposal,
 	TickResult,
 	WorkItem,
-	WorkRecord,
 	WorkRun,
 } from "./model.js";
 import type { PlotAgent, PlotAgentOptions } from "./agent.js";
@@ -35,10 +34,12 @@ import {
 	type TimedOutRun,
 	type WorkSelection,
 	completionDiagnostic,
+	completionFor,
 	drainMessages,
 	hookDiagnostic,
 	initialRuntimeState,
 	interruptRunningWork,
+	pendingWorkRecord,
 	snapshotFrom,
 	startEligibleRuns,
 	wakeScheduledEvent,
@@ -69,11 +70,11 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 const positive = (
 	value: number | undefined,
 	fallback: number,
-	message: string,
-) => {
+	name: string,
+): number => {
 	const actual = value ?? fallback;
 	if (!Number.isInteger(actual) || actual < 1)
-		throw new Domain.PlotAgentError({ phase: "setup", message });
+		throw new Error(`${name} must be a positive integer`);
 	return actual;
 };
 
@@ -95,65 +96,32 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 	const sources = options.sources,
 		runner = options.runner,
 		policy = options.policy ?? {};
-	const seen = new Set<string>();
+	const sourceIds = new Set<string>();
 	for (const source of sources) {
-		if (seen.has(source.id))
-			throw new Domain.PlotAgentError({
-				phase: "setup",
-				source_id: source.id,
-				message: `duplicate source id: ${source.id}`,
-			});
-		seen.add(source.id);
-	}
-	const queueCapacity = positive(
-			options.queueCapacity,
-			64,
-			"queueCapacity must be a positive integer",
-		),
-		eventCapacity = positive(
-			options.eventCapacity,
-			256,
-			"eventCapacity must be a positive integer",
-		),
-		historyLimit = positive(
-			options.historyLimit,
-			256,
-			"historyLimit must be a positive integer",
-		);
-	const tickIntervalMs = positive(
-		options.tickIntervalMs,
-		30_000,
-		"tickIntervalMs must be a positive integer",
-	);
-	const maxRunDurationMs =
-		options.maxRunDurationMs === undefined
-			? undefined
-			: positive(
-					options.maxRunDurationMs,
-					1,
-					"maxRunDurationMs must be a positive integer",
-				);
-	const stallTimeoutMs =
-		options.stallTimeoutMs === undefined
-			? undefined
-			: positive(
-					options.stallTimeoutMs,
-					1,
-					"stallTimeoutMs must be a positive integer",
-				);
-	if (policy.maxConcurrentRuns !== undefined)
-		positive(
-			policy.maxConcurrentRuns,
-			1,
-			"maxConcurrentRuns must be a positive integer",
-		);
-	for (const source of sources)
+		if (sourceIds.has(source.id))
+			throw new Error(`duplicate source id: ${source.id}`);
+		sourceIds.add(source.id);
 		if (source.policy?.maxConcurrentRuns !== undefined)
 			positive(
 				source.policy.maxConcurrentRuns,
 				1,
-				`source ${source.id} maxConcurrentRuns must be a positive integer`,
+				`source ${source.id} maxConcurrentRuns`,
 			);
+	}
+	if (policy.maxConcurrentRuns !== undefined)
+		positive(policy.maxConcurrentRuns, 1, "maxConcurrentRuns");
+	const queueCapacity = positive(options.queueCapacity, 64, "queueCapacity"),
+		eventCapacity = positive(options.eventCapacity, 256, "eventCapacity"),
+		historyLimit = positive(options.historyLimit, 256, "historyLimit"),
+		tickIntervalMs = positive(options.tickIntervalMs, 30_000, "tickIntervalMs"),
+		maxRunDurationMs =
+			options.maxRunDurationMs === undefined
+				? undefined
+				: positive(options.maxRunDurationMs, 1, "maxRunDurationMs"),
+		stallTimeoutMs =
+			options.stallTimeoutMs === undefined
+				? undefined
+				: positive(options.stallTimeoutMs, 1, "stallTimeoutMs");
 	const startingState = initialRuntimeState(`run-${randomUUID()}`);
 	let state = startingState,
 		snapshotCache = snapshotFrom(startingState),
@@ -235,17 +203,11 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 			publishSnapshot(state);
 			return;
 		}
-		const completions = completedRuns.map((run): Completion => {
-			const completion: Completion = {
-				runId: run.runId,
-				sourceId: run.sourceId,
-				workKey: run.workKey,
-				status: "interrupted",
+		const completions = completedRuns.map((run) =>
+			completionFor(run, "interrupted", {
 				error: "work run interrupted by plot agent shutdown",
-			};
-			if (run.subject !== undefined) completion.subject = run.subject;
-			return completion;
-		});
+			}),
+		);
 		const diagnostics = completions.flatMap((completion) => {
 			const d = completionDiagnostic(completion);
 			return d === undefined ? [] : [d];
@@ -254,18 +216,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 		for (const completion of completions) {
 			const record = work.get(completion.workKey);
 			if (record?.currentRunId !== completion.runId) continue;
-			const nextRecord: WorkRecord = {
-				workKey: record.workKey,
-				sourceId: record.sourceId,
-				status: "pending",
-			};
-			if (record.subject !== undefined) nextRecord.subject = record.subject;
-			if (record.display !== undefined) nextRecord.display = record.display;
-			if (record.blockedReason !== undefined)
-				nextRecord.blockedReason = record.blockedReason;
-			if (record.operatorActions !== undefined)
-				nextRecord.operatorActions = record.operatorActions;
-			work.set(completion.workKey, nextRecord);
+			work.set(completion.workKey, pendingWorkRecord(record));
 		}
 		state = boundStateHistory(
 			{
@@ -390,14 +341,9 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 			if (shouldContinue !== undefined) context.shouldContinue = shouldContinue;
 			const result = await runner.run(context);
 			if (signal.aborted) throw new Error("work run interrupted");
-			const completion: Completion = {
-				runId: run.runId,
-				sourceId: run.sourceId,
-				workKey: run.workKey,
-				status: "succeeded",
-			};
-			if (run.subject !== undefined) completion.subject = run.subject;
-			if (result.output !== undefined) completion.output = result.output;
+			const completion = completionFor(run, "succeeded", {
+				output: result.output,
+			});
 			await logWideEvent({
 				operation: "plot_agent.work.run",
 				outcome: "success",
@@ -411,14 +357,13 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 			offerControl({ type: "run_completed", run, completion });
 		} catch (error) {
 			const interrupted = signal.aborted;
-			const completion: Completion = {
-				runId: run.runId,
-				sourceId: run.sourceId,
-				workKey: run.workKey,
-				status: interrupted ? "interrupted" : "failed",
-				error: interrupted ? "work run interrupted" : errorMessage(error),
-			};
-			if (run.subject !== undefined) completion.subject = run.subject;
+			const completion = completionFor(
+				run,
+				interrupted ? "interrupted" : "failed",
+				{
+					error: interrupted ? "work run interrupted" : errorMessage(error),
+				},
+			);
 			await logWideEvent(
 				{
 					operation: "plot_agent.work.run",
@@ -843,12 +788,8 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 		},
 		wakeAfter: async (delayMs, reason) => {
 			if (stoppingOrStopped()) return;
-			const safeDelay = positive(
-				delayMs,
-				1,
-				"delayMs must be a positive integer",
-			);
-			const wake: Domain.ScheduledWake = {
+			const safeDelay = positive(delayMs, 1, "delayMs");
+			const wake: ScheduledWake = {
 				dueAtMs: Date.now() + safeDelay,
 				delayMs: safeDelay,
 			};

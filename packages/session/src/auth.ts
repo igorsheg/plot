@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import type { Mutable } from "@plot/common/primitives";
 import type {
 	OAuthAuthInfo,
 	OAuthDeviceCodeInfo,
@@ -19,15 +18,15 @@ export interface AuthProviderInfo {
 	readonly name: string;
 	readonly usesCallbackServer: boolean;
 	readonly configured: boolean;
-	readonly source?: string;
-	readonly label?: string;
+	readonly source?: string | undefined;
+	readonly label?: string | undefined;
 }
 
 export interface AuthStatusInfo {
 	readonly provider: string;
 	readonly configured: boolean;
-	readonly source?: string;
-	readonly label?: string;
+	readonly source?: string | undefined;
+	readonly label?: string | undefined;
 }
 
 export interface ModelInfo {
@@ -69,7 +68,7 @@ export interface SessionAuth {
 }
 
 const unique = (values: Iterable<string>): readonly string[] =>
-	[...new Set([...values].filter((value) => value.length > 0))].toSorted();
+	[...new Set(values)].filter(Boolean).toSorted();
 
 const providerIds = (
 	authStorage: AuthStorage,
@@ -86,13 +85,12 @@ const statusFor = (
 	provider: string,
 ): AuthStatusInfo => {
 	const status = modelRegistry.getProviderAuthStatus(provider);
-	const info: Mutable<AuthStatusInfo> = {
+	return {
 		provider,
 		configured: status.configured,
+		source: status.source,
+		label: status.label,
 	};
-	if (status.source !== undefined) info.source = status.source;
-	if (status.label !== undefined) info.label = status.label;
-	return info;
 };
 
 const matchesModelSearch = (model: ModelInfo, search: string) => {
@@ -104,11 +102,10 @@ const matchesModelSearch = (model: ModelInfo, search: string) => {
 
 const makeCallbacks = (options: AuthLoginOptions): OAuthLoginCallbacks => {
 	let promptIndex = 0;
+	const manualCode = options.manualCode;
 	const onManualCodeInput =
 		options.manualCodeInput ??
-		(options.manualCode === undefined
-			? undefined
-			: async () => options.manualCode ?? "");
+		(manualCode === undefined ? undefined : async () => manualCode);
 	const callbacks: OAuthLoginCallbacks = {
 		onAuth: (info) => options.events?.auth?.(info),
 		onDeviceCode: (info) => options.events?.deviceCode?.(info),
@@ -143,10 +140,14 @@ export const createSessionAuth = (
 		join(paths.agentDir, "models.json"),
 	);
 
+	const refresh = (): void => {
+		authStorage.reload();
+		modelRegistry.refresh();
+	};
+
 	return {
 		providers: async () => {
-			modelRegistry.refresh();
-			authStorage.reload();
+			refresh();
 			const oauthById = new Map(
 				authStorage
 					.getOAuthProviders()
@@ -155,20 +156,18 @@ export const createSessionAuth = (
 			return providerIds(authStorage, modelRegistry).map((id) => {
 				const status = modelRegistry.getProviderAuthStatus(id);
 				const oauth = oauthById.get(id);
-				const info: Mutable<AuthProviderInfo> = {
+				return {
 					id,
 					name: oauth?.name ?? modelRegistry.getProviderDisplayName(id),
 					usesCallbackServer: oauth?.usesCallbackServer ?? false,
 					configured: status.configured,
+					source: status.source,
+					label: status.label,
 				};
-				if (status.source !== undefined) info.source = status.source;
-				if (status.label !== undefined) info.label = status.label;
-				return info;
 			});
 		},
 		listModels: async (search) => {
-			modelRegistry.refresh();
-			authStorage.reload();
+			refresh();
 			const models = modelRegistry
 				.getAvailable()
 				.map((model) => ({
@@ -188,8 +187,7 @@ export const createSessionAuth = (
 			return models.filter((model) => matchesModelSearch(model, search));
 		},
 		status: async (provider) => {
-			modelRegistry.refresh();
-			authStorage.reload();
+			refresh();
 			const ids =
 				provider === undefined
 					? providerIds(authStorage, modelRegistry)
@@ -197,8 +195,7 @@ export const createSessionAuth = (
 			return ids.map((id) => statusFor(modelRegistry, id));
 		},
 		login: async (options) => {
-			modelRegistry.refresh();
-			authStorage.reload();
+			refresh();
 			await authStorage.login(options.provider, makeCallbacks(options));
 			modelRegistry.refresh();
 		},

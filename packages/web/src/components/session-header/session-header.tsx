@@ -65,12 +65,6 @@ const tallyText = (usage: SessionUsage): string =>
 
 // --- config popover -------------------------------------------------------
 
-const hasConfig = (config: SessionConfig): boolean =>
-	config.model !== undefined ||
-	config.workflowPath !== undefined ||
-	config.cwd.length > 0 ||
-	config.skills.length > 0;
-
 const loopParts = (config: SessionConfig): string => {
 	const parts: string[] = [];
 	if (config.tickIntervalMs !== undefined)
@@ -92,7 +86,7 @@ function MetaRow({
 	readonly children: ReactNode;
 }) {
 	return (
-		<Stack alignStart gap={12}>
+		<Stack align="flex-start" gap={12}>
 			<span style={{ width: 80, flexShrink: 0 }}>
 				<Text as="span" variant="mono-secondary" size="sm">
 					{label}
@@ -131,7 +125,6 @@ function SessionMeta({
 }) {
 	const { config } = state;
 	const kicker = <Kicker state={state} withStarted={withStarted} />;
-	if (!hasConfig(config)) return kicker;
 	const loop = loopParts(config);
 	return (
 		<Popover>
@@ -172,9 +165,7 @@ function SessionMeta({
 						<MetaRow label="skills">
 							<div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
 								{config.skills.map((skill) => (
-									<Badge key={skill} variant="secondary">
-										{skill}
-									</Badge>
+									<Badge key={skill}>{skill}</Badge>
 								))}
 							</div>
 						</MetaRow>
@@ -199,7 +190,7 @@ function SessionMeta({
 function LiveLedger() {
 	const { state } = useSessionHeader();
 	return (
-		<Stack baseline gap={12}>
+		<Stack align="baseline" gap={12}>
 			<Text as="span" variant="mono-secondary" size="sm">
 				{tallyText(state.usage)} · {formatTps(state.throughputRate)} tok/s
 			</Text>
@@ -297,7 +288,7 @@ function Shell({
 	const { state } = useSessionHeader();
 	return (
 		<VStack as="header" gap={24}>
-			<Stack alignCenter between gap={16} wrap>
+			<Stack align="center" gap={16} justify="space-between" wrap>
 				<Text as="h1" variant="heading1">
 					{state.title}
 				</Text>
@@ -314,8 +305,8 @@ function Shell({
 			</Stack>
 			{/* baseline so the kicker and the ledger text share a baseline even
 			 * when the sparkline grows the row's height. */}
-			<Stack baseline between gap={16}>
-				<Stack baseline gap={4}>
+			<Stack align="baseline" gap={16} justify="space-between">
+				<Stack align="baseline" gap={4}>
 					<SessionMeta state={state} withStarted={withStarted} />
 					<StatusChip state={state} />
 				</Stack>
@@ -325,45 +316,26 @@ function Shell({
 	);
 }
 
-function LiveSessionHeader() {
+export function SessionHeader() {
 	const { state, actions } = useSessionHeader();
-	const isStopping = state.status === "stopping";
+	const variant = headerVariant(state.status);
 	return (
 		<Shell
-			ledger={<LiveLedger />}
-			stop={
-				isStopping
-					? undefined
-					: { onStop: actions.stop, stopping: actions.stopping }
+			ledger={
+				variant === "live" ? (
+					<LiveLedger />
+				) : variant === "starting" ? undefined : (
+					<FinalTally />
+				)
 			}
+			stop={
+				variant === "live" && state.status !== "stopping"
+					? { onStop: actions.stop, stopping: actions.stopping }
+					: undefined
+			}
+			withStarted={variant !== "starting"}
 		/>
 	);
-}
-
-function StartingSessionHeader() {
-	return <Shell withStarted={false} />;
-}
-
-function ErroredSessionHeader() {
-	return <Shell ledger={<FinalTally />} />;
-}
-
-function StoppedSessionHeader() {
-	return <Shell ledger={<FinalTally />} />;
-}
-
-export function SessionHeader() {
-	const { state } = useSessionHeader();
-	switch (headerVariant(state.status)) {
-		case "starting":
-			return <StartingSessionHeader />;
-		case "errored":
-			return <ErroredSessionHeader />;
-		case "stopped":
-			return <StoppedSessionHeader />;
-		default:
-			return <LiveSessionHeader />;
-	}
 }
 
 const parseTimeMs = (value: string | undefined): number | undefined => {

@@ -47,6 +47,9 @@ test("projection parser accepts a serialized projection envelope", () => {
 	const parsed = parseSerializedDashboardProjection({ projection });
 	expect(parsed?.sessionId).toBe("session-1");
 	expect(parsed?.runtime.cwdName).toBe("repo");
+	expect(
+		parseSerializedDashboardProjection({ projection: {} }),
+	).toBeUndefined();
 });
 
 test("projection JSON helpers round-trip map fields", () => {
@@ -155,48 +158,6 @@ test("projection retains the last prose after live streams close", () => {
 	});
 });
 
-test("projection hydration ignores malformed active tool entries", () => {
-	const projection = emptyProjection("session-1", "workflow");
-	const hydrated = hydrateDashboardProjection({
-		...projection,
-		work: {},
-		attempts: {
-			"run-1": {
-				runId: "run-1",
-				workKey: "work-1",
-				sourceId: "source-1",
-				stage: "working",
-				startedAtSeq: 1,
-				lastEventSeq: 1,
-				turnCount: 0,
-				eventCount: 0,
-				meaningfulCount: 0,
-				toolUpdateCount: 0,
-				messageCount: 0,
-				activity: "running",
-				activityKind: "run",
-				streaming: true,
-				lastDisplay: "running",
-				check: "running",
-				commands: [],
-				observations: [],
-				streams: {},
-				phases: [],
-				timeline: [],
-				activeTools: [
-					"bad",
-					["tool-1", { kind: "run", isCheck: true }],
-				] as never,
-			},
-		},
-	});
-
-	expect(hydrated.attempts.get("run-1")?.activeTools?.size).toBe(1);
-	expect(hydrated.attempts.get("run-1")?.activeTools?.get("tool-1")?.kind).toBe(
-		"run",
-	);
-});
-
 test("completed work keeps source display labels", () => {
 	const base = emptyProjection("session-1", "workflow");
 	const started = reduceProjectableEvent(
@@ -228,22 +189,6 @@ test("completed work keeps source display labels", () => {
 	expect(completed.work.get("work-1")?.status).toBe("pending");
 	expect(completed.work.get("work-1")?.currentRunId).toBeUndefined();
 	expect(completed.completed[0]?.message).toBe("run succeeded");
-});
-
-test("projection ignores terminal attempt outcomes as current work status", () => {
-	const projection = reduceProjectableEvent(
-		emptyProjection("session-1", "workflow"),
-		sessionEvent(1, {
-			type: "work_observed",
-			work: {
-				workKey: "work-1",
-				sourceId: "source-1",
-				status: "failed",
-			} as never,
-		}),
-	);
-
-	expect(projection.work.get("work-1")?.status).toBe("pending");
 });
 
 test("debug events name agent event payloads", () => {

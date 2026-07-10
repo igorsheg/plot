@@ -7,6 +7,20 @@ import type { RuntimeEvent } from "./runtime.js";
 
 const historyLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
 
+const isRuntimeEvent = (value: unknown): value is RuntimeEvent => {
+	if (!isRecord(value)) return false;
+	if (value["kind"] !== "session_event" && value["kind"] !== "agent_event")
+		return false;
+	if (typeof value["sessionId"] !== "string") return false;
+	if (
+		typeof value["sequence"] !== "number" ||
+		!Number.isInteger(value["sequence"]) ||
+		value["sequence"] < 1
+	)
+		return false;
+	return typeof value["timestamp"] === "string" && isRecord(value["event"]);
+};
+
 /** Replay a session-owned durable event log. Missing files are empty logs. */
 export async function* readSessionEvents(
 	path: string,
@@ -21,13 +35,12 @@ export async function* readSessionEvents(
 	try {
 		for await (const line of jsonlLines(stream, historyLimits)) {
 			if (line.trim() === "") continue;
-			let record: unknown;
 			try {
-				record = parseJsonl(line);
+				const record = parseJsonl(line);
+				if (isRuntimeEvent(record)) yield record;
 			} catch {
 				continue;
 			}
-			if (isRuntimeEvent(record)) yield record;
 		}
 	} finally {
 		stream.close();
@@ -54,22 +67,6 @@ export const shouldWriteSessionEvent = (event: RuntimeEvent): boolean =>
 	event.kind !== "agent_event" ||
 	!historySkippedAgentEventTypes.has(agentEventType(event.event) ?? "");
 
-const isRuntimeEvent = (record: unknown): record is RuntimeEvent => {
-	if (!isRecord(record)) return false;
-	if (record["kind"] !== "session_event" && record["kind"] !== "agent_event")
-		return false;
-	if (typeof record["sessionId"] !== "string") return false;
-	if (
-		typeof record["sequence"] !== "number" ||
-		!Number.isInteger(record["sequence"]) ||
-		record["sequence"] < 1
-	)
-		return false;
-	if (typeof record["timestamp"] !== "string") return false;
-	if (!isRecord(record["event"])) return false;
-	return true;
-};
-
 export interface SessionEventLogWriter {
 	readonly append: (event: RuntimeEvent) => Promise<void>;
 	readonly close: () => Promise<void>;
@@ -81,7 +78,6 @@ export const createSessionEventLogWriter = (
 ): SessionEventLogWriter => {
 	let file: FileHandle | undefined;
 	let pending = Promise.resolve();
-	let closed = false;
 	const getFile = async (): Promise<FileHandle> => {
 		if (file !== undefined) return file;
 		await mkdir(dirname(path), { recursive: true });
@@ -90,8 +86,6 @@ export const createSessionEventLogWriter = (
 	};
 	return {
 		append: (event) => {
-			if (closed)
-				return Promise.reject(new Error("session event log is closed"));
 			if (!shouldWriteSessionEvent(event)) return pending;
 			pending = pending.then(async () => {
 				const target = await getFile();
@@ -101,8 +95,6 @@ export const createSessionEventLogWriter = (
 			return pending;
 		},
 		close: async () => {
-			if (closed) return pending;
-			closed = true;
 			try {
 				await pending;
 			} finally {

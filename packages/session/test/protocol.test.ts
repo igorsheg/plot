@@ -84,6 +84,14 @@ test("protocol codec decodes valid requests and rejects invalid records", () => 
 	expect(() =>
 		decodeClientRequestLine(JSON.stringify({ kind: "request" })),
 	).toThrow(ProtocolBoundaryError);
+	expect(() =>
+		decodeServerRecordLine(
+			JSON.stringify({
+				protocol: sessionProtocolVersion,
+				kind: "event",
+			}),
+		),
+	).toThrow(ProtocolBoundaryError);
 });
 
 test("protocol adapter dispatches lifecycle commands", async () => {
@@ -276,6 +284,34 @@ test("protocol responses apply bounded backpressure", async () => {
 	expect(await second).toBe(true);
 	expect((await iterator.next()).value).toMatchObject({ id: "second" });
 	await protocol.close();
+});
+
+test("protocol close releases response backpressure", async () => {
+	const protocol = makeSessionProtocol({
+		limits: {
+			maxInputLineBytes: 1024,
+			maxOutputLineBytes: 2048,
+			maxPendingRequests: 1,
+			maxBufferedEvents: 1,
+		},
+		runtime: runtime(),
+	});
+	await protocol.submit({ ...request("ping"), id: "first" });
+	const second = protocol.submit({ ...request("ping"), id: "second" });
+	await Promise.resolve();
+	await protocol.close();
+	expect(await second).toBe(false);
+});
+
+test("protocol close aborts an active request", async () => {
+	const never = new Promise<void>(() => {});
+	const protocol = makeSessionProtocol({
+		runtime: runtime({ start: async () => never }),
+	});
+	const submitted = protocol.submit(request("session.start"));
+	await Promise.resolve();
+	await protocol.close();
+	expect(await submitted).toBe(false);
 });
 
 test("protocol close aborts a live event subscription", async () => {

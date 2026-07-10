@@ -88,7 +88,6 @@ export const initialRuntimeState = (runIdPrefix: string): RuntimeState => ({
 	runIdPrefix,
 });
 
-export const initialState: RuntimeState = initialRuntimeState("run");
 export const boundStateHistory = (
 	state: RuntimeState,
 	limit: number,
@@ -122,6 +121,27 @@ export const completionDiagnostic = (
 				workKey: completion.workKey,
 				message: completion.error ?? `work run ${completion.status}`,
 			};
+
+export const completionFor = (
+	run: WorkRun,
+	status: Completion["status"],
+	result: Partial<Pick<Completion, "error" | "output">> = {},
+): Completion =>
+	({
+		runId: run.runId,
+		sourceId: run.sourceId,
+		workKey: run.workKey,
+		status,
+		subject: run.subject,
+		...result,
+	}) as Completion;
+
+export const pendingWorkRecord = (record: WorkRecord): WorkRecord =>
+	({
+		...record,
+		status: "pending",
+		currentRunId: undefined,
+	}) as unknown as WorkRecord;
 export const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	tickId: state.tickId,
 	facts: new Map(state.facts),
@@ -172,7 +192,6 @@ const applyFactProposals = (
 	const next = new Map(facts);
 	for (const proposal of proposals) {
 		if (proposal.type === "set_fact") next.set(proposal.key, proposal.value);
-		else if (proposal.type === "remove_fact") next.delete(proposal.key);
 	}
 	return next;
 };
@@ -182,23 +201,16 @@ const applyFactProposals = (
 const activeWorkRecord = (
 	run: WorkRun,
 	record: WorkRecord | undefined,
-): WorkRecord => {
-	const next: WorkRecord = {
+): WorkRecord =>
+	({
+		...record,
 		workKey: run.workKey,
 		sourceId: run.sourceId,
 		status: record?.status === "draining" ? "draining" : "running",
 		currentRunId: run.runId,
-	};
-	const subject = record?.subject ?? run.subject;
-	const display = record?.display ?? run.display;
-	if (subject !== undefined) next.subject = subject;
-	if (display !== undefined) next.display = display;
-	if (record?.blockedReason !== undefined)
-		next.blockedReason = record.blockedReason;
-	if (record?.operatorActions !== undefined)
-		next.operatorActions = record.operatorActions;
-	return next;
-};
+		subject: record?.subject ?? run.subject,
+		display: record?.display ?? run.display,
+	}) as WorkRecord;
 const applyWorkProposals = (
 	work: Map<string, WorkRecord>,
 	running: Map<string, WorkRun>,
@@ -264,15 +276,7 @@ export const beginTick = (
 		if (!active || active.runId !== timedOutRun.runId) continue;
 		running.delete(timedOutRun.workKey);
 		completedRuns.push(timedOutRun);
-		const completion: Completion = {
-			runId: timedOutRun.runId,
-			sourceId: timedOutRun.sourceId,
-			workKey: timedOutRun.workKey,
-			status: "timed_out",
-			error,
-		};
-		if (timedOutRun.subject !== undefined)
-			completion.subject = timedOutRun.subject;
+		const completion = completionFor(timedOutRun, "timed_out", { error });
 		completions.push(completion);
 		const d = completionDiagnostic(completion);
 		if (d) diagnostics.push(d);
@@ -287,14 +291,9 @@ export const beginTick = (
 		for (const run of matches) {
 			running.delete(run.workKey);
 			completedRuns.push(run);
-			const completion: Completion = {
-				runId: run.runId,
-				sourceId: run.sourceId,
-				workKey: run.workKey,
-				status: "interrupted",
+			const completion = completionFor(run, "interrupted", {
 				error: "work run interrupted by controller request",
-			};
-			if (run.subject !== undefined) completion.subject = run.subject;
+			});
 			completions.push(completion);
 			const d = completionDiagnostic(completion);
 			if (d) diagnostics.push(d);
@@ -304,14 +303,9 @@ export const beginTick = (
 		for (const run of running.values()) {
 			running.delete(run.workKey);
 			completedRuns.push(run);
-			const completion: Completion = {
-				runId: run.runId,
-				sourceId: run.sourceId,
-				workKey: run.workKey,
-				status: "interrupted",
+			const completion = completionFor(run, "interrupted", {
 				error: "work run interrupted by plot agent shutdown",
-			};
-			if (run.subject !== undefined) completion.subject = run.subject;
+			});
 			completions.push(completion);
 			const d = completionDiagnostic(completion);
 			if (d) diagnostics.push(d);
@@ -319,18 +313,7 @@ export const beginTick = (
 	for (const completion of completions) {
 		const record = work.get(completion.workKey);
 		if (record?.currentRunId !== completion.runId) continue;
-		const nextRecord: WorkRecord = {
-			workKey: record.workKey,
-			sourceId: record.sourceId,
-			status: "pending",
-		};
-		if (record.subject !== undefined) nextRecord.subject = record.subject;
-		if (record.display !== undefined) nextRecord.display = record.display;
-		if (record.blockedReason !== undefined)
-			nextRecord.blockedReason = record.blockedReason;
-		if (record.operatorActions !== undefined)
-			nextRecord.operatorActions = record.operatorActions;
-		work.set(completion.workKey, nextRecord);
+		work.set(completion.workKey, pendingWorkRecord(record));
 	}
 	const now = Date.now();
 	const next = boundStateHistory(
@@ -373,29 +356,25 @@ export const applyObserved = (
 const wakeFromProposal = (
 	proposal: ScheduleWakeProposal,
 	now: number,
-): ScheduledWake => {
-	const wake: ScheduledWake = {
+): ScheduledWake =>
+	({
 		dueAtMs: now + proposal.delayMs,
 		delayMs: proposal.delayMs,
-	};
-	if (proposal.reason !== undefined) wake.reason = proposal.reason;
-	if (proposal.workKey !== undefined) wake.workKey = proposal.workKey;
-	if (proposal.attempt !== undefined) wake.attempt = proposal.attempt;
-	return wake;
-};
+		reason: proposal.reason,
+		workKey: proposal.workKey,
+		attempt: proposal.attempt,
+	}) as ScheduledWake;
 
 export const wakeScheduledEvent = (
 	proposal: ScheduleWakeProposal,
-): PlotAgentEvent => {
-	const event: PlotAgentEvent = {
+): PlotAgentEvent =>
+	({
 		type: "wake_scheduled",
 		delayMs: proposal.delayMs,
-	};
-	if (proposal.reason !== undefined) event.reason = proposal.reason;
-	if (proposal.workKey !== undefined) event.workKey = proposal.workKey;
-	if (proposal.attempt !== undefined) event.attempt = proposal.attempt;
-	return event;
-};
+		reason: proposal.reason,
+		workKey: proposal.workKey,
+		attempt: proposal.attempt,
+	}) as PlotAgentEvent;
 
 export const applyReconciled = (
 	state: RuntimeState,
@@ -448,30 +427,13 @@ export const interruptRunningWork = (
 		if (!run) continue;
 		running.delete(proposal.workKey);
 		const record = work.get(proposal.workKey);
-		if (record?.currentRunId === run.runId) {
-			const nextRecord: WorkRecord = {
-				workKey: record.workKey,
-				sourceId: record.sourceId,
-				status: "pending",
-			};
-			if (record.subject !== undefined) nextRecord.subject = record.subject;
-			if (record.display !== undefined) nextRecord.display = record.display;
-			if (record.blockedReason !== undefined)
-				nextRecord.blockedReason = record.blockedReason;
-			if (record.operatorActions !== undefined)
-				nextRecord.operatorActions = record.operatorActions;
-			work.set(proposal.workKey, nextRecord);
-		}
+		if (record?.currentRunId === run.runId)
+			work.set(proposal.workKey, pendingWorkRecord(record));
 		interruptedRuns.push(run);
 		interruptedKeys.add(proposal.workKey);
-		const completion: Completion = {
-			runId: run.runId,
-			sourceId: run.sourceId,
-			workKey: run.workKey,
-			status: "interrupted",
+		const completion = completionFor(run, "interrupted", {
 			error: proposal.reason ?? "work run interrupted by source proposal",
-		};
-		if (run.subject !== undefined) completion.subject = run.subject;
+		});
 		completions.push(completion);
 		const d = completionDiagnostic(completion);
 		if (d) diagnostics.push(d);
@@ -518,13 +480,12 @@ export const startEligibleRuns = (
 		reason: SkippedWork["reason"],
 		detail?: string,
 	) => {
-		const skippedWork: SkippedWork = {
+		skipped.push({
 			workKey: selection.work.workKey,
 			sourceId: selection.source.id,
 			reason,
-		};
-		if (detail !== undefined) skippedWork.detail = detail;
-		skipped.push(skippedWork);
+			detail,
+		} as SkippedWork);
 	};
 	for (const selection of selected.toSorted((a, b) =>
 		String(a.work.workKey).localeCompare(String(b.work.workKey)),
@@ -559,30 +520,28 @@ export const startEligibleRuns = (
 			skip(selection, "source_concurrency", `maxConcurrentRuns ${maxRuns}`);
 			continue;
 		}
-		const run: WorkRun = {
+		const run = {
 			runId: `${state.runIdPrefix}-${nextRunIndex}`,
 			sourceId: selection.source.id,
 			workKey: work.workKey,
-		};
-		if (work.subject !== undefined) run.subject = work.subject;
-		if (work.display !== undefined) run.display = work.display;
+			subject: work.subject,
+			display: work.display,
+		} as WorkRun;
 		nextRunIndex++;
 		running.set(work.workKey, run);
 		const previous = workRecords.get(work.workKey);
 		const display = work.display ?? previous?.display;
 		const subject = work.subject ?? previous?.subject;
 		const operatorActions = work.operatorActions ?? previous?.operatorActions;
-		const workRecord: WorkRecord = {
+		workRecords.set(work.workKey, {
 			workKey: work.workKey,
 			sourceId: selection.source.id,
 			status: "running",
 			currentRunId: run.runId,
-		};
-		if (subject !== undefined) workRecord.subject = subject;
-		if (display !== undefined) workRecord.display = display;
-		if (operatorActions !== undefined)
-			workRecord.operatorActions = operatorActions;
-		workRecords.set(work.workKey, workRecord);
+			subject,
+			display,
+			operatorActions,
+		} as WorkRecord);
 		runningBySource.set(
 			selection.source.id,
 			(runningBySource.get(selection.source.id) ?? 0) + 1,

@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import {
 	interruptWork,
 	removeWork,
@@ -11,11 +12,9 @@ import {
 } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
-import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "@plot/common/primitives";
 import type {
 	PlotExtension,
-	PlotExtensionCompletedEvent,
 	PlotExtensionOperatorActionEvent,
 	PlotExtensionRuntime,
 	PlotExtensionTool,
@@ -26,11 +25,7 @@ import type { PiAgentSessionRunOptions } from "./pi-runner.js";
 import type { WorkflowDefinition } from "./workflow.js";
 import {
 	loadPlotExtensionRuntimeFromWorkflow,
-	logHookError,
-	PlotExtensionSourceError,
 	resolveToolDefinitions,
-	runMaybePromise,
-	validateExtensionWork,
 } from "./extension-loader.js";
 
 export const sourceIdForExtension = (extension: PlotExtension): string =>
@@ -56,33 +51,8 @@ export const isCancelled = (work: PlotExtensionWork) =>
 	work.status === "cancelled";
 export const toSubject = (work: PlotExtensionWork) => work.subject ?? work.id;
 
-const validateExtensionWorks = (
-	value: unknown,
-	extension: PlotExtension,
-	source: string,
-): readonly PlotExtensionWork[] => {
-	try {
-		if (!Array.isArray(value))
-			throw new Error("discover must return an array of work items");
-		const works = (value as PlotExtensionWork[]).map(validateExtensionWork);
-		const keys = new Set<string>();
-		for (const work of works) {
-			const key = workKeyForExtensionWork(extension, work);
-			if (keys.has(key)) throw new Error(`duplicate discovered work: ${key}`);
-			keys.add(key);
-		}
-		return works;
-	} catch (error) {
-		throw new PlotExtensionSourceError({
-			phase: "discover",
-			message: errorMessage(error),
-			source,
-		});
-	}
-};
-
 const storedWorks = (value: unknown): readonly PlotExtensionWork[] =>
-	Array.isArray(value) ? (value as PlotExtensionWork[]) : [];
+	(value as readonly PlotExtensionWork[] | undefined) ?? [];
 
 export const workRecordFor = (
 	extension: PlotExtension,
@@ -141,72 +111,50 @@ export const templateContextForWork = (
 export const discover = async (input: {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
-	readonly source: string;
 	readonly signal: AbortSignal;
-}): Promise<readonly PlotExtensionWork[]> =>
-	validateExtensionWorks(
-		await runMaybePromise("discover", input.source, () =>
-			input.runtime.discover({ signal: input.signal }),
-		),
-		input.extension,
-		input.source,
-	);
+}): Promise<readonly PlotExtensionWork[]> => {
+	const value = await input.runtime.discover({ signal: input.signal });
+	if (!Array.isArray(value)) throw new Error("discover must return an array");
+	const keys = new Set<string>();
+	for (const work of value) {
+		if (typeof work.id !== "string" || work.id.length === 0)
+			throw new Error("extension work id must be a non-empty string");
+		if (work.workspace !== undefined && !isAbsolute(work.workspace))
+			throw new Error(`work ${work.id} workspace must be an absolute path`);
+		const key = workKeyForExtensionWork(input.extension, work);
+		if (keys.has(key)) throw new Error(`duplicate discovered work: ${key}`);
+		keys.add(key);
+	}
+	return value;
+};
 
 export const invokeOperatorActionHook = async (
 	runtime: PlotExtensionRuntime,
-	source: string,
 	work: PlotExtensionWork,
 	data: Record<string, unknown>,
-) => {
-	try {
-		const actionId = data["actionId"];
-		const actionLabel = data["actionLabel"];
-		const timestamp = data["timestamp"];
-		if (
-			typeof actionId !== "string" ||
-			typeof actionLabel !== "string" ||
-			typeof timestamp !== "string"
-		)
-			return;
-		const event: Mutable<PlotExtensionOperatorActionEvent> = {
-			work,
-			actionId,
-			actionLabel,
-			timestamp,
-		};
-		if (typeof data["comment"] === "string") event.comment = data["comment"];
-		if (typeof data["clientId"] === "string") event.clientId = data["clientId"];
-		if (data["actor"] !== undefined) event.actor = data["actor"];
-		await runtime.operatorAction?.(event);
-	} catch (error) {
-		await logHookError(error, "operator_action", source);
-	}
-};
+) =>
+	await runtime.operatorAction?.({
+		work,
+		...data,
+	} as unknown as PlotExtensionOperatorActionEvent);
 
 export const invokeCompletionHook = async (
 	runtime: PlotExtensionRuntime,
-	source: string,
 	work: PlotExtensionWork,
 	completion: Completion,
 ) => {
-	const runId = String(completion.runId);
-	try {
-		if (completion.status === "succeeded") {
-			const event: Mutable<PlotExtensionCompletedEvent> = { work, runId };
-			if (completion.output !== undefined) event.output = completion.output;
-			await runtime.completed?.(event);
-		} else if (completion.status === "failed")
-			await runtime.failed?.({
-				work,
-				runId,
-				error: completion.error ?? completion.status,
-			});
-		else if (completion.status === "timed_out")
-			await runtime.timedOut?.({ work, runId });
-		else await runtime.interrupted?.({ work, runId });
-	} catch (error) {
-		await logHookError(error, completion.status, source);
-	}
+	const runId = completion.runId;
+	if (completion.status === "succeeded")
+		return runtime.completed?.({ work, runId, output: completion.output });
+	if (completion.status === "failed")
+		return runtime.failed?.({
+			work,
+			runId,
+			error: completion.error ?? completion.status,
+		});
+	if (completion.status === "timed_out")
+		return runtime.timedOut?.({ work, runId });
+	return runtime.interrupted?.({ work, runId });
 };
 
 export interface PlotExtensionSourceBundle {
@@ -214,9 +162,6 @@ export interface PlotExtensionSourceBundle {
 	readonly createOptions: (
 		context: WorkRunnerContext,
 	) => Promise<PiAgentSessionRunOptions>;
-	readonly workFor: (
-		context: WorkRunnerContext,
-	) => PlotExtensionWork | undefined;
 	readonly wrapRunner: (runner: WorkRunner) => WorkRunner;
 	readonly shutdown: () => Promise<void>;
 }
@@ -229,14 +174,9 @@ const RETRY_MAX_DELAY_MS = 300_000;
 const retryDelayMs = (attempt: number) =>
 	Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS);
 const retryFactKey = (source: string) => `extension.retry:${source}`;
-const decodeRetryState = (value: unknown): Record<string, number> => {
-	if (!isRecord(value)) return {};
-	const state: Record<string, number> = {};
-	for (const [key, attempt] of Object.entries(value))
-		if (typeof attempt === "number" && Number.isInteger(attempt) && attempt > 0)
-			state[key] = attempt;
-	return state;
-};
+const decodeRetryState = (value: unknown): Record<string, number> => ({
+	...(value as Record<string, number> | undefined),
+});
 
 export const makePlotExtensionSourceBundle = (options: {
 	readonly extension: PlotExtension;
@@ -244,9 +184,8 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
 	readonly config: unknown;
-	readonly tools?: readonly PlotExtensionTool[];
-	readonly maxConcurrentRuns?: number;
-	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
+	readonly tools?: readonly PlotExtensionTool[] | undefined;
+	readonly maxConcurrentRuns?: number | undefined;
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
 	const selectedWork = new Map<string, PlotExtensionWork>();
@@ -260,7 +199,6 @@ export const makePlotExtensionSourceBundle = (options: {
 				data: await discover({
 					extension: options.extension,
 					runtime: options.runtime,
-					source,
 					signal,
 				}),
 			},
@@ -278,11 +216,7 @@ export const makePlotExtensionSourceBundle = (options: {
 			);
 			const shouldWriteDiscoveredFact = latestDiscovery !== undefined;
 			if (latestDiscovery !== undefined)
-				discoveredWorks = validateExtensionWorks(
-					latestDiscovery.data,
-					options.extension,
-					source,
-				);
+				discoveredWorks = storedWorks(latestDiscovery.data);
 			// Cancelled work is the one discovery state that interrupts a running
 			// attempt. It never reaches the stored fact or the work board.
 			const cancelledIds = new Set(
@@ -305,12 +239,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				const work = selectedWork.get(observedWorkKey);
 				if (work === undefined) continue;
 				operatorActionHooks.push(
-					invokeOperatorActionHook(
-						options.runtime,
-						source,
-						work,
-						observation.data,
-					),
+					invokeOperatorActionHook(options.runtime, work, observation.data),
 				);
 			}
 			await Promise.all(operatorActionHooks);
@@ -329,8 +258,8 @@ export const makePlotExtensionSourceBundle = (options: {
 					completion.status === "failed" ||
 					completion.status === "timed_out"
 				) {
-					const attempt = (retryState[String(completion.workKey)] ?? 0) + 1;
-					retryState[String(completion.workKey)] = attempt;
+					const attempt = (retryState[completion.workKey] ?? 0) + 1;
+					retryState[completion.workKey] = attempt;
 					retryChanged = true;
 					proposals.push(
 						scheduleWake(retryDelayMs(attempt), {
@@ -339,8 +268,8 @@ export const makePlotExtensionSourceBundle = (options: {
 							reason: `retry backoff after ${completion.status} run`,
 						}),
 					);
-				} else if (retryState[String(completion.workKey)] !== undefined) {
-					delete retryState[String(completion.workKey)];
+				} else if (retryState[completion.workKey] !== undefined) {
+					delete retryState[completion.workKey];
 					retryChanged = true;
 				}
 				const work =
@@ -348,10 +277,9 @@ export const makePlotExtensionSourceBundle = (options: {
 					activeRuns.get(completion.runId);
 				if (work === undefined) continue;
 				completionHooks.push(
-					invokeCompletionHook(options.runtime, source, work, completion).then(
+					invokeCompletionHook(options.runtime, work, completion).finally(
 						() => {
 							activeRuns.delete(completion.runId);
-							return undefined;
 						},
 					),
 				);
@@ -462,7 +390,6 @@ export const makePlotExtensionSourceBundle = (options: {
 					),
 				);
 			}
-			const workReleasedHooks = [];
 			// Stale records include keys from the previous fact and any leftover
 			// source-owned records (for example a drained run that has completed).
 			const staleKeys = new Set<string>(previousKeys);
@@ -474,17 +401,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				if (running && !interruptedThisTick.has(key)) continue;
 				proposals.push(removeWork(key));
 				if (!running) selectedWork.delete(key);
-				const previous = previousDiscoveredWorks.find(
-					(work) => workKeyForExtensionWork(options.extension, work) === key,
-				);
-				if (previous !== undefined && options.onWorkReleased !== undefined)
-					workReleasedHooks.push(
-						Promise.resolve(options.onWorkReleased(previous.id)).catch(
-							(error: unknown) => logHookError(error, "work_released", source),
-						),
-					);
 			}
-			await Promise.all(workReleasedHooks);
 			return proposals;
 		},
 		// Continuation consults the current tick's reconciled fact instead of
@@ -545,48 +462,34 @@ export const makePlotExtensionSourceBundle = (options: {
 	let shutdownPromise: Promise<void> | undefined;
 	return {
 		source: workSource,
-		workFor: (context) => selectedWork.get(context.work.workKey),
 		createOptions: async (context) => {
-			const work = selectedWork.get(context.work.workKey);
-			const cwd = work?.workspace;
-			const customTools =
-				work === undefined || !options.tools?.length
-					? []
-					: await resolveToolDefinitions({
-							tools: options.tools,
-							workflow: options.workflow,
-							paths: options.paths,
-							config: options.config,
-							work,
-							runId: String(context.run.runId),
-						});
-			const createOptions: { customTools: ToolDefinition[]; cwd?: string } = {
-				customTools,
-			};
-			if (cwd !== undefined) createOptions.cwd = cwd;
-			return createOptions;
+			const work = selectedWork.get(context.work.workKey)!;
+			const customTools = options.tools?.length
+				? await resolveToolDefinitions({
+						tools: options.tools,
+						workflow: options.workflow,
+						paths: options.paths,
+						config: options.config,
+						work,
+						runId: context.run.runId,
+					})
+				: [];
+			return { customTools, cwd: work.workspace };
 		},
 		wrapRunner: (runner) => ({
 			run: async (context: WorkRunnerContext) => {
-				const work = selectedWork.get(context.work.workKey);
-				const runId = String(context.run.runId);
-				if (work !== undefined) activeRuns.set(runId, work);
-				if (work?.workspace !== undefined)
-					await mkdir(work.workspace, { recursive: true });
-				if (work !== undefined) {
-					try {
-						await options.runtime.started?.({ work, runId });
-					} catch (error) {
-						await logHookError(error, "started", source);
-					}
-				}
+				const work = selectedWork.get(context.work.workKey)!;
+				const runId = context.run.runId;
+				activeRuns.set(runId, work);
+				if (work.workspace) await mkdir(work.workspace, { recursive: true });
+				await options.runtime.started?.({ work, runId });
 				return runner.run(context);
 			},
 		}),
 		shutdown: () => {
 			shutdownPromise ??= (async () => {
 				const interrupted = [...activeRuns].map(([runId, work]) =>
-					invokeCompletionHook(options.runtime, source, work, {
+					invokeCompletionHook(options.runtime, work, {
 						runId,
 						sourceId: source,
 						workKey: workKeyForExtensionWork(options.extension, work),
@@ -595,11 +498,7 @@ export const makePlotExtensionSourceBundle = (options: {
 				);
 				await Promise.all(interrupted);
 				activeRuns.clear();
-				try {
-					await options.runtime.shutdown?.();
-				} catch (error) {
-					await logHookError(error, "shutdown", source);
-				}
+				await options.runtime.shutdown?.();
 			})();
 			return shutdownPromise;
 		},
@@ -609,25 +508,16 @@ export const makePlotExtensionSourceBundle = (options: {
 export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
-	readonly onWorkReleased?: (workId: string) => Promise<void> | void;
 }): Promise<PlotExtensionSourceBundle> => {
 	const { extension, runtime, tools, config } =
 		await loadPlotExtensionRuntimeFromWorkflow(options);
-	const bundleOptions: Mutable<
-		Parameters<typeof makePlotExtensionSourceBundle>[0]
-	> = {
+	return makePlotExtensionSourceBundle({
 		extension,
 		runtime,
 		workflow: options.workflow,
 		paths: options.paths,
 		config,
 		tools,
-	};
-	if (options.onWorkReleased !== undefined)
-		bundleOptions.onWorkReleased = options.onWorkReleased;
-	const maxConcurrentRuns =
-		options.workflow.runtime.extension?.maxConcurrentRuns;
-	if (maxConcurrentRuns !== undefined)
-		bundleOptions.maxConcurrentRuns = maxConcurrentRuns;
-	return makePlotExtensionSourceBundle(bundleOptions);
+		maxConcurrentRuns: options.workflow.runtime.extension?.maxConcurrentRuns,
+	});
 };

@@ -3,7 +3,6 @@ import {
 	interruptWork,
 	removeWork,
 	scheduleWake,
-	PlotAgentError,
 	upsertWork,
 	setFact,
 } from "../src/model.js";
@@ -76,17 +75,15 @@ const makeWorkSource = (id: string, key: string): WorkSource => ({
 });
 
 describe("task-agnostic Plot agent", () => {
-	test("setup rejects invalid runtime config with typed agent errors", async () => {
-		let error: unknown;
-		try {
-			makeAgent([], succeedRunner(), { queueCapacity: 0 });
-		} catch (e) {
-			error = e;
-		}
-		expect(error).toBeInstanceOf(PlotAgentError);
-		expect((error as PlotAgentError).phase).toBe("setup");
-		expect((error as Error).message).toBe(
-			"queueCapacity must be a positive integer",
+	test("setup rejects invalid runtime invariants", () => {
+		expect(() => makeAgent([], succeedRunner(), { queueCapacity: 0 })).toThrow(
+			"queueCapacity",
+		);
+		expect(() =>
+			makeAgent([{ id: "bad", policy: { maxConcurrentRuns: 0 } }]),
+		).toThrow("maxConcurrentRuns");
+		expect(() => makeAgent([{ id: "same" }, { id: "same" }])).toThrow(
+			"duplicate source id",
 		);
 	});
 
@@ -349,18 +346,6 @@ describe("task-agnostic Plot agent", () => {
 		const first = await agent.tickOnce();
 		release.resolve();
 		expect(first.started.map((r) => r.workKey)).toEqual([slow, fast]);
-	});
-
-	test("setup rejects invalid per-source concurrency caps", async () => {
-		let error: unknown;
-		try {
-			makeAgent([{ id: "bad-source", policy: { maxConcurrentRuns: 0 } }]);
-		} catch (e) {
-			error = e;
-		}
-		expect(error).toBeInstanceOf(PlotAgentError);
-		expect((error as PlotAgentError).phase).toBe("setup");
-		expect((error as Error).message).toContain("maxConcurrentRuns");
 	});
 
 	test("completion does not make work terminal; sources own rerun semantics", async () => {

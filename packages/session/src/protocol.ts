@@ -4,18 +4,11 @@ import {
 	parseJsonl,
 	stringifyJsonl,
 } from "@plot/common/jsonl";
-import {
-	byteLength,
-	errorMessage,
-	isRecord,
-	type Mutable,
-} from "@plot/common/primitives";
-import {
-	startOwnedTask,
-	type OperatorObservationInput,
-	type OwnedTask,
-	type RuntimeEvent,
-	type SessionRuntime,
+import { byteLength, errorMessage, isRecord } from "@plot/common/primitives";
+import type {
+	OperatorObservationInput,
+	RuntimeEvent,
+	SessionRuntime,
 } from "./runtime.js";
 
 export const sessionProtocolVersion = "plot.session.v5";
@@ -96,7 +89,7 @@ export interface SuccessResponse {
 	readonly id: string;
 	readonly method: SessionProtocolMethod;
 	readonly ok: true;
-	readonly lastSequence?: number;
+	readonly lastSequence?: number | undefined;
 	readonly data?: unknown;
 }
 
@@ -111,8 +104,8 @@ export type ProtocolErrorCode =
 export interface ErrorResponse {
 	readonly protocol: typeof sessionProtocolVersion;
 	readonly kind: "response";
-	readonly id?: string;
-	readonly method?: SessionProtocolMethod;
+	readonly id?: string | undefined;
+	readonly method?: SessionProtocolMethod | undefined;
 	readonly ok: false;
 	readonly error: {
 		readonly code: ProtocolErrorCode;
@@ -139,205 +132,185 @@ export class ProtocolBoundaryError extends Error {
 	}) {
 		super(input.message);
 		this.code = input.code;
-		if (input.details !== undefined) this.details = input.details;
+		this.details = input.details;
 	}
 }
 
-const asSessionProtocolMethod = (
-	value: unknown,
-): SessionProtocolMethod | undefined =>
-	sessionProtocolMethods.find((method) => method === value);
-
-const requireString = (label: string, value: unknown): string => {
-	if (typeof value === "string" && value.length > 0) return value;
-	throw new ProtocolBoundaryError({
-		code: "invalid_request",
-		message: `${label} must be a non-empty string`,
-	});
+const invalid = (message: string): never => {
+	throw new ProtocolBoundaryError({ code: "invalid_request", message });
 };
 
-const requirePositiveInteger = (label: string, value: unknown): number => {
-	if (typeof value === "number" && Number.isInteger(value) && value > 0)
-		return value;
-	throw new ProtocolBoundaryError({
-		code: "invalid_request",
-		message: `${label} must be a positive integer`,
-	});
+const object = (value: unknown, message: string): Record<string, unknown> =>
+	isRecord(value) ? value : invalid(message);
+
+const string = (value: unknown, label: string): string =>
+	typeof value === "string" && value.length > 0
+		? value
+		: invalid(`${label} must be a non-empty string`);
+
+const method = (value: unknown): SessionProtocolMethod =>
+	sessionProtocolMethods.find((candidate) => candidate === value) ??
+	invalid(`unknown method: ${String(value)}`);
+
+const assertVersion = (value: Record<string, unknown>): void => {
+	if (value["protocol"] !== sessionProtocolVersion)
+		invalid(
+			`unsupported protocol ${JSON.stringify(value["protocol"])}; this build speaks ${sessionProtocolVersion} (a stale plot daemon or child may need a restart)`,
+		);
 };
 
-const decodeProtocolLimits = (value: unknown): ProtocolLimits => {
-	if (!isRecord(value))
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: "protocol limits must be an object",
-		});
+export const decodeClientRequest = (value: unknown): ClientRequest => {
+	const input = object(value, "request must be an object");
+	assertVersion(input);
+	if (input["kind"] !== "request")
+		invalid(`unknown request kind: ${String(input["kind"])}`);
+	const id = string(input["id"], "request id");
+	if (id.length > 128)
+		invalid("request id must be a non-empty string of at most 128 chars");
 	return {
-		maxInputLineBytes: requirePositiveInteger(
+		protocol: sessionProtocolVersion,
+		kind: "request",
+		id,
+		method: method(input["method"]),
+		params: input["params"],
+	};
+};
+
+const positiveInteger = (value: unknown, label: string): number => {
+	const number =
+		typeof value === "number"
+			? value
+			: invalid(`${label} must be a positive integer`);
+	if (!Number.isInteger(number) || number < 1)
+		invalid(`${label} must be a positive integer`);
+	return number;
+};
+
+const decodeLimits = (value: unknown): ProtocolLimits => {
+	const input = object(value, "protocol limits must be an object");
+	return {
+		maxInputLineBytes: positiveInteger(
+			input["maxInputLineBytes"],
 			"maxInputLineBytes",
-			value["maxInputLineBytes"],
 		),
-		maxOutputLineBytes: requirePositiveInteger(
+		maxOutputLineBytes: positiveInteger(
+			input["maxOutputLineBytes"],
 			"maxOutputLineBytes",
-			value["maxOutputLineBytes"],
 		),
-		maxPendingRequests: requirePositiveInteger(
+		maxPendingRequests: positiveInteger(
+			input["maxPendingRequests"],
 			"maxPendingRequests",
-			value["maxPendingRequests"],
 		),
-		maxBufferedEvents: requirePositiveInteger(
+		maxBufferedEvents: positiveInteger(
+			input["maxBufferedEvents"],
 			"maxBufferedEvents",
-			value["maxBufferedEvents"],
 		),
 	};
 };
 
-const protocolErrorCodes = [
+const decodeRuntimeEvent = (value: unknown): RuntimeEvent => {
+	const input = object(value, "event record requires an event object");
+	if (input["kind"] !== "session_event" && input["kind"] !== "agent_event")
+		invalid(`unknown runtime event kind: ${String(input["kind"])}`);
+	const sequence = input["sequence"];
+	if (
+		typeof sequence !== "number" ||
+		!Number.isInteger(sequence) ||
+		sequence < 1
+	)
+		invalid("runtime event sequence must be a positive integer");
+	string(input["sessionId"], "runtime event sessionId");
+	string(input["timestamp"], "runtime event timestamp");
+	object(input["event"], "runtime event payload must be an object");
+	if (input["kind"] === "agent_event") {
+		string(input["sourceId"], "agent event sourceId");
+		string(input["runId"], "agent event runId");
+		string(input["workKey"], "agent event workKey");
+	}
+	return input as unknown as RuntimeEvent;
+};
+
+const protocolErrorCodes = new Set<ProtocolErrorCode>([
 	"parse_error",
 	"invalid_request",
 	"payload_too_large",
 	"request_queue_full",
 	"session_closed",
 	"internal_error",
-] as const satisfies readonly ProtocolErrorCode[];
-
-const decodeProtocolErrorCode = (value: unknown): ProtocolErrorCode => {
-	const code = protocolErrorCodes.find((candidate) => candidate === value);
-	if (code !== undefined) return code;
-	throw new ProtocolBoundaryError({
-		code: "invalid_request",
-		message: `unknown protocol error code: ${String(value)}`,
-	});
-};
-
-const assertProtocolVersion = (value: Record<string, unknown>): void => {
-	if (value["protocol"] === sessionProtocolVersion) return;
-	throw new ProtocolBoundaryError({
-		code: "invalid_request",
-		message: `unsupported protocol ${JSON.stringify(value["protocol"])}; this build speaks ${sessionProtocolVersion} (a stale plot daemon or child may need a restart)`,
-	});
-};
-
-export const decodeClientRequest = (value: unknown): ClientRequest => {
-	if (!isRecord(value))
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: "request must be an object",
-		});
-	assertProtocolVersion(value);
-	if (value["kind"] !== "request")
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: `unknown request kind: ${String(value["kind"])}`,
-		});
-	const id = value["id"];
-	if (typeof id !== "string" || id.length === 0 || id.length > 128)
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: "request id must be a non-empty string of at most 128 chars",
-		});
-	const method = asSessionProtocolMethod(value["method"]);
-	if (method === undefined)
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: `unknown method: ${String(value["method"])}`,
-		});
-	const request: Mutable<ClientRequest> = {
-		protocol: sessionProtocolVersion,
-		kind: "request",
-		id,
-		method,
-	};
-	if (value["params"] !== undefined) request.params = value["params"];
-	return request;
-};
+]);
 
 export const decodeServerRecord = (value: unknown): ServerRecord => {
-	if (!isRecord(value))
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: "server record must be an object",
-		});
-	assertProtocolVersion(value);
-	const kind = value["kind"];
-	if (kind === "welcome")
+	const input = object(value, "server record must be an object");
+	assertVersion(input);
+	if (input["kind"] === "welcome")
 		return {
 			protocol: sessionProtocolVersion,
-			kind,
-			sessionId: requireString("sessionId", value["sessionId"]),
-			limits: decodeProtocolLimits(value["limits"]),
+			kind: "welcome",
+			sessionId: string(input["sessionId"], "sessionId"),
+			limits: decodeLimits(input["limits"]),
 		};
-	if (kind === "event")
+	if (input["kind"] === "event")
 		return {
 			protocol: sessionProtocolVersion,
-			kind,
-			event: value["event"] as RuntimeEvent,
+			kind: "event",
+			event: decodeRuntimeEvent(input["event"]),
 		};
-	if (kind !== "response")
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: `unknown server record kind: ${String(kind)}`,
-		});
-	if (value["ok"] === true) {
-		const method = asSessionProtocolMethod(value["method"]);
-		if (method === undefined)
-			throw new ProtocolBoundaryError({
-				code: "invalid_request",
-				message: `unknown method: ${String(value["method"])}`,
-			});
-		const response: Mutable<SuccessResponse> = {
+	if (input["kind"] !== "response")
+		invalid(`unknown server record kind: ${String(input["kind"])}`);
+	if (input["ok"] === true) {
+		const lastSequence = input["lastSequence"];
+		if (
+			lastSequence !== undefined &&
+			(typeof lastSequence !== "number" ||
+				!Number.isInteger(lastSequence) ||
+				lastSequence < 0)
+		)
+			invalid("lastSequence must be a non-negative integer");
+		return {
 			protocol: sessionProtocolVersion,
-			kind,
-			id: requireString("response id", value["id"]),
-			method,
+			kind: "response",
+			id: string(input["id"], "response id"),
+			method: method(input["method"]),
 			ok: true,
+			lastSequence: lastSequence as number | undefined,
+			data: input["data"],
 		};
-		if (typeof value["lastSequence"] === "number")
-			response.lastSequence = value["lastSequence"];
-		if (value["data"] !== undefined) response.data = value["data"];
-		return response;
 	}
-	if (value["ok"] === false) {
-		const errorValue = value["error"];
-		if (!isRecord(errorValue))
-			throw new ProtocolBoundaryError({
-				code: "invalid_request",
-				message: "error response requires an error object",
-			});
-		const error: Mutable<ErrorResponse["error"]> = {
-			code: decodeProtocolErrorCode(errorValue["code"]),
-			message: requireString("error message", errorValue["message"]),
-		};
-		if (errorValue["details"] !== undefined)
-			error.details = errorValue["details"];
-		const response: Mutable<ErrorResponse> = {
-			protocol: sessionProtocolVersion,
-			kind,
-			ok: false,
-			error,
-		};
-		if (typeof value["id"] === "string" && value["id"].length > 0)
-			response.id = value["id"];
-		const method = asSessionProtocolMethod(value["method"]);
-		if (method !== undefined) response.method = method;
-		return response;
-	}
-	throw new ProtocolBoundaryError({
-		code: "invalid_request",
-		message: "response ok must be true or false",
-	});
+	if (input["ok"] !== false) invalid("response ok must be true or false");
+	const error = object(
+		input["error"],
+		"error response requires an error object",
+	);
+	if (!protocolErrorCodes.has(error["code"] as ProtocolErrorCode))
+		invalid(`unknown protocol error code: ${String(error["code"])}`);
+	const responseMethod =
+		input["method"] === undefined ? undefined : method(input["method"]);
+	return {
+		protocol: sessionProtocolVersion,
+		kind: "response",
+		id:
+			input["id"] === undefined
+				? undefined
+				: string(input["id"], "response id"),
+		method: responseMethod,
+		ok: false,
+		error: {
+			code: error["code"] as ProtocolErrorCode,
+			message: string(error["message"], "error message"),
+			details: error["details"],
+		},
+	};
 };
 
 export const toProtocolBoundaryError = (
 	error: unknown,
 ): ProtocolBoundaryError => {
 	if (error instanceof ProtocolBoundaryError) return error;
-	if (error instanceof JsonlBoundaryError) {
-		const boundary = new ProtocolBoundaryError({
+	if (error instanceof JsonlBoundaryError)
+		return new ProtocolBoundaryError({
 			code: error.code === "parse_error" ? "parse_error" : "payload_too_large",
 			message: error.message,
 		});
-		return boundary;
-	}
 	return new ProtocolBoundaryError({
 		code: "invalid_request",
 		message: errorMessage(error),
@@ -346,48 +319,47 @@ export const toProtocolBoundaryError = (
 
 const assertInputLineSize = (line: string, limits: ProtocolLimits): void => {
 	const bytes = byteLength(line);
-	if (bytes <= limits.maxInputLineBytes) return;
-	throw new ProtocolBoundaryError({
-		code: "payload_too_large",
-		message: "protocol input line exceeds maxInputLineBytes",
-		details: { bytes, maxInputLineBytes: limits.maxInputLineBytes },
-	});
+	if (bytes > limits.maxInputLineBytes)
+		throw new ProtocolBoundaryError({
+			code: "payload_too_large",
+			message: "protocol input line exceeds maxInputLineBytes",
+			details: { bytes, maxInputLineBytes: limits.maxInputLineBytes },
+		});
+};
+
+const atProtocolBoundary = <A>(read: () => A): A => {
+	try {
+		return read();
+	} catch (error) {
+		throw toProtocolBoundaryError(error);
+	}
 };
 
 export const encodeServerRecordLine = (
 	record: ServerRecord,
 	limits: ProtocolLimits = defaultProtocolLimits,
-): string => {
-	try {
-		return stringifyJsonl(record, { maxLineBytes: limits.maxOutputLineBytes });
-	} catch (error) {
-		throw toProtocolBoundaryError(error);
-	}
-};
+): string =>
+	atProtocolBoundary(() =>
+		stringifyJsonl(record, { maxLineBytes: limits.maxOutputLineBytes }),
+	);
 
 export const decodeClientRequestLine = (
 	line: string,
 	limits: ProtocolLimits = defaultProtocolLimits,
-): ClientRequest => {
-	try {
+): ClientRequest =>
+	atProtocolBoundary(() => {
 		assertInputLineSize(line, limits);
 		return decodeClientRequest(parseJsonl(line));
-	} catch (error) {
-		throw toProtocolBoundaryError(error);
-	}
-};
+	});
 
 export const decodeServerRecordLine = (
 	line: string,
 	limits: ProtocolLimits = defaultProtocolLimits,
-): ServerRecord => {
-	try {
+): ServerRecord =>
+	atProtocolBoundary(() => {
 		assertInputLineSize(line, limits);
 		return decodeServerRecord(parseJsonl(line));
-	} catch (error) {
-		throw toProtocolBoundaryError(error);
-	}
-};
+	});
 
 export const makeWelcome = (input: {
 	readonly sessionId: string;
@@ -401,108 +373,74 @@ export const makeWelcome = (input: {
 
 export const makeSuccess = (input: {
 	readonly request: ClientRequest;
-	readonly lastSequence?: number;
+	readonly lastSequence?: number | undefined;
 	readonly data?: unknown;
-}): SuccessResponse => {
-	const response: Mutable<SuccessResponse> = {
-		protocol: sessionProtocolVersion,
-		kind: "response",
-		id: input.request.id,
-		method: input.request.method,
-		ok: true,
-	};
-	if (input.lastSequence !== undefined)
-		response.lastSequence = input.lastSequence;
-	if (input.data !== undefined) response.data = input.data;
-	return response;
-};
+}): SuccessResponse => ({
+	protocol: sessionProtocolVersion,
+	kind: "response",
+	id: input.request.id,
+	method: input.request.method,
+	ok: true,
+	lastSequence: input.lastSequence,
+	data: input.data,
+});
 
 export const makeError = (input: {
-	readonly request?: ClientRequest;
+	readonly request?: ClientRequest | undefined;
 	readonly code: ProtocolErrorCode;
 	readonly message: string;
 	readonly details?: unknown;
-}): ErrorResponse => {
-	const error: Mutable<ErrorResponse["error"]> = {
+}): ErrorResponse => ({
+	protocol: sessionProtocolVersion,
+	kind: "response",
+	id: input.request?.id,
+	method: input.request?.method,
+	ok: false,
+	error: {
 		code: input.code,
 		message: input.message,
-	};
-	if (input.details !== undefined) error.details = input.details;
-	const response: Mutable<ErrorResponse> = {
-		protocol: sessionProtocolVersion,
-		kind: "response",
-		ok: false,
-		error,
-	};
-	if (input.request !== undefined) {
-		response.id = input.request.id;
-		response.method = input.request.method;
-	}
-	return response;
-};
+		details: input.details,
+	},
+});
+
+const params = (value: unknown, operation: string) =>
+	object(value, `${operation} requires params`);
 
 const decodeInterruptParams = (
-	params: unknown,
+	value: unknown,
 ): { runId: string; workKey?: string } => {
-	if (
-		!isRecord(params) ||
-		typeof params["runId"] !== "string" ||
-		params["runId"].length === 0
-	)
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: "agent.interrupt requires a non-empty runId",
-		});
-	const input: { runId: string; workKey?: string } = { runId: params["runId"] };
-	if (typeof params["workKey"] === "string" && params["workKey"].length > 0)
-		input.workKey = params["workKey"];
-	return input;
-};
-
-const decodeObservationParams = (params: unknown): OperatorObservationInput => {
-	if (!isRecord(params))
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: "operator.observe requires params",
-		});
-	for (const key of [
-		"sourceId",
-		"workKey",
-		"actionId",
-		"actionLabel",
-	] as const) {
-		const value = params[key];
-		if (typeof value !== "string" || value.length === 0)
-			throw new ProtocolBoundaryError({
-				code: "invalid_request",
-				message: `operator.observe requires a non-empty ${key}`,
-			});
-	}
-	const input: Mutable<OperatorObservationInput> = {
-		sourceId: params["sourceId"] as string,
-		workKey: params["workKey"] as string,
-		actionId: params["actionId"] as string,
-		actionLabel: params["actionLabel"] as string,
+	const input = params(value, "agent.interrupt");
+	const result: { runId: string; workKey?: string } = {
+		runId: string(input["runId"], "agent.interrupt runId"),
 	};
-	if (typeof params["comment"] === "string") input.comment = params["comment"];
-	if (typeof params["clientId"] === "string" && params["clientId"].length > 0)
-		input.clientId = params["clientId"];
-	if (typeof params["actor"] === "string" && params["actor"].length > 0)
-		input.actor = params["actor"];
-	return input;
+	if (typeof input["workKey"] === "string" && input["workKey"].length > 0)
+		result.workKey = input["workKey"];
+	return result;
 };
 
-const decodeWorkGetParams = (params: unknown): { workKey: string } => {
-	if (
-		!isRecord(params) ||
-		typeof params["workKey"] !== "string" ||
-		params["workKey"].length === 0
-	)
-		throw new ProtocolBoundaryError({
-			code: "invalid_request",
-			message: "work.get requires a non-empty workKey",
-		});
-	return { workKey: params["workKey"] };
+const decodeObservationParams = (value: unknown): OperatorObservationInput => {
+	const input = params(value, "operator.observe");
+	return {
+		sourceId: string(input["sourceId"], "operator.observe sourceId"),
+		workKey: string(input["workKey"], "operator.observe workKey"),
+		actionId: string(input["actionId"], "operator.observe actionId"),
+		actionLabel: string(input["actionLabel"], "operator.observe actionLabel"),
+		comment:
+			typeof input["comment"] === "string" ? input["comment"] : undefined,
+		clientId:
+			typeof input["clientId"] === "string" && input["clientId"].length > 0
+				? input["clientId"]
+				: undefined,
+		actor:
+			typeof input["actor"] === "string" && input["actor"].length > 0
+				? input["actor"]
+				: undefined,
+	};
+};
+
+const decodeWorkGetParams = (value: unknown): { workKey: string } => {
+	const input = params(value, "work.get");
+	return { workKey: string(input["workKey"], "work.get workKey") };
 };
 
 export interface SessionProtocol {
@@ -519,6 +457,7 @@ export interface SessionProtocolOptions {
 	readonly shutdown?: () => Promise<boolean> | boolean;
 }
 
+type ResponseRecord = SuccessResponse | ErrorResponse;
 interface QueuedRequest {
 	readonly request: ClientRequest;
 	readonly resolve: (accepted: boolean) => void;
@@ -527,22 +466,19 @@ interface QueuedRequest {
 const toErrorResponse = (
 	request: ClientRequest,
 	error: unknown,
-): ErrorResponse => {
-	if (error instanceof ProtocolBoundaryError)
-		return makeError({
-			request,
-			code: error.code,
-			message: error.message,
-			details: error.details,
-		});
-	return makeError({
-		request,
-		code: "internal_error",
-		message: errorMessage(error),
-	});
-};
-
-type ResponseRecord = SuccessResponse | ErrorResponse;
+): ErrorResponse =>
+	error instanceof ProtocolBoundaryError
+		? makeError({
+				request,
+				code: error.code,
+				message: error.message,
+				details: error.details,
+			})
+		: makeError({
+				request,
+				code: "internal_error",
+				message: errorMessage(error),
+			});
 
 interface WaitingResponse {
 	readonly record: ResponseRecord;
@@ -568,15 +504,11 @@ class ProtocolOutput implements AsyncIterable<ServerRecord> {
 			reader({ value: record, done: false });
 			return true;
 		}
-		let eventCount = 0;
-		let oldestEventIndex = -1;
-		for (const [index, candidate] of this.records.entries()) {
-			if (candidate.kind !== "event") continue;
-			if (oldestEventIndex === -1) oldestEventIndex = index;
-			eventCount++;
-		}
-		if (eventCount >= this.eventCapacity)
-			this.records.splice(oldestEventIndex, 1);
+		const events = this.records
+			.map((candidate, index) => ({ candidate, index }))
+			.filter(({ candidate }) => candidate.kind === "event");
+		if (events.length >= this.eventCapacity)
+			this.records.splice(events[0]!.index, 1);
 		this.records.push(record);
 		return true;
 	}
@@ -659,6 +591,8 @@ export const makeSessionProtocol = (
 		capacity: limits.maxPendingRequests,
 		overflow: "reject",
 	});
+	const eventController = new AbortController();
+	const requestController = new AbortController();
 	let closed = false;
 
 	const success = async (
@@ -679,110 +613,85 @@ export const makeSessionProtocol = (
 			case "session.start":
 				await options.runtime.start();
 				return success(request, { started: true });
-			case "session.shutdown": {
-				const accepted = await (options.shutdown ?? options.runtime.shutdown)();
-				return success(request, { accepted });
-			}
+			case "session.shutdown":
+				return success(request, {
+					accepted: await (options.shutdown ?? options.runtime.shutdown)(),
+				});
 			case "session.snapshot":
 				return success(request, await options.runtime.state());
 			case "scheduler.snapshot":
 				return success(request, await options.runtime.schedulerSnapshot());
-			case "work.list": {
-				const snapshot = await options.runtime.schedulerSnapshot();
-				return success(request, { work: snapshot.work });
-			}
+			case "work.list":
+				return success(request, {
+					work: (await options.runtime.schedulerSnapshot()).work,
+				});
 			case "work.get": {
-				const params = decodeWorkGetParams(request.params);
-				const snapshot = await options.runtime.schedulerSnapshot();
-				const work = snapshot.work.find(
-					(candidate) => candidate.workKey === params.workKey,
-				);
-				return success(request, { work });
+				const { workKey } = decodeWorkGetParams(request.params);
+				const { work } = await options.runtime.schedulerSnapshot();
+				return success(request, {
+					work: work.find((candidate) => candidate.workKey === workKey),
+				});
 			}
-			case "attempt.list": {
-				const snapshot = await options.runtime.schedulerSnapshot();
-				return success(request, { attempts: snapshot.running });
-			}
-			case "session.tick": {
-				const result = await options.runtime.tickOnce();
-				return success(request, { result });
-			}
+			case "attempt.list":
+				return success(request, {
+					attempts: (await options.runtime.schedulerSnapshot()).running,
+				});
+			case "session.tick":
+				return success(request, { result: await options.runtime.tickOnce() });
 			case "session.dispatch.pause":
 				await options.runtime.pauseDispatch();
 				return success(request, { paused: true });
 			case "session.dispatch.resume":
 				await options.runtime.resumeDispatch();
 				return success(request, { resumed: true });
-			case "operator.observe": {
-				const params = decodeObservationParams(request.params);
-				const accepted =
-					await options.runtime.recordOperatorObservation(params);
-				return success(request, { accepted });
-			}
-			case "agent.interrupt": {
-				const params = decodeInterruptParams(request.params);
-				const accepted = await options.runtime.interruptAgentRun(params);
-				return success(request, { accepted });
-			}
+			case "operator.observe":
+				return success(request, {
+					accepted: await options.runtime.recordOperatorObservation(
+						decodeObservationParams(request.params),
+					),
+				});
+			case "agent.interrupt":
+				return success(request, {
+					accepted: await options.runtime.interruptAgentRun(
+						decodeInterruptParams(request.params),
+					),
+				});
 		}
 	};
 
-	const eventPump = startOwnedTask({
-		name: "session.protocol.events",
-		run: async (signal) => {
-			for await (const event of options.runtime.events(signal))
-				output.offerEvent({
-					protocol: sessionProtocolVersion,
-					kind: "event",
-					event,
-				});
-		},
-	});
-
-	const requestPump = startOwnedTask({
-		name: "session.protocol.requests",
-		run: async (signal) => {
-			while (!signal.aborted) {
-				let queued: QueuedRequest;
-				try {
-					// eslint-disable-next-line no-await-in-loop -- protocol requests are queued and processed in order.
-					queued = await requests.take();
-				} catch {
-					return;
-				}
-				let resolveAbort!: () => void;
-				const onAbort = () => resolveAbort();
-				const aborted = new Promise<void>((resolve) => {
-					resolveAbort = resolve;
-					if (signal.aborted) resolve();
-					else signal.addEventListener("abort", onAbort, { once: true });
-				});
-				const handled = handleRequest(queued.request)
-					.catch((error) => toErrorResponse(queued.request, error))
-					.then((record) => ({ type: "record" as const, record }));
-				// eslint-disable-next-line no-await-in-loop -- each response belongs to the current queued request.
-				const result = await Promise.race([
-					handled,
-					aborted.then(() => ({ type: "aborted" as const })),
-				]);
-				signal.removeEventListener("abort", onAbort);
-				if (result.type === "aborted") {
-					queued.resolve(false);
-					return;
-				}
-				// eslint-disable-next-line no-await-in-loop -- response backpressure bounds the protocol output.
-				const published = await output.offerResponse(result.record, true);
-				queued.resolve(
-					published && result.record.kind === "response" && result.record.ok,
-				);
+	const eventPump = (async () => {
+		for await (const event of options.runtime.events(eventController.signal))
+			output.offerEvent({
+				protocol: sessionProtocolVersion,
+				kind: "event",
+				event,
+			});
+	})();
+	const requestPump = (async () => {
+		for await (const queued of requests) {
+			let onAbort!: () => void;
+			const aborted = new Promise<"aborted">((resolve) => {
+				onAbort = () => resolve("aborted");
+				if (requestController.signal.aborted) onAbort();
+				else
+					requestController.signal.addEventListener("abort", onAbort, {
+						once: true,
+					});
+			});
+			const handled = handleRequest(queued.request)
+				.catch((error) => toErrorResponse(queued.request, error))
+				.then((response) => ({ response }));
+			const result = await Promise.race([handled, aborted]);
+			requestController.signal.removeEventListener("abort", onAbort);
+			if (result === "aborted") {
+				queued.resolve(false);
+				return;
 			}
-		},
-	});
-
-	const tasks: readonly OwnedTask[] = [eventPump, requestPump];
-	const done = Promise.all(tasks.map((task) => task.done)).then(
-		() => undefined,
-	);
+			const published = await output.offerResponse(result.response, true);
+			queued.resolve(published && result.response.ok);
+		}
+	})();
+	const done = Promise.all([eventPump, requestPump]).then(() => undefined);
 
 	return {
 		welcome: async () => makeWelcome({ sessionId: options.runtime.id, limits }),
@@ -790,29 +699,26 @@ export const makeSessionProtocol = (
 			if (closed) return false;
 			return new Promise<boolean>((resolve) => {
 				if (requests.offer({ request, resolve })) return;
-				void output
-					.offerResponse(
-						makeError({
-							request,
-							code: "request_queue_full",
-							message: "protocol request queue is full",
-						}),
-					)
-					.then(() => resolve(false));
+				void output.offerResponse(
+					makeError({
+						request,
+						code: "request_queue_full",
+						message: "protocol request queue is full",
+					}),
+				);
+				resolve(false);
 			});
 		},
 		output: () => output,
 		close: async () => {
 			if (closed) return;
 			closed = true;
-			for (const queued of requests.drain()) queued.resolve(false);
+			requests.drain().forEach((queued) => queued.resolve(false));
 			requests.close();
-			for (const task of tasks) task.stop();
-			try {
-				await done;
-			} finally {
-				output.close();
-			}
+			eventController.abort();
+			requestController.abort();
+			output.close();
+			await done;
 		},
 		done,
 	};

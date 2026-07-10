@@ -3,8 +3,11 @@ import { basename } from "node:path";
 import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
 import type { RunRecord } from "@plot/registry/record";
 import { gaplessRunEventRecords } from "@plot/registry/events";
-import { isRecord, type Mutable } from "@plot/common/primitives";
-import { sessionProtocolVersion } from "@plot/session/protocol";
+import { isRecord } from "@plot/common/primitives";
+import {
+	sessionProtocolVersion,
+	type ServerRecord,
+} from "@plot/session/protocol";
 import {
 	emptyProjection,
 	reduceProjectableEvent,
@@ -108,86 +111,42 @@ const parseSequence = (value: string | null): number | undefined => {
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
-const stringField = (
-	body: Record<string, unknown>,
-	key: string,
-): string | undefined => {
-	const value = body[key];
-	return typeof value === "string" && value.trim() !== "" ? value : undefined;
-};
+const nonEmptyString = (value: unknown): string | undefined =>
+	typeof value === "string" && value.trim().length > 0 ? value : undefined;
 
 const parseObservationBody = async (
 	request: Request,
-): Promise<
-	| {
-			readonly sourceId: string;
-			readonly workKey: string;
-			readonly actionId: string;
-			readonly actionLabel: string;
-			readonly comment?: string;
-			readonly clientId?: string;
-	  }
-	| undefined
-> => {
-	const body = (await request.json().catch(() => undefined)) as
-		| Record<string, unknown>
-		| undefined;
-	if (body === undefined) return undefined;
-	const sourceId = stringField(body, "sourceId");
-	const workKey = stringField(body, "workKey");
-	const actionId = stringField(body, "actionId");
-	const actionLabel = stringField(body, "actionLabel");
-	if (
-		sourceId === undefined ||
-		workKey === undefined ||
-		actionId === undefined ||
-		actionLabel === undefined
-	)
-		return undefined;
-	const comment = stringField(body, "comment");
-	const clientId = stringField(body, "clientId");
-	const action: Mutable<{
-		readonly sourceId: string;
-		readonly workKey: string;
-		readonly actionId: string;
-		readonly actionLabel: string;
-		readonly comment?: string;
-		readonly clientId?: string;
-	}> = {
-		sourceId,
-		workKey,
-		actionId,
-		actionLabel,
-	};
-	if (comment !== undefined) action.comment = comment;
-	if (clientId !== undefined) action.clientId = clientId;
-	return action;
+): Promise<Record<string, unknown> | undefined> => {
+	const value = await request.json().catch(() => undefined);
+	if (!isRecord(value)) return;
+	for (const key of ["sourceId", "workKey", "actionId", "actionLabel"] as const)
+		if (nonEmptyString(value[key]) === undefined) return;
+	for (const key of ["comment", "clientId"] as const)
+		if (value[key] !== undefined && typeof value[key] !== "string") return;
+	return value;
+};
+
+type CreateRunBody = {
+	readonly cwd?: string;
+	readonly workflowPath?: string;
+	readonly label?: string;
 };
 
 const parseCreateRunBody = async (
 	request: Request,
-): Promise<{
-	readonly cwd?: string;
-	readonly workflowPath?: string;
-	readonly label?: string;
-}> => {
+): Promise<CreateRunBody | undefined> => {
 	if (!request.headers.get("content-type")?.includes("application/json"))
 		return {};
-	const body = (await request.json().catch(() => ({}))) as Record<
-		string,
-		unknown
-	>;
-	const result: Mutable<Awaited<ReturnType<typeof parseCreateRunBody>>> = {};
-	if (typeof body["cwd"] === "string" && body["cwd"].trim() !== "")
-		result.cwd = body["cwd"];
-	if (
-		typeof body["workflowPath"] === "string" &&
-		body["workflowPath"].trim() !== ""
-	)
-		result.workflowPath = body["workflowPath"];
-	if (typeof body["label"] === "string" && body["label"].trim() !== "")
-		result.label = body["label"];
-	return result;
+	const value = await request.json().catch(() => undefined);
+	if (!isRecord(value)) return;
+	const body: { cwd?: string; workflowPath?: string; label?: string } = {};
+	for (const key of ["cwd", "workflowPath", "label"] as const) {
+		if (value[key] === undefined) continue;
+		const field = nonEmptyString(value[key]);
+		if (field === undefined) return;
+		body[key] = field;
+	}
+	return body;
 };
 
 const parseAfterSequence = (input: {
@@ -270,7 +229,7 @@ export const runTranscriptResponse = async (
 
 const sessionEventsResponse = (input: {
 	readonly request: Request;
-	readonly records: AsyncIterable<unknown>;
+	readonly records: AsyncIterable<ServerRecord>;
 }): Response => {
 	const encoder = new TextEncoder();
 	let cancelled = false;
@@ -288,14 +247,12 @@ const sessionEventsResponse = (input: {
 				try {
 					for await (const record of input.records) {
 						if (cancelled) break;
-						const event =
-							typeof record === "object" && record !== null && "kind" in record
-								? (record as {
-										readonly kind?: string;
-										readonly event?: { readonly sequence?: number };
-									})
-								: undefined;
-						write(sseFrame(record, event?.event?.sequence));
+						write(
+							sseFrame(
+								record,
+								record.kind === "event" ? record.event.sequence : undefined,
+							),
+						);
 					}
 				} finally {
 					input.request.signal.removeEventListener("abort", cancel);
@@ -320,28 +277,20 @@ const spawnRunResponse = async (
 	runIpc: RunIpcConnection,
 ): Promise<Response> => {
 	const body = await parseCreateRunBody(request);
-	const spawnInput: Mutable<Parameters<typeof runIpc.runRegistry.spawn>[0]> = {
+	if (body === undefined)
+		return text({ error: "invalid run body" }, { status: 400 });
+	const run = await runIpc.runRegistry.spawn({
 		cwd: body.cwd ?? options.cwd,
-	};
-	if (body.workflowPath !== undefined)
-		spawnInput.workflowPath = body.workflowPath;
-	else if (options.workflowPath !== undefined)
-		spawnInput.workflowPath = options.workflowPath;
-	if (body.label !== undefined) spawnInput.label = body.label;
-	const run = await runIpc.runRegistry.spawn(spawnInput);
+		workflowPath: body.workflowPath ?? options.workflowPath,
+		label: body.label,
+	} as Parameters<typeof runIpc.runRegistry.spawn>[0]);
 	return text({ run });
 };
 
 const listRunsResponse = async (
 	runIpc: RunIpcConnection,
 ): Promise<Response> => {
-	const runs = await runIpc.runRegistry
-		.list()
-		.then((value) => ({ ok: true as const, value }))
-		.catch((error: unknown) => ({ ok: false as const, error }));
-	return runs.ok
-		? text({ runs: runs.value })
-		: text({ error: String(runs.error) }, { status: 503 });
+	return text({ runs: await runIpc.runRegistry.list() });
 };
 
 const stopRunResponse = async (
@@ -504,11 +453,11 @@ const gatewayResponse = async (
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const runIpcOptions: Mutable<RunIpcOptions> = { cwd: options.cwd };
-	if (options.registryDir !== undefined)
-		runIpcOptions.runRegistryDir = options.registryDir;
-	if (options.cli !== undefined) runIpcOptions.cli = options.cli;
-	const runIpc = await openOrStartRunIpc(runIpcOptions);
+	const runIpc = await openOrStartRunIpc({
+		cwd: options.cwd,
+		runRegistryDir: options.registryDir,
+		cli: options.cli,
+	} as RunIpcOptions);
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
 		port: options.port ?? 0,

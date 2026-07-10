@@ -1,13 +1,11 @@
 "use client";
 
-import {
-	type ComponentPropsWithoutRef,
-	type ElementRef,
-	type ForwardedRef,
-	forwardRef,
-	type ReactElement,
-	type ReactNode,
-	type RefCallback,
+import type {
+	ComponentPropsWithoutRef,
+	ElementType,
+	ReactElement,
+	ReactNode,
+	Ref,
 } from "react";
 import { cva } from "./variants.js";
 
@@ -51,9 +49,7 @@ export interface TextVariantsProps {
 	readonly size?: TextSize | undefined;
 }
 
-const textClass = cva({
-	variants: TEXT_VARIANTS,
-});
+const textClass = cva({ variants: TEXT_VARIANTS });
 
 export function textVariants({
 	variant = TEXT_DEFAULT_VARIANTS.variant,
@@ -62,111 +58,50 @@ export function textVariants({
 	return textClass({ variant, size });
 }
 
-type Heading = "heading1" | "heading2" | "heading3";
-type Copy = "body" | "secondary" | "success" | "error";
-type Monospace = "mono" | "mono-secondary" | "mono-error";
-type Label = "label";
+export type TextElement = "h1" | "h2" | "h3" | "p" | "span";
 
-export type TextElement =
-	| "h1"
-	| "h2"
-	| "h3"
-	| "h4"
-	| "h5"
-	| "h6"
-	| "p"
-	| "span"
-	| "label"
-	| "dt"
-	| "dd"
-	| "li"
-	| "figcaption"
-	| "legend"
-	| "pre"
-	| "code"
-	| "em"
-	| "strong"
-	| "small"
-	| "abbr"
-	| "time";
-
-type BaseTextProps = Omit<
+export interface TextProps extends Omit<
 	ComponentPropsWithoutRef<"span">,
 	"children" | "className" | "style"
-> & {
-	readonly children?: ReactNode;
-};
-
-type TextPropsInternal<Variant extends TextVariant = "body"> = BaseTextProps &
-	(Variant extends Copy
-		? {
-				readonly as?: TextElement;
-				readonly bold?: boolean;
-				readonly size?: TextSize;
-				readonly truncate?: boolean;
-				readonly variant?: Variant;
-			}
-		: Variant extends Monospace
-			? {
-					readonly as?: TextElement;
-					readonly bold?: never;
-					readonly size?: TextSize;
-					readonly truncate?: boolean;
-					readonly variant?: Variant;
-				}
-			: Variant extends Heading | Label
-				? {
-						readonly as?: TextElement;
-						readonly bold?: never;
-						readonly size?: never;
-						readonly truncate?: boolean;
-						readonly variant: Variant;
-					}
-				: never);
-
-export interface TextProps {
+> {
 	readonly as?: TextElement;
 	readonly bold?: boolean;
 	readonly children?: ReactNode;
+	readonly ref?: Ref<HTMLElement>;
 	readonly size?: TextSize;
 	readonly truncate?: boolean;
 	readonly variant?: TextVariant;
 }
 
-const defaultElement = (variant: TextVariant): TextElement => {
-	if (variant === "heading1") return "h1";
-	if (variant === "heading2") return "h2";
-	if (variant === "heading3") return "h3";
-	if (
-		variant === "mono" ||
-		variant === "mono-secondary" ||
-		variant === "mono-error"
-	)
-		return "span";
-	if (variant === "label") return "span";
-	return "p";
-};
+const defaultElement = (variant: TextVariant): TextElement =>
+	variant === "heading1"
+		? "h1"
+		: variant === "heading2"
+			? "h2"
+			: variant === "heading3"
+				? "h3"
+				: variant === "body" ||
+					  variant === "secondary" ||
+					  variant === "success" ||
+					  variant === "error"
+					? "p"
+					: "span";
 
-function TextRoot<Variant extends TextVariant = "body">(
-	{
-		as,
-		bold = false,
-		children,
-		size = "base",
-		truncate = false,
-		variant = "body" as Variant,
-		...props
-	}: TextPropsInternal<Variant>,
-	ref: ForwardedRef<HTMLElement>,
-) {
-	const Component = as ?? defaultElement(variant);
-	const sized = !["heading1", "heading2", "heading3", "label"].includes(
-		variant,
-	);
-
+export function Text({
+	as,
+	bold = false,
+	children,
+	ref,
+	size = "base",
+	truncate = false,
+	variant = "body",
+	...props
+}: TextProps): ReactElement {
+	const Component = (as ?? defaultElement(variant)) as ElementType;
+	const sized = !variant.startsWith("heading") && variant !== "label";
 	return (
 		<Component
-			ref={ref as RefCallback<HTMLElement>}
+			ref={ref}
 			className={textClass({
 				variant,
 				size: sized ? size : undefined,
@@ -178,11 +113,3 @@ function TextRoot<Variant extends TextVariant = "body">(
 		</Component>
 	);
 }
-
-export const Text = forwardRef(TextRoot) as <
-	Variant extends TextVariant = "body",
->(
-	props: TextPropsInternal<Variant> & {
-		readonly ref?: ForwardedRef<ElementRef<"span">>;
-	},
-) => ReactElement;

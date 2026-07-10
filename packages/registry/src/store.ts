@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { hasErrnoCode } from "@plot/common/primitives";
-import { cloneRunRecord, parseRunRecords, type RunRecord } from "./record.js";
+import { parseRunRecords, type RunRecord } from "./record.js";
 
 export interface RunStore {
 	readonly list: () => Promise<readonly RunRecord[]>;
@@ -88,17 +88,12 @@ export const createFileRunStore = (path: string): RunStore => {
 export const createMemoryRunStore = (
 	initial: readonly RunRecord[] = [],
 ): RunStore => {
-	const records = new Map(
-		initial.map((record) => [record.id, cloneRunRecord(record)]),
-	);
+	const records = new Map(initial.map((record) => [record.id, record]));
 	return {
-		list: async () => [...records.values()].map(cloneRunRecord),
-		get: async (id) => {
-			const record = records.get(id);
-			return record === undefined ? undefined : cloneRunRecord(record);
-		},
+		list: async () => [...records.values()],
+		get: async (id) => records.get(id),
 		upsert: async (record) => {
-			records.set(record.id, cloneRunRecord(record));
+			records.set(record.id, record);
 		},
 		remove: async (id) => {
 			records.delete(id);

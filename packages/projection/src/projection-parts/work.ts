@@ -1,57 +1,45 @@
-import { isRecord, type Mutable } from "@plot/common/primitives";
-import { str } from "./helpers.js";
 import type { WorkItemProjection, WorkStatus } from "./types.js";
 
-const display = (v: unknown) => (isRecord(v) ? v : {});
-const workStatus = (value: unknown): WorkStatus | undefined => {
-	const status = str(value);
-	return status === "pending" ||
-		status === "waiting" ||
-		status === "running" ||
-		status === "blocked" ||
-		status === "draining"
-		? status
-		: undefined;
-};
+interface DisplayableWork {
+	readonly workKey: string;
+	readonly sourceId: string;
+	readonly status?: WorkStatus;
+	readonly subject?: string;
+	readonly title?: string;
+	readonly display?: {
+		readonly primary?: string;
+		readonly title?: string;
+		readonly subtitle?: string;
+		readonly url?: string;
+		readonly version?: string;
+		readonly labels?: readonly string[];
+	};
+	readonly blockedReason?: string;
+	readonly operatorActions?: readonly unknown[];
+	readonly currentRunId?: string;
+}
 
 export const displayWork = (
-	value: unknown,
+	work: DisplayableWork,
 	previous?: WorkItemProjection,
-): WorkItemProjection => {
-	const work = display(value);
-	const d = display(work["display"]);
-	const key = String(work["workKey"] ?? previous?.workKey ?? "work");
-	const item: Mutable<WorkItemProjection> = {
-		workKey: key,
-		sourceId: String(work["sourceId"] ?? previous?.sourceId ?? "source"),
-		primary: str(d["primary"]) ?? previous?.primary,
-		title: str(d["title"]) ?? str(work["title"]) ?? previous?.title ?? key,
-		labels: Array.isArray(d["labels"])
-			? d["labels"].filter((x): x is string => typeof x === "string")
-			: (previous?.labels ?? []),
-		status: workStatus(work["status"]) ?? previous?.status ?? "pending",
-	};
-	const subject = str(work["subject"]);
-	const subtitle = str(d["subtitle"]);
-	const url = str(d["url"]);
-	const version = str(d["version"]);
-	const blockedReason = str(work["blockedReason"]);
-	const currentRunId = str(work["currentRunId"]);
-	if (subject !== undefined) item.subject = subject;
-	if (subtitle !== undefined) item.subtitle = subtitle;
-	if (url !== undefined) item.url = url;
-	if (version !== undefined) item.version = version;
-	if (blockedReason !== undefined) item.blockedReason = blockedReason;
-	if (Array.isArray(work["operatorActions"]))
-		item.operatorActions = work["operatorActions"];
-	else if (previous?.operatorActions !== undefined)
-		item.operatorActions = previous.operatorActions;
-	if (currentRunId !== undefined) item.currentRunId = currentRunId;
-	return item;
-};
+): WorkItemProjection =>
+	({
+		workKey: work.workKey,
+		sourceId: work.sourceId,
+		subject: work.subject ?? previous?.subject,
+		primary: work.display?.primary ?? previous?.primary,
+		title: work.display?.title ?? work.title ?? previous?.title ?? work.workKey,
+		subtitle: work.display?.subtitle ?? previous?.subtitle,
+		url: work.display?.url ?? previous?.url,
+		version: work.display?.version ?? previous?.version,
+		labels: work.display?.labels ?? previous?.labels ?? [],
+		status: work.status ?? previous?.status ?? "pending",
+		blockedReason: work.blockedReason ?? previous?.blockedReason,
+		operatorActions: work.operatorActions ?? previous?.operatorActions,
+		currentRunId: work.currentRunId,
+	}) as WorkItemProjection;
 
 export const workLabel = (work: {
 	readonly primary?: string | undefined;
 	readonly title: string;
-}) =>
-	work.primary === undefined ? work.title : `${work.primary} ${work.title}`;
+}) => (work.primary ? `${work.primary} ${work.title}` : work.title);

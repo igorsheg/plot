@@ -6,29 +6,7 @@ export type {
 	WorkDisplay,
 } from "@plot/sdk/work-contract";
 
-export type AgentPhase =
-	| "setup"
-	| "observe"
-	| "reconcile"
-	| "select"
-	| "act"
-	| "policy";
 export type HookPhase = "observe" | "reconcile" | "select";
-
-export class PlotAgentError extends Error {
-	phase: AgentPhase;
-	source_id?: string;
-	constructor(input: {
-		phase: AgentPhase;
-		message: string;
-		source_id?: string;
-	}) {
-		super(input.message);
-		this.name = "PlotAgentError";
-		this.phase = input.phase;
-		if (input.source_id !== undefined) this.source_id = input.source_id;
-	}
-}
 
 export interface Observation {
 	type: string;
@@ -45,14 +23,6 @@ export const setFact = (key: string, value: unknown): SetFactProposal => ({
 	key,
 	value,
 });
-export interface RemoveFactProposal {
-	type: "remove_fact";
-	key: string;
-}
-export const removeFact = (key: string): RemoveFactProposal => ({
-	type: "remove_fact",
-	key,
-});
 export interface InterruptWorkProposal {
 	type: "interrupt_work";
 	workKey: string;
@@ -61,14 +31,8 @@ export interface InterruptWorkProposal {
 export const interruptWork = (
 	key: string,
 	reason?: string,
-): InterruptWorkProposal => {
-	const proposal: InterruptWorkProposal = {
-		type: "interrupt_work",
-		workKey: key,
-	};
-	if (reason !== undefined) proposal.reason = reason;
-	return proposal;
-};
+): InterruptWorkProposal =>
+	({ type: "interrupt_work", workKey: key, reason }) as InterruptWorkProposal;
 export interface ScheduleWakeOptions {
 	reason?: string;
 	workKey?: string;
@@ -88,15 +52,8 @@ export const scheduleWake = (
 	const options =
 		typeof reasonOrOptions === "string"
 			? { reason: reasonOrOptions }
-			: (reasonOrOptions ?? {});
-	const proposal: ScheduleWakeProposal = {
-		type: "schedule_wake",
-		delayMs,
-	};
-	if (options.reason !== undefined) proposal.reason = options.reason;
-	if (options.workKey !== undefined) proposal.workKey = options.workKey;
-	if (options.attempt !== undefined) proposal.attempt = options.attempt;
-	return proposal;
+			: reasonOrOptions;
+	return { type: "schedule_wake", delayMs, ...options };
 };
 
 export type WorkStatus =
@@ -137,7 +94,6 @@ export const removeWork = (key: string): RemoveWorkProposal => ({
 
 export type ReconcileProposal =
 	| SetFactProposal
-	| RemoveFactProposal
 	| InterruptWorkProposal
 	| ScheduleWakeProposal
 	| UpsertWorkProposal

@@ -57,7 +57,7 @@ export function DecisionActions({
 	};
 
 	return (
-		<Stack alignCenter gap={8} className={decisionActionsClass()} wrap>
+		<Stack align="center" gap={8} className={decisionActionsClass()} wrap>
 			{target.actions.map((action) => (
 				<Button
 					disabled={actions.acting || action.disabledReason !== undefined}

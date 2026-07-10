@@ -1,4 +1,3 @@
-import type { Mutable } from "@plot/common/primitives";
 import { defineCommand, type ParsedArgs } from "citty";
 import { startPlotWebGateway } from "@plot/gateway";
 import { sessionCommandArgs, workflowPathArg } from "../args.js";
@@ -12,13 +11,13 @@ import { renderWebDashboardReady } from "../terminal.js";
 export const runTerminalDashboard = async (args: ParsedArgs) => {
 	const io = getCliIo();
 	const runTui = io.runTui ?? (await import("@plot/tui/plot-tui")).runPlotTui;
-	const options: Mutable<
-		RunInProcessOnceOptions & { cli?: ReturnType<typeof resolvePlotCommand> }
-	> = baseOptions(args);
-	options.cli = resolvePlotCommand();
-	if (io.createAgentSession !== undefined)
-		options.createAgentSession = io.createAgentSession;
-	return runTui(options);
+	return runTui({
+		...baseOptions(args),
+		cli: resolvePlotCommand(),
+		createAgentSession: io.createAgentSession,
+	} as RunInProcessOnceOptions & {
+		cli?: ReturnType<typeof resolvePlotCommand>;
+	});
 };
 
 const chunkText = (chunk: string | Uint8Array): string =>
@@ -63,21 +62,16 @@ const waitForWebDashboardExit = async (url: string) =>
 
 export const runWebDashboard = async (args: ParsedArgs) => {
 	const io = getCliIo();
-	const options: Mutable<Parameters<typeof startPlotWebGateway>[0]> = {
+	const gateway = await startPlotWebGateway({
 		cwd: str(args, "cwd") ?? process.cwd(),
 		open: args["open"] === true,
 		openUrl: openBrowser,
 		cli: resolvePlotCommand(),
-	};
-	const agentDir = str(args, "agent-dir");
-	const workflowPath = workflowPathFromArgs(args);
-	const port = int(args, "port");
-	const host = str(args, "host");
-	if (agentDir !== undefined) options.agentDir = agentDir;
-	if (workflowPath !== undefined) options.workflowPath = workflowPath;
-	if (port !== undefined) options.port = port;
-	if (host !== undefined) options.host = host;
-	const gateway = await startPlotWebGateway(options);
+		agentDir: str(args, "agent-dir"),
+		workflowPath: workflowPathFromArgs(args),
+		port: int(args, "port"),
+		host: str(args, "host"),
+	});
 	await io.writeStdout(renderWebDashboardReady(gateway.url));
 	try {
 		await waitForWebDashboardExit(gateway.url);

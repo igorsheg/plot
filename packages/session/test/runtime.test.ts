@@ -191,7 +191,7 @@ test("tickOnce waits until its durable events establish the sequence fence", asy
 	await runtime.shutdown();
 });
 
-test("runtime starts once and rejects operations after shutdown", async () => {
+test("runtime publishes session start once", async () => {
 	const runtime = makeSessionRuntime({
 		id: "session-lifecycle",
 		sources: [],
@@ -218,6 +218,33 @@ test("runtime starts once and rejects operations after shutdown", async () => {
 			event: {},
 		}),
 	).rejects.toThrow("closed");
+});
+
+test("runOnce waits for Sources to reconcile attempt completion", async () => {
+	let reconciled = false;
+	const oneShotSource: WorkSource = {
+		id: "one-shot",
+		reconcile: ({ snapshot }) => {
+			if (
+				snapshot.completions.some(
+					(completion) => completion.workKey === "work-1",
+				)
+			)
+				reconciled = true;
+			return [];
+		},
+		selectWork: () => (reconciled ? [] : [{ workKey: "work-1" }]),
+	};
+	const runtime = makeSessionRuntime({
+		id: "session-once",
+		sources: [oneShotSource],
+		runner,
+	});
+
+	await runtime.runOnce();
+
+	expect(reconciled).toBe(true);
+	await runtime.shutdown();
 });
 
 test("runtime shutdown publishes shutdown and is idempotent", async () => {
