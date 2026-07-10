@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { AsyncQueue } from "@plot/common/async-queue";
 import { makeSessionProtocol } from "../src/protocol.js";
 import {
 	ProtocolBoundaryError,
@@ -11,7 +12,7 @@ import {
 	encodeServerRecordLine,
 	type ServerRecord,
 } from "../src/protocol.js";
-import type { SessionRuntime } from "../src/runtime.js";
+import type { RuntimeEvent, SessionRuntime } from "../src/runtime.js";
 
 const request = (
 	method: ClientRequest["method"],
@@ -27,6 +28,14 @@ const request = (
 const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 	id: "session-1",
 	start: async () => {},
+	runOnce: async () => ({
+		tickId: 1,
+		selected: 0,
+		started: 0,
+		running: 0,
+		completions: 0,
+		diagnostics: [],
+	}),
 	tickOnce: async () => ({
 		tickId: 1,
 		selected: 0,
@@ -167,6 +176,122 @@ test("protocol shutdown can be owned by the embedding host", async () => {
 	await protocol.close();
 
 	expect(calls).toEqual(["host.shutdown"]);
+});
+
+test("session.tick returns a sequence fence after the tick", async () => {
+	let sequence = 0;
+	const protocol = makeSessionProtocol({
+		runtime: runtime({
+			tickOnce: async () => {
+				sequence = 7;
+				return {
+					tickId: 1,
+					selected: 0,
+					started: 0,
+					running: 0,
+					completions: 0,
+					diagnostics: [],
+				};
+			},
+			lastEventSequence: async () => sequence,
+		}),
+	});
+
+	await protocol.submit(request("session.tick"));
+	const record = await protocol.output()[Symbol.asyncIterator]().next();
+
+	expect(record.value).toMatchObject({
+		kind: "response",
+		method: "session.tick",
+		lastSequence: 7,
+	});
+	await protocol.close();
+});
+
+test("events never evict protocol responses", async () => {
+	const runtimeEvents = new AsyncQueue<RuntimeEvent>();
+	const protocol = makeSessionProtocol({
+		limits: {
+			maxInputLineBytes: 1024,
+			maxOutputLineBytes: 2048,
+			maxPendingRequests: 1,
+			maxBufferedEvents: 1,
+		},
+		runtime: runtime({ events: () => runtimeEvents }),
+	});
+	await protocol.submit({ ...request("ping"), id: "response" });
+	for (const sequence of [1, 2])
+		runtimeEvents.offer({
+			kind: "session_event",
+			sessionId: "session-1",
+			sequence,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			event: { type: "session_started" },
+		});
+	await new Promise((resolve) => setTimeout(resolve, 0));
+
+	const iterator = protocol.output()[Symbol.asyncIterator]();
+	const records = [
+		(await iterator.next()).value,
+		(await iterator.next()).value,
+	];
+
+	expect(records).toContainEqual(
+		expect.objectContaining({ kind: "response", id: "response", ok: true }),
+	);
+	expect(records).toContainEqual(
+		expect.objectContaining({
+			kind: "event",
+			event: expect.objectContaining({ sequence: 2 }),
+		}),
+	);
+	runtimeEvents.close();
+	await protocol.close();
+});
+
+test("protocol responses apply bounded backpressure", async () => {
+	const protocol = makeSessionProtocol({
+		limits: {
+			maxInputLineBytes: 1024,
+			maxOutputLineBytes: 2048,
+			maxPendingRequests: 1,
+			maxBufferedEvents: 1,
+		},
+		runtime: runtime(),
+	});
+	await protocol.submit({ ...request("ping"), id: "first" });
+	let secondSettled = false;
+	const second = protocol
+		.submit({ ...request("ping"), id: "second" })
+		.then((accepted) => {
+			secondSettled = true;
+			return accepted;
+		});
+	await Promise.resolve();
+	await Promise.resolve();
+	expect(secondSettled).toBe(false);
+
+	const iterator = protocol.output()[Symbol.asyncIterator]();
+	expect((await iterator.next()).value).toMatchObject({ id: "first" });
+	expect(await second).toBe(true);
+	expect((await iterator.next()).value).toMatchObject({ id: "second" });
+	await protocol.close();
+});
+
+test("protocol close aborts a live event subscription", async () => {
+	const liveEvents = new AsyncQueue<RuntimeEvent>();
+	const protocol = makeSessionProtocol({
+		runtime: runtime({
+			events: (signal) => {
+				signal?.addEventListener("abort", () => liveEvents.close(), {
+					once: true,
+				});
+				return liveEvents;
+			},
+		}),
+	});
+
+	await protocol.close();
 });
 
 test("protocol adapter reports request queue overflow", async () => {

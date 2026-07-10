@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { EventHub } from "@plot/common/event-stream";
+import type { Mutable } from "@plot/common/primitives";
 import {
 	makePlotAgent,
 	type PlotAgent,
@@ -67,6 +68,10 @@ export interface AgentEventRecord {
 
 export type RuntimeEvent = SessionEventRecord | AgentEventRecord;
 
+type UnsequencedRuntimeEvent =
+	| Omit<SessionEventRecord, "sequence">
+	| Omit<AgentEventRecord, "sequence">;
+
 export interface AgentEventInput {
 	readonly sourceId: string;
 	readonly runId: string;
@@ -85,21 +90,20 @@ export interface OperatorObservationInput {
 	readonly workKey: string;
 	readonly actionId: string;
 	readonly actionLabel: string;
-	readonly comment?: string | undefined;
-	readonly clientId?: string | undefined;
-	readonly actor?: string | undefined;
+	readonly comment?: string;
+	readonly clientId?: string;
+	readonly actor?: string;
 }
 
 export interface SessionRuntimeState {
 	readonly sessionId: string;
-	readonly workflowName?: string | undefined;
-	readonly workflowPath?: string | undefined;
-	readonly cwd?: string | undefined;
-	readonly cwdName?: string | undefined;
-	readonly sessionDir?: string | undefined;
-	readonly sessionFile?: string | undefined;
-	readonly lastSequence?: number | undefined;
-	readonly eventLogError?: string | undefined;
+	readonly workflowName?: string;
+	readonly workflowPath?: string;
+	readonly cwd?: string;
+	readonly cwdName?: string;
+	readonly sessionDir?: string;
+	readonly sessionFile?: string;
+	readonly lastSequence?: number;
 }
 
 export interface SchedulerSnapshotState {
@@ -113,10 +117,10 @@ export interface SchedulerSnapshotState {
 export interface SessionRuntime {
 	readonly id: string;
 	readonly start: () => Promise<void>;
+	readonly runOnce: () => Promise<TickSummary>;
 	readonly tickOnce: () => Promise<TickSummary>;
 	readonly state: () => Promise<SessionRuntimeState>;
 	readonly schedulerSnapshot: () => Promise<SchedulerSnapshotState>;
-
 	readonly pauseDispatch: () => Promise<void>;
 	readonly resumeDispatch: () => Promise<void>;
 	readonly interruptAgentRun: (
@@ -125,7 +129,7 @@ export interface SessionRuntime {
 	readonly recordOperatorObservation: (
 		input: OperatorObservationInput,
 	) => Promise<boolean>;
-	readonly events: () => AsyncIterable<RuntimeEvent>;
+	readonly events: (signal?: AbortSignal) => AsyncIterable<RuntimeEvent>;
 	readonly appendAgentEvent: (input: AgentEventInput) => Promise<RuntimeEvent>;
 	readonly lastEventSequence: () => Promise<number>;
 	readonly shutdown: () => Promise<boolean>;
@@ -134,7 +138,7 @@ export interface SessionRuntime {
 export interface OwnedTask {
 	readonly name: string;
 	readonly done: Promise<void>;
-	readonly stop: () => void | Promise<void>;
+	readonly stop: () => void;
 }
 
 export const startOwnedTask = (input: {
@@ -146,6 +150,7 @@ export const startOwnedTask = (input: {
 	const done = input.run(controller.signal).catch(async (error) => {
 		if (controller.signal.aborted) return;
 		await input.onError?.(error);
+		throw error;
 	});
 	return {
 		name: input.name,
@@ -153,6 +158,14 @@ export const startOwnedTask = (input: {
 		stop: () => controller.abort(),
 	};
 };
+
+export class SessionRuntimeClosedError extends Error {
+	override readonly name = "SessionRuntimeClosedError";
+
+	constructor(operation: string) {
+		super(`cannot ${operation}: session runtime is closed`);
+	}
+}
 
 export const createSessionId = (): string => `session-${randomUUID()}`;
 
@@ -180,6 +193,11 @@ const toSessionEvent = (event: PlotAgentEvent): SessionEvent =>
 		? { type: "tick_completed", result: toTickSummary(event.result) }
 		: event;
 
+interface Deferred {
+	readonly resolve: () => void;
+	readonly reject: (error: unknown) => void;
+}
+
 export const makeSessionRuntime = (
 	options: SessionRuntimeOptions,
 ): SessionRuntime => {
@@ -191,20 +209,38 @@ export const makeSessionRuntime = (
 		sources: [...options.sources],
 		runner: options.runner,
 	});
-	let shutdownPromise: Promise<boolean> | undefined;
-
+	const eventLog = options.sessionFile
+		? createSessionEventLogWriter(options.sessionFile)
+		: undefined;
 	let liveSequence = 0;
-	const eventLog =
-		options.sessionFile === undefined
-			? undefined
-			: createSessionEventLogWriter(options.sessionFile);
-	let publishChain: Promise<void> = Promise.resolve();
-	const publish = (record: RuntimeEvent): Promise<RuntimeEvent> => {
-		const published = publishChain.then(async () => {
-			const liveRecord =
-				record.sequence > liveSequence
-					? record
-					: { ...record, sequence: liveSequence + 1 };
+	let lifecycle: "open" | "closing" | "closed" = "open";
+	let execution: "idle" | "continuous" | "once" = "idle";
+	let publicationFailure: unknown;
+	let publishChain = Promise.resolve();
+	let sessionStarted: Promise<void> | undefined;
+	let agentStarted: Promise<void> | undefined;
+	let runOncePromise: Promise<TickSummary> | undefined;
+	let shutdownPromise: Promise<boolean> | undefined;
+	let latestPublishedTick = 0;
+	let agentEventFailure: unknown;
+	const tickWaiters = new Map<number, Deferred[]>();
+	const completionWaiters = new Map<string, Deferred[]>();
+	const completionsInPublishedTick = new Set<string>();
+
+	const assertOpen = (operation: string): void => {
+		if (lifecycle !== "open") throw new SessionRuntimeClosedError(operation);
+	};
+	const rejectWaiters = (error: unknown): void => {
+		for (const waiters of tickWaiters.values())
+			for (const waiter of waiters) waiter.reject(error);
+		for (const waiters of completionWaiters.values())
+			for (const waiter of waiters) waiter.reject(error);
+		tickWaiters.clear();
+		completionWaiters.clear();
+	};
+	const publish = (record: UnsequencedRuntimeEvent): Promise<RuntimeEvent> => {
+		const published = publishChain.then(async (): Promise<RuntimeEvent> => {
+			const liveRecord = { ...record, sequence: liveSequence + 1 };
 			await eventLog?.append(liveRecord);
 			liveSequence = liveRecord.sequence;
 			events.publish(liveRecord);
@@ -212,32 +248,65 @@ export const makeSessionRuntime = (
 		});
 		publishChain = published.then(
 			() => undefined,
-			() => undefined,
+			(error) => {
+				publicationFailure ??= error;
+			},
 		);
 		return published;
 	};
-	const publishSessionEvent = async (
-		event: SessionEvent,
-	): Promise<RuntimeEvent> =>
+	const flushPublished = async (): Promise<void> => {
+		await publishChain;
+		if (publicationFailure !== undefined) throw publicationFailure;
+	};
+	const publishSessionEvent = (event: SessionEvent): Promise<RuntimeEvent> =>
 		publish({
 			kind: "session_event",
 			sessionId,
-			sequence: liveSequence + 1,
 			timestamp: new Date().toISOString(),
 			event,
 		});
-	const publishAgentEvent = async (
-		input: AgentEventInput,
-	): Promise<RuntimeEvent> =>
+	const publishAgentEvent = (input: AgentEventInput): Promise<RuntimeEvent> =>
 		publish({
 			kind: "agent_event",
 			sessionId,
-			sequence: liveSequence + 1,
 			timestamp: new Date().toISOString(),
 			sourceId: input.sourceId,
 			runId: input.runId,
 			workKey: input.workKey,
 			event: input.event,
+		});
+	const resolveTick = (tickId: number): void => {
+		latestPublishedTick = Math.max(latestPublishedTick, tickId);
+		for (const [target, waiters] of tickWaiters) {
+			if (target > latestPublishedTick) continue;
+			for (const waiter of waiters) waiter.resolve();
+			tickWaiters.delete(target);
+		}
+	};
+	const resolveReconciledCompletions = (): void => {
+		for (const runId of completionsInPublishedTick) {
+			const waiters = completionWaiters.get(runId);
+			if (waiters === undefined) continue;
+			for (const waiter of waiters) waiter.resolve();
+			completionWaiters.delete(runId);
+		}
+		completionsInPublishedTick.clear();
+	};
+	const waitForPublishedTick = (tickId: number): Promise<void> => {
+		if (latestPublishedTick >= tickId) return Promise.resolve();
+		if (agentEventFailure !== undefined)
+			return Promise.reject(agentEventFailure);
+		return new Promise<void>((resolve, reject) => {
+			const waiters = tickWaiters.get(tickId) ?? [];
+			waiters.push({ resolve, reject });
+			tickWaiters.set(tickId, waiters);
+		});
+	};
+	const waitForReconciledCompletion = (runId: string): Promise<void> =>
+		new Promise<void>((resolve, reject) => {
+			const waiters = completionWaiters.get(runId) ?? [];
+			waiters.push({ resolve, reject });
+			completionWaiters.set(runId, waiters);
 		});
 
 	const agentEvents = startOwnedTask({
@@ -246,36 +315,80 @@ export const makeSessionRuntime = (
 			for await (const event of agent.events()) {
 				if (signal.aborted) return;
 				await publishSessionEvent(toSessionEvent(event));
+				if (event.type === "attempt_completed")
+					completionsInPublishedTick.add(event.completion.runId);
+				if (event.type === "tick_completed") {
+					resolveTick(event.result.tickId);
+					resolveReconciledCompletions();
+				}
 			}
 		},
+		onError: (error) => {
+			agentEventFailure = error;
+			rejectWaiters(error);
+		},
 	});
+
+	const startSession = (): Promise<void> => {
+		sessionStarted ??= publishSessionEvent({ type: "session_started" }).then(
+			() => undefined,
+		);
+		return sessionStarted;
+	};
+	const startAgent = (): Promise<void> => {
+		agentStarted ??= agent.start();
+		return agentStarted;
+	};
+	const tickAgent = async (): Promise<TickResult> => {
+		const result = await agent.tickOnce();
+		await waitForPublishedTick(result.tickId);
+		return result;
+	};
 
 	return {
 		id: sessionId,
 		start: async () => {
-			await publishSessionEvent({ type: "session_started" });
-			await agent.start();
+			assertOpen("start");
+			if (execution === "once")
+				throw new Error("cannot start a one-shot session runtime");
+			execution = "continuous";
+			await startSession();
+			await startAgent();
 		},
-		tickOnce: async () => toTickSummary(await agent.tickOnce()),
+		runOnce: () => {
+			assertOpen("run once");
+			if (runOncePromise !== undefined) return runOncePromise;
+			if (execution !== "idle" || latestPublishedTick !== 0)
+				throw new Error("runOnce requires a fresh session runtime");
+			execution = "once";
+			runOncePromise = (async () => {
+				await startSession();
+				const result = await tickAgent();
+				await agent.pauseDispatch();
+				const completions = result.started.map((run) =>
+					waitForReconciledCompletion(run.runId),
+				);
+				if (completions.length > 0) {
+					await startAgent();
+					await Promise.all(completions);
+				}
+				return toTickSummary(result);
+			})();
+			return runOncePromise;
+		},
+		tickOnce: async () => {
+			assertOpen("tick");
+			return toTickSummary(await tickAgent());
+		},
 		state: async () => {
-			const state: {
-				readonly sessionId: string;
-				readonly workflowName?: string | undefined;
-				readonly workflowPath?: string | undefined;
-				readonly cwd?: string | undefined;
-				readonly cwdName?: string | undefined;
-				readonly sessionDir?: string | undefined;
-				readonly sessionFile?: string | undefined;
-				lastSequence?: number | undefined;
-				eventLogError?: string | undefined;
-			} = {
+			await flushPublished();
+			const state: Mutable<SessionRuntimeState> = {
 				sessionId,
 				...options.state,
-				sessionFile: options.sessionFile,
 				lastSequence: liveSequence,
 			};
-			const eventLogError = eventLog?.lastError();
-			if (eventLogError !== undefined) state.eventLogError = eventLogError;
+			if (options.sessionFile !== undefined)
+				state.sessionFile = options.sessionFile;
 			return state;
 		},
 		schedulerSnapshot: async () => {
@@ -288,11 +401,20 @@ export const makeSessionRuntime = (
 				diagnostics: snapshot.diagnostics,
 			};
 		},
-
-		pauseDispatch: () => agent.pauseDispatch(),
-		resumeDispatch: () => agent.resumeDispatch(),
-		interruptAgentRun: (input) => agent.interruptAgentRun(input),
+		pauseDispatch: async () => {
+			assertOpen("pause dispatch");
+			await agent.pauseDispatch();
+		},
+		resumeDispatch: async () => {
+			assertOpen("resume dispatch");
+			await agent.resumeDispatch();
+		},
+		interruptAgentRun: async (input) => {
+			assertOpen("interrupt an agent run");
+			return agent.interruptAgentRun(input);
+		},
 		recordOperatorObservation: async (input) => {
+			assertOpen("record an operator observation");
 			const accepted = await agent.offer({
 				type: "observation",
 				observation: {
@@ -300,20 +422,40 @@ export const makeSessionRuntime = (
 					data: { ...input, timestamp: new Date().toISOString() },
 				},
 			});
-			// Reconcile promptly: the operator is watching.
 			if (accepted) await agent.wakeAfter(1, "operator observation");
 			return accepted;
 		},
-		events: () => events.subscribe(),
-		appendAgentEvent: publishAgentEvent,
-		lastEventSequence: async () => liveSequence,
-		shutdown: async () => {
-			shutdownPromise ??= (async () => {
-				const accepted = await agent.shutdown();
-				await agentEvents.done;
-				await publishSessionEvent({ type: "session_shutdown" });
-				await eventLog?.close();
+		events: (signal) => events.subscribe(signal),
+		appendAgentEvent: async (input) => {
+			assertOpen("append an agent event");
+			return publishAgentEvent(input);
+		},
+		lastEventSequence: async () => {
+			await flushPublished();
+			return liveSequence;
+		},
+		shutdown: () => {
+			if (shutdownPromise !== undefined) return shutdownPromise;
+			lifecycle = "closing";
+			shutdownPromise = (async () => {
+				let failure: unknown;
+				let accepted = false;
+				try {
+					accepted = await agent.shutdown();
+					await agentEvents.done;
+					await publishSessionEvent({ type: "session_shutdown" });
+				} catch (error) {
+					failure = error;
+				}
+				try {
+					await eventLog?.close();
+				} catch (error) {
+					failure ??= error;
+				}
+				lifecycle = "closed";
 				events.close();
+				rejectWaiters(new SessionRuntimeClosedError("wait for an event"));
+				if (failure !== undefined) throw failure;
 				return accepted;
 			})();
 			return shutdownPromise;

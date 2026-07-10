@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { PiAgentSessionPort } from "../src/pi-runner.js";
 import {
 	decodeServerRecordLine,
+	defaultProtocolLimits,
 	sessionProtocolVersion,
 } from "../src/protocol.js";
 import type { RuntimeEvent } from "../src/runtime.js";
@@ -16,6 +17,7 @@ import { runSessionOnce, serveSessionStdio } from "../src/serve.js";
 
 class FakePiSession implements PiAgentSessionPort {
 	readonly listeners = new Set<(event: AgentSessionEvent) => void>();
+	disposed = false;
 
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void {
 		this.listeners.add(listener);
@@ -24,12 +26,26 @@ class FakePiSession implements PiAgentSessionPort {
 
 	async prompt(_text: string, _options?: PromptOptions): Promise<void> {}
 
-	dispose(): void {}
+	dispose(): void {
+		this.disposed = true;
+	}
+}
+
+class DelayedPiSession extends FakePiSession {
+	completed = false;
+
+	override async prompt(
+		_text: string,
+		_options?: PromptOptions,
+	): Promise<void> {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		this.completed = true;
+	}
 }
 
 const tempDirs: string[] = [];
 
-async function* chunks(values: readonly string[]) {
+async function* chunks(values: readonly (string | Uint8Array)[]) {
 	for (const value of values) yield value;
 }
 
@@ -79,6 +95,67 @@ describe("session serve", () => {
 		).toBe(true);
 	});
 
+	test("serveSessionStdio preserves split UTF-8 and reports malformed lines", async () => {
+		const dir = await makeWorkflowDir();
+		const lines: string[] = [];
+		const input = new TextEncoder().encode(
+			`{bad json}\n${JSON.stringify({
+				protocol: sessionProtocolVersion,
+				kind: "request",
+				id: "ping-💥",
+				method: "ping",
+			})}`,
+		);
+
+		await serveSessionStdio({
+			cwd: dir,
+			sessionId: "serve-boundaries",
+			stdin: chunks([...input].map((byte) => Uint8Array.of(byte))),
+			writeLine: (line) => {
+				lines.push(line);
+			},
+		});
+
+		const records = lines.map((line) => decodeServerRecordLine(line));
+		expect(records).toContainEqual(
+			expect.objectContaining({
+				kind: "response",
+				ok: false,
+				error: expect.objectContaining({ code: "parse_error" }),
+			}),
+		);
+		expect(records).toContainEqual(
+			expect.objectContaining({
+				kind: "response",
+				id: "ping-💥",
+				ok: true,
+			}),
+		);
+	});
+
+	test("serveSessionStdio bounds unterminated input", async () => {
+		const dir = await makeWorkflowDir();
+		const lines: string[] = [];
+
+		await serveSessionStdio({
+			cwd: dir,
+			sessionId: "serve-oversized",
+			stdin: chunks(["x".repeat(defaultProtocolLimits.maxInputLineBytes + 1)]),
+			writeLine: (line) => {
+				lines.push(line);
+			},
+		});
+
+		const records = lines.map((line) => decodeServerRecordLine(line));
+		expect(records).toContainEqual(
+			expect.objectContaining({
+				kind: "response",
+				ok: false,
+				error: expect.objectContaining({ code: "payload_too_large" }),
+			}),
+		);
+	});
+
 	test("serveSessionStdio shuts down host cleanup when stdin ends", async () => {
 		const dir = await makeWorkflowDir();
 		const marker = join(dir, "shutdown.txt");
@@ -114,25 +191,37 @@ Prompt
 		expect(await readFile(marker, "utf8")).toBe("x");
 	});
 
-	test("runSessionOnce streams runtime events to onEvent", async () => {
+	test("runSessionOnce waits for the agent attempt to succeed", async () => {
 		const dir = await makeWorkflowDir();
 		const events: RuntimeEvent[] = [];
+		const session = new DelayedPiSession();
 
 		await runSessionOnce({
 			cwd: dir,
 			sessionId: "serve-once-test",
-			createAgentSession: async () => ({ session: new FakePiSession() }),
+			createAgentSession: async () => ({ session }),
 			onEvent: (event) => {
 				events.push(event);
 			},
 		});
 
+		expect(session.completed).toBe(true);
+		expect(session.disposed).toBe(true);
 		expect(
 			events.some(
 				(event) =>
 					event.kind === "session_event" &&
-					event.event.type === "session_started",
+					event.event.type === "attempt_completed" &&
+					event.event.completion.status === "succeeded",
 			),
 		).toBe(true);
+		expect(
+			events.some(
+				(event) =>
+					event.kind === "session_event" &&
+					event.event.type === "attempt_completed" &&
+					event.event.completion.status === "interrupted",
+			),
+		).toBe(false);
 	});
 });

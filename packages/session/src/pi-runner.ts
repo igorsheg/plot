@@ -254,7 +254,6 @@ export const makePiWorkRunner = (config: PiWorkRunnerConfig): WorkRunner => ({
 			config.eventCapacity ?? 256,
 			"eventCapacity",
 		);
-		let lastActivityPingMs = 0;
 		const sessionInput: Mutable<Parameters<typeof promptSession>[0]> = {
 			createAgentSession:
 				config.createAgentSession ?? defaultCreateAgentSession,
@@ -268,11 +267,7 @@ export const makePiWorkRunner = (config: PiWorkRunnerConfig): WorkRunner => ({
 		if (context.shouldContinue !== undefined)
 			sessionInput.shouldContinue = context.shouldContinue;
 		for await (const event of promptSession(sessionInput)) {
-			const now = Date.now();
-			if (now - lastActivityPingMs >= 10_000) {
-				lastActivityPingMs = now;
-				await context.emitObservation({ type: "agent_session.activity" });
-			}
+			context.reportActivity();
 			await config.onEvent?.({ context, event });
 		}
 		return {};

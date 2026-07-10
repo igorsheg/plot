@@ -2,7 +2,13 @@ import {
 	createProtocolSessionHost,
 	type CreateSessionHostOptions,
 } from "./host.js";
-import { decodeClientRequestLine, encodeServerRecordLine } from "./protocol.js";
+import { jsonlLines } from "@plot/common/jsonl";
+import {
+	decodeClientRequestLine,
+	encodeServerRecordLine,
+	makeError,
+	toProtocolBoundaryError,
+} from "./protocol.js";
 import { startOwnedTask, type RuntimeEvent } from "./runtime.js";
 
 export interface RunSessionOnceOptions extends CreateSessionHostOptions {
@@ -26,52 +32,77 @@ export const runSessionOnce = async (
 			: startOwnedTask({
 					name: "session.serve.events",
 					run: async (signal) => {
-						for await (const event of host.runtime.events()) {
-							if (signal.aborted) return;
+						for await (const event of host.runtime.events(signal)) {
 							// eslint-disable-next-line no-await-in-loop -- events render in order.
 							await onEvent(event);
 						}
 					},
 				});
 	try {
-		await host.runtime.start();
-		await host.runtime.tickOnce();
+		await host.runtime.runOnce();
 	} finally {
-		await host.shutdown();
-		await events?.done;
+		try {
+			await host.shutdown();
+		} finally {
+			await events?.done;
+		}
 	}
 };
 
-/** Serve the session protocol over JSONL stdio: the loop registry children run. */
+/** Serve the session protocol over bounded JSONL stdio. */
 export const serveSessionStdio = async (
 	options: ServeSessionStdioOptions,
 ): Promise<void> => {
 	const host = await createProtocolSessionHost(options);
+	let writeChain = Promise.resolve();
+	const writeLine = (line: string): Promise<void> => {
+		writeChain = writeChain.then(() => options.writeLine(line));
+		return writeChain;
+	};
+	const writeBoundaryError = (error: unknown): Promise<void> => {
+		const boundary = toProtocolBoundaryError(error);
+		return writeLine(
+			encodeServerRecordLine(
+				makeError({
+					code: boundary.code,
+					message: boundary.message,
+					details: boundary.details,
+				}),
+				host.limits,
+			),
+		);
+	};
 	const outputDone = (async () => {
 		for await (const record of host.protocol.output())
-			await options.writeLine(encodeServerRecordLine(record));
+			await writeLine(encodeServerRecordLine(record, host.limits));
 	})();
 	try {
-		await options.writeLine(
-			encodeServerRecordLine(await host.protocol.welcome()),
+		await writeLine(
+			encodeServerRecordLine(await host.protocol.welcome(), host.limits),
 		);
-		const decoder = new TextDecoder();
-		let buffer = "";
-		for await (const chunk of options.stdin) {
-			buffer += typeof chunk === "string" ? chunk : decoder.decode(chunk);
-			for (;;) {
-				const index = buffer.indexOf("\n");
-				if (index === -1) break;
-				const line = buffer.slice(0, index).trim();
-				buffer = buffer.slice(index + 1);
-				if (line !== "") {
-					// eslint-disable-next-line no-await-in-loop -- stdin protocol requests are submitted in order.
-					await host.protocol.submit(decodeClientRequestLine(line));
+		try {
+			for await (const line of jsonlLines(options.stdin, {
+				maxLineBytes: host.limits.maxInputLineBytes,
+			})) {
+				if (line.trim() === "") continue;
+				try {
+					// eslint-disable-next-line no-await-in-loop -- protocol requests are submitted in order.
+					await host.protocol.submit(
+						decodeClientRequestLine(line, host.limits),
+					);
+				} catch (error) {
+					// eslint-disable-next-line no-await-in-loop -- boundary failures preserve output ordering.
+					await writeBoundaryError(error);
 				}
 			}
+		} catch (error) {
+			await writeBoundaryError(error);
 		}
 	} finally {
-		await host.shutdown();
-		await outputDone;
+		try {
+			await host.shutdown();
+		} finally {
+			await outputDone;
+		}
 	}
 };

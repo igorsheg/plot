@@ -136,7 +136,7 @@ These apply to `plot`, `plot open`, `plot run`, and `plot serve api --stdio`:
 
 - positional `[workflow]`: workflow file. Default: `WORKFLOW.md`.
 - `--workflow <path>`: explicit workflow file override.
-- `--session-id <id>`: stable Plot session id.
+- `--session-id <id>`: unique Plot session id. Use 1–128 letters, digits, dots, underscores, or hyphens, starting with a letter or digit. Plot rejects an existing session log rather than appending a second sequence.
 - `--cwd <path>`: project root for workflow execution and Plot state.
 - `--plot-dir <path>`: project-local Plot state directory.
 - `--agent-dir <path>`: agent auth/model state directory.

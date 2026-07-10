@@ -18,7 +18,7 @@ import {
 	type SessionRuntime,
 } from "./runtime.js";
 
-export const sessionProtocolVersion = "plot.session.v4";
+export const sessionProtocolVersion = "plot.session.v5";
 
 export const sessionProtocolMethods = [
 	"ping",
@@ -327,7 +327,9 @@ export const decodeServerRecord = (value: unknown): ServerRecord => {
 	});
 };
 
-const mapJsonlError = (error: unknown): ProtocolBoundaryError => {
+export const toProtocolBoundaryError = (
+	error: unknown,
+): ProtocolBoundaryError => {
 	if (error instanceof ProtocolBoundaryError) return error;
 	if (error instanceof JsonlBoundaryError) {
 		const boundary = new ProtocolBoundaryError({
@@ -359,7 +361,7 @@ export const encodeServerRecordLine = (
 	try {
 		return stringifyJsonl(record, { maxLineBytes: limits.maxOutputLineBytes });
 	} catch (error) {
-		throw mapJsonlError(error);
+		throw toProtocolBoundaryError(error);
 	}
 };
 
@@ -371,7 +373,7 @@ export const decodeClientRequestLine = (
 		assertInputLineSize(line, limits);
 		return decodeClientRequest(parseJsonl(line));
 	} catch (error) {
-		throw mapJsonlError(error);
+		throw toProtocolBoundaryError(error);
 	}
 };
 
@@ -383,14 +385,14 @@ export const decodeServerRecordLine = (
 		assertInputLineSize(line, limits);
 		return decodeServerRecord(parseJsonl(line));
 	} catch (error) {
-		throw mapJsonlError(error);
+		throw toProtocolBoundaryError(error);
 	}
 };
 
 export const makeWelcome = (input: {
 	readonly sessionId: string;
 	readonly limits: ProtocolLimits;
-}): ServerRecord => ({
+}): WelcomeRecord => ({
 	protocol: sessionProtocolVersion,
 	kind: "welcome",
 	sessionId: input.sessionId,
@@ -401,16 +403,8 @@ export const makeSuccess = (input: {
 	readonly request: ClientRequest;
 	readonly lastSequence?: number;
 	readonly data?: unknown;
-}): ServerRecord => {
-	const response: {
-		protocol: typeof sessionProtocolVersion;
-		kind: "response";
-		id: string;
-		method: SessionProtocolMethod;
-		ok: true;
-		lastSequence?: number;
-		data?: unknown;
-	} = {
+}): SuccessResponse => {
+	const response: Mutable<SuccessResponse> = {
 		protocol: sessionProtocolVersion,
 		kind: "response",
 		id: input.request.id,
@@ -428,21 +422,13 @@ export const makeError = (input: {
 	readonly code: ProtocolErrorCode;
 	readonly message: string;
 	readonly details?: unknown;
-}): ServerRecord => {
-	const error: { code: ProtocolErrorCode; message: string; details?: unknown } =
-		{
-			code: input.code,
-			message: input.message,
-		};
+}): ErrorResponse => {
+	const error: Mutable<ErrorResponse["error"]> = {
+		code: input.code,
+		message: input.message,
+	};
 	if (input.details !== undefined) error.details = input.details;
-	const response: {
-		protocol: typeof sessionProtocolVersion;
-		kind: "response";
-		id?: string;
-		method?: SessionProtocolMethod;
-		ok: false;
-		error: typeof error;
-	} = {
+	const response: Mutable<ErrorResponse> = {
 		protocol: sessionProtocolVersion,
 		kind: "response",
 		ok: false,
@@ -492,15 +478,7 @@ const decodeObservationParams = (params: unknown): OperatorObservationInput => {
 				message: `operator.observe requires a non-empty ${key}`,
 			});
 	}
-	const input: {
-		sourceId: string;
-		workKey: string;
-		actionId: string;
-		actionLabel: string;
-		comment?: string;
-		clientId?: string;
-		actor?: string;
-	} = {
+	const input: Mutable<OperatorObservationInput> = {
 		sourceId: params["sourceId"] as string,
 		workKey: params["workKey"] as string,
 		actionId: params["actionId"] as string,
@@ -549,7 +527,7 @@ interface QueuedRequest {
 const toErrorResponse = (
 	request: ClientRequest,
 	error: unknown,
-): ServerRecord => {
+): ErrorResponse => {
 	if (error instanceof ProtocolBoundaryError)
 		return makeError({
 			request,
@@ -564,133 +542,187 @@ const toErrorResponse = (
 	});
 };
 
-const publishResponse = (
-	output: AsyncQueue<ServerRecord>,
-	record: ServerRecord,
-): void => {
-	output.offer(record, { force: true });
-};
+type ResponseRecord = SuccessResponse | ErrorResponse;
 
-const publishEvent = (
-	output: AsyncQueue<ServerRecord>,
-	record: ServerRecord,
-): void => {
-	output.offer(record);
-};
+interface WaitingResponse {
+	readonly record: ResponseRecord;
+	readonly resolve: (accepted: boolean) => void;
+}
+
+class ProtocolOutput implements AsyncIterable<ServerRecord> {
+	private readonly records: ServerRecord[] = [];
+	private readonly readers: ((result: IteratorResult<ServerRecord>) => void)[] =
+		[];
+	private waitingResponse: WaitingResponse | undefined;
+	private closed = false;
+
+	constructor(
+		private readonly responseCapacity: number,
+		private readonly eventCapacity: number,
+	) {}
+
+	offerEvent(record: EventRecord): boolean {
+		if (this.closed) return false;
+		const reader = this.readers.shift();
+		if (reader !== undefined) {
+			reader({ value: record, done: false });
+			return true;
+		}
+		let eventCount = 0;
+		let oldestEventIndex = -1;
+		for (const [index, candidate] of this.records.entries()) {
+			if (candidate.kind !== "event") continue;
+			if (oldestEventIndex === -1) oldestEventIndex = index;
+			eventCount++;
+		}
+		if (eventCount >= this.eventCapacity)
+			this.records.splice(oldestEventIndex, 1);
+		this.records.push(record);
+		return true;
+	}
+
+	offerResponse(
+		record: ResponseRecord,
+		waitForCapacity = false,
+	): Promise<boolean> {
+		if (this.closed) return Promise.resolve(false);
+		const reader = this.readers.shift();
+		if (reader !== undefined) {
+			reader({ value: record, done: false });
+			return Promise.resolve(true);
+		}
+		if (this.responseCount() < this.responseCapacity) {
+			this.records.push(record);
+			return Promise.resolve(true);
+		}
+		if (!waitForCapacity || this.waitingResponse !== undefined)
+			return Promise.resolve(false);
+		return new Promise<boolean>((resolve) => {
+			this.waitingResponse = { record, resolve };
+		});
+	}
+
+	close(): void {
+		if (this.closed) return;
+		this.closed = true;
+		this.waitingResponse?.resolve(false);
+		this.waitingResponse = undefined;
+		if (this.records.length === 0)
+			for (const reader of this.readers.splice(0))
+				reader({ value: undefined, done: true });
+	}
+
+	private responseCount(): number {
+		return this.records.reduce(
+			(count, record) => count + (record.kind === "event" ? 0 : 1),
+			0,
+		);
+	}
+
+	private admitWaitingResponse(): void {
+		if (
+			this.closed ||
+			this.responseCount() >= this.responseCapacity ||
+			this.waitingResponse === undefined
+		)
+			return;
+		const waiting = this.waitingResponse;
+		this.waitingResponse = undefined;
+		this.records.push(waiting.record);
+		waiting.resolve(true);
+	}
+
+	private take(): Promise<IteratorResult<ServerRecord>> {
+		const record = this.records.shift();
+		if (record !== undefined) {
+			this.admitWaitingResponse();
+			return Promise.resolve({ value: record, done: false });
+		}
+		if (this.closed) return Promise.resolve({ value: undefined, done: true });
+		return new Promise((resolve) => this.readers.push(resolve));
+	}
+
+	[Symbol.asyncIterator](): AsyncIterator<ServerRecord> {
+		return { next: () => this.take() };
+	}
+}
 
 export const makeSessionProtocol = (
 	options: SessionProtocolOptions,
 ): SessionProtocol => {
 	const limits = options.limits ?? defaultProtocolLimits;
-	const output = new AsyncQueue<ServerRecord>({
-		capacity: limits.maxBufferedEvents + limits.maxPendingRequests,
-		overflow: "drop-oldest",
-	});
+	const output = new ProtocolOutput(
+		limits.maxPendingRequests,
+		limits.maxBufferedEvents,
+	);
 	const requests = new AsyncQueue<QueuedRequest>({
 		capacity: limits.maxPendingRequests,
 		overflow: "reject",
 	});
 	let closed = false;
 
+	const success = async (
+		request: ClientRequest,
+		data: unknown,
+	): Promise<SuccessResponse> =>
+		makeSuccess({
+			request,
+			lastSequence: await options.runtime.lastEventSequence(),
+			data,
+		});
 	const handleRequest = async (
 		request: ClientRequest,
-	): Promise<ServerRecord> => {
+	): Promise<ResponseRecord> => {
 		switch (request.method) {
 			case "ping":
 				return makeSuccess({ request, data: { pong: true } });
 			case "session.start":
 				await options.runtime.start();
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: { started: true },
-				});
+				return success(request, { started: true });
 			case "session.shutdown": {
 				const accepted = await (options.shutdown ?? options.runtime.shutdown)();
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: { accepted },
-				});
+				return success(request, { accepted });
 			}
 			case "session.snapshot":
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: await options.runtime.state(),
-				});
+				return success(request, await options.runtime.state());
 			case "scheduler.snapshot":
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: await options.runtime.schedulerSnapshot(),
-				});
+				return success(request, await options.runtime.schedulerSnapshot());
 			case "work.list": {
 				const snapshot = await options.runtime.schedulerSnapshot();
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: { work: snapshot.work },
-				});
+				return success(request, { work: snapshot.work });
 			}
 			case "work.get": {
 				const params = decodeWorkGetParams(request.params);
 				const snapshot = await options.runtime.schedulerSnapshot();
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: {
-						work: snapshot.work.find((work) => work.workKey === params.workKey),
-					},
-				});
+				const work = snapshot.work.find(
+					(candidate) => candidate.workKey === params.workKey,
+				);
+				return success(request, { work });
 			}
 			case "attempt.list": {
 				const snapshot = await options.runtime.schedulerSnapshot();
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: { attempts: snapshot.running },
-				});
+				return success(request, { attempts: snapshot.running });
 			}
-			case "session.tick":
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: { result: await options.runtime.tickOnce() },
-				});
+			case "session.tick": {
+				const result = await options.runtime.tickOnce();
+				return success(request, { result });
+			}
 			case "session.dispatch.pause":
 				await options.runtime.pauseDispatch();
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: { paused: true },
-				});
+				return success(request, { paused: true });
 			case "session.dispatch.resume":
 				await options.runtime.resumeDispatch();
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: { resumed: true },
-				});
+				return success(request, { resumed: true });
 			case "operator.observe": {
 				const params = decodeObservationParams(request.params);
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: {
-						accepted: await options.runtime.recordOperatorObservation(params),
-					},
-				});
+				const accepted =
+					await options.runtime.recordOperatorObservation(params);
+				return success(request, { accepted });
 			}
 			case "agent.interrupt": {
 				const params = decodeInterruptParams(request.params);
-				return makeSuccess({
-					request,
-					lastSequence: await options.runtime.lastEventSequence(),
-					data: {
-						accepted: await options.runtime.interruptAgentRun(params),
-					},
-				});
+				const accepted = await options.runtime.interruptAgentRun(params);
+				return success(request, { accepted });
 			}
 		}
 	};
@@ -698,14 +730,12 @@ export const makeSessionProtocol = (
 	const eventPump = startOwnedTask({
 		name: "session.protocol.events",
 		run: async (signal) => {
-			for await (const event of options.runtime.events()) {
-				if (signal.aborted) return;
-				publishEvent(output, {
+			for await (const event of options.runtime.events(signal))
+				output.offerEvent({
 					protocol: sessionProtocolVersion,
 					kind: "event",
 					event,
 				});
-			}
 		},
 	});
 
@@ -720,12 +750,31 @@ export const makeSessionProtocol = (
 				} catch {
 					return;
 				}
+				let resolveAbort!: () => void;
+				const onAbort = () => resolveAbort();
+				const aborted = new Promise<void>((resolve) => {
+					resolveAbort = resolve;
+					if (signal.aborted) resolve();
+					else signal.addEventListener("abort", onAbort, { once: true });
+				});
+				const handled = handleRequest(queued.request)
+					.catch((error) => toErrorResponse(queued.request, error))
+					.then((record) => ({ type: "record" as const, record }));
 				// eslint-disable-next-line no-await-in-loop -- each response belongs to the current queued request.
-				const record = await handleRequest(queued.request).catch((error) =>
-					toErrorResponse(queued.request, error),
+				const result = await Promise.race([
+					handled,
+					aborted.then(() => ({ type: "aborted" as const })),
+				]);
+				signal.removeEventListener("abort", onAbort);
+				if (result.type === "aborted") {
+					queued.resolve(false);
+					return;
+				}
+				// eslint-disable-next-line no-await-in-loop -- response backpressure bounds the protocol output.
+				const published = await output.offerResponse(result.record, true);
+				queued.resolve(
+					published && result.record.kind === "response" && result.record.ok,
 				);
-				publishResponse(output, record);
-				queued.resolve(record.kind === "response" && record.ok);
 			}
 		},
 	});
@@ -740,27 +789,30 @@ export const makeSessionProtocol = (
 		submit: async (request) => {
 			if (closed) return false;
 			return new Promise<boolean>((resolve) => {
-				const accepted = requests.offer({ request, resolve });
-				if (accepted) return;
-				publishResponse(
-					output,
-					makeError({
-						request,
-						code: "request_queue_full",
-						message: "protocol request queue is full",
-					}),
-				);
-				resolve(false);
+				if (requests.offer({ request, resolve })) return;
+				void output
+					.offerResponse(
+						makeError({
+							request,
+							code: "request_queue_full",
+							message: "protocol request queue is full",
+						}),
+					)
+					.then(() => resolve(false));
 			});
 		},
 		output: () => output,
 		close: async () => {
 			if (closed) return;
 			closed = true;
+			for (const queued of requests.drain()) queued.resolve(false);
 			requests.close();
-			await Promise.all(tasks.map((task) => task.stop()));
-			output.close();
-			await done;
+			for (const task of tasks) task.stop();
+			try {
+				await done;
+			} finally {
+				output.close();
+			}
 		},
 		done,
 	};

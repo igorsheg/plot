@@ -9,7 +9,8 @@ const workflowArgs = {
 	},
 	"session-id": {
 		type: "string",
-		description: "Stable Plot session id.",
+		description:
+			"Unique Plot session id (letters, digits, dot, underscore, hyphen).",
 		valueHint: "id",
 	},
 } satisfies ArgsDef;

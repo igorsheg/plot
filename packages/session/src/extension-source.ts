@@ -33,19 +33,14 @@ import {
 	validateExtensionWork,
 } from "./extension-loader.js";
 
-const sanitizeIdentifier = (value: string): string => {
-	const sanitized = value.replace(/[^A-Za-z0-9._:-]/g, "_");
-	return sanitized.length === 0 ? "extension" : sanitized;
-};
-
 export const sourceIdForExtension = (extension: PlotExtension): string =>
-	`extension:${sanitizeIdentifier(extension.id)}`;
+	`extension:${encodeURIComponent(extension.id)}`;
 
 export const workKeyForExtensionWork = (
 	extension: PlotExtension,
 	work: PlotExtensionWork,
 ): string =>
-	`extension:${extension.id}:${work.id}:${work.version ?? "unversioned"}`;
+	`extension:${JSON.stringify([extension.id, work.id, work.version ?? null])}`;
 
 export const discoveredFactKey = (source: string) =>
 	`extension.discovered:${source}`;
@@ -63,19 +58,26 @@ export const toSubject = (work: PlotExtensionWork) => work.subject ?? work.id;
 
 const validateExtensionWorks = (
 	value: unknown,
-	source: string | undefined,
+	extension: PlotExtension,
+	source: string,
 ): readonly PlotExtensionWork[] => {
 	try {
 		if (!Array.isArray(value))
 			throw new Error("discover must return an array of work items");
-		return (value as PlotExtensionWork[]).map(validateExtensionWork);
+		const works = (value as PlotExtensionWork[]).map(validateExtensionWork);
+		const keys = new Set<string>();
+		for (const work of works) {
+			const key = workKeyForExtensionWork(extension, work);
+			if (keys.has(key)) throw new Error(`duplicate discovered work: ${key}`);
+			keys.add(key);
+		}
+		return works;
 	} catch (error) {
-		const input: { phase: "discover"; message: string; source?: string } = {
+		throw new PlotExtensionSourceError({
 			phase: "discover",
 			message: errorMessage(error),
-		};
-		if (source !== undefined) input.source = source;
-		throw new PlotExtensionSourceError(input);
+			source,
+		});
 	}
 };
 
@@ -137,15 +139,17 @@ export const templateContextForWork = (
 };
 
 export const discover = async (input: {
+	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
 	readonly source: string;
 	readonly signal: AbortSignal;
 }): Promise<readonly PlotExtensionWork[]> =>
 	validateExtensionWorks(
-		await runMaybePromise("discover", String(input.source), () =>
+		await runMaybePromise("discover", input.source, () =>
 			input.runtime.discover({ signal: input.signal }),
 		),
-		String(input.source),
+		input.extension,
+		input.source,
 	);
 
 export const invokeOperatorActionHook = async (
@@ -246,16 +250,19 @@ export const makePlotExtensionSourceBundle = (options: {
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
 	const selectedWork = new Map<string, PlotExtensionWork>();
+	const activeRuns = new Map<string, PlotExtensionWork>();
 	const workSource: WorkSource = {
 		id: source,
-		...(options.maxConcurrentRuns === undefined
-			? {}
-			: { policy: { maxConcurrentRuns: options.maxConcurrentRuns } }),
 		observeTick: async ({ signal }) => [
 			{
 				type: "plot.extension.discovered",
-				subject: String(source),
-				data: await discover({ runtime: options.runtime, source, signal }),
+				subject: source,
+				data: await discover({
+					extension: options.extension,
+					runtime: options.runtime,
+					source,
+					signal,
+				}),
 			},
 		],
 		reconcile: async ({ snapshot }) => {
@@ -267,13 +274,14 @@ export const makePlotExtensionSourceBundle = (options: {
 			const latestDiscovery = snapshot.observations.findLast(
 				(observation) =>
 					observation.type === "plot.extension.discovered" &&
-					observation.subject === String(source),
+					observation.subject === source,
 			);
 			const shouldWriteDiscoveredFact = latestDiscovery !== undefined;
 			if (latestDiscovery !== undefined)
 				discoveredWorks = validateExtensionWorks(
 					latestDiscovery.data,
-					String(source),
+					options.extension,
+					source,
 				);
 			// Cancelled work is the one discovery state that interrupts a running
 			// attempt. It never reaches the stored fact or the work board.
@@ -335,10 +343,17 @@ export const makePlotExtensionSourceBundle = (options: {
 					delete retryState[String(completion.workKey)];
 					retryChanged = true;
 				}
-				const work = selectedWork.get(completion.workKey);
+				const work =
+					selectedWork.get(completion.workKey) ??
+					activeRuns.get(completion.runId);
 				if (work === undefined) continue;
 				completionHooks.push(
-					invokeCompletionHook(options.runtime, source, work, completion),
+					invokeCompletionHook(options.runtime, source, work, completion).then(
+						() => {
+							activeRuns.delete(completion.runId);
+							return undefined;
+						},
+					),
 				);
 				if (
 					!discoveredWorks.some(
@@ -525,6 +540,9 @@ export const makePlotExtensionSourceBundle = (options: {
 			);
 		},
 	};
+	if (options.maxConcurrentRuns !== undefined)
+		workSource.policy = { maxConcurrentRuns: options.maxConcurrentRuns };
+	let shutdownPromise: Promise<void> | undefined;
 	return {
 		source: workSource,
 		workFor: (context) => selectedWork.get(context.work.workKey),
@@ -551,16 +569,13 @@ export const makePlotExtensionSourceBundle = (options: {
 		wrapRunner: (runner) => ({
 			run: async (context: WorkRunnerContext) => {
 				const work = selectedWork.get(context.work.workKey);
-				// Workspace creation failure is fatal to the attempt, mirroring
-				// Symphony's workspace-preparation contract.
+				const runId = String(context.run.runId);
+				if (work !== undefined) activeRuns.set(runId, work);
 				if (work?.workspace !== undefined)
 					await mkdir(work.workspace, { recursive: true });
 				if (work !== undefined) {
 					try {
-						await options.runtime.started?.({
-							work,
-							runId: String(context.run.runId),
-						});
+						await options.runtime.started?.({ work, runId });
 					} catch (error) {
 						await logHookError(error, "started", source);
 					}
@@ -568,13 +583,25 @@ export const makePlotExtensionSourceBundle = (options: {
 				return runner.run(context);
 			},
 		}),
-		shutdown: async () => {
-			const controller = new AbortController();
-			try {
-				await options.runtime.shutdown?.({ signal: controller.signal });
-			} catch (error) {
-				await logHookError(error, "shutdown", source);
-			}
+		shutdown: () => {
+			shutdownPromise ??= (async () => {
+				const interrupted = [...activeRuns].map(([runId, work]) =>
+					invokeCompletionHook(options.runtime, source, work, {
+						runId,
+						sourceId: source,
+						workKey: workKeyForExtensionWork(options.extension, work),
+						status: "interrupted",
+					}),
+				);
+				await Promise.all(interrupted);
+				activeRuns.clear();
+				try {
+					await options.runtime.shutdown?.();
+				} catch (error) {
+					await logHookError(error, "shutdown", source);
+				}
+			})();
+			return shutdownPromise;
 		},
 	};
 };
@@ -586,21 +613,21 @@ export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 }): Promise<PlotExtensionSourceBundle> => {
 	const { extension, runtime, tools, config } =
 		await loadPlotExtensionRuntimeFromWorkflow(options);
-	return makePlotExtensionSourceBundle({
+	const bundleOptions: Mutable<
+		Parameters<typeof makePlotExtensionSourceBundle>[0]
+	> = {
 		extension,
 		runtime,
 		workflow: options.workflow,
 		paths: options.paths,
 		config,
 		tools,
-		...(options.onWorkReleased === undefined
-			? {}
-			: { onWorkReleased: options.onWorkReleased }),
-		...(options.workflow.runtime.extension?.maxConcurrentRuns === undefined
-			? {}
-			: {
-					maxConcurrentRuns:
-						options.workflow.runtime.extension.maxConcurrentRuns,
-				}),
-	});
+	};
+	if (options.onWorkReleased !== undefined)
+		bundleOptions.onWorkReleased = options.onWorkReleased;
+	const maxConcurrentRuns =
+		options.workflow.runtime.extension?.maxConcurrentRuns;
+	if (maxConcurrentRuns !== undefined)
+		bundleOptions.maxConcurrentRuns = maxConcurrentRuns;
+	return makePlotExtensionSourceBundle(bundleOptions);
 };

@@ -176,6 +176,50 @@ test("runtime writes durable session events before closing", async () => {
 	);
 });
 
+test("tickOnce waits until its durable events establish the sequence fence", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-session-fence-"));
+	const runtime = makeSessionRuntime({
+		id: "session-fence",
+		sources: [],
+		runner,
+		sessionFile: join(dir, "session-fence.jsonl"),
+	});
+
+	await runtime.tickOnce();
+
+	expect(await runtime.lastEventSequence()).toBe(2);
+	await runtime.shutdown();
+});
+
+test("runtime starts once and rejects operations after shutdown", async () => {
+	const runtime = makeSessionRuntime({
+		id: "session-lifecycle",
+		sources: [],
+		runner,
+	});
+	const seen: string[] = [];
+	const collector = (async () => {
+		for await (const record of runtime.events())
+			if (record.kind === "session_event") seen.push(record.event.type);
+	})();
+
+	await runtime.start();
+	await runtime.start();
+	await runtime.shutdown();
+	await collector;
+
+	expect(seen.filter((type) => type === "session_started")).toHaveLength(1);
+	await expect(runtime.start()).rejects.toThrow("closed");
+	await expect(
+		runtime.appendAgentEvent({
+			sourceId: "source",
+			runId: "run",
+			workKey: "work",
+			event: {},
+		}),
+	).rejects.toThrow("closed");
+});
+
 test("runtime shutdown publishes shutdown and is idempotent", async () => {
 	const runtime = makeSessionRuntime({
 		id: "session-1",

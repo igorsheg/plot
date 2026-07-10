@@ -24,6 +24,9 @@ import type { WorkflowRuntimeConfig } from "./workflow.js";
 type AgentConfig = NonNullable<WorkflowRuntimeConfig["agent"]>;
 type ResourcesConfig = NonNullable<WorkflowRuntimeConfig["resources"]>;
 type AgentToolMode = NonNullable<AgentConfig["noTools"]>;
+type ResourceLoaderOptions = NonNullable<
+	Parameters<typeof createAgentSessionServices>[0]["resourceLoaderOptions"]
+>;
 
 export interface AgentSessionOverrides {
 	readonly provider?: string;
@@ -219,7 +222,7 @@ const resourceOptions = (
 	resources: ResourcesConfig,
 	overrides: AgentSessionOverrides | undefined,
 ) => {
-	return {
+	const options: Mutable<ResourceLoaderOptions> = {
 		additionalSkillPaths: withDefaultResourcePath(
 			paths.skillsDir,
 			paths,
@@ -235,13 +238,12 @@ const resourceOptions = (
 		noSkills: overrides?.noSkills ?? false,
 		noPromptTemplates: overrides?.noPromptTemplates ?? false,
 		noContextFiles: resources.contextFiles === false,
-		...(resources.systemPrompt === undefined
-			? {}
-			: { systemPrompt: resources.systemPrompt }),
-		...(resources.appendSystemPrompt === undefined
-			? {}
-			: { appendSystemPrompt: [...resources.appendSystemPrompt] }),
 	};
+	if (resources.systemPrompt !== undefined)
+		options.systemPrompt = resources.systemPrompt;
+	if (resources.appendSystemPrompt !== undefined)
+		options.appendSystemPrompt = [...resources.appendSystemPrompt];
+	return options;
 };
 
 export const makeCreatePiAgentSession = (

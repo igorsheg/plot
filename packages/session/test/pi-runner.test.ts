@@ -25,6 +25,7 @@ class FakePiSession implements PiAgentSessionPort {
 			steering: [],
 			followUp: [],
 		},
+		private readonly eventCount = 1,
 	) {}
 
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void {
@@ -34,7 +35,8 @@ class FakePiSession implements PiAgentSessionPort {
 
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
 		this.prompts.push({ text, ...(options === undefined ? {} : { options }) });
-		for (const listener of this.listeners) listener(this.event);
+		for (let index = 0; index < this.eventCount; index++)
+			for (const listener of this.listeners) listener(this.event);
 	}
 
 	dispose(): void {
@@ -57,11 +59,12 @@ const context = (
 		readonly signal?: AbortSignal;
 		readonly shouldContinue?: WorkRunnerContext["shouldContinue"];
 		readonly emitObservation?: WorkRunnerContext["emitObservation"];
+		readonly reportActivity?: WorkRunnerContext["reportActivity"];
 	} = {},
 ): WorkRunnerContext => {
 	const source = "source";
 	const key = "work-1";
-	return {
+	const result: WorkRunnerContext = {
 		sourceId: source,
 		tickId: 1,
 		run: { runId: "run-1", sourceId: source, workKey: key },
@@ -69,16 +72,17 @@ const context = (
 		snapshot,
 		signal: input.signal ?? new AbortController().signal,
 		emitObservation: input.emitObservation ?? (async () => true),
-		...(input.shouldContinue === undefined
-			? {}
-			: { shouldContinue: input.shouldContinue }),
+		reportActivity: input.reportActivity ?? (() => {}),
 	};
+	if (input.shouldContinue !== undefined)
+		result.shouldContinue = input.shouldContinue;
+	return result;
 };
 
 test("pi runner renders prompt, streams events, and disposes", async () => {
 	const session = new FakePiSession();
 	const events: AgentSessionEvent[] = [];
-	let observations = 0;
+	let activityReports = 0;
 	const runner = makePiWorkRunner({
 		createAgentSession: async () => ({ session }),
 		prompt: "Hello {{ name }}",
@@ -90,9 +94,8 @@ test("pi runner renders prompt, streams events, and disposes", async () => {
 
 	await runner.run(
 		context({
-			emitObservation: async () => {
-				observations++;
-				return true;
+			reportActivity: () => {
+				activityReports++;
 			},
 		}),
 	);
@@ -101,8 +104,30 @@ test("pi runner renders prompt, streams events, and disposes", async () => {
 		{ text: "Hello Ada", options: { expandPromptTemplates: false } },
 	]);
 	expect(events.map((event) => event["type"])).toEqual(["queue_update"]);
-	expect(observations).toBe(1);
+	expect(activityReports).toBe(1);
 	expect(session.disposed).toBe(true);
+});
+
+test("pi runner reports every streamed event as activity", async () => {
+	const session = new FakePiSession(
+		{ type: "queue_update", steering: [], followUp: [] },
+		3,
+	);
+	let activityReports = 0;
+	const runner = makePiWorkRunner({
+		createAgentSession: async () => ({ session }),
+		prompt: "Start",
+	});
+
+	await runner.run(
+		context({
+			reportActivity: () => {
+				activityReports++;
+			},
+		}),
+	);
+
+	expect(activityReports).toBe(3);
 });
 
 test("pi runner validates continuation turn bounds", async () => {

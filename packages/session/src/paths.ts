@@ -18,10 +18,19 @@ export interface SessionPathOptions {
 	readonly sessionDir?: string;
 }
 
+const sessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+export const validateSessionId = (sessionId: string): string => {
+	if (sessionIdPattern.test(sessionId)) return sessionId;
+	throw new Error(
+		"session id must be 1-128 letters, digits, dots, underscores, or hyphens and start with a letter or digit",
+	);
+};
+
 export const sessionEventLogPath = (
 	sessionDir: string,
 	sessionId: string,
-): string => resolve(sessionDir, `${sessionId}.jsonl`);
+): string => join(sessionDir, `${validateSessionId(sessionId)}.jsonl`);
 export const resolveSessionPaths = (
 	options: SessionPathOptions,
 ): SessionPaths => {

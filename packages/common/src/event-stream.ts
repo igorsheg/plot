@@ -53,13 +53,24 @@ export class EventHub<T> {
 		for (const subscriber of this.subscribers) subscriber.offer(event);
 	}
 
-	subscribe(): AsyncIterable<T> {
+	subscribe(signal?: AbortSignal): AsyncIterable<T> {
 		const subscriber = new AsyncQueue<T>({
 			capacity: this.capacity,
 			overflow: "drop-oldest",
 		});
-		this.subscribers.add(subscriber);
-		const unsubscribe = () => this.subscribers.delete(subscriber);
+		const abort = () => {
+			subscriber.close();
+			this.subscribers.delete(subscriber);
+		};
+		if (this.closed || signal?.aborted) subscriber.close();
+		else {
+			this.subscribers.add(subscriber);
+			signal?.addEventListener("abort", abort, { once: true });
+		}
+		const unsubscribe = () => {
+			this.subscribers.delete(subscriber);
+			signal?.removeEventListener("abort", abort);
+		};
 		return {
 			[Symbol.asyncIterator]: async function* () {
 				try {

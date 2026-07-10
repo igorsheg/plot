@@ -1,7 +1,7 @@
 import { basename, resolve } from "node:path";
 import { setFact } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
-import { isPositiveInteger } from "@plot/common/primitives";
+import { isPositiveInteger, type Mutable } from "@plot/common/primitives";
 import { createSessionId } from "./runtime.js";
 import {
 	makeCreatePiAgentSession,
@@ -112,10 +112,16 @@ const makeOneShotWorkflowSource = (
 const shutdownHostParts = async (
 	parts: readonly SessionHostPart[],
 ): Promise<void> => {
+	let failure: unknown;
 	for (const part of parts.toReversed()) {
-		// eslint-disable-next-line no-await-in-loop -- shutdown order is reverse construction order.
-		await part.shutdown?.();
+		try {
+			// eslint-disable-next-line no-await-in-loop -- shutdown order is reverse construction order.
+			await part.shutdown?.();
+		} catch (error) {
+			failure ??= error;
+		}
 	}
+	if (failure !== undefined) throw failure;
 };
 
 const makeProtocolLimits = (input: {
@@ -148,12 +154,12 @@ export const createSessionHost = async (
 	options: CreateSessionHostOptions,
 ): Promise<SessionHost> => {
 	const paths = resolveSessionPaths(options);
-	const workflow = await loadDiscoveredWorkflow({
-		cwd: paths.cwd,
-		...(options.workflowPath === undefined
-			? {}
-			: { workflowPath: resolve(paths.cwd, options.workflowPath) }),
-	});
+	const discoveryOptions: Mutable<
+		Parameters<typeof loadDiscoveredWorkflow>[0]
+	> = { cwd: paths.cwd };
+	if (options.workflowPath !== undefined)
+		discoveryOptions.workflowPath = resolve(paths.cwd, options.workflowPath);
+	const workflow = await loadDiscoveredWorkflow(discoveryOptions);
 	const plot = workflow.runtime.plot;
 	const requestQueueCapacity = positiveInteger(
 		options.requestQueueCapacity ?? plot?.queueCapacity ?? 64,
@@ -173,15 +179,13 @@ export const createSessionHost = async (
 	const sources = extensionBundle
 		? [extensionBundle.source]
 		: [makeOneShotWorkflowSource(workflow)];
+	const factoryOptions: Mutable<
+		Parameters<typeof makeCreatePiAgentSession>[0]
+	> = { workflow, paths };
+	if (options.agentSessionOverrides !== undefined)
+		factoryOptions.overrides = options.agentSessionOverrides;
 	const createAgentSession =
-		options.createAgentSession ??
-		makeCreatePiAgentSession({
-			workflow,
-			paths,
-			...(options.agentSessionOverrides === undefined
-				? {}
-				: { overrides: options.agentSessionOverrides }),
-		});
+		options.createAgentSession ?? makeCreatePiAgentSession(factoryOptions);
 	let runtime: SessionRuntime;
 	const runner = makePiWorkRunner({
 		createAgentSession,
@@ -218,13 +222,17 @@ export const createSessionHost = async (
 			cwd: metadata.cwd,
 			cwdName: metadata.cwdName,
 			sessionDir: metadata.sessionDir,
-			sessionFile,
 		},
 		sessionFile,
 		eventCapacity,
 		agent: agentOptions,
 	};
-	runtime = makeSessionRuntime(runtimeOptions);
+	try {
+		runtime = makeSessionRuntime(runtimeOptions);
+	} catch (error) {
+		await extensionBundle?.shutdown();
+		throw error;
+	}
 	const parts: SessionHostPart[] = [];
 	if (extensionBundle !== undefined)
 		parts.push({ shutdown: () => extensionBundle.shutdown() });
@@ -274,8 +282,11 @@ export const createProtocolSessionHost = async (
 		limits,
 		protocol,
 		shutdown: async () => {
-			await host.shutdown();
-			await protocol.close();
+			try {
+				await host.shutdown();
+			} finally {
+				await protocol.close();
+			}
 		},
 	};
 };

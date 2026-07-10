@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { isRecord, type Mutable } from "@plot/common/primitives";
+import { hasErrnoCode, isRecord, type Mutable } from "@plot/common/primitives";
 import { jsonlLines, parseJsonl } from "@plot/common/jsonl";
 
 /** One display block of an Agent Transcript, flattened from pi's session store. */
@@ -61,11 +61,12 @@ const blockEntry = (
 export const readAgentTranscript = async (
 	path: string,
 ): Promise<readonly TranscriptEntry[]> => {
-	const exists = await stat(path).then(
-		() => true,
-		() => false,
-	);
-	if (!exists) return [];
+	try {
+		await stat(path);
+	} catch (error) {
+		if (hasErrnoCode(error, "ENOENT")) return [];
+		throw error;
+	}
 	const entries: TranscriptEntry[] = [];
 	const stream = createReadStream(path);
 	try {

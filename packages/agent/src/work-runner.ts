@@ -14,6 +14,7 @@ export interface WorkRunnerContext {
 	snapshot: RuntimeSnapshot;
 	signal: AbortSignal;
 	emitObservation: (observation: Observation) => boolean | Promise<boolean>;
+	reportActivity: () => void;
 	shouldContinue?: (turnNumber: number) => boolean | Promise<boolean>;
 }
 

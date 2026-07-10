@@ -30,6 +30,13 @@ const workflow: WorkflowDefinition = {
 	prompt: "Review {{ repo }} #{{ prNumber }} with {{ workflow.name }}.",
 };
 
+const workKey = (
+	extensionId: string,
+	workId: string,
+	version?: string,
+): string =>
+	`extension:${JSON.stringify([extensionId, workId, version ?? null])}`;
+
 const paths: SessionPaths = {
 	cwd: "/repo",
 	plotDir: "/repo/.plot",
@@ -130,6 +137,59 @@ describe("extension source adapter", () => {
 		expect(result.diagnostics[0]?.message).toContain("id");
 	});
 
+	test("work identity encodes id and version without delimiter collisions", async () => {
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "identity", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [
+					{ id: "a:b", version: "c" },
+					{ id: "a", version: "b:c" },
+					{ id: "without-version" },
+					{ id: "without-version", version: "unversioned" },
+				],
+			},
+		});
+		const agent = makePlotAgent({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+
+		const result = await agent.tickOnce();
+
+		expect(new Set(result.started.map((run) => run.workKey)).size).toBe(4);
+		await agent.shutdown();
+	});
+
+	test("rejects duplicate discovered work identities", async () => {
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "duplicates", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [
+					{ id: "same", version: "v1" },
+					{ id: "same", version: "v1" },
+				],
+			},
+		});
+		const agent = makePlotAgent({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+
+		const result = await agent.tickOnce();
+
+		expect(result.started).toHaveLength(0);
+		expect(result.diagnostics[0]?.message).toContain(
+			"duplicate discovered work",
+		);
+		await agent.shutdown();
+	});
+
 	test("waiting work stays visible without dispatch", async () => {
 		let runs = 0;
 		const bundle = makePlotExtensionSourceBundle({
@@ -165,10 +225,12 @@ describe("extension source adapter", () => {
 		expect(first.started).toHaveLength(0);
 		expect(second.started).toHaveLength(0);
 		expect(runs).toBe(0);
-		expect(snapshot.work.get("extension:waiting:work:1:v1")).toMatchObject({
-			status: "waiting",
-			blockedReason: "reviewed at this head",
-		});
+		expect(snapshot.work.get(workKey("waiting", "work:1", "v1"))).toMatchObject(
+			{
+				status: "waiting",
+				blockedReason: "reviewed at this head",
+			},
+		);
 	});
 
 	test("superseded versions drain; blocked work holds claim without redispatch", async () => {
@@ -203,7 +265,10 @@ describe("extension source adapter", () => {
 		});
 		const runner: WorkRunner = bundle.wrapRunner({
 			run: async ({ work }) => {
-				if (String(work.workKey).endsWith(":sha-1")) {
+				if (
+					work.workKey ===
+					workKey("github-pr-reviewer", "github:acme/web:pr:42", "sha-1")
+				) {
 					firstStarted.resolve();
 					return { output: await releaseFirst.promise };
 				}
@@ -230,19 +295,27 @@ describe("extension source adapter", () => {
 
 		expect(first.started).toEqual([
 			expect.objectContaining({
-				workKey: "extension:github-pr-reviewer:github:acme/web:pr:42:sha-1",
+				workKey: workKey(
+					"github-pr-reviewer",
+					"github:acme/web:pr:42",
+					"sha-1",
+				),
 			}),
 		]);
 		expect(second.started).toHaveLength(0);
 		expect(third.started).toEqual([
 			expect.objectContaining({
-				workKey: "extension:github-pr-reviewer:github:acme/web:pr:42:sha-2",
+				workKey: workKey(
+					"github-pr-reviewer",
+					"github:acme/web:pr:42",
+					"sha-2",
+				),
 			}),
 		]);
 		expect(fourth.started).toHaveLength(0);
 		expect(
 			snapshot.work.get(
-				"extension:github-pr-reviewer:github:acme/web:pr:42:sha-2",
+				workKey("github-pr-reviewer", "github:acme/web:pr:42", "sha-2"),
 			),
 		).toMatchObject({ status: "blocked", blockedReason: "waiting" });
 	});
@@ -274,7 +347,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgent({ sources: [bundle.source], runner });
-		const key = "extension:drain:work:1:v1";
+		const key = workKey("drain", "work:1", "v1");
 
 		const first = await agent.tickOnce();
 		await started.promise;
@@ -327,7 +400,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgent({ sources: [bundle.source], runner });
-		const key = "extension:cancel:work:1:v1";
+		const key = workKey("cancel", "work:1", "v1");
 
 		const first = await agent.tickOnce();
 		await started.promise;
@@ -348,6 +421,41 @@ describe("extension source adapter", () => {
 		expect(lifecycle).toEqual(["interrupted:work:1"]);
 	});
 
+	test("shutdown delivers interrupted hooks for active extension runs", async () => {
+		const started = deferred<void>();
+		const interrupted: string[] = [];
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "shutdown", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => [{ id: "work:1", version: "v1" }],
+				interrupted: ({ work, runId }) => {
+					interrupted.push(`${work.id}:${runId}`);
+				},
+			},
+		});
+		const runner = bundle.wrapRunner({
+			run: ({ signal }) =>
+				new Promise((_, reject) => {
+					started.resolve();
+					signal.addEventListener("abort", () => reject(new Error("aborted")), {
+						once: true,
+					});
+				}),
+		});
+		const agent = makePlotAgent({ sources: [bundle.source], runner });
+
+		await agent.tickOnce();
+		await started.promise;
+		await agent.shutdown();
+		await bundle.shutdown();
+
+		expect(interrupted).toHaveLength(1);
+		expect(interrupted[0]).toMatch(/^work:1:run-/);
+	});
+
 	test("failed runs hold redispatch behind exponential retry backoff", async () => {
 		let runs = 0;
 		const bundle = makePlotExtensionSourceBundle({
@@ -366,7 +474,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgent({ sources: [bundle.source], runner });
-		const key = "extension:retry:work:1:v1";
+		const key = workKey("retry", "work:1", "v1");
 
 		const first = await agent.tickOnce();
 		await new Promise((resolve) => setTimeout(resolve, 0));
@@ -476,7 +584,7 @@ describe("extension source adapter", () => {
 			},
 		});
 		const agent = makePlotAgent({ sources: [bundle.source], runner });
-		const key = "extension:poll:work:1:v1";
+		const key = workKey("poll", "work:1", "v1");
 
 		await agent.tickOnce();
 		await started.promise;

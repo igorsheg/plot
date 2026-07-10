@@ -1,19 +1,22 @@
-import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, open, stat, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import { hasErrnoCode, isRecord } from "@plot/common/primitives";
 import type { RuntimeEvent } from "./runtime.js";
+
+const historyLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
 
 /** Replay a session-owned durable event log. Missing files are empty logs. */
 export async function* readSessionEvents(
 	path: string,
 ): AsyncIterable<RuntimeEvent> {
-	const exists = await stat(path).then(
-		() => true,
-		() => false,
-	);
-	if (!exists) return;
+	try {
+		await stat(path);
+	} catch (error) {
+		if (hasErrnoCode(error, "ENOENT")) return;
+		throw error;
+	}
 	const stream = createReadStream(path);
 	try {
 		for await (const line of jsonlLines(stream, historyLimits)) {
@@ -24,8 +27,7 @@ export async function* readSessionEvents(
 			} catch {
 				continue;
 			}
-			if (!isRuntimeEvent(record)) continue;
-			yield record;
+			if (isRuntimeEvent(record)) yield record;
 		}
 	} finally {
 		stream.close();
@@ -57,61 +59,56 @@ const isRuntimeEvent = (record: unknown): record is RuntimeEvent => {
 	if (record["kind"] !== "session_event" && record["kind"] !== "agent_event")
 		return false;
 	if (typeof record["sessionId"] !== "string") return false;
-	if (typeof record["sequence"] !== "number") return false;
+	if (
+		typeof record["sequence"] !== "number" ||
+		!Number.isInteger(record["sequence"]) ||
+		record["sequence"] < 1
+	)
+		return false;
 	if (typeof record["timestamp"] !== "string") return false;
 	if (!isRecord(record["event"])) return false;
 	return true;
 };
 
-const historyLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
-
 export interface SessionEventLogWriter {
 	readonly append: (event: RuntimeEvent) => Promise<void>;
 	readonly close: () => Promise<void>;
-	readonly lastError: () => string | undefined;
 }
 
+/** Create a new durable log. Existing paths are rejected rather than resumed. */
 export const createSessionEventLogWriter = (
 	path: string,
 ): SessionEventLogWriter => {
-	let stream: WriteStream | undefined;
-	let pending: Promise<void> = Promise.resolve();
-	let lastError: string | undefined;
-	const recordError = (error: unknown): void => {
-		lastError = errorMessage(error);
-		stream = undefined;
+	let file: FileHandle | undefined;
+	let pending = Promise.resolve();
+	let closed = false;
+	const getFile = async (): Promise<FileHandle> => {
+		if (file !== undefined) return file;
+		await mkdir(dirname(path), { recursive: true });
+		file = await open(path, "wx", 0o600);
+		return file;
 	};
 	return {
 		append: (event) => {
+			if (closed)
+				return Promise.reject(new Error("session event log is closed"));
 			if (!shouldWriteSessionEvent(event)) return pending;
-			pending = pending
-				.then(async () => {
-					if (stream === undefined) {
-						await mkdir(dirname(path), { recursive: true });
-						stream = createWriteStream(path, { flags: "a" });
-						stream.on("error", recordError);
-					}
-					const target = stream;
-					if (target === undefined) return;
-					const line = stringifyJsonl(event, historyLimits);
-					await new Promise<void>((resolve, reject) => {
-						target.write(line, (error?: Error | null) => {
-							if (error == null) resolve();
-							else reject(error);
-						});
-					});
-					return undefined;
-				})
-				.catch(recordError);
+			pending = pending.then(async () => {
+				const target = await getFile();
+				await target.writeFile(stringifyJsonl(event, historyLimits));
+				return undefined;
+			});
 			return pending;
 		},
 		close: async () => {
-			await pending.catch(recordError);
-			const target = stream;
-			if (target === undefined) return;
-			await new Promise<void>((resolve) => target.end(resolve));
-			stream = undefined;
+			if (closed) return pending;
+			closed = true;
+			try {
+				await pending;
+			} finally {
+				await file?.close();
+				file = undefined;
+			}
 		},
-		lastError: () => lastError,
 	};
 };

@@ -348,10 +348,14 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 		signal: AbortSignal,
 	) => {
 		const startedAt = Date.now();
-		const emitObservation = async (observation: Observation) => {
-			if (signal.aborted || stoppingOrStopped()) return false;
+		const reportActivity = () => {
+			if (signal.aborted || stoppingOrStopped()) return;
 			lastActivityAt.set(run.runId, Date.now());
 			scheduleStallTimer(run);
+		};
+		const emitObservation = async (observation: Observation) => {
+			if (signal.aborted || stoppingOrStopped()) return false;
+			reportActivity();
 			return mailbox.offer({
 				type: "observation",
 				observation:
@@ -381,6 +385,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 				snapshot: runSnapshot,
 				signal,
 				emitObservation,
+				reportActivity,
 			};
 			if (shouldContinue !== undefined) context.shouldContinue = shouldContinue;
 			const result = await runner.run(context);

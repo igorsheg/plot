@@ -886,6 +886,31 @@ describe("task-agnostic Plot agent", () => {
 		await agent.tickOnce();
 	});
 
+	test("reported activity keeps a run alive without mailbox observations", async () => {
+		const key = "reported-activity:1";
+		const source: WorkSource = {
+			id: "reported-activity",
+			selectWork: ({ snapshot }) =>
+				snapshot.running.has(key) ? [] : [{ workKey: key }],
+		};
+		const runner: WorkRunner = {
+			run: async ({ reportActivity, signal }) => {
+				for (;;) {
+					if (signal.aborted) return {};
+					reportActivity();
+					// eslint-disable-next-line no-await-in-loop -- activity cadence is sequential by design.
+					await new Promise((resolve) => setTimeout(resolve, 2));
+				}
+			},
+		};
+		const agent = makeAgent([source], runner, { stallTimeoutMs: 10 });
+		await agent.tickOnce();
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		const second = await agent.tickOnce();
+		expect(second.snapshot.running.has(key)).toBe(true);
+		await agent.shutdown();
+	});
+
 	test("tick result records why selected work was not started", async () => {
 		const slow = "skip:slow";
 		const other = "skip:other";

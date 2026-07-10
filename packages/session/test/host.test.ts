@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { makeCreatePiAgentSession } from "../src/pi-session.js";
 import { createProtocolSessionHost, createSessionHost } from "../src/host.js";
-import { resolveSessionPaths } from "../src/paths.js";
+import { resolveSessionPaths, sessionEventLogPath } from "../src/paths.js";
 import type {
 	PiAgentSessionPort,
 	PiAgentSessionRunOptions,
@@ -86,6 +86,15 @@ const makeTempDir = async () => {
 };
 
 describe("host composition", () => {
+	test("session event paths reject unsafe session ids", () => {
+		expect(() => sessionEventLogPath("/tmp/sessions", "../escape")).toThrow(
+			"session id",
+		);
+		expect(() => sessionEventLogPath("/tmp/sessions", "nested/id")).toThrow(
+			"session id",
+		);
+	});
+
 	afterEach(async () => {
 		const { rm } = await import("node:fs/promises");
 		await Promise.all(

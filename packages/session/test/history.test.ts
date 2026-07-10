@@ -13,7 +13,21 @@ const event = (): RuntimeEvent => ({
 	event: { type: "session_started" },
 });
 
-test("session event log writer exposes durable write failures", async () => {
+test("session event log writer rejects existing logs", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-history-existing-"));
+	const path = join(dir, "events.jsonl");
+	const first = createSessionEventLogWriter(path);
+	await first.append(event());
+	await first.close();
+
+	const second = createSessionEventLogWriter(path);
+	await expect(second.append(event())).rejects.toMatchObject({
+		code: "EEXIST",
+	});
+	await expect(second.close()).rejects.toMatchObject({ code: "EEXIST" });
+});
+
+test("session event log writer rejects durable write failures", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "plot-history-"));
 	const notDirectory = join(dir, "file");
 	await writeFile(notDirectory, "not a directory");
@@ -21,8 +35,6 @@ test("session event log writer exposes durable write failures", async () => {
 		join(notDirectory, "events.jsonl"),
 	);
 
-	await writer.append(event());
-	await writer.close();
-
-	expect(typeof writer.lastError()).toBe("string");
+	await expect(writer.append(event())).rejects.toBeInstanceOf(Error);
+	await expect(writer.close()).rejects.toBeInstanceOf(Error);
 });

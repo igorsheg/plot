@@ -1,5 +1,8 @@
 import { dirname, isAbsolute, resolve } from "node:path";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { createJiti } from "jiti/static";
 import { logWideEvent } from "@plot/common/observability";
 import { errorMessage, isRecord, type Mutable } from "@plot/common/primitives";
@@ -13,6 +16,7 @@ import type {
 	PlotJsonSchema,
 	PlotToolContext,
 	PlotToolDefinition,
+	PlotToolExecutionContext,
 } from "@plot/sdk";
 import * as plotSdk from "@plot/sdk";
 import type { WorkflowDefinition } from "./workflow.js";
@@ -185,46 +189,47 @@ const normalizeToolArguments = (
 		return normalized;
 	}
 	if (schema.type === "array" && Array.isArray(value)) {
-		if (schema.items === undefined) return value;
-		return value.map((item) => normalizeToolArguments(schema.items!, item));
+		const items = schema.items;
+		if (items === undefined) return value;
+		return value.map((item) => normalizeToolArguments(items, item));
 	}
 	return value;
 };
 
 const toPiToolDefinition = (
 	tool: PlotToolDefinition,
-): ToolDefinition<never, unknown> => ({
-	name: tool.name,
-	label: tool.label,
-	description: tool.description,
-	parameters: tool.parameters as never,
-	prepareArguments: (args) =>
-		normalizeToolArguments(tool.parameters, args) as never,
-	...(tool.promptSnippet === undefined
-		? {}
-		: { promptSnippet: tool.promptSnippet }),
-	...(tool.promptGuidelines === undefined
-		? {}
-		: { promptGuidelines: [...tool.promptGuidelines] }),
-	...(tool.executionMode === undefined
-		? {}
-		: { executionMode: tool.executionMode }),
-	execute: async (_toolCallId, params, signal) => {
-		const context = signal === undefined ? {} : { signal };
-		const normalizedParams = normalizeToolArguments(tool.parameters, params);
-		const result = await tool.execute(
-			normalizedParams as Record<string, unknown>,
-			context,
-		);
-		return {
-			content: [...result.content],
-			details: result.details,
-			...(result.terminate === undefined
-				? {}
-				: { terminate: result.terminate }),
-		};
-	},
-});
+): ToolDefinition<never, unknown> => {
+	const definition: Mutable<ToolDefinition<never, unknown>> = {
+		name: tool.name,
+		label: tool.label,
+		description: tool.description,
+		parameters: tool.parameters as never,
+		prepareArguments: (args) =>
+			normalizeToolArguments(tool.parameters, args) as never,
+		execute: async (_toolCallId, params, signal) => {
+			const executionContext: Mutable<PlotToolExecutionContext> = {};
+			if (signal !== undefined) executionContext.signal = signal;
+			const normalizedParams = normalizeToolArguments(tool.parameters, params);
+			const result = await tool.execute(
+				normalizedParams as Record<string, unknown>,
+				executionContext,
+			);
+			const output: AgentToolResult<unknown> = {
+				content: [...result.content],
+				details: result.details,
+			};
+			if (result.terminate !== undefined) output.terminate = result.terminate;
+			return output;
+		},
+	};
+	if (tool.promptSnippet !== undefined)
+		definition.promptSnippet = tool.promptSnippet;
+	if (tool.promptGuidelines !== undefined)
+		definition.promptGuidelines = [...tool.promptGuidelines];
+	if (tool.executionMode !== undefined)
+		definition.executionMode = tool.executionMode;
+	return definition;
+};
 
 export const resolveToolDefinitions = async (options: {
 	readonly tools: readonly PlotExtensionTool[];
