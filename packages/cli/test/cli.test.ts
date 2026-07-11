@@ -164,16 +164,11 @@ describe("plot CLI", () => {
 		expect(output).toContain("plot api schema");
 		expect(output).not.toContain("plot ls");
 		expect(output).toContain("plot docs cli");
-		expect(output).toContain('from "plot-ai/sdk"');
-		expect(output).toContain("definePlotExtension");
-		expect(output).toContain("defineTool");
-		expect(output).toContain('label: "Mark complete"');
-		expect(output).toContain("async discover");
-		expect(output).toContain(
-			"pending | waiting | blocked | cancelled | absent",
-		);
-		expect(output).toContain("throw on discovery failure");
-		expect(output).toContain("plot docs extension-prompt");
+		expect(output).toContain("FOR CODING AGENTS");
+		expect(output).toContain("plot docs guide");
+		expect(output).toContain("plot docs sdk");
+		expect(output).toContain("plot docs --paths");
+		expect(output).toContain("plot doctor WORKFLOW.md");
 		expect(output).not.toContain("--request-queue-capacity");
 	});
 
@@ -587,7 +582,7 @@ describe("plot CLI", () => {
 		const output = stdout.join("");
 		expect(output).toContain("# Plot");
 		expect(output).toContain("Two ways to run");
-		expect(output).toContain("plot docs extension-prompt");
+		expect(output).toContain("docs guide");
 	});
 
 	test("prints web docs", async () => {
@@ -618,9 +613,28 @@ describe("plot CLI", () => {
 		expect(output).toContain("plot runs show <run-id>");
 	});
 
-	test("prints bundled extension author docs", async () => {
+	test("prints the agent guide, including through the legacy topic name", async () => {
+		for (const topic of ["guide", "extension-prompt"]) {
+			const stdout: string[] = [];
+			// eslint-disable-next-line no-await-in-loop -- sequential CLI invocations share process io state.
+			await runPlotCli(["docs", topic], {
+				stdin: chunks([]),
+				writeStdout: (line) => {
+					stdout.push(line);
+				},
+			});
+
+			const output = stdout.join("");
+			expect(output).toContain("# Agent guide: build a Plot extension");
+			expect(output).toContain("plot docs sdk");
+			expect(output).toContain("plot-ai/sdk");
+			expect(output).toContain("## User goal");
+		}
+	});
+
+	test("prints the sdk reference", async () => {
 		const stdout: string[] = [];
-		await runPlotCli(["docs", "extension-prompt"], {
+		await runPlotCli(["docs", "sdk"], {
 			stdin: chunks([]),
 			writeStdout: (line) => {
 				stdout.push(line);
@@ -628,9 +642,25 @@ describe("plot CLI", () => {
 		});
 
 		const output = stdout.join("");
-		expect(output).toContain("plot-ai/sdk");
 		expect(output).toContain("definePlotExtension");
-		expect(output).toContain("Do not import Plot internals");
+		expect(output).toContain("DiscoveryUnavailableError");
+		expect(output).toContain("OperatorAction");
+	});
+
+	test("prints on-disk docs paths", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["docs", "--paths"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("docs:");
+		expect(output).toContain("examples:");
+		expect(output).toContain("sdk:");
+		expect(output).not.toContain("(not found)");
 	});
 
 	test("run output renders only the last assistant message content", () => {

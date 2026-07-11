@@ -24,6 +24,7 @@
 	"files": [
 		"bin",
 		"docs",
+		"examples",
 		"lib",
 		"postinstall.mjs",
 		"README.md"

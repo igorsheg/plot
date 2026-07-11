@@ -1,6 +1,11 @@
 import { defineCommand } from "citty";
 import { getCliIo } from "../cli-context.js";
-import { isDocName, readExtensionPrompt, readPlotDoc } from "../docs.js";
+import {
+	isDocName,
+	readPlotDoc,
+	readSdkReference,
+	renderDocsPaths,
+} from "../docs.js";
 
 const docsIndex = `Plot docs
 
@@ -12,8 +17,10 @@ Start here:
   plot docs web
   plot docs cli
 
-For LLM-assisted extension authoring:
-  plot docs extension-prompt
+For coding agents building an extension:
+  plot docs guide      authoring brief
+  plot docs sdk        typed extension contract (sdk.d.ts)
+  plot docs --paths    on-disk locations of docs, examples, and sdk
 `;
 
 export const docsCommand = defineCommand({
@@ -25,19 +32,31 @@ export const docsCommand = defineCommand({
 		topic: {
 			type: "positional",
 			description:
-				"index|quickstart|workflows|extensions|tui|web|cli|extension-prompt",
+				"index|quickstart|guide|workflows|extensions|sdk|tui|web|cli",
 			required: false,
+		},
+		paths: {
+			type: "boolean",
+			description:
+				"Print on-disk locations of shipped docs, examples, and SDK declarations",
+			default: false,
 		},
 	},
 	async run({ args }) {
 		const io = getCliIo();
-		const topic = typeof args.topic === "string" ? args.topic : undefined;
-		if (topic === undefined) {
+		if (args.paths === true) {
+			await io.writeStdout(renderDocsPaths());
+			return;
+		}
+		const requested = typeof args.topic === "string" ? args.topic : undefined;
+		if (requested === undefined) {
 			await io.writeStdout(await readPlotDoc("index"));
 			return;
 		}
-		if (topic === "extension-prompt") {
-			await io.writeStdout(await readExtensionPrompt());
+		// Renamed topic; the old name stays routable.
+		const topic = requested === "extension-prompt" ? "guide" : requested;
+		if (topic === "sdk") {
+			await io.writeStdout(await readSdkReference());
 			return;
 		}
 		if (isDocName(topic)) {

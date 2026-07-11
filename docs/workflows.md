@@ -1,11 +1,10 @@
 # Workflows
 
-A Workflow is Markdown with optional YAML front matter. Front matter configures Plot and the Agent Session; the Markdown body is the prompt template.
+A Workflow is Markdown with optional YAML front matter: the front matter configures Plot and the Agent Session, the Markdown body is the prompt template. It is the one file a Plot Session starts from.
 
-## Execution modes
+Without `extension`, Plot runs one synthetic Work Item (`workflow:default`) once. With `extension`, trusted TypeScript discovers versioned Work Items — see [Extensions](extensions.md).
 
-- Without `extension`, Plot runs one synthetic Work Item (`workflow:default`) once.
-- With `extension`, trusted TypeScript discovers versioned Work Items and may register tools.
+A complete source-driven example:
 
 ```md
 ---
@@ -37,9 +36,9 @@ Pull request: {{ pr.number }}
 Inspect the change and its callers. Use `post_review` only after verification.
 ```
 
-Use the top-level form above. Plot also accepts these five keys under one `runtime` mapping, but do not mix runtime forms: when `runtime` exists, it is the runtime configuration source. Other top-level front-matter keys are allowed as user data and remain available under `workflow`; unknown fields inside `runtime`, `plot`, `agent`, `resources`, or `extension` are rejected.
+Use this top-level form. Plot also accepts the five config keys under one `runtime` mapping, but never mix the two forms: when `runtime` exists, it is the runtime configuration source. Other top-level keys are allowed as user data and stay available under `workflow`; unknown fields _inside_ `runtime`, `plot`, `agent`, `resources`, or `extension` are rejected.
 
-## Complete front-matter contract
+## Front-matter reference
 
 Positive numeric fields must be positive integers.
 
@@ -58,9 +57,9 @@ Optional human-readable Workflow name shown in run metadata and dashboards.
 | `excludeTools`       | string[]                                              | Tools removed from the Agent Session.                                                          |
 | `noTools`            | boolean, `all`, or `builtin`                          | Disable all tools or only built-in tools.                                                      |
 | `allowProjectConfig` | boolean                                               | Trust project agent configuration without an interactive prompt.                               |
-| `maxTurns`           | positive integer                                      | Maximum high-level turns in one Agent Run. Default: `20`. This is not a wall-clock timeout.    |
+| `maxTurns`           | positive integer                                      | Maximum high-level turns in one Agent Run. Default: `20`. Not a wall-clock timeout.            |
 
-Registered extension tools enter the Agent Session as custom tools. Tool selection flags are Agent Session policy; Sources do not grant tools step by step.
+Registered extension tools enter the Agent Session as custom tools. Tool selection is Agent Session policy; extensions do not grant tools step by step.
 
 ### `extension`
 
@@ -83,8 +82,6 @@ The module must export a Plot extension as `default` or as named export `extensi
 | `eventCapacity`       | positive integer | In-memory retained RuntimeEvent capacity. Default: `256`. Durable JSONL is separate.                      |
 | `eventBufferCapacity` | positive integer | Buffered protocol event-record capacity. Default: `1024`.                                                 |
 
-Failed and timed-out source work is retried by Source policy with exponential backoff. The current extension adapter uses 10 seconds, doubling to a five-minute cap.
-
 ### `resources`
 
 | Field                | Type     | Meaning                                                                |
@@ -103,33 +100,19 @@ Plot renders the Markdown body with Eta using `{{ ... }}` interpolation, no HTML
 
 Always available:
 
-```ts
-{
-  workflow: /* complete parsed front matter */,
-  work: {
-    id,
-    version?,
-    title?,
-    url?,
-    subject?,
-    workspace?,
-    display?,
-    operatorActions?,
-  }
-}
+```txt
+workflow   complete parsed front matter
+work       id, version?, title?, url?, subject?, workspace?,
+           display?, operatorActions?
 ```
 
-If `work.context` is an object, its fields are merged at prompt top level:
-
-```ts
-context: { repository: "acme/web", pr: { number: 42 } }
-```
+If `work.context` is an object, its fields merge into the template top level:
 
 ```md
 Review {{ repository }} pull request #{{ pr.number }}.
 ```
 
-If `work.context` is not an object, it is available as `{{ value }}`. Keep context compact and factual. Put investigation strategy and quality criteria in the prompt, not in discovery code.
+If `work.context` is not an object, it is available as `{{ value }}`. Keep context compact and factual; investigation strategy and quality criteria belong in the prompt body, not in discovery code.
 
 ## Configuration precedence
 
@@ -140,7 +123,7 @@ For provider/model/thinking defaults:
 3. project `.plot/settings.json`
 4. global `~/.plot/settings.json`
 
-Workflow and CLI resource options are resolved separately as described above. `--api-key` is runtime-only and requires a resolved provider from Workflow `agent.provider`, `--provider`, or `--model provider/model`.
+`--api-key` is runtime-only and requires a resolved provider from Workflow `agent.provider`, `--provider`, or `--model provider/model`.
 
 ## Paths and durability
 
@@ -161,4 +144,4 @@ plot open WORKFLOW.md
 plot run WORKFLOW.md
 ```
 
-`plot doctor` validates Workflow parsing and checks that at least one provider is authenticated. It does not load the extension or prove that a selected model exists. See [Extensions](extensions.md) for the Source and tool contracts.
+`plot doctor` validates Workflow parsing and checks that at least one provider is authenticated. It does not load the extension or prove that a selected model exists.

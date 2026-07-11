@@ -5,6 +5,7 @@
 			"items": [
 				{ "title": "Overview", "path": "index.md" },
 				{ "title": "Quickstart", "path": "quickstart.md" },
+				{ "title": "Agent guide", "path": "guide.md" },
 				{ "title": "Workflows", "path": "workflows.md" },
 				{ "title": "Extensions", "path": "extensions.md" },
 				{ "title": "CLI", "path": "cli.md" },

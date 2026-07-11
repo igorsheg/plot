@@ -9,3 +9,5 @@ pre-commit:
       run: bun run lint
     typecheck:
       run: bun run typecheck
+    docs:
+      run: bun run check:docs

@@ -40,15 +40,17 @@ Raw RuntimeEvents remain available in debug mode and through `plot events`/`plot
 Extensions may provide generic `display` hints:
 
 ```ts
-display: {
-  kind: "pull-request",
-  primary: "#42",
-  title: "Fix checkout totals",
-  subtitle: "acme/web · main...feature",
-  url: "https://github.com/acme/web/pull/42",
-  version: "abc1234",
-  labels: ["fresh"],
-}
+import type { WorkDisplay } from "plot-ai/sdk";
+
+const display: WorkDisplay = {
+	kind: "pull-request",
+	primary: "#42",
+	title: "Fix checkout totals",
+	subtitle: "acme/web · main...feature",
+	url: "https://github.com/acme/web/pull/42",
+	version: "abc1234",
+	labels: ["fresh"],
+};
 ```
 
 These fields have no scheduling semantics. Extensions cannot provide components, row renderers, keybindings, custom panels, or terminal drawing code. Domain meaning belongs in titles, labels, URLs, tool output, and agent prose; the TUI remains generic over Plot Work Items, Agent Runs, Sources, and RuntimeEvents.

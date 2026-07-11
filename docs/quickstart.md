@@ -1,39 +1,23 @@
 # Quickstart
 
-## Install or run without installing
+## Install and authenticate
 
 ```bash
-npm install -g plot-ai
-plot --help
+npm install -g plot-ai        # installs the `plot` binary
+plot auth login               # pick a provider interactively
+plot models                   # confirm the catalog is reachable
 ```
 
-Or use npm's package runner:
+(`npx plot-ai --help` works without installing.)
 
-```bash
-npx plot-ai --help
-```
-
-The npm package installs the `plot` binary for the current supported platform.
-
-## Authenticate an agent provider
-
-```bash
-plot auth
-plot auth login
-plot models
-```
-
-`plot auth` is shorthand for `plot auth status`. Login prompts for a provider when none is supplied.
-
-Optional defaults:
+Optional defaults, so Workflows don't need to name a model:
 
 ```bash
 plot config set defaultProvider openai-codex --global
 plot config set defaultModel gpt-5.5 --global
-plot config set defaultThinkingLevel high --global
 ```
 
-Global settings live at `~/.plot/settings.json`. Project overrides live at `.plot/settings.json`.
+Global settings live at `~/.plot/settings.json`; project overrides at `.plot/settings.json`.
 
 ## Run one task
 
@@ -43,67 +27,78 @@ plot init
 plot open WORKFLOW.md
 ```
 
-`plot init` creates a one-shot Workflow. Without an extension, Plot creates one synthetic Work Item, runs the Markdown prompt, records the Session, and stops after completion.
-
-Use `plot run WORKFLOW.md` for the same one-shot behavior without a dashboard.
+`plot init` writes a one-shot Workflow: no extension, one synthetic Work Item, the Markdown prompt runs once, the Session is recorded, done. `plot run WORKFLOW.md` does the same without a dashboard.
 
 ## Run discovered work
 
-Create `demo.extension.ts`:
+Source-driven Workflows are the real product: an extension observes an external system and every discovered item becomes scheduled agent work.
+
+**The fast path** — have your coding agent build it:
+
+```bash
+plot docs guide   # paste this brief into your agent with your use case
+```
+
+**The manual path** — a minimal pair. `todos.extension.ts` turns every `.todo` file in a directory into a Work Item; deleting the file completes it:
 
 ```ts
-import { definePlotExtension } from "plot-ai/sdk";
+import { readdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { definePlotExtension, defineTool } from "plot-ai/sdk";
 
-const completed = new Set<string>();
+const DIR = "./todos";
 
 export default definePlotExtension({
-	id: "demo",
-	create({ work }) {
+	id: "todo-files",
+	create({ work, registerTool }) {
+		registerTool(({ work: current }) =>
+			defineTool({
+				name: "mark_done",
+				label: "Mark done",
+				description: "Delete the selected .todo file when done.",
+				parameters: { type: "object", properties: {} },
+				execute: async () => {
+					await unlink(join(DIR, current.id)).catch(() => {});
+					return {
+						content: [{ type: "text", text: "done" }],
+						terminate: true,
+					};
+				},
+			}),
+		);
 		return {
 			async discover() {
-				if (completed.has("demo:hello")) return [];
-				return [
-					work({
-						id: "demo:hello",
-						version: "1",
-						title: "Write a greeting",
-						context: { audience: "Plot users" },
-						display: { primary: "demo", title: "Write a greeting" },
-					}),
-				];
-			},
-			completed({ work: finished }) {
-				completed.add(finished.id);
+				const names = await readdir(DIR);
+				return names
+					.filter((name) => name.endsWith(".todo"))
+					.map((name) => work({ id: name, title: `Complete ${name}` }));
 			},
 		};
 	},
 });
 ```
 
-Create `WORKFLOW.md`:
+`WORKFLOW.md`:
 
 ```md
 ---
-name: demo
-agent:
-  provider: openai-codex
-  model: gpt-5.5
-  maxTurns: 1
+name: todo-files
 extension:
-  source: ./demo.extension.ts
+  source: ./todos.extension.ts
+plot:
+  tickIntervalMs: 30000
 ---
 
-Complete {{ work.title }} for {{ audience }}.
+Complete the task described in ./todos/{{ work.id }}, then call `mark_done`.
 ```
 
-Validate and run:
-
 ```bash
+mkdir todos && echo "write a haiku about queues" > todos/haiku.todo
 plot doctor WORKFLOW.md
 plot open WORKFLOW.md
 ```
 
-This in-memory completion set is only a minimal example. Real extensions should derive work from an authoritative external system and make tools idempotent.
+Add another `.todo` file while it runs — the next tick discovers it. Note there is no completion bookkeeping anywhere: the directory is the state. That principle, applied to real systems, is the whole extension model — see [Extensions](extensions.md), and the shipped `examples/pr-review/` for a production-shaped GitHub reviewer.
 
 ## Choose an operator surface
 
@@ -117,8 +112,6 @@ plot events stream <run-id>   # durable replay then live JSONL
 
 ## Project state
 
-Defaults under the project root:
-
 ```txt
 .plot/settings.json    project provider/model defaults
 .plot/sessions/        durable Session RuntimeEvent JSONL
@@ -126,6 +119,6 @@ Defaults under the project root:
 .plot/prompts/         automatically searched prompt-template path
 ```
 
-Agent auth, models, and global settings default under `~/.plot/agent` and `~/.plot/settings.json`. Agent transcripts are separate from Plot's RuntimeEvent history.
+Agent auth and global settings default to `~/.plot/agent` and `~/.plot/settings.json`. Agent transcripts are separate from Plot's RuntimeEvent history.
 
-Next: [Workflows](workflows.md), then [Extensions](extensions.md).
+Next: [Workflows](workflows.md) for the front-matter contract, [Extensions](extensions.md) for the discovery semantics, or `plot docs guide` to hand the whole job to your agent.

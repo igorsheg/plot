@@ -49,3 +49,41 @@ export const getDocsDirs = (): readonly string[] => {
 		resolve(packageDir, "../../docs"),
 	];
 };
+
+export const getExamplesDirs = (): readonly string[] => {
+	const packageDir = getPackageDir();
+	return [
+		join(packageDir, "examples"),
+		resolve(packageDir, "../../plot-ai/examples"),
+		resolve(packageDir, "../../examples"),
+	];
+};
+
+export interface SdkReferenceCandidate {
+	readonly sdk: string;
+	readonly workContract: string;
+}
+
+const sdkReferenceCandidate = (
+	dir: string,
+	ext: string,
+): SdkReferenceCandidate => ({
+	sdk: join(dir, `sdk${ext}`),
+	workContract: join(dir, `work-contract${ext}`),
+});
+
+/**
+ * Candidate locations for the shipped SDK declarations, in resolution order:
+ * this package's lib, the sibling umbrella package's lib, then the repo
+ * workspace (source, then built output) for development checkouts.
+ */
+export const getSdkReferenceCandidates =
+	(): readonly SdkReferenceCandidate[] => {
+		const packageDir = getPackageDir();
+		return [
+			sdkReferenceCandidate(join(packageDir, "lib"), ".d.ts"),
+			sdkReferenceCandidate(resolve(packageDir, "../../plot-ai/lib"), ".d.ts"),
+			sdkReferenceCandidate(resolve(packageDir, "../sdk/src"), ".ts"),
+			sdkReferenceCandidate(resolve(packageDir, "../sdk/dist"), ".d.ts"),
+		];
+	};

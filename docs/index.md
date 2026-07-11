@@ -1,6 +1,6 @@
 # Plot
 
-Plot is a control plane for coding-agent work. Trusted TypeScript observes the world and defines safe integration tools; a Markdown Workflow teaches the agent how to investigate and decide; Plot owns scheduling, Agent Runs, durability, retries, and operator surfaces.
+Plot is a control plane for coding-agent work. You describe _what work exists_ in trusted TypeScript and _how to handle it_ in a Markdown prompt; Plot runs the loop — discovery, scheduling, one Agent Run per Work Item, retries, draining, durable history, and live dashboards for the human in charge.
 
 ```txt
 world -> Source/extension -> Work Item -> Plot scheduler -> Agent Run
@@ -9,21 +9,18 @@ world -> Source/extension -> Work Item -> Plot scheduler -> Agent Run
          integration tools <-------+       durable RuntimeEvents
 ```
 
+> Plot's docs are written for coding agents as much as for people. To build an integration, point your agent at `npx plot-ai docs guide` and describe your use case.
+
 ## Two ways to run
 
-### One-shot Workflow
-
-A Workflow without an `extension` creates one synthetic Work Item, runs the prompt, and stops after it completes. Use this for a single project task.
+**One-shot**: a `WORKFLOW.md` without an `extension` runs its prompt once as a single synthetic Work Item and stops.
 
 ```bash
 plot init
 plot open WORKFLOW.md
-# or: plot run WORKFLOW.md
 ```
 
-### Source-driven Workflow
-
-A Workflow with an `extension` repeatedly calls trusted TypeScript `discover()`. Each discovered item becomes versioned work. Use this for PR review, issue queues, CI failures, release operations, or any changing external system.
+**Source-driven**: a Workflow with an `extension` repeatedly discovers versioned Work Items from a changing system — every open PR, every failing CI job, every queued ticket.
 
 ```yaml
 extension:
@@ -33,29 +30,23 @@ extension:
 
 ## Ownership boundaries
 
-- **Extension/Source owns facts:** what exists, stable identity, revision, waiting/blocked/cancelled state, integration correctness, and idempotent side effects.
-- **Workflow prompt owns judgment:** how the agent investigates, what quality means, and when it should use registered tools.
-- **Plot owns control:** `tick -> reconcile -> act`, claims, concurrency, continuation, retry backoff, timeout/stall handling, shutdown, event ordering, and process lifecycle.
-- **Agent Session owns execution strategy:** reasoning, built-in tools, registered tools, and conversation state within an Agent Run.
-- **RuntimeEvents own replay:** dashboards and API projections reduce canonical events rather than reading scheduler internals.
+- **Extension owns facts** — what exists, stable identity, revision, held/blocked state, idempotent integration writes.
+- **Workflow prompt owns judgment** — how the agent investigates, what quality means, when to use which tool.
+- **Plot owns control** — `tick -> reconcile -> act`, claims, concurrency, retry backoff, timeouts, shutdown, event ordering.
+- **Agent Session owns execution** — reasoning, built-in tools, registered tools, conversation state.
 
-Extensions are trusted TypeScript, not sandboxed plugins. Import only the public SDK:
-
-```ts
-import { definePlotExtension, defineTool } from "plot-ai/sdk";
-```
+Extensions are trusted TypeScript, not sandboxed plugins, and import Plot symbols only from `plot-ai/sdk`.
 
 ## Documentation map
 
-- [Quickstart](quickstart.md) — install, authenticate, and run one-shot or source-driven work.
-- [Workflows](workflows.md) — complete front-matter and prompt contract.
-- [Extensions](extensions.md) — complete SDK, Work Item, discovery, tool, hook, and operator-action contract.
-- [CLI](cli.md) — commands, flags, JSON/JSONL behavior, and session protocol.
-- [TUI](tui.md) — live terminal control room and keys.
-- [Web](web.md) — durable browser projection, HTTP routes, and SSE continuation.
+| Read                        | When                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| [Quickstart](quickstart.md) | Install, authenticate, run your first Workflow.                                     |
+| [Agent guide](guide.md)     | You are (or are driving) a coding agent that should build an extension. Start here. |
+| [Extensions](extensions.md) | Semantics of discovery, identity, versions, tools, operator actions.                |
+| [Workflows](workflows.md)   | Complete `WORKFLOW.md` front-matter reference.                                      |
+| [CLI](cli.md)               | Commands, flags, JSON/JSONL behavior, session protocol.                             |
+| [TUI](tui.md)               | The live terminal control room.                                                     |
+| [Web](web.md)               | Browser dashboard, HTTP routes, SSE continuation.                                   |
 
-For an LLM-ready extension authoring brief:
-
-```bash
-plot docs extension-prompt
-```
+The typed extension contract is not a markdown page at all: `plot docs sdk` prints the SDK's TypeScript declarations, and `plot docs --paths` prints where docs, examples, and declarations live on disk. Complete working extensions ship with the package under `examples/`.

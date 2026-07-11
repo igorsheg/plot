@@ -25,7 +25,7 @@ const version = VERSION;
 
 const rootArgs = sessionCommandArgs;
 
-const subCommands = {
+export const subCommands = {
 	open: openCommand,
 	run: runCommand,
 	runs: runsCommand,
@@ -157,59 +157,15 @@ COMMANDS
   init, doctor                  Create and validate a Workflow
   docs, serve                   Read references or serve transports/daemons
 
-AUTHOR A SOURCE-DRIVEN EXTENSION
-  WORKFLOW.md:
-    ---
-    agent: { maxTurns: 1 }
-    extension: { source: ./queue.extension.ts }
-    ---
-    Complete {{ work.title }}. Call \`mark_complete\` only when done.
+FOR CODING AGENTS
+  This package ships its full documentation, the typed extension contract,
+  and complete example extensions. To build a Plot extension:
 
-  queue.extension.ts:
-    import { definePlotExtension, defineTool } from "plot-ai/sdk";
-
-    const done = new Set<string>();
-    export default definePlotExtension({
-      id: "queue",
-      create({ registerTool, work }) {
-        registerTool(({ work: current }) => defineTool({
-          name: "mark_complete",
-          label: "Mark complete",
-          description: "Mark the selected demo Work Item complete.",
-          parameters: { type: "object", properties: {} },
-          execute: async () => {
-            done.add(current.id);
-            return {
-              content: [{ type: "text", text: "Marked complete." }],
-              terminate: true,
-            };
-          },
-        }));
-        return {
-          async discover() {
-            return done.has("queue:1") ? [] : [work({
-              id: "queue:1",
-              version: "1",
-              title: "Handle queue item",
-              context: { repository: "acme/web" },
-            })];
-          },
-        };
-      },
-    });
-
-  CONTRACT
-    - Stable id = domain identity; version = revision/rerun trigger.
-    - Discovery states: pending | waiting | blocked | cancelled | absent.
-    - Return [] only when authoritative work is gone; throw on discovery failure.
-    - The extension owns facts and idempotent integration tools.
-    - The Workflow prompt owns agent judgment; Plot owns scheduling/retries.
-    - Tools require name, label, description, parameters, and execute.
-    - Import only from "plot-ai/sdk"; extensions are trusted, not sandboxed.
-
-  Validate with: plot doctor WORKFLOW.md
-  Full contract: plot docs extensions
-  LLM brief:     plot docs extension-prompt
+  plot docs guide               Authoring brief: read order, rules, checklist
+  plot docs sdk                 Typed contract (plot-ai/sdk declarations)
+  plot docs extensions          Discovery, identity, version, tool semantics
+  plot docs --paths             Where docs, examples, and sdk live on disk
+  plot doctor WORKFLOW.md       Validate what you built
 
 HELP
   plot help <command>            Show command details

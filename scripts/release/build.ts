@@ -53,6 +53,8 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 
 	chmodSync(join(binDir, "plot"), 0o755);
 	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), { recursive: true });
+	copyExamples(packageDir);
+	copySdkDeclarations(packageDir);
 
 	writeJson(join(packageDir, "package.json"), {
 		name: target.packageName,
@@ -69,7 +71,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 		bin: {
 			plot: "bin/plot",
 		},
-		files: ["bin", "docs", "package.json"],
+		files: ["bin", "docs", "examples", "lib", "package.json"],
 	});
 
 	await $`npm pack`.cwd(packageDir);
@@ -104,6 +106,7 @@ async function buildUmbrellaPackage() {
 	const readmeSrc = join(npmPackageDir, "README.md");
 	if (existsSync(readmeSrc)) cpSync(readmeSrc, join(packageDir, "README.md"));
 	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), { recursive: true });
+	copyExamples(packageDir);
 
 	writeJson(join(packageDir, "package.json"), {
 		name: "plot-ai",
@@ -123,6 +126,7 @@ async function buildUmbrellaPackage() {
 		files: [
 			"bin",
 			"docs",
+			"examples",
 			"lib",
 			"postinstall.mjs",
 			...(existsSync(readmeSrc) ? ["README.md"] : []),
@@ -135,6 +139,25 @@ async function buildUmbrellaPackage() {
 	});
 
 	await $`npm pack`.cwd(packageDir);
+}
+
+function copyExamples(packageDir: string) {
+	cpSync(join(repoDir, "examples"), join(packageDir, "examples"), {
+		recursive: true,
+		filter: (source) => !source.includes("node_modules"),
+	});
+}
+
+// The declarations double as the printed `plot docs sdk` reference, so the
+// platform packages ship them alongside the docs payload.
+function copySdkDeclarations(packageDir: string) {
+	const libDir = join(packageDir, "lib");
+	mkdirSync(libDir, { recursive: true });
+	cpSync(join(sdkPackageDir, "dist", "sdk.d.ts"), join(libDir, "sdk.d.ts"));
+	cpSync(
+		join(sdkPackageDir, "dist", "work-contract.d.ts"),
+		join(libDir, "work-contract.d.ts"),
+	);
 }
 
 function writeJson(path: string, data: unknown) {

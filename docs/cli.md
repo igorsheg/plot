@@ -28,7 +28,7 @@ plot models [search]                    provider/model catalog
 plot config [list|get|set]              project/global defaults
 plot init [workflow]                    create one-shot starter Workflow
 plot doctor [workflow]                  validate Workflow and auth readiness
-plot docs [topic]                       print bundled documentation
+plot docs [topic] [--paths]             print bundled documentation
 plot serve api [workflow]               HTTP gateway or stdio Session protocol
 plot serve registry                     run shared registry daemon
 ```
@@ -242,16 +242,22 @@ plot serve registry [--cwd <path>] [--registry-dir <path>]
 
 ## Bundled docs
 
+The package ships its documentation, the SDK type declarations, and complete example extensions. `plot docs` prints them; `plot docs --paths` prints where they live on disk so file-reading agents can open them directly.
+
 ```bash
 plot docs                         # index
 plot docs quickstart
+plot docs guide                   # agent brief for building an extension
 plot docs workflows
 plot docs extensions
+plot docs sdk                     # TypeScript declarations for plot-ai/sdk
 plot docs tui
 plot docs web
 plot docs cli
-plot docs extension-prompt       # LLM-ready SDK guide + user-goal placeholder
+plot docs --paths                 # on-disk locations of docs, examples, sdk
 ```
+
+`plot docs extension-prompt` remains as an alias for `plot docs guide`.
 
 Help routing:
 

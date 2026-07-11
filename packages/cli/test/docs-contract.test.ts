@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { PlotExtensionWorkStatus, PlotToolDefinition } from "@plot/sdk";
 import { sessionProtocolMethods } from "@plot/session/protocol";
@@ -7,7 +9,10 @@ import type {
 	WorkflowPlotConfig,
 	WorkflowResourcesConfig,
 } from "@plot/session/workflow";
-import { readPlotDoc } from "../src/docs.js";
+import { sessionCommandArgs } from "../src/args.js";
+import { subCommands } from "../src/cli.js";
+import { readPlotDoc, readSdkReference, renderDocsPaths } from "../src/docs.js";
+import { getExamplesDirs } from "../src/package.js";
 
 const plotFields = [
 	"tickIntervalMs",
@@ -127,6 +132,61 @@ describe("shipped documentation contracts", () => {
 	test("documents every public session protocol method", async () => {
 		const docs = await readPlotDoc("cli");
 		for (const method of sessionProtocolMethods) mentionsCode(docs, method);
+	});
+
+	test("documents every CLI command", async () => {
+		const docs = await readPlotDoc("cli");
+		for (const name of Object.keys(subCommands))
+			expect(docs).toContain(`plot ${name}`);
+	});
+
+	test("documents every session command flag", async () => {
+		const docs = await readPlotDoc("cli");
+		for (const key of Object.keys(sessionCommandArgs))
+			expect(docs).toContain(`--${key}`);
+	});
+
+	test("documents every bundled docs topic", async () => {
+		const docs = await readPlotDoc("cli");
+		for (const topic of [
+			"quickstart",
+			"guide",
+			"workflows",
+			"extensions",
+			"sdk",
+			"tui",
+			"web",
+			"cli",
+		])
+			expect(docs).toContain(`plot docs ${topic}`);
+		expect(docs).toContain("plot docs --paths");
+	});
+
+	test("ships the sdk reference the docs point at", async () => {
+		const reference = await readSdkReference();
+		for (const symbol of [
+			"definePlotExtension",
+			"defineTool",
+			"DiscoveryUnavailableError",
+			"PlotExtensionWork",
+			"OperatorAction",
+		])
+			expect(reference).toContain(symbol);
+		expect(renderDocsPaths()).not.toContain("(not found)");
+	});
+
+	test("every example directory named in the docs exists", async () => {
+		const examplesDir = getExamplesDirs().find((dir) => existsSync(dir));
+		expect(examplesDir).toBeDefined();
+		const named = new Set<string>();
+		const topics = ["index", "quickstart", "guide", "extensions"] as const;
+		const pages = await Promise.all(topics.map((topic) => readPlotDoc(topic)));
+		for (const docs of pages)
+			for (const match of docs.matchAll(/`examples\/([a-z0-9-]+)\/`?/g))
+				named.add(match[1]!);
+		expect(named.size).toBeGreaterThan(0);
+		for (const name of named)
+			expect(existsSync(join(examplesDir!, name))).toBe(true);
 	});
 
 	test("documents every HTTP route exposed by the web gateway", async () => {
