@@ -172,7 +172,7 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("--request-queue-capacity");
 	});
 
-	test("setup resolves extension requirements through scoped credentials", async () => {
+	test("setup refreshes readiness after an action satisfies shared requirements", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "plot-cli-setup-"));
 		tempDirs.push(dir);
 		const workflowPath = join(dir, "WORKFLOW.md");
@@ -186,16 +186,16 @@ describe("plot CLI", () => {
 export default definePlotExtension({
   id: "setup-test",
   create: () => ({
-    requirements: [{
-      id: "config",
-      label: "Configuration",
+    requirements: ["config", "access"].map((id) => ({
+      id,
+      label: id,
       async check({ credentials }) {
         return await credentials.get("ready")
           ? { status: "ready" }
           : { status: "action-required", message: "Configure", actions: [{ id: "configure", label: "Configure" }] };
       },
       async action({ credentials }) { await credentials.set("ready", true); }
-    }],
+    })),
     discover: () => []
   })
 });

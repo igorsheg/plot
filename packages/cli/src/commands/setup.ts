@@ -81,8 +81,12 @@ export const setupCommand = defineCommand({
 				);
 				return;
 			}
-			for (const requirement of source.requirements) {
-				if (requirement.status !== "action-required") continue;
+			const attemptedActions = new Set<string>();
+			while (source.readiness === "action-required") {
+				const requirement = source.requirements.find(
+					(candidate) => candidate.status === "action-required",
+				);
+				if (requirement === undefined) break;
 				const action = requirement.actions?.find(
 					(candidate) => candidate.disabledReason === undefined,
 				);
@@ -90,11 +94,17 @@ export const setupCommand = defineCommand({
 					throw new Error(
 						`extension requirement ${requirement.label} has no available setup action`,
 					);
+				const actionKey = `${requirement.id}\0${action.id}`;
+				if (attemptedActions.has(actionKey))
+					throw new Error(
+						`extension setup action ${action.label} did not resolve ${requirement.label}`,
+					);
+				attemptedActions.add(actionKey);
 				if (!json) {
-					// eslint-disable-next-line no-await-in-loop -- interactive setup actions must run in declaration order.
+					// eslint-disable-next-line no-await-in-loop -- interactive setup actions must run in readiness order.
 					await io.writeStdout(`SETUP ${requirement.label}: ${action.label}\n`);
 				}
-				// eslint-disable-next-line no-await-in-loop -- one interactive action must finish before the next starts.
+				// eslint-disable-next-line no-await-in-loop -- each action returns the readiness used to select the next action.
 				source = await runWorkflowExtensionAction({
 					workflow,
 					paths,
