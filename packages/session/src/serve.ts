@@ -3,6 +3,7 @@ import {
 	createProtocolSessionHost,
 	type CreateSessionHostOptions,
 } from "./host.js";
+import { ExtensionSetupRequiredError } from "./readiness.js";
 import {
 	decodeClientRequestLine,
 	encodeServerRecordLine,
@@ -33,6 +34,17 @@ export const runSessionOnce = async (
 		: Promise.resolve();
 	try {
 		await host.runtime.runOnce();
+		const snapshot = await host.runtime.schedulerSnapshot();
+		const setupRequired = snapshot.sources.find(
+			(source) => source.readiness === "action-required",
+		);
+		if (setupRequired !== undefined)
+			throw new ExtensionSetupRequiredError(setupRequired);
+		const unavailable = snapshot.sources.find(
+			(source) => source.readiness === "unavailable",
+		);
+		if (unavailable !== undefined)
+			throw new Error(`extension ${unavailable.label} is unavailable`);
 	} finally {
 		try {
 			await host.shutdown();

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { defineCommand } from "citty";
 import { errorMessage } from "@plot/common/primitives";
+import { ExtensionSetupRequiredError } from "@plot/session/readiness";
 import { sessionCommandArgs, workflowPathArg } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { writeCliStderr } from "../io.js";
@@ -29,10 +30,11 @@ export const runCommand = defineCommand({
 				},
 			} as Parameters<typeof runInProcessOnce>[0]);
 		} catch (error) {
-			await writeCliStderr(
-				io,
-				`Error: ${errorMessage(error)}\nFix: Check WORKFLOW.md, auth status, and provider/model settings.\n`,
-			);
+			const fix =
+				error instanceof ExtensionSetupRequiredError
+					? "Run `plot setup WORKFLOW.md`."
+					: "Check WORKFLOW.md, auth status, and provider/model settings.";
+			await writeCliStderr(io, `Error: ${errorMessage(error)}\nFix: ${fix}\n`);
 			throw error;
 		}
 	},

@@ -63,9 +63,17 @@ const agentEventType = (event: unknown): string | undefined => {
 	return typeof type === "string" ? type : undefined;
 };
 
-export const shouldWriteSessionEvent = (event: RuntimeEvent): boolean =>
-	event.kind !== "agent_event" ||
-	!historySkippedAgentEventTypes.has(agentEventType(event.event) ?? "");
+export const shouldWriteSessionEvent = (event: RuntimeEvent): boolean => {
+	if (
+		event.kind === "session_event" &&
+		event.event.type === "source_interaction_open_url"
+	)
+		return false;
+	return (
+		event.kind !== "agent_event" ||
+		!historySkippedAgentEventTypes.has(agentEventType(event.event) ?? "")
+	);
+};
 
 export interface SessionEventLogWriter {
 	readonly append: (event: RuntimeEvent) => Promise<void>;

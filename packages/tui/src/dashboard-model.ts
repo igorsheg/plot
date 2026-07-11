@@ -33,6 +33,21 @@ export interface AttentionItemModel {
 	readonly workKey?: string | undefined;
 	readonly text: string;
 }
+export interface SourceActionModel {
+	readonly id: string;
+	readonly label: string;
+	readonly disabled: boolean;
+}
+export interface SourceRowModel {
+	readonly sourceId: string;
+	readonly requirementId?: string | undefined;
+	readonly label: string;
+	readonly readiness: "checking" | "ready" | "action-required" | "unavailable";
+	readonly message?: string | undefined;
+	readonly actions: readonly SourceActionModel[];
+	readonly actionRunId?: string | undefined;
+	readonly progress?: string | undefined;
+}
 export interface WorkRowModel {
 	readonly work: WorkItemProjection;
 	readonly attempt?: AgentAttemptProjection | undefined;
@@ -62,6 +77,7 @@ export interface CompletedRowModel {
 }
 export interface DashboardModel {
 	readonly pulse: PulseModel;
+	readonly sources: readonly SourceRowModel[];
 	readonly attention: readonly AttentionItemModel[];
 	readonly work: readonly WorkRowModel[];
 	readonly scheduled: readonly ScheduledRowModel[];
@@ -281,6 +297,40 @@ export const dashboardModelFrom = (
 	};
 	return {
 		pulse,
+		sources: [...projection.sources.values()]
+			.filter((source) => source.readiness !== "ready")
+			.map((source) => {
+				const requirement = source.requirements.find(
+					(item) => item.status !== "ready",
+				);
+				return {
+					sourceId: source.sourceId,
+					label: source.label,
+					readiness: source.readiness,
+					message: requirement?.message ?? source.message,
+					requirementId: requirement?.id,
+					actions: (requirement?.actions ?? []).flatMap((action) => {
+						if (typeof action !== "object" || action === null) return [];
+						const value = action as {
+							readonly id?: unknown;
+							readonly label?: unknown;
+							readonly disabledReason?: unknown;
+						};
+						if (typeof value.id !== "string" || typeof value.label !== "string")
+							return [];
+						return [
+							{
+								id: value.id,
+								label: value.label,
+								disabled: typeof value.disabledReason === "string",
+							},
+						];
+					}),
+					actionRunId: source.action?.actionRunId,
+					progress: source.action?.progress,
+				};
+			})
+			.toSorted((a, b) => a.label.localeCompare(b.label)),
 		attention: [
 			...work
 				.filter((w) => w.attention)

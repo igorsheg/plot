@@ -50,6 +50,11 @@ onMount($selectedProjection, () => {
 				runEventsUrl(run, projection.frontier),
 				controller.signal,
 			)) {
+				if (
+					event.kind === "session_event" &&
+					event.event.type === "source_interaction_open_url"
+				)
+					window.open(event.event.url, "_blank", "noopener,noreferrer");
 				const current = $selectedProjection.get();
 				if (current !== undefined)
 					$selectedProjection.set(reduceSerializedProjection(current, event));

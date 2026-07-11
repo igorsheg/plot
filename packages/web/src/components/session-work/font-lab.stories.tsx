@@ -156,7 +156,12 @@ const workValue: SessionWorkContextValue = {
 		denseDecisions: false,
 		loaded: true,
 	},
-	actions: { act: noop, acting: false },
+	actions: {
+		act: noop,
+		actOnSource: noop,
+		cancelSourceAction: noop,
+		acting: false,
+	},
 };
 
 const detailView: DetailView = {

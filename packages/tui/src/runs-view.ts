@@ -136,6 +136,32 @@ export const runsViewLines = (input: {
 					),
 					blank(),
 				];
+	const sourceBlock =
+		model.sources.length === 0
+			? []
+			: [
+					section("Sources", style.warn),
+					blank(),
+					...model.sources.flatMap((source) => [
+						item(
+							`  ${style.bad("●")} ${style.text(source.label)} ${style.warn(source.readiness)}`,
+						),
+						...(source.progress === undefined && source.message === undefined
+							? []
+							: [
+									item(`    ${source.progress ?? source.message}`, style.muted),
+								]),
+						...(source.actions.length === 0
+							? []
+							: [
+									item(
+										`    ${source.actions.map((action) => `[s] ${action.label}`).join(" · ")}`,
+										style.label,
+									),
+								]),
+					]),
+					blank(),
+				];
 	const scheduled =
 		model.work.length === 0
 			? model.scheduled.filter((wake) => wake.reason !== undefined)
@@ -171,6 +197,7 @@ export const runsViewLines = (input: {
 	const workChromeRows = 2; // section + breathing row
 	const chromeRows =
 		input.header.length +
+		sourceBlock.length +
 		attentionBlock.length +
 		workChromeRows +
 		completionBlock.length +
@@ -186,6 +213,7 @@ export const runsViewLines = (input: {
 	);
 	return [
 		...input.header,
+		...sourceBlock,
 		...attentionBlock,
 		section(model.work.length === 0 ? "Watching" : "Work"),
 		blank(),

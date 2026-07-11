@@ -4,7 +4,10 @@
  * Fixtures and the store adapter both flow through this one interface.
  */
 
-import type { OperatorObservationInput } from "@plot/session/runtime";
+import type {
+	OperatorObservationInput,
+	SourceActionInput,
+} from "@plot/session/runtime";
 import { createRequiredContext } from "../../lib/required-context.js";
 import type { AttentionItem, MotionItem, SettledItem } from "./view-model.js";
 
@@ -19,6 +22,8 @@ export interface SessionWorkState {
 
 export interface SessionWorkActions {
 	readonly act: (input: Omit<OperatorObservationInput, "actor">) => void;
+	readonly actOnSource: (input: SourceActionInput) => void;
+	readonly cancelSourceAction: (actionRunId: string) => void;
 	readonly acting: boolean;
 }
 

@@ -1,4 +1,5 @@
 import { basename, resolve } from "node:path";
+import type { Mutable } from "@plot/common/primitives";
 import { setFact } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
 import { createSessionId } from "./runtime.js";
@@ -16,7 +17,7 @@ import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
 import { defaultProtocolLimits, type ProtocolLimits } from "./protocol.js";
 import { makeSessionProtocol, type SessionProtocol } from "./protocol.js";
 import { makeSessionRuntime } from "./runtime.js";
-import type { SessionRuntime } from "./runtime.js";
+import type { SessionRuntime, SessionRuntimeOptions } from "./runtime.js";
 import { loadDiscoveredWorkflow, type WorkflowDefinition } from "./workflow.js";
 
 export interface SessionHostMetadata {
@@ -166,7 +167,7 @@ export const createSessionHost = async (
 		sessionDir: paths.sessionDir,
 	};
 	const sessionFile = sessionEventLogPath(paths.sessionDir, sessionId);
-	runtime = makeSessionRuntime({
+	const runtimeOptions: Mutable<SessionRuntimeOptions> = {
 		id: sessionId,
 		sources,
 		runner: extensionBundle?.wrapRunner(runner) ?? runner,
@@ -179,7 +180,13 @@ export const createSessionHost = async (
 			maxRunDurationMs,
 			stallTimeoutMs,
 		} as NonNullable<Parameters<typeof makeSessionRuntime>[0]["agent"]>,
-	});
+	};
+	if (extensionBundle !== undefined)
+		runtimeOptions.sourceAction = {
+			sourceId: extensionBundle.source.id,
+			runAction: extensionBundle.runAction,
+		};
+	runtime = makeSessionRuntime(runtimeOptions);
 	let shutdownPromise: Promise<void> | undefined;
 	const shutdown = (): Promise<void> => {
 		shutdownPromise ??= (async () => {

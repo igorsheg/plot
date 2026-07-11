@@ -3,6 +3,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createJiti } from "jiti/static";
 import { isRecord } from "@plot/common/primitives";
 import type {
+	ExtensionCredentials,
 	PlotExtension,
 	PlotExtensionRuntime,
 	PlotExtensionTool,
@@ -13,12 +14,14 @@ import type {
 	PlotToolExecutionContext,
 } from "@plot/sdk";
 import * as plotSdk from "@plot/sdk";
+import { createExtensionCredentials } from "./extension-credentials.js";
 import type { SessionPaths } from "./paths.js";
 import type { WorkflowDefinition } from "./workflow.js";
 
 export interface LoadedPlotExtensionRuntime {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
+	readonly credentials: ExtensionCredentials;
 	readonly tools: readonly PlotExtensionTool[];
 	readonly config: unknown;
 }
@@ -70,14 +73,20 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 		? await extension.parseConfig(extensionConfig.config)
 		: extensionConfig.config;
 	const tools: PlotExtensionTool[] = [];
+	const credentials = createExtensionCredentials({
+		extensionId: extension.id,
+		workflow: options.workflow,
+		paths: options.paths,
+	});
 	const runtime = await extension.create({
 		config,
 		workflow: options.workflow,
 		paths: options.paths,
+		credentials,
 		work: (work) => work,
 		registerTool: (tool) => tools.push(tool as PlotExtensionTool),
 	});
-	return { extension, runtime, tools, config };
+	return { extension, runtime, credentials, tools, config };
 };
 
 const normalizeToolArguments = (
@@ -99,6 +108,7 @@ const normalizeToolArguments = (
 
 const toPiToolDefinition = (
 	tool: PlotToolDefinition,
+	onError?: (error: unknown) => Promise<void> | void,
 ): ToolDefinition<never, unknown> =>
 	({
 		name: tool.name,
@@ -117,18 +127,23 @@ const toPiToolDefinition = (
 			params: unknown,
 			signal: AbortSignal | undefined,
 		) => {
-			const result = await tool.execute(
-				normalizeToolArguments(tool.parameters, params) as Record<
-					string,
-					unknown
-				>,
-				{ signal } as PlotToolExecutionContext,
-			);
-			return {
-				content: [...result.content],
-				details: result.details,
-				terminate: result.terminate,
-			};
+			try {
+				const result = await tool.execute(
+					normalizeToolArguments(tool.parameters, params) as Record<
+						string,
+						unknown
+					>,
+					{ signal } as PlotToolExecutionContext,
+				);
+				return {
+					content: [...result.content],
+					details: result.details,
+					terminate: result.terminate,
+				};
+			} catch (error) {
+				await onError?.(error);
+				throw error;
+			}
 		},
 	}) as unknown as ToolDefinition<never, unknown>;
 
@@ -139,6 +154,7 @@ export const resolveToolDefinitions = async (options: {
 	readonly config: unknown;
 	readonly work: PlotExtensionWork;
 	readonly runId?: string;
+	readonly onError?: (error: unknown) => Promise<void> | void;
 }): Promise<ToolDefinition[]> => {
 	const context = {
 		workflow: options.workflow,
@@ -158,5 +174,5 @@ export const resolveToolDefinitions = async (options: {
 			throw new Error(`duplicate extension tool name: ${tool.name}`);
 		names.add(tool.name);
 	}
-	return tools.map(toPiToolDefinition);
+	return tools.map((tool) => toPiToolDefinition(tool, options.onError));
 };

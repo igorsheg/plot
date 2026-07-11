@@ -148,6 +148,12 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		refresh,
 		toggleDebug: render,
 		quit: stopTui,
+		sourceAction: (input) => {
+			void request("source.action", input).catch(fail);
+		},
+		cancelSourceAction: (actionRunId) => {
+			void request("source.action.cancel", { actionRunId }).catch(fail);
+		},
 		openUrl,
 		height: () => terminal.rows,
 		requestRender: () => tui.requestRender(),
@@ -168,6 +174,12 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			run.lastSequence ?? 0,
 		)) {
 			if (record.kind === "event") {
+				const event = record.event;
+				if (
+					event.kind === "session_event" &&
+					event.event.type === "source_interaction_open_url"
+				)
+					openUrl(event.event.url);
 				projection = reduceRecord(projection, record);
 				render();
 			}

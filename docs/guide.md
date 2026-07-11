@@ -48,12 +48,15 @@ Ship this set:
 Then verify — actually run these, do not just hand them over:
 
 ```bash
-plot doctor WORKFLOW.md   # parses the Workflow, checks provider auth
+plot setup WORKFLOW.md    # resolves declared extension setup requirements
+plot doctor WORKFLOW.md   # checks extension readiness and provider auth
 plot open WORKFLOW.md     # live dashboard; q to stop
 plot run WORKFLOW.md      # headless one-shot of current work
 ```
 
-`plot doctor` does not load the extension, so also confirm discovery works: run the Workflow and check that the expected Work Items appear, that completing one makes it disappear on the next tick, and that an unreachable backend makes discovery throw rather than report an empty board.
+`setup` loads the extension, runs local readiness checks, and invokes its declared setup actions; `--no-browser` prints authorization URLs without opening them. `doctor` parses the Workflow, runs side-effect-free extension readiness checks, and checks that at least one model provider is authenticated. Neither command calls `discover()`.
+
+Also confirm discovery works: run the Workflow and check that the expected Work Items appear, that completing one makes it disappear on the next tick, and that an unreachable backend makes discovery throw rather than report an empty board.
 
 ## User goal
 

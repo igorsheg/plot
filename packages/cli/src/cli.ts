@@ -18,6 +18,7 @@ import { openCommand } from "./commands/open.js";
 import { runCommand } from "./commands/run.js";
 import { runsCommand } from "./commands/runs.js";
 import { serveCommand } from "./commands/serve.js";
+import { setupCommand } from "./commands/setup.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 import { VERSION } from "./package.js";
 
@@ -34,6 +35,7 @@ export const subCommands = {
 	auth: authCommand,
 	models: modelsCommand,
 	init: initCommand,
+	setup: setupCommand,
 	doctor: doctorCommand,
 	config: configCommand,
 	docs: docsCommand,
@@ -146,6 +148,7 @@ USAGE
 START HERE
   plot init
   plot auth login
+  plot setup WORKFLOW.md
   plot doctor WORKFLOW.md
   plot open WORKFLOW.md
 
@@ -154,7 +157,7 @@ COMMANDS
   runs, events                  Inspect managed runs and RuntimeEvents
   api                           Inspect/call the Session protocol
   auth, models, config          Manage provider auth, models, and defaults
-  init, doctor                  Create and validate a Workflow
+  init, setup, doctor           Create, configure, and validate a Workflow
   docs, serve                   Read references or serve transports/daemons
 
 FOR CODING AGENTS

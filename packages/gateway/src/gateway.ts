@@ -114,6 +114,20 @@ const parseSequence = (value: string | null): number | undefined => {
 const nonEmptyString = (value: unknown): string | undefined =>
 	typeof value === "string" && value.trim().length > 0 ? value : undefined;
 
+const parseSourceActionBody = async (
+	request: Request,
+): Promise<Record<string, string> | undefined> => {
+	const value = await request.json().catch(() => undefined);
+	if (!isRecord(value)) return;
+	const body: Record<string, string> = {};
+	for (const key of ["sourceId", "requirementId", "actionId"] as const) {
+		const field = nonEmptyString(value[key]);
+		if (field === undefined) return;
+		body[key] = field;
+	}
+	return body;
+};
+
 const parseObservationBody = async (
 	request: Request,
 ): Promise<Record<string, unknown> | undefined> => {
@@ -339,6 +353,49 @@ const operatorObservationResponse = async (
 		});
 	});
 
+const sourceActionResponse = async (
+	request: Request,
+	id: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> =>
+	runResponse(id, runIpc, async () => {
+		const body = await parseSourceActionBody(request);
+		if (body === undefined)
+			return text({ error: "invalid Source action body" }, { status: 400 });
+		const response = await runIpc.runRegistry
+			.submit(id, {
+				protocol: sessionProtocolVersion,
+				kind: "request",
+				id: `web_source_action_${randomUUID()}`,
+				method: "source.action",
+				params: body,
+			})
+			.catch(() => undefined);
+		if (response === undefined || response.kind !== "response" || !response.ok)
+			return text({ error: "run not live" }, { status: 409 });
+		return text(response.data);
+	});
+
+const cancelSourceActionResponse = async (
+	id: string,
+	actionRunId: string,
+	runIpc: RunIpcConnection,
+): Promise<Response> =>
+	runResponse(id, runIpc, async () => {
+		const response = await runIpc.runRegistry
+			.submit(id, {
+				protocol: sessionProtocolVersion,
+				kind: "request",
+				id: `web_source_action_cancel_${randomUUID()}`,
+				method: "source.action.cancel",
+				params: { actionRunId },
+			})
+			.catch(() => undefined);
+		if (response === undefined || response.kind !== "response" || !response.ok)
+			return text({ error: "run not live" }, { status: 409 });
+		return text(response.data);
+	});
+
 const runEventsEndpointResponse = async (
 	request: Request,
 	url: URL,
@@ -403,6 +460,23 @@ const gatewayResponse = async (
 	if (stopPath !== null && request.method === "DELETE")
 		return stopRunResponse(decodeURIComponent(stopPath[1] ?? ""), runIpc);
 	if (url.pathname === "/api/runs") return listRunsResponse(runIpc);
+	const sourceActionPath = /^\/api\/runs\/([^/]+)\/source-actions$/.exec(
+		url.pathname,
+	);
+	if (sourceActionPath !== null && request.method === "POST")
+		return sourceActionResponse(
+			request,
+			decodeURIComponent(sourceActionPath[1] ?? ""),
+			runIpc,
+		);
+	const sourceActionCancelPath =
+		/^\/api\/runs\/([^/]+)\/source-actions\/([^/]+)$/.exec(url.pathname);
+	if (sourceActionCancelPath !== null && request.method === "DELETE")
+		return cancelSourceActionResponse(
+			decodeURIComponent(sourceActionCancelPath[1] ?? ""),
+			decodeURIComponent(sourceActionCancelPath[2] ?? ""),
+			runIpc,
+		);
 	const observationPath = /^\/api\/runs\/([^/]+)\/observations$/.exec(
 		url.pathname,
 	);

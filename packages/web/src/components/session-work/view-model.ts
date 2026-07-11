@@ -23,6 +23,19 @@ export interface OperatorActionView {
 
 export type AttentionItem =
 	| {
+			readonly kind: "source";
+			readonly key: string;
+			readonly sourceId: string;
+			readonly requirementId?: string | undefined;
+			readonly title: string;
+			readonly status: "checking" | "action-required" | "unavailable";
+			readonly message?: string | undefined;
+			readonly actions: readonly OperatorActionView[];
+			readonly actionRunId?: string | undefined;
+			readonly progress?: string | undefined;
+			readonly sinceMs?: number | undefined;
+	  }
+	| {
 			readonly kind: "decision";
 			readonly key: string;
 			readonly workKey: string;
@@ -163,6 +176,24 @@ export const buildAttention = (
 	projection: SerializedDashboardProjection,
 ): readonly AttentionItem[] => {
 	const pending: Exclude<AttentionItem, { kind: "diagnostic" }>[] = [];
+	for (const source of Object.values(projection.sources)) {
+		if (source.readiness === "ready") continue;
+		const requirement = source.requirements.find(
+			(candidate) => candidate.status !== "ready",
+		);
+		pending.push({
+			kind: "source",
+			key: `source:${source.sourceId}`,
+			sourceId: source.sourceId,
+			requirementId: requirement?.id,
+			title: source.label,
+			status: source.readiness,
+			message: requirement?.message ?? source.message,
+			actions: parseOperatorActions(requirement?.actions),
+			actionRunId: source.action?.actionRunId,
+			progress: source.action?.progress,
+		});
+	}
 	for (const work of Object.values(projection.work)) {
 		const attempt = attemptFor(projection, work);
 		const sinceMs = attempt?.lastEventAtMs;

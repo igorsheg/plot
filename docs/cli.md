@@ -27,6 +27,7 @@ plot auth [status|login|logout]         provider credentials
 plot models [search]                    provider/model catalog
 plot config [list|get|set]              project/global defaults
 plot init [workflow]                    create one-shot starter Workflow
+plot setup [workflow]                   resolve extension setup requirements
 plot doctor [workflow]                  validate Workflow and auth readiness
 plot docs [topic] [--paths]             print bundled documentation
 plot serve api [workflow]               HTTP gateway or stdio Session protocol
@@ -162,13 +163,13 @@ plot serve api WORKFLOW.md --stdio
 
 `api schema` prints the exact bundled schema. `api ping` and `api snapshot` call live managed runs. For arbitrary methods, own a stdio process and exchange newline-delimited JSON.
 
-Current protocol: `plot.session.v5`, schema version `1`, transport `jsonl`.
+Current protocol: `plot.session.v6`, schema version `1`, transport `jsonl`.
 
 Request envelope:
 
 ```json
 {
-	"protocol": "plot.session.v5",
+	"protocol": "plot.session.v6",
 	"kind": "request",
 	"id": "client-unique-id",
 	"method": "session.tick",
@@ -189,7 +190,11 @@ Methods:
 | `session.tick`            | none                                                                        | Run one `discover -> reconcile -> act` cycle and return its result. |
 | `session.dispatch.pause`  | none                                                                        | Pause new dispatch while preserving state.                          |
 | `session.dispatch.resume` | none                                                                        | Resume dispatch.                                                    |
-| `scheduler.snapshot`      | none                                                                        | Current scheduler work/runs/wakes/diagnostics snapshot.             |
+| `scheduler.snapshot`      | none                                                                        | Current Sources/work/runs/wakes/diagnostics snapshot.               |
+| `source.list`             | none                                                                        | Current Source readiness records.                                   |
+| `source.get`              | `{ "sourceId": "..." }`                                                     | One current Source record, if present.                              |
+| `source.action`           | `{ sourceId, requirementId, actionId }`                                     | Start a Source setup action.                                        |
+| `source.action.cancel`    | `{ actionRunId }`                                                           | Cancel an in-flight Source setup action.                            |
 | `work.list`               | none                                                                        | Current scheduler Work Records.                                     |
 | `work.get`                | `{ "workKey": "..." }`                                                      | One current Work Record, if present.                                |
 | `attempt.list`            | none                                                                        | Current running Agent Runs.                                         |
@@ -223,10 +228,11 @@ Supported keys are `defaultProvider`, `defaultModel`, and `defaultThinkingLevel`
 
 ```bash
 plot init [workflow] [--cwd <path>] [--force]
+plot setup [workflow] [--no-browser] [--json]
 plot doctor [workflow] [--cwd <path>] [--plot-dir <path>] [--agent-dir <path>]
 ```
 
-`init` writes a one-shot Workflow and refuses to overwrite unless `--force` is present. `doctor` parses the Workflow and checks that at least one provider is authenticated; it does not load the extension or verify a selected model.
+`init` writes a one-shot Workflow and refuses to overwrite unless `--force` is present. `setup` loads the extension, runs local readiness checks, and invokes its declared setup actions; `--no-browser` prints authorization URLs without opening them. `doctor` parses the Workflow, runs side-effect-free extension readiness checks, and checks that at least one model provider is authenticated. Neither command calls `discover()`.
 
 ## Servers
 

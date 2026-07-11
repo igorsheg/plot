@@ -12,6 +12,7 @@ import {
 	defaultProtocolLimits,
 	sessionProtocolVersion,
 } from "../src/protocol.js";
+import { ExtensionSetupRequiredError } from "../src/readiness.js";
 import type { RuntimeEvent } from "../src/runtime.js";
 import { runSessionOnce, serveSessionStdio } from "../src/serve.js";
 
@@ -189,6 +190,33 @@ Prompt
 		});
 
 		expect(await readFile(marker, "utf8")).toBe("x");
+	});
+
+	test("runSessionOnce fails deterministically when extension setup is required", async () => {
+		const dir = await makeWorkflowDir();
+		await writeFile(
+			join(dir, "extension.ts"),
+			`export default {
+  id: "setup-required",
+  create: () => ({
+    requirements: [{
+      id: "auth",
+      label: "Authentication",
+      check: () => ({ status: "action-required", message: "Connect", actions: [] })
+    }],
+    discover: () => { throw new Error("discover must not run"); }
+  })
+};
+`,
+		);
+		await writeFile(
+			join(dir, "WORKFLOW.md"),
+			"---\nextension:\n  source: ./extension.ts\n---\nPrompt\n",
+		);
+
+		await expect(
+			runSessionOnce({ cwd: dir, sessionId: "setup-required" }),
+		).rejects.toBeInstanceOf(ExtensionSetupRequiredError);
 	});
 
 	test("runSessionOnce waits for the agent attempt to succeed", async () => {

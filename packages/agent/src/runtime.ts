@@ -122,7 +122,21 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 			options.stallTimeoutMs === undefined
 				? undefined
 				: positive(options.stallTimeoutMs, 1, "stallTimeoutMs");
-	const startingState = initialRuntimeState(`run-${randomUUID()}`);
+	const startingState = initialRuntimeState(
+		`run-${randomUUID()}`,
+		sources.map((source) => {
+			const requirements = (source.requirements ?? []).map((requirement) => ({
+				...requirement,
+				status: "checking" as const,
+			}));
+			return {
+				sourceId: source.id,
+				label: source.label ?? source.id,
+				readiness: requirements.length === 0 ? "ready" : "checking",
+				requirements,
+			};
+		}),
+	);
 	let state = startingState,
 		snapshotCache = snapshotFrom(startingState),
 		lifecycle: AgentLifecycle = "new",
@@ -527,7 +541,11 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 					historyLimit,
 				);
 				for (const proposal of proposals) {
-					if (proposal.type === "upsert_work") {
+					if (proposal.type === "upsert_source") {
+						const source = state.sources.get(proposal.source.sourceId);
+						if (source !== undefined)
+							publishEvent({ type: "source_observed", source });
+					} else if (proposal.type === "upsert_work") {
 						const work = state.work.get(proposal.work.workKey);
 						if (work !== undefined)
 							publishEvent({ type: "work_observed", work });

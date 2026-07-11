@@ -18,6 +18,11 @@ export interface WorkSourcePolicy {
 	maxConcurrentRuns?: number;
 }
 
+export interface WorkSourceRequirement {
+	readonly id: string;
+	readonly label: string;
+}
+
 export interface ContinuationContext extends PhaseContext {
 	run: WorkRun;
 	work: WorkItem;
@@ -26,6 +31,8 @@ export interface ContinuationContext extends PhaseContext {
 
 export interface WorkSource {
 	id: string;
+	label?: string;
+	requirements?: readonly WorkSourceRequirement[];
 	policy?: WorkSourcePolicy;
 	observeTick?: (
 		context: PhaseContext,

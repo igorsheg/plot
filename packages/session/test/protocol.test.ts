@@ -47,6 +47,14 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 	state: async () => ({ sessionId: "session-1" }),
 	schedulerSnapshot: async () => ({
 		tickId: 1,
+		sources: [
+			{
+				sourceId: "source-1",
+				label: "Source 1",
+				readiness: "ready",
+				requirements: [],
+			},
+		],
 		work: [
 			{
 				workKey: "work-1",
@@ -62,6 +70,8 @@ const runtime = (overrides: Partial<SessionRuntime> = {}): SessionRuntime => ({
 	resumeDispatch: async () => {},
 	interruptAgentRun: async () => true,
 	recordOperatorObservation: async () => true,
+	startSourceAction: async () => ({ accepted: true, actionRunId: "action-1" }),
+	cancelSourceAction: async () => true,
 	events: async function* () {},
 	appendAgentEvent: async (input) => ({
 		kind: "agent_event",
@@ -111,6 +121,14 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 				calls.push(`interrupt:${runId}`);
 				return true;
 			},
+			startSourceAction: async ({ requirementId, actionId }) => {
+				calls.push(`source-action:${requirementId}:${actionId}`);
+				return { accepted: true, actionRunId: "source-action-1" };
+			},
+			cancelSourceAction: async (actionRunId) => {
+				calls.push(`source-action-cancel:${actionRunId}`);
+				return true;
+			},
 			recordOperatorObservation: async ({ actionId, workKey }) => {
 				calls.push(`observe:${workKey}:${actionId}`);
 				return true;
@@ -126,6 +144,16 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 	await protocol.submit(request("session.dispatch.pause"));
 	await protocol.submit(request("session.dispatch.resume"));
 	await protocol.submit(request("agent.interrupt", { runId: "run-1" }));
+	await protocol.submit(
+		request("source.action", {
+			sourceId: "source-1",
+			requirementId: "auth",
+			actionId: "connect",
+		}),
+	);
+	await protocol.submit(
+		request("source.action.cancel", { actionRunId: "source-action-1" }),
+	);
 	await protocol.submit(
 		request("operator.observe", {
 			sourceId: "source-1",
@@ -143,9 +171,35 @@ test("protocol adapter dispatches lifecycle commands", async () => {
 		"pause",
 		"resume",
 		"interrupt:run-1",
+		"source-action:auth:connect",
+		"source-action-cancel:source-action-1",
 		"observe:work-1:approve",
 		"shutdown",
 	]);
+});
+
+test("protocol exposes Sources as addressable scheduler entities", async () => {
+	const protocol = makeSessionProtocol({ runtime: runtime() });
+	const output = protocol.output()[Symbol.asyncIterator]();
+
+	await protocol.submit(request("source.list"));
+	const listed = await output.next();
+	await protocol.submit(request("source.get", { sourceId: "source-1" }));
+	const found = await output.next();
+
+	expect(listed.value).toMatchObject({
+		ok: true,
+		data: {
+			sources: [
+				{ sourceId: "source-1", label: "Source 1", readiness: "ready" },
+			],
+		},
+	});
+	expect(found.value).toMatchObject({
+		ok: true,
+		data: { source: { sourceId: "source-1" } },
+	});
+	await protocol.close();
 });
 
 test("protocol exposes JSON-safe live scheduler state", async () => {
