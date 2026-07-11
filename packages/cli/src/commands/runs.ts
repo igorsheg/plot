@@ -112,7 +112,7 @@ export const listRunsCommand = defineCommand({
 export const cleanRunsCommand = defineCommand({
 	meta: {
 		name: "clean",
-		description: "Remove stopped and errored runs and their history.",
+		description: "Remove stopped and errored records from the run registry.",
 	},
 	args: { ...runRegistryArgs, ...jsonFlag },
 	run: ({ args }) => request(args, { type: "prune" }),

@@ -164,6 +164,16 @@ describe("plot CLI", () => {
 		expect(output).toContain("plot api schema");
 		expect(output).not.toContain("plot ls");
 		expect(output).toContain("plot docs cli");
+		expect(output).toContain('from "plot-ai/sdk"');
+		expect(output).toContain("definePlotExtension");
+		expect(output).toContain("defineTool");
+		expect(output).toContain('label: "Mark complete"');
+		expect(output).toContain("async discover");
+		expect(output).toContain(
+			"pending | waiting | blocked | cancelled | absent",
+		);
+		expect(output).toContain("throw on discovery failure");
+		expect(output).toContain("plot docs extension-prompt");
 		expect(output).not.toContain("--request-queue-capacity");
 	});
 
@@ -563,6 +573,21 @@ describe("plot CLI", () => {
 		expect(output).toContain("--agent-dir");
 		expect(output).not.toContain("--tick-interval-ms");
 		expect(output).not.toContain("--workflow");
+	});
+
+	test("prints the bundled docs index by default", async () => {
+		const stdout: string[] = [];
+		await runPlotCli(["docs"], {
+			stdin: chunks([]),
+			writeStdout: (line) => {
+				stdout.push(line);
+			},
+		});
+
+		const output = stdout.join("");
+		expect(output).toContain("# Plot");
+		expect(output).toContain("Two ways to run");
+		expect(output).toContain("plot docs extension-prompt");
 	});
 
 	test("prints web docs", async () => {

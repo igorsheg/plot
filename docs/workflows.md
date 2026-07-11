@@ -1,102 +1,164 @@
 # Workflows
 
-A Workflow is Markdown with front matter. Running one creates a Plot Session.
+A Workflow is Markdown with optional YAML front matter. Front matter configures Plot and the Agent Session; the Markdown body is the prompt template.
 
-It answers:
+## Execution modes
 
-1. Which agent runs?
-2. Which extension finds work?
-3. What should the agent do with each Work Item?
+- Without `extension`, Plot runs one synthetic Work Item (`workflow:default`) once.
+- With `extension`, trusted TypeScript discovers versioned Work Items and may register tools.
 
 ```md
 ---
-name: review-current-pr
-agent: { provider: openai-codex, model: gpt-5.5 }
+name: review-queue
+agent:
+  provider: openai-codex
+  model: gpt-5.5
+  thinking: high
+  maxTurns: 4
 extension:
-  source: ./github-pr-reviewer.extension.ts
-  config: { includeDrafts: false }
-plot: { tickIntervalMs: 300000, maxRunDurationMs: 300000 }
+  source: ./review.extension.ts
+  maxConcurrentRuns: 2
+  config:
+    repository: acme/web
+plot:
+  tickIntervalMs: 300000
+  maxRunDurationMs: 900000
+  stallTimeoutMs: 180000
 resources:
   contextFiles: true
-  skills: [./skills/pr-review]
+  skills: [./skills/review]
 ---
 
 # Review {{ work.title }}
 
-Use the repo, GitHub CLI, tests, and judgment. Post one useful review.
-{{ githubContext }}
+Repository: {{ repository }}
+Pull request: {{ pr.number }}
+
+Inspect the change and its callers. Use `post_review` only after verification.
 ```
 
-## The split
+Use the top-level form above. Plot also accepts these five keys under one `runtime` mapping, but do not mix runtime forms: when `runtime` exists, it is the runtime configuration source. Other top-level front-matter keys are allowed as user data and remain available under `workflow`; unknown fields inside `runtime`, `plot`, `agent`, `resources`, or `extension` are rejected.
 
-The extension finds work and exposes safe integration tools. The prompt teaches judgment.
+## Complete front-matter contract
 
-Good extension context:
+Positive numeric fields must be positive integers.
 
-```txt
-PR #42, URL, head SHA, previous review, display title.
-Tool available: post_pr_review.
-```
+### `name`
 
-Good prompt:
+Optional human-readable Workflow name shown in run metadata and dashboards.
 
-```txt
-Read the diff, inspect callers, run relevant checks, and post one durable review.
-```
+### `agent`
 
-Bad extension:
+| Field                | Type                                                  | Meaning                                                                                        |
+| -------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `provider`           | string                                                | Provider id, for example `openai-codex` or `anthropic`.                                        |
+| `model`              | string                                                | Provider model id. A CLI `--model provider/model` selector may supply both provider and model. |
+| `thinking`           | `off`, `minimal`, `low`, `medium`, `high`, or `xhigh` | Requested thinking level when supported.                                                       |
+| `tools`              | string[]                                              | Allowlist of Agent Session tools.                                                              |
+| `excludeTools`       | string[]                                              | Tools removed from the Agent Session.                                                          |
+| `noTools`            | boolean, `all`, or `builtin`                          | Disable all tools or only built-in tools.                                                      |
+| `allowProjectConfig` | boolean                                               | Trust project agent configuration without an interactive prompt.                               |
+| `maxTurns`           | positive integer                                      | Maximum high-level turns in one Agent Run. Default: `20`. This is not a wall-clock timeout.    |
 
-```txt
-Step 1 read file A. Step 2 grep B. Step 3 post exactly this comment.
-```
+Registered extension tools enter the Agent Session as custom tools. Tool selection flags are Agent Session policy; Sources do not grant tools step by step.
 
-Plot should shape context, not turn agents into brittle scripts.
+### `extension`
 
-## Front matter
+| Field               | Type                       | Meaning                                                                     |
+| ------------------- | -------------------------- | --------------------------------------------------------------------------- |
+| `source`            | non-empty string, required | TypeScript module. Relative paths resolve from the Workflow file directory. |
+| `maxConcurrentRuns` | positive integer           | Per-extension concurrency cap, independent of global scheduler capacity.    |
+| `config`            | any YAML value             | Passed to the extension's optional `parseConfig`, then to `create`.         |
 
-- `name`: stable Workflow name.
-- `agent`: provider/model settings. `maxTurns` limits high-level Agent Run turns; use `plot.maxRunDurationMs` for wall-clock timeout.
-- `extension`: local TypeScript module exporting a Plot extension. `config` is passed to optional `parseConfig`.
-- `plot`: runtime settings such as `tickIntervalMs` and `maxRunDurationMs`.
-- `resources`: explicit agent-session inputs such as context files and skills.
+The module must export a Plot extension as `default` or as named export `extension`.
 
-Defaults may live in `~/.plot/settings.json` or `.plot/settings.json`:
+### `plot`
 
-```json
+| Field                 | Type             | Meaning                                                                                                   |
+| --------------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `tickIntervalMs`      | positive integer | Scheduled discovery/reconciliation cadence. Without it, ticks are explicit or triggered by runtime wakes. |
+| `maxRunDurationMs`    | positive integer | Wall-clock timeout for one Agent Run.                                                                     |
+| `stallTimeoutMs`      | positive integer | Interrupt an Agent Run after this long without agent events or reported activity.                         |
+| `queueCapacity`       | positive integer | Protocol/control request queue capacity. Default: `64`.                                                   |
+| `eventCapacity`       | positive integer | In-memory retained RuntimeEvent capacity. Default: `256`. Durable JSONL is separate.                      |
+| `eventBufferCapacity` | positive integer | Buffered protocol event-record capacity. Default: `1024`.                                                 |
+
+Failed and timed-out source work is retried by Source policy with exponential backoff. The current extension adapter uses 10 seconds, doubling to a five-minute cap.
+
+### `resources`
+
+| Field                | Type     | Meaning                                                                |
+| -------------------- | -------- | ---------------------------------------------------------------------- |
+| `skills`             | string[] | Additional skill paths, resolved from `--cwd`.                         |
+| `prompts`            | string[] | Additional prompt-template paths, resolved from `--cwd`.               |
+| `contextFiles`       | boolean  | Whether the Agent Session loads context files. Set `false` to disable. |
+| `systemPrompt`       | string   | Replace the Agent Session system prompt. Empty string is allowed.      |
+| `appendSystemPrompt` | string[] | Text fragments appended to the system prompt.                          |
+
+Plot always adds `.plot/skills` and `.plot/prompts` as default search paths. `--no-skills` and `--no-prompt-templates` disable loading, including those defaults. `--skill` and `--prompt-template` replace Workflow-declared additional paths for that invocation.
+
+## Prompt template data
+
+Plot renders the Markdown body with Eta using `{{ ... }}` interpolation, no HTML escaping, and the discovered Work Item as data.
+
+Always available:
+
+```ts
 {
-	"defaultProvider": "openai-codex",
-	"defaultModel": "gpt-5.5",
-	"defaultThinkingLevel": "high"
+  workflow: /* complete parsed front matter */,
+  work: {
+    id,
+    version?,
+    title?,
+    url?,
+    subject?,
+    workspace?,
+    display?,
+    operatorActions?,
+  }
 }
 ```
 
-Workflow front matter and CLI flags override settings. Plot does not auto-load behavior from `.plot/agent/skills`.
-
-## Prompt data and tools
-
-Work Item `context` is available to the prompt:
+If `work.context` is an object, its fields are merged at prompt top level:
 
 ```ts
-context: { issue: { id: "ENG-123", title: "Fix checkout" } }
+context: { repository: "acme/web", pr: { number: 42 } }
 ```
 
 ```md
-Review {{ issue.id }}: {{ issue.title }}
+Review {{ repository }} pull request #{{ pr.number }}.
 ```
 
-Use context for facts, not micromanagement. Mention important registered tools by name:
+If `work.context` is not an object, it is available as `{{ value }}`. Keep context compact and factual. Put investigation strategy and quality criteria in the prompt, not in discovery code.
 
-```md
-Use `prepare_review_context` before reviewing. When done, call `post_pr_review`.
-```
+## Configuration precedence
 
-TypeScript tools own integration correctness and idempotent mutations. The agent owns investigation, judgment, and final content.
+For provider/model/thinking defaults:
 
-## Run and observe
+1. CLI override
+2. Workflow `agent`
+3. project `.plot/settings.json`
+4. global `~/.plot/settings.json`
+
+Workflow and CLI resource options are resolved separately as described above. `--api-key` is runtime-only and requires a resolved provider from Workflow `agent.provider`, `--provider`, or `--model provider/model`.
+
+## Paths and durability
+
+- Workflow default: `WORKFLOW.md` under `--cwd`.
+- Project state default: `.plot` under `--cwd`.
+- Session history: `.plot/sessions/<session-id>.jsonl`.
+- Extension `source`: relative to the Workflow file.
+- Work Item `workspace`: must be absolute; Plot creates it before the Agent Run and uses it as that run's cwd.
+- Agent auth/model state: `~/.plot/agent` unless `--agent-dir` overrides it.
+
+A Session id is 1–128 letters, digits, dots, underscores, or hyphens, beginning with a letter or digit. Plot refuses to append a new Session to an existing event log.
+
+## Validate and run
 
 ```bash
+plot doctor WORKFLOW.md
 plot open WORKFLOW.md
 plot run WORKFLOW.md
 ```
 
-Plot stores session history under `.plot/sessions`. Agent transcripts stay separate.
+`plot doctor` validates Workflow parsing and checks that at least one provider is authenticated. It does not load the extension or prove that a selected model exists. See [Extensions](extensions.md) for the Source and tool contracts.

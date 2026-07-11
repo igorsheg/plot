@@ -135,33 +135,87 @@ const renderRootHelp = (suggestion?: string): string => {
 	return `Run coding-agent workflows. (plot v${version})
 
 USAGE
-  plot                         Open the terminal dashboard
+  plot                          Open the terminal dashboard
   plot open [workflow]          Open a dashboard for a workflow
   plot open [workflow] --web    Open the browser dashboard
-  plot run [workflow]           Run one workflow pass without a dashboard
+  plot run [workflow]           Run current work without a dashboard
   plot runs                     List runs in the shared registry
   plot api schema               Print the public session protocol schema
-  plot events wait <run-id>      Wait for a live run event
+  plot events wait <run-id>     Replay/follow events until one matches
 
 START HERE
   plot init
-  plot auth
   plot auth login
+  plot doctor WORKFLOW.md
   plot open WORKFLOW.md
 
 COMMANDS
-  open, run                     Start workflows
-  runs, events                  Inspect and coordinate live runs
-  api                           Inspect and call the public session protocol
-  auth, models                  Manage provider auth and models
-  init, doctor, config          Set up and validate a project
-  docs, serve                   Read docs or serve transports/daemons
+  open, run                     Start Workflows
+  runs, events                  Inspect managed runs and RuntimeEvents
+  api                           Inspect/call the Session protocol
+  auth, models, config          Manage provider auth, models, and defaults
+  init, doctor                  Create and validate a Workflow
+  docs, serve                   Read references or serve transports/daemons
+
+AUTHOR A SOURCE-DRIVEN EXTENSION
+  WORKFLOW.md:
+    ---
+    agent: { maxTurns: 1 }
+    extension: { source: ./queue.extension.ts }
+    ---
+    Complete {{ work.title }}. Call \`mark_complete\` only when done.
+
+  queue.extension.ts:
+    import { definePlotExtension, defineTool } from "plot-ai/sdk";
+
+    const done = new Set<string>();
+    export default definePlotExtension({
+      id: "queue",
+      create({ registerTool, work }) {
+        registerTool(({ work: current }) => defineTool({
+          name: "mark_complete",
+          label: "Mark complete",
+          description: "Mark the selected demo Work Item complete.",
+          parameters: { type: "object", properties: {} },
+          execute: async () => {
+            done.add(current.id);
+            return {
+              content: [{ type: "text", text: "Marked complete." }],
+              terminate: true,
+            };
+          },
+        }));
+        return {
+          async discover() {
+            return done.has("queue:1") ? [] : [work({
+              id: "queue:1",
+              version: "1",
+              title: "Handle queue item",
+              context: { repository: "acme/web" },
+            })];
+          },
+        };
+      },
+    });
+
+  CONTRACT
+    - Stable id = domain identity; version = revision/rerun trigger.
+    - Discovery states: pending | waiting | blocked | cancelled | absent.
+    - Return [] only when authoritative work is gone; throw on discovery failure.
+    - The extension owns facts and idempotent integration tools.
+    - The Workflow prompt owns agent judgment; Plot owns scheduling/retries.
+    - Tools require name, label, description, parameters, and execute.
+    - Import only from "plot-ai/sdk"; extensions are trusted, not sandboxed.
+
+  Validate with: plot doctor WORKFLOW.md
+  Full contract: plot docs extensions
+  LLM brief:     plot docs extension-prompt
 
 HELP
   plot help <command>            Show command details
   plot <command> --help          Show command details
-  plot open --help               Show workflow/dashboard options
-  plot docs cli                  Print the CLI API map
+  plot open --help               Show Workflow/dashboard options
+  plot docs cli                  Print the complete CLI/protocol reference
 ${suggestionText}`;
 };
 

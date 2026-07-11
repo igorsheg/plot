@@ -33,7 +33,7 @@ export const docsCommand = defineCommand({
 		const io = getCliIo();
 		const topic = typeof args.topic === "string" ? args.topic : undefined;
 		if (topic === undefined) {
-			await io.writeStdout(docsIndex);
+			await io.writeStdout(await readPlotDoc("index"));
 			return;
 		}
 		if (topic === "extension-prompt") {

@@ -1,57 +1,55 @@
 # Plot
 
-Run coding agents against real work, continuously, without babysitting them.
+Plot is a control plane for coding-agent work. Trusted TypeScript observes real systems and exposes safe tools; Markdown teaches agent judgment; Plot owns scheduling, retries, durability, and operator surfaces.
+
+```bash
+npx plot-ai --help
+```
+
+## Mental model
+
+```txt
+world -> extension/Source -> versioned Work Item -> Plot -> Agent Run
+              |                                      |
+              +----------- registered tools --------+
+
+Plot: tick -> reconcile facts -> act
+```
+
+- The extension owns authoritative facts, stable identity/revision, integration correctness, and idempotent side effects.
+- The Workflow prompt owns investigation strategy and quality criteria.
+- Plot owns claims, concurrency, draining, continuation, exponential retry, timeout/stall handling, shutdown, RuntimeEvents, and managed processes.
+- Dashboards reduce canonical events; they do not become another source of runtime truth.
+
+## One-shot work
 
 ```bash
 npm install -g plot-ai
-plot --workflow WORKFLOW.md
+plot init
+plot auth login
+plot open WORKFLOW.md
 ```
 
-## The problem
+A Workflow without an extension creates one synthetic Work Item and runs once.
 
-You have an agent that can review a PR, triage a failing build, investigate a
-production error.
+## Continuous discovered work
 
-Now run it against every PR. All day. While you do something else.
-
-Suddenly you're writing the boring parts: a poll loop, a job queue, retry
-backoff, "is that run still alive?", a dashboard, cleanup for the run that died
-mid-write. None of that is agent judgment. All of it is scheduling.
-
-Plot is the scheduling. You keep the judgment.
-
-## The mental model
-
-Three layers. Each stays out of the other two.
-
-```txt
-your extension finds work     trusted TypeScript that reads GitHub, CI, Sentry, a queue
-Plot schedules Agent Runs     tick -> reconcile -> act
-your prompt teaches judgment  Markdown that says what good work looks like
-```
-
-The extension never runs agents. The prompt never schedules. Plot doesn't know
-your domain — it tracks whether work is pending, running, blocked, failed, or
-done.
-
-## What you write
-
-A Workflow is one Markdown file:
+`WORKFLOW.md`:
 
 ```md
 ---
 name: review-open-prs
-extension: { source: ./github-pr-reviewer.extension.ts }
-agent: { provider: openai-codex, model: gpt-5.5 }
-resources: { contextFiles: true }
+agent: { provider: openai-codex, model: gpt-5.5, maxTurns: 4 }
+extension: { source: ./github-pr-reviewer.extension.ts, maxConcurrentRuns: 2 }
+plot: { tickIntervalMs: 300000, maxRunDurationMs: 900000 }
 ---
 
 # Review {{ work.title }}
 
-Use the repository, tests, and judgment. Post one useful review.
+Inspect the diff and callers, run relevant checks, and use `post_review` only after verification.
 ```
 
-An extension is one TypeScript file:
+`github-pr-reviewer.extension.ts`:
 
 ```ts
 import { definePlotExtension } from "plot-ai/sdk";
@@ -64,9 +62,10 @@ export default definePlotExtension({
 			return prs.map((pr) =>
 				work({
 					id: `github:pr:${pr.number}`,
-					version: pr.headSha, // new head = new work, automatically
+					version: pr.headSha,
 					title: pr.title,
-					context: { prNumber: pr.number },
+					url: pr.url,
+					context: { prNumber: pr.number, repository: pr.repository },
 				}),
 			);
 		},
@@ -74,64 +73,53 @@ export default definePlotExtension({
 });
 ```
 
-Return the work that exists. Stop returning work that's done. Reruns,
-deduplication, and cleanup fall out of `id` + `version`.
+The API call above is application code. Production discovery must throw on observation failure; returning `[]` authoritatively means all previously known work is gone.
 
-## What you don't write
+## Scheduling semantics
 
-| When this happens                   | What Plot does                                                                          |
-| ----------------------------------- | --------------------------------------------------------------------------------------- |
-| The process dies mid-run            | State reconstructs from your systems on the next tick — there is no database to corrupt |
-| Work disappears while a run is live | The run drains: finishes its turn, never killed for succeeding                          |
-| A run fails repeatedly              | Exponential backoff, visible as a scheduled wake on the dashboard                       |
-| A run goes silent                   | Stall timeout interrupts it                                                             |
-| Twenty items appear at once         | Global and per-source concurrency caps                                                  |
-| A human wants in                    | Operator Actions your extension declares become buttons in the TUI and web              |
+| Source observation   | Plot behavior                                           |
+| -------------------- | ------------------------------------------------------- |
+| `pending` or omitted | Eligible for dispatch.                                  |
+| `waiting`            | Keep claim visible; wait for the external world.        |
+| `blocked`            | Keep claim visible; wait for a human decision.          |
+| `cancelled`          | Interrupt active work and release immediately.          |
+| Item absent          | Drain an active turn, then release without redispatch.  |
+| Same id, new version | Drain old revision before dispatching replacement.      |
+| Run fails/times out  | Retry with exponential backoff, capped at five minutes. |
+| Run becomes inactive | Optional stall timeout interrupts it.                   |
 
-## Try the PR reviewer
+## Operator surfaces
 
 ```bash
-plot --workflow examples/pr-review/WORKFLOW.md
+plot open WORKFLOW.md          # live terminal dashboard
+plot open WORKFLOW.md --web    # durable browser projection + HTTP/SSE
+plot run WORKFLOW.md           # no dashboard
+plot runs                      # managed-run catalog
+plot events stream <run-id>    # durable replay then live JSONL
+plot api schema                # exact Session protocol methods
 ```
 
-Tiered review depth, re-review on push, a quiet period for rapid pushes,
-bot/label/draft gating. One anchor comment per PR holds all review state.
+The TUI starts and watches one live run. The web gateway can reconstruct durable projections and continue gaplessly from Session RuntimeEvent JSONL.
 
-Needs an authenticated `gh` and provider auth (`plot auth login`).
-
-## Try the debug lab
+## Authoring references
 
 ```bash
-plot --workflow examples/debug/WORKFLOW.md
-```
-
-Three realistic long-running synthetic work streams for inspecting concurrent Plot sessions in the TUI and web dashboard without forcing failure, cancellation, or timeout edge cases.
-
-## Watch it work
-
-```bash
-plot open WORKFLOW.md          # terminal dashboard
-plot open WORKFLOW.md --web    # same session, in the browser
-plot serve api WORKFLOW.md --stdio  # same session, as JSONL for machines
-```
-
-## Write your extension with an agent
-
-```bash
+plot docs quickstart
+plot docs workflows
+plot docs extensions
+plot docs cli
+plot docs web
 plot docs extension-prompt | pbcopy
 ```
 
-Paste it into your coding agent and describe your source of work.
+[Quickstart](docs/quickstart.md) · [Workflows](docs/workflows.md) · [Extensions](docs/extensions.md) · [CLI](docs/cli.md) · [TUI](docs/tui.md) · [Web/API](docs/web.md)
 
-## Docs and development
-
-[Quickstart](docs/quickstart.md) · [Workflows](docs/workflows.md) ·
-[Extensions](docs/extensions.md) · [TUI](docs/tui.md) · [Web](docs/web.md)
+## Development and release
 
 ```bash
 bun install
 bun run check
+bun run release:local --version 0.0.0-test --skip-check
 ```
 
-Releases are tag-driven from `v*`. Run
-`bun run release:local --version <version>` before cutting one.
+Releases are tag-driven from `v*`.

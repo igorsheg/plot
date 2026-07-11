@@ -19,6 +19,7 @@
 		"citty": "^0.1.6"
 	},
 	"devDependencies": {
+		"@plot/sdk": "workspace:*",
 		"@repo/tsconfig": "workspace:*"
 	}
 }

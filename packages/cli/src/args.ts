@@ -145,21 +145,23 @@ const agentOverrideArgs = {
 const resourceArgs = {
 	skill: {
 		type: "string",
-		description: "Additional skill path for the agent session.",
+		description:
+			"Additional skill path; repeatable and overrides Workflow additions.",
 		valueHint: "path",
 	},
 	"prompt-template": {
 		type: "string",
-		description: "Additional prompt template path.",
+		description:
+			"Additional prompt-template path; repeatable and overrides Workflow additions.",
 		valueHint: "path",
 	},
 	"no-skills": {
 		type: "boolean",
-		description: "Disable workflow-declared skills.",
+		description: "Disable all skill loading.",
 	},
 	"no-prompt-templates": {
 		type: "boolean",
-		description: "Disable workflow-declared prompt templates.",
+		description: "Disable all prompt-template loading.",
 	},
 	"no-context-files": {
 		type: "boolean",
@@ -172,7 +174,7 @@ const resourceArgs = {
 	},
 	"append-system-prompt": {
 		type: "string",
-		description: "Append text to the agent system prompt.",
+		description: "Append text to the agent system prompt; repeatable.",
 		valueHint: "text",
 	},
 } satisfies ArgsDef;

@@ -1,56 +1,131 @@
 # Quickstart
 
+## Install or run without installing
+
 ```bash
 npm install -g plot-ai
 plot --help
 ```
 
-Authenticate a provider:
+Or use npm's package runner:
+
+```bash
+npx plot-ai --help
+```
+
+The npm package installs the `plot` binary for the current supported platform.
+
+## Authenticate an agent provider
 
 ```bash
 plot auth
 plot auth login
+plot models
 ```
 
-Run a Workflow:
+`plot auth` is shorthand for `plot auth status`. Login prompts for a provider when none is supplied.
+
+Optional defaults:
 
 ```bash
+plot config set defaultProvider openai-codex --global
+plot config set defaultModel gpt-5.5 --global
+plot config set defaultThinkingLevel high --global
+```
+
+Global settings live at `~/.plot/settings.json`. Project overrides live at `.plot/settings.json`.
+
+## Run one task
+
+```bash
+mkdir plot-demo && cd plot-demo
+plot init
 plot open WORKFLOW.md
 ```
 
-This opens a managed Plot Session in the terminal. `plot open --web` can watch the same session.
+`plot init` creates a one-shot Workflow. Without an extension, Plot creates one synthetic Work Item, runs the Markdown prompt, records the Session, and stops after completion.
 
-One pass without a dashboard:
+Use `plot run WORKFLOW.md` for the same one-shot behavior without a dashboard.
+
+## Run discovered work
+
+Create `demo.extension.ts`:
+
+```ts
+import { definePlotExtension } from "plot-ai/sdk";
+
+const completed = new Set<string>();
+
+export default definePlotExtension({
+	id: "demo",
+	create({ work }) {
+		return {
+			async discover() {
+				if (completed.has("demo:hello")) return [];
+				return [
+					work({
+						id: "demo:hello",
+						version: "1",
+						title: "Write a greeting",
+						context: { audience: "Plot users" },
+						display: { primary: "demo", title: "Write a greeting" },
+					}),
+				];
+			},
+			completed({ work: finished }) {
+				completed.add(finished.id);
+			},
+		};
+	},
+});
+```
+
+Create `WORKFLOW.md`:
+
+```md
+---
+name: demo
+agent:
+  provider: openai-codex
+  model: gpt-5.5
+  maxTurns: 1
+extension:
+  source: ./demo.extension.ts
+---
+
+Complete {{ work.title }} for {{ audience }}.
+```
+
+Validate and run:
 
 ```bash
-plot run WORKFLOW.md
+plot doctor WORKFLOW.md
+plot open WORKFLOW.md
 ```
 
-## PR review example
+This in-memory completion set is only a minimal example. Real extensions should derive work from an authoritative external system and make tools idempotent.
 
-From this repo, on a branch with a GitHub PR:
+## Choose an operator surface
 
 ```bash
-plot open examples/pr-review/WORKFLOW.md
+plot open WORKFLOW.md         # live terminal dashboard
+plot open WORKFLOW.md --web   # browser dashboard and HTTP API
+plot run WORKFLOW.md          # no dashboard; finish current work
+plot runs                     # shared run catalog
+plot events stream <run-id>   # durable replay then live JSONL
 ```
 
-You need:
+## Project state
 
-- `gh` installed and authenticated
-- a branch with an associated PR
-- agent provider auth
+Defaults under the project root:
 
-Optional defaults live in `~/.plot/settings.json` or `.plot/settings.json`:
-
-```json
-{ "defaultProvider": "openai-codex", "defaultModel": "gpt-5.5" }
+```txt
+.plot/settings.json    project provider/model defaults
+.plot/sessions/        durable Session RuntimeEvent JSONL
+.plot/skills/          automatically searched skill path
+.plot/prompts/         automatically searched prompt-template path
 ```
 
-## Build your own
+Agent auth, models, and global settings default under `~/.plot/agent` and `~/.plot/settings.json`. Agent transcripts are separate from Plot's RuntimeEvent history.
 
-A Workflow has two parts:
-
-1. An extension that finds Work Items and registers tools.
-2. A prompt that tells the Agent Run how to handle each Work Item.
-
-The extension identifies targets and owns safe integration side effects. The agent investigates and makes judgments inside the Workflow prompt.
+Next: [Workflows](workflows.md), then [Extensions](extensions.md).
