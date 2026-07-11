@@ -89,6 +89,35 @@ export interface AgentTranscriptReference {
 	readonly id?: string | undefined;
 	readonly path?: string;
 }
+export type SourceReadiness =
+	| "checking"
+	| "ready"
+	| "action-required"
+	| "unavailable";
+export interface SourceRequirementProjection {
+	readonly id: string;
+	readonly label: string;
+	readonly status: SourceReadiness;
+	readonly message?: string | undefined;
+	readonly retryAfterMs?: number | undefined;
+	readonly actions?: readonly unknown[] | undefined;
+}
+export interface SourceActionProjection {
+	readonly actionRunId: string;
+	readonly requirementId: string;
+	readonly actionId: string;
+	readonly status: "running" | "failed" | "cancelled";
+	readonly progress?: string | undefined;
+}
+export interface SourceProjection {
+	readonly sourceId: string;
+	readonly label: string;
+	readonly readiness: SourceReadiness;
+	readonly message?: string | undefined;
+	readonly requirements: readonly SourceRequirementProjection[];
+	readonly diagnostics: readonly string[];
+	readonly action?: SourceActionProjection | undefined;
+}
 export interface WorkItemProjection {
 	readonly workKey: string;
 	readonly sourceId: string;
@@ -183,6 +212,7 @@ export interface DashboardProjection {
 	readonly pulse?: LoopPulse | undefined;
 	readonly usageTotals: UsageTotals;
 	readonly tokenSamples: readonly TokenSample[];
+	readonly sources: ReadonlyMap<string, SourceProjection>;
 	readonly work: ReadonlyMap<string, WorkItemProjection>;
 	readonly attempts: ReadonlyMap<string, AgentAttemptProjection>;
 	readonly completed: readonly CompletedWorkProjection[];

@@ -6,6 +6,8 @@ const expectedExports = [
 	"./pi-session",
 	"./auth",
 	"./history",
+	"./interaction",
+	"./readiness",
 	"./runtime",
 	"./serve",
 	"./host",

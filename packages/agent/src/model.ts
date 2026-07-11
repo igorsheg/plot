@@ -92,12 +92,42 @@ export const removeWork = (key: string): RemoveWorkProposal => ({
 	workKey: key,
 });
 
+export type SourceReadinessStatus =
+	| "checking"
+	| "ready"
+	| "action-required"
+	| "unavailable";
+export interface SourceRequirementRecord {
+	readonly id: string;
+	readonly label: string;
+	readonly status: SourceReadinessStatus;
+	readonly message?: string;
+	readonly retryAfterMs?: number;
+	readonly actions?: readonly OperatorAction[];
+}
+export interface SourceRecord {
+	readonly sourceId: string;
+	readonly label: string;
+	readonly readiness: SourceReadinessStatus;
+	readonly message?: string;
+	readonly requirements: readonly SourceRequirementRecord[];
+}
+export interface UpsertSourceProposal {
+	readonly type: "upsert_source";
+	readonly source: SourceRecord;
+}
+export const upsertSource = (source: SourceRecord): UpsertSourceProposal => ({
+	type: "upsert_source",
+	source,
+});
+
 export type ReconcileProposal =
 	| SetFactProposal
 	| InterruptWorkProposal
 	| ScheduleWakeProposal
 	| UpsertWorkProposal
-	| RemoveWorkProposal;
+	| RemoveWorkProposal
+	| UpsertSourceProposal;
 
 export interface WorkItem {
 	workKey: string;
@@ -163,6 +193,7 @@ export interface RuntimeSnapshot {
 	observations: Observation[];
 	completions: Completion[];
 	diagnostics: Diagnostic[];
+	sources: Map<string, SourceRecord>;
 	work: Map<string, WorkRecord>;
 	running: Map<string, WorkRun>;
 	scheduledWakes?: ScheduledWake[];
@@ -181,6 +212,7 @@ export interface TickResult {
 export type PlotAgentEvent =
 	| { type: "tick_started"; tickId: number }
 	| { type: "tick_completed"; result: TickResult }
+	| { type: "source_observed"; source: SourceRecord }
 	| { type: "work_observed"; work: WorkRecord }
 	| { type: "work_removed"; workKey: string }
 	| {

@@ -97,6 +97,7 @@ const projection = (
 	runtime: { cwd: "/repo", cwdName: "repo", skills: [], skillPaths: [] },
 	usageTotals: { tokens: 0 },
 	tokenSamples: [],
+	sources: {},
 	work: {},
 	attempts: {},
 	completed: [],
@@ -105,6 +106,40 @@ const projection = (
 	activity: [],
 	debugEvents: [],
 	...overrides,
+});
+
+test("buildAttention includes Source setup without Work Items", () => {
+	const attention = buildAttention(
+		projection({
+			sources: {
+				"extension:jira": {
+					sourceId: "extension:jira",
+					label: "Wix Jira",
+					readiness: "action-required",
+					diagnostics: [],
+					requirements: [
+						{
+							id: "wix-mcp",
+							label: "Wix MCP",
+							status: "action-required",
+							message: "Connect Wix MCP",
+						},
+					],
+				},
+			},
+		}),
+	);
+
+	expect(attention).toContainEqual({
+		kind: "source",
+		key: "source:extension:jira",
+		sourceId: "extension:jira",
+		requirementId: "wix-mcp",
+		title: "Wix Jira",
+		status: "action-required",
+		message: "Connect Wix MCP",
+		actions: [],
+	});
 });
 
 test("parseOperatorActions parses the real OperatorAction shape", () => {

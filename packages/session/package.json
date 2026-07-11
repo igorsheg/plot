@@ -16,6 +16,10 @@
 			"types": "./src/history.ts",
 			"import": "./src/history.ts"
 		},
+		"./interaction": {
+			"types": "./src/interaction.ts",
+			"import": "./src/interaction.ts"
+		},
 		"./paths": {
 			"types": "./src/paths.ts",
 			"import": "./src/paths.ts"
@@ -31,6 +35,10 @@
 		"./protocol": {
 			"types": "./src/protocol.ts",
 			"import": "./src/protocol.ts"
+		},
+		"./readiness": {
+			"types": "./src/readiness.ts",
+			"import": "./src/readiness.ts"
 		},
 		"./runtime": {
 			"types": "./src/runtime.ts",

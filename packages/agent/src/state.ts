@@ -12,6 +12,7 @@ import type {
 	ScheduledWake,
 	ScheduleWakeProposal,
 	SkippedWork,
+	SourceRecord,
 	WorkItem,
 	WorkRecord,
 	WorkRun,
@@ -24,6 +25,7 @@ export interface RuntimeState {
 	observations: Observation[];
 	completions: Completion[];
 	diagnostics: Diagnostic[];
+	sources: Map<string, SourceRecord>;
 	work: Map<string, WorkRecord>;
 	running: Map<string, WorkRun>;
 	scheduledWakes: ScheduledWake[];
@@ -75,12 +77,16 @@ export interface RunHandle {
 	controller: AbortController;
 }
 
-export const initialRuntimeState = (runIdPrefix: string): RuntimeState => ({
+export const initialRuntimeState = (
+	runIdPrefix: string,
+	sources: readonly SourceRecord[] = [],
+): RuntimeState => ({
 	tickId: 0,
 	facts: new Map(),
 	observations: [],
 	completions: [],
 	diagnostics: [],
+	sources: new Map(sources.map((source) => [source.sourceId, source])),
 	work: new Map(),
 	running: new Map(),
 	scheduledWakes: [],
@@ -148,6 +154,7 @@ export const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	observations: [...state.observations],
 	completions: [...state.completions],
 	diagnostics: [...state.diagnostics],
+	sources: new Map(state.sources),
 	work: new Map(state.work),
 	running: new Map(state.running),
 	scheduledWakes: state.scheduledWakes.filter(
@@ -211,6 +218,17 @@ const activeWorkRecord = (
 		subject: record?.subject ?? run.subject,
 		display: record?.display ?? run.display,
 	}) as WorkRecord;
+const applySourceProposals = (
+	sources: Map<string, SourceRecord>,
+	proposals: ReconcileProposal[],
+): Map<string, SourceRecord> => {
+	const next = new Map(sources);
+	for (const proposal of proposals)
+		if (proposal.type === "upsert_source")
+			next.set(proposal.source.sourceId, proposal.source);
+	return next;
+};
+
 const applyWorkProposals = (
 	work: Map<string, WorkRecord>,
 	running: Map<string, WorkRun>,
@@ -393,6 +411,7 @@ export const applyReconciled = (
 		{
 			...state,
 			facts: applyFactProposals(state.facts, proposals),
+			sources: applySourceProposals(state.sources, proposals),
 			work: applyWorkProposals(state.work, state.running, proposals),
 			observations: [],
 			completions: [],

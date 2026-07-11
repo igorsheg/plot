@@ -48,6 +48,7 @@ export const reduceEvent = (
 			pulse: undefined,
 			usageTotals: { tokens: 0 },
 			tokenSamples: [],
+			sources: new Map(),
 			work: new Map(),
 			attempts: new Map(),
 			completed: [],
@@ -58,6 +59,14 @@ export const reduceEvent = (
 	if (event.type === "session_shutdown") return { ...p, status: "stopped" };
 	if (event.type === "tick_completed") {
 		const r = event.result;
+		const sources = new Map(p.sources);
+		for (const [sourceId, source] of sources)
+			sources.set(sourceId, {
+				...source,
+				diagnostics: r.diagnostics
+					.filter((diagnostic) => diagnostic.sourceId === sourceId)
+					.map((diagnostic) => diagnostic.message),
+			});
 		return {
 			...p,
 			status: p.attempts.size > 0 || r.started > 0 ? "running" : "idle",
@@ -67,7 +76,103 @@ export const reduceEvent = (
 				found: r.selected,
 				started: r.started,
 			},
+			sources,
 			diagnostics: r.diagnostics.map((d) => d.message),
+		};
+	}
+	if (event.type === "source_observed") {
+		const source = event.source;
+		const current = p.sources.get(source.sourceId);
+		return {
+			...p,
+			sources: new Map(p.sources).set(source.sourceId, {
+				...source,
+				diagnostics: current?.diagnostics ?? [],
+				action:
+					current?.action?.status === "running" ? current.action : undefined,
+			}),
+		};
+	}
+	if (event.type === "source_action_started") {
+		const source = p.sources.get(event.sourceId);
+		if (source === undefined) return p;
+		return {
+			...p,
+			sources: new Map(p.sources).set(event.sourceId, {
+				...source,
+				action: {
+					actionRunId: event.actionRunId,
+					requirementId: event.requirementId,
+					actionId: event.actionId,
+					status: "running",
+				},
+			}),
+		};
+	}
+	if (event.type === "source_action_progress") {
+		const entry = [...p.sources].find(
+			([, source]) => source.action?.actionRunId === event.actionRunId,
+		);
+		if (entry === undefined) return p;
+		const [sourceId, source] = entry;
+		const action = source.action;
+		if (action === undefined) return p;
+		return {
+			...p,
+			sources: new Map(p.sources).set(sourceId, {
+				...source,
+				action: { ...action, progress: event.message },
+			}),
+		};
+	}
+	if (event.type === "source_interaction_open_url") {
+		const entry = [...p.sources].find(
+			([, source]) => source.action?.actionRunId === event.actionRunId,
+		);
+		if (entry === undefined) return p;
+		const [sourceId, source] = entry;
+		const action = source.action;
+		if (action === undefined) return p;
+		return {
+			...p,
+			sources: new Map(p.sources).set(sourceId, {
+				...source,
+				action: {
+					...action,
+					progress: `${event.fallbackText ?? "Open this URL to continue:"} ${event.url}`,
+				},
+			}),
+		};
+	}
+	if (event.type === "source_action_completed") {
+		return {
+			...p,
+			sources: new Map(p.sources).set(event.source.sourceId, {
+				...event.source,
+				diagnostics: p.sources.get(event.source.sourceId)?.diagnostics ?? [],
+			}),
+		};
+	}
+	if (
+		event.type === "source_action_failed" ||
+		event.type === "source_action_cancelled"
+	) {
+		const source = p.sources.get(event.sourceId);
+		if (source?.action?.actionRunId !== event.actionRunId) return p;
+		return {
+			...p,
+			sources: new Map(p.sources).set(event.sourceId, {
+				...source,
+				action: {
+					...source.action,
+					status:
+						event.type === "source_action_failed" ? "failed" : "cancelled",
+					progress:
+						event.type === "source_action_failed"
+							? event.message
+							: "Setup cancelled",
+				},
+			}),
 		};
 	}
 	if (event.type === "work_observed") {

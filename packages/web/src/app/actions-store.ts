@@ -1,6 +1,14 @@
-import type { OperatorObservationInput } from "@plot/session/runtime";
+import type {
+	OperatorObservationInput,
+	SourceActionInput,
+} from "@plot/session/runtime";
 import { computed } from "nanostores";
-import { recordObservation, stopRun } from "../data/api.js";
+import {
+	cancelSourceAction,
+	recordObservation,
+	startSourceAction,
+	stopRun,
+} from "../data/api.js";
 import { createMutatorStore } from "../data/query.js";
 import { runsUrl } from "../data/routes.js";
 import { $selectedRun } from "./runs-store.js";
@@ -24,15 +32,35 @@ export const $actOnWork = createMutatorStore<
 	await recordObservation(run.id, data);
 });
 
+export const $actOnSource = createMutatorStore<SourceActionInput>(
+	async ({ data }) => {
+		const run = $selectedRun.get();
+		if (run === undefined) return;
+		await startSourceAction(run.id, data);
+	},
+);
+
+export const $cancelSourceAction = createMutatorStore<string>(
+	async ({ data: actionRunId }) => {
+		const run = $selectedRun.get();
+		if (run === undefined) return;
+		await cancelSourceAction(run.id, actionRunId);
+	},
+);
+
 const errorText = (caught: unknown): string =>
 	caught instanceof Error ? caught.message : String(caught);
 
 export const actionError = computed(
-	[$stopSelectedRun, $actOnWork],
-	(stop, act): string | undefined =>
+	[$stopSelectedRun, $actOnWork, $actOnSource, $cancelSourceAction],
+	(stop, act, source, cancel): string | undefined =>
 		stop.error !== undefined
 			? errorText(stop.error)
 			: act.error !== undefined
 				? errorText(act.error)
-				: undefined,
+				: source.error !== undefined
+					? errorText(source.error)
+					: cancel.error !== undefined
+						? errorText(cancel.error)
+						: undefined,
 );

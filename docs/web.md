@@ -33,6 +33,8 @@ GET /api/runs/:id/events
 GET /api/runs/:id/session-events
 GET /api/runs/:id/projection
 GET /api/runs/:id/attempts/:runId/transcript
+POST /api/runs/:id/source-actions
+DELETE /api/runs/:id/source-actions/:actionRunId
 POST /api/runs/:id/observations
 ```
 
@@ -112,6 +114,24 @@ The serialized projection's frontier is the highest durable RuntimeEvent sequenc
 ### `GET /api/runs/:id/attempts/:runId/transcript`
 
 Returns display entries for one Agent Run transcript. The gateway derives the transcript file from the event-reduced projection; clients never supply filesystem paths.
+
+### `POST /api/runs/:id/source-actions`
+
+Starts an extension setup action and returns its process-local `actionRunId`:
+
+```json
+{
+	"sourceId": "extension:wix-jira",
+	"requirementId": "wix-mcp",
+	"actionId": "connect"
+}
+```
+
+Progress, URL-open effects, completion, and failure arrive through RuntimeEvents. OAuth URLs are live-only effects and are not written to Session history.
+
+### `DELETE /api/runs/:id/source-actions/:actionRunId`
+
+Cancels one in-flight Source setup action. The action receives an aborted signal and a `source_action_cancelled` event follows.
 
 ### `POST /api/runs/:id/observations`
 

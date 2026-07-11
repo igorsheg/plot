@@ -7,6 +7,7 @@ import type {
 	DashboardProjection,
 	RuntimeIdentityProjection,
 	ScheduledWakeProjection,
+	SourceProjection,
 	TokenSample,
 	WorkItemProjection,
 } from "./types.js";
@@ -20,8 +21,9 @@ export interface SerializedAgentAttemptProjection extends Omit<
 
 export interface SerializedDashboardProjection extends Omit<
 	DashboardProjection,
-	"work" | "attempts"
+	"sources" | "work" | "attempts"
 > {
+	readonly sources: Record<string, SourceProjection>;
 	readonly work: Record<string, WorkItemProjection>;
 	readonly attempts: Record<string, SerializedAgentAttemptProjection>;
 }
@@ -128,6 +130,10 @@ export const parseSerializedDashboardProjection = (
 		tokenSamples: (Array.isArray(record["tokenSamples"])
 			? record["tokenSamples"]
 			: []) as readonly TokenSample[],
+		sources: (isRecord(record["sources"]) ? record["sources"] : {}) as Record<
+			string,
+			SourceProjection
+		>,
 		work: (isRecord(record["work"]) ? record["work"] : {}) as Record<
 			string,
 			WorkItemProjection
@@ -187,6 +193,7 @@ export const serializeDashboardProjection = (
 	projection: DashboardProjection,
 ): SerializedDashboardProjection => ({
 	...projection,
+	sources: Object.fromEntries(projection.sources),
 	work: Object.fromEntries(projection.work),
 	attempts: Object.fromEntries(
 		[...projection.attempts].map(([key, attempt]) => [
@@ -200,6 +207,7 @@ export const hydrateDashboardProjection = (
 	projection: SerializedDashboardProjection,
 ): DashboardProjection => ({
 	...projection,
+	sources: new Map(Object.entries(projection.sources)),
 	work: new Map(Object.entries(projection.work)),
 	attempts: new Map(
 		Object.entries(projection.attempts).map(([key, attempt]) => [

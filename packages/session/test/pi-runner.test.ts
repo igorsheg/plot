@@ -46,6 +46,7 @@ const snapshot: RuntimeSnapshot = {
 	observations: [],
 	completions: [],
 	diagnostics: [],
+	sources: new Map(),
 	work: new Map(),
 	running: new Map(),
 };

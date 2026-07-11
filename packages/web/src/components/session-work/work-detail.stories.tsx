@@ -145,7 +145,12 @@ const workValue: SessionWorkContextValue = {
 		denseDecisions: false,
 		loaded: true,
 	},
-	actions: { act: () => {}, acting: false },
+	actions: {
+		act: () => {},
+		actOnSource: () => {},
+		cancelSourceAction: () => {},
+		acting: false,
+	},
 };
 
 function panel(view: DetailView): StoryObj {

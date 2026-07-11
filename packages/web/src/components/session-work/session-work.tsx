@@ -16,7 +16,11 @@
 import { useStore } from "@nanostores/react";
 import type { OperatorObservationInput } from "@plot/session/runtime";
 import { type ReactNode } from "react";
-import { $actOnWork } from "../../app/actions-store.js";
+import {
+	$actOnSource,
+	$actOnWork,
+	$cancelSourceAction,
+} from "../../app/actions-store.js";
 import { $selectedProjection } from "../../app/projection-store.js";
 import { $selectedRun } from "../../app/runs-store.js";
 import { $nowMs } from "../../app/time-store.js";
@@ -63,6 +67,7 @@ import {
 	type SettledItem,
 } from "./view-model.js";
 
+type SourceItem = Extract<AttentionItem, { kind: "source" }>;
 type DecisionItem = Extract<AttentionItem, { kind: "decision" }>;
 type FailureItem = Extract<AttentionItem, { kind: "failure" }>;
 type DiagnosticItem = Extract<AttentionItem, { kind: "diagnostic" }>;
@@ -84,6 +89,50 @@ const ageEdge = (
 	sinceMs: number | undefined,
 ): string | undefined =>
 	sinceMs === undefined ? undefined : formatShortAge(nowMs - sinceMs);
+
+function SourceRow({ item }: { readonly item: SourceItem }) {
+	const { actions } = useSessionWork();
+	const action = item.actions.find(
+		(candidate) => candidate.disabledReason === undefined,
+	);
+	const running = item.actionRunId !== undefined;
+	const interactive = running || action !== undefined;
+	const invoke = () => {
+		if (item.actionRunId !== undefined) {
+			actions.cancelSourceAction(item.actionRunId);
+			return;
+		}
+		if (action !== undefined && item.requirementId !== undefined)
+			actions.actOnSource({
+				sourceId: item.sourceId,
+				requirementId: item.requirementId,
+				actionId: action.id,
+			});
+	};
+	return (
+		<WorkItem.Root>
+			<WorkItem.Frame interactive={interactive} onClick={invoke}>
+				<WorkItem.Line>
+					<WorkItem.Icon state="attention" />
+					<WorkItem.Title>{item.title}</WorkItem.Title>
+					<WorkItem.Edge>
+						{running ? "Cancel" : (action?.label ?? item.status)}
+					</WorkItem.Edge>
+				</WorkItem.Line>
+				{item.progress !== undefined || item.message !== undefined ? (
+					<WorkItem.Subline>
+						<StreamedLine
+							text={item.progress ?? item.message ?? ""}
+							tone="danger"
+						/>
+					</WorkItem.Subline>
+				) : (
+					<EmptySubline />
+				)}
+			</WorkItem.Frame>
+		</WorkItem.Root>
+	);
+}
 
 function DecisionRow({ item }: { readonly item: DecisionItem }) {
 	const { state } = useSessionWork();
@@ -263,6 +312,8 @@ function HeldRow({ item }: { readonly item: HeldItem }) {
 
 function AttentionRow({ item }: { readonly item: AttentionItem }) {
 	switch (item.kind) {
+		case "source":
+			return <SourceRow item={item} />;
 		case "decision":
 			return <DecisionRow item={item} />;
 		case "failure":
@@ -387,6 +438,8 @@ export function StoreSessionWorkProvider({
 	const projection = useStore($selectedProjection);
 	const nowMs = useStore($nowMs);
 	const actState = useStore($actOnWork);
+	const sourceActionState = useStore($actOnSource);
+	const sourceCancelState = useStore($cancelSourceAction);
 	const detailView = useStore($detailView);
 	const openDetailRef = useStore($openDetail);
 	if (run === undefined) return null;
@@ -401,7 +454,16 @@ export function StoreSessionWorkProvider({
 			denseDecisions: decisionCount(attention) >= 3,
 			loaded: projection !== undefined,
 		},
-		actions: { act, acting },
+		actions: {
+			act,
+			actOnSource: (input) => void $actOnSource.mutate(input),
+			cancelSourceAction: (actionRunId) =>
+				void $cancelSourceAction.mutate(actionRunId),
+			acting:
+				acting ||
+				(sourceActionState.loading ?? false) ||
+				(sourceCancelState.loading ?? false),
+		},
 	};
 	const detailValue: WorkDetailContextValue = {
 		state: { open: openDetailRef !== undefined, view: detailView, nowMs },

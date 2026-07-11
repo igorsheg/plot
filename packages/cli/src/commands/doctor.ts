@@ -1,7 +1,10 @@
 import { defineCommand } from "citty";
+import { resolveSessionPaths } from "@plot/session/paths";
+import { inspectWorkflowExtensionReadiness } from "@plot/session/readiness";
 import {
 	loadDiscoveredWorkflow,
 	resolveWorkflowPath,
+	type WorkflowDefinition,
 } from "@plot/session/workflow";
 import { authPathArgs, workflowPathArg } from "../args.js";
 import { getCliIo } from "../cli-context.js";
@@ -26,14 +29,55 @@ export const doctorCommand = defineCommand({
 		const lines: string[] = [];
 		let ok = true;
 
+		let workflow: WorkflowDefinition | undefined;
 		try {
-			await loadDiscoveredWorkflow(workflowInput);
+			workflow = await loadDiscoveredWorkflow(workflowInput);
 			lines.push(`OK workflow ${resolvedWorkflowPath}`);
 		} catch (error) {
 			ok = false;
 			lines.push(
 				`FAIL workflow ${resolvedWorkflowPath}: ${error instanceof Error ? error.message : String(error)}`,
 			);
+		}
+
+		if (workflow !== undefined) {
+			try {
+				const pathOptions: {
+					cwd: string;
+					plotDir?: string;
+					agentDir?: string;
+				} = { cwd };
+				const plotDir = str(args, "plot-dir");
+				const agentDir = str(args, "agent-dir");
+				if (plotDir !== undefined) pathOptions.plotDir = plotDir;
+				if (agentDir !== undefined) pathOptions.agentDir = agentDir;
+				const source = await inspectWorkflowExtensionReadiness({
+					workflow,
+					paths: resolveSessionPaths(pathOptions),
+				});
+				if (source !== undefined) {
+					if (source.readiness === "ready") {
+						lines.push(`OK extension ${source.label}`);
+					} else {
+						ok = false;
+						for (const requirement of source.requirements) {
+							if (requirement.status === "ready") continue;
+							const prefix =
+								requirement.status === "action-required" ? "SETUP" : "WAIT";
+							lines.push(
+								`${prefix} ${requirement.label}: ${requirement.message ?? requirement.status}`,
+							);
+						}
+						if (source.readiness === "action-required")
+							lines.push(`      Run: plot setup ${resolvedWorkflowPath}`);
+					}
+				}
+			} catch (error) {
+				ok = false;
+				lines.push(
+					`FAIL extension: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
 		}
 
 		try {

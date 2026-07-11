@@ -133,6 +133,58 @@ test("projection caps token throughput samples", () => {
 	expect(projection.tokenSamples.at(-1)?.tokens).toBe(130);
 });
 
+test("projection reconstructs Source readiness and attributed diagnostics", () => {
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		sessionEvent(1, {
+			type: "source_observed",
+			source: {
+				sourceId: "source-1",
+				label: "Wix Jira",
+				readiness: "action-required",
+				requirements: [
+					{
+						id: "wix-mcp",
+						label: "Wix MCP",
+						status: "action-required",
+						message: "Connect Wix MCP",
+					},
+				],
+			},
+		}),
+	);
+	projection = reduceProjectableEvent(
+		projection,
+		sessionEvent(2, {
+			type: "tick_completed",
+			result: {
+				tickId: 1,
+				selected: 0,
+				started: 0,
+				running: 0,
+				completions: 0,
+				diagnostics: [
+					{
+						level: "error",
+						phase: "observe",
+						sourceId: "source-1",
+						message: "gateway unavailable",
+					},
+				],
+			},
+		}),
+	);
+
+	const source = projection.sources.get("source-1");
+	expect(source?.readiness).toBe("action-required");
+	expect(source?.requirements[0]?.message).toBe("Connect Wix MCP");
+	expect(source?.diagnostics).toEqual(["gateway unavailable"]);
+	const hydrated = hydrateDashboardProjection(
+		serializeDashboardProjection(projection),
+	);
+	expect(hydrated.sources.get("source-1")).toEqual(source);
+});
+
 test("projection retains the last prose after live streams close", () => {
 	let projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),

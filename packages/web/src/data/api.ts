@@ -3,7 +3,11 @@ import {
 	type SerializedDashboardProjection,
 } from "@plot/projection";
 import type { RunRecord } from "@plot/registry/record";
-import type { OperatorObservationInput } from "@plot/session/runtime";
+import type {
+	OperatorObservationInput,
+	SourceActionInput,
+	SourceActionStartResult,
+} from "@plot/session/runtime";
 import type { TranscriptEntry } from "@plot/session/transcript";
 import { asRecord, asString } from "./parse.js";
 import { parsePlotRuns } from "./run.js";
@@ -33,6 +37,38 @@ export const recordObservation = async (
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(input),
 		}),
+	);
+	return data?.["accepted"] === true;
+};
+
+export const startSourceAction = async (
+	runId: string,
+	input: SourceActionInput,
+): Promise<SourceActionStartResult> => {
+	const data = asRecord(
+		await fetchJson(`/api/runs/${encodeURIComponent(runId)}/source-actions`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(input),
+		}),
+	);
+	const result: { accepted: boolean; actionRunId?: string } = {
+		accepted: data?.["accepted"] === true,
+	};
+	const actionRunId = asString(data?.["actionRunId"]);
+	if (actionRunId !== undefined) result.actionRunId = actionRunId;
+	return result;
+};
+
+export const cancelSourceAction = async (
+	runId: string,
+	actionRunId: string,
+): Promise<boolean> => {
+	const data = asRecord(
+		await fetchJson(
+			`/api/runs/${encodeURIComponent(runId)}/source-actions/${encodeURIComponent(actionRunId)}`,
+			{ method: "DELETE" },
+		),
 	);
 	return data?.["accepted"] === true;
 };

@@ -20,6 +20,74 @@ export type {
 
 export type MaybePromise<A> = A | Promise<A>;
 
+/** A Source-level setup action, rendered by Plot rather than extension UI. */
+export type ExtensionAction = OperatorAction;
+
+export type ExtensionRequirementState =
+	| { readonly status: "ready" }
+	| {
+			readonly status: "action-required";
+			readonly message: string;
+			readonly actions: readonly ExtensionAction[];
+	  }
+	| {
+			readonly status: "unavailable";
+			readonly message: string;
+			readonly retryAfterMs?: number;
+	  };
+
+export interface ExtensionCredentials {
+	readonly get: <T = unknown>(key: string) => Promise<T | undefined>;
+	readonly set: (key: string, value: unknown) => Promise<void>;
+	readonly delete: (key: string) => Promise<void>;
+}
+
+export interface ExtensionOAuthCallback {
+	readonly redirectUri: string;
+	readonly wait: (options?: {
+		readonly signal?: AbortSignal;
+	}) => Promise<string>;
+}
+
+export interface ExtensionInteraction {
+	readonly openUrl: (
+		url: string,
+		options?: { readonly fallbackText?: string },
+	) => MaybePromise<void>;
+	readonly createOAuthCallback: (options?: {
+		readonly timeoutMs?: number;
+	}) => Promise<ExtensionOAuthCallback>;
+	readonly reportProgress: (message: string) => MaybePromise<void>;
+}
+
+export interface ExtensionRequirementCheckContext {
+	/** Aborted when the tick or Plot Session stops. */
+	readonly signal: AbortSignal;
+	readonly credentials: ExtensionCredentials;
+}
+
+export interface ExtensionRequirementActionContext {
+	readonly actionId: string;
+	readonly signal: AbortSignal;
+	readonly credentials: ExtensionCredentials;
+	readonly interaction: ExtensionInteraction;
+}
+
+/**
+ * A cheap, local prerequisite checked before discovery. `check` must not
+ * perform network I/O or launch interactive setup.
+ */
+export interface ExtensionRequirement {
+	readonly id: string;
+	readonly label: string;
+	readonly check: (
+		context: ExtensionRequirementCheckContext,
+	) => MaybePromise<ExtensionRequirementState>;
+	readonly action?: (
+		context: ExtensionRequirementActionContext,
+	) => MaybePromise<void>;
+}
+
 /** One operator-visible text block in a tool result. */
 export interface PlotToolTextContent {
 	readonly type: "text";
@@ -226,6 +294,8 @@ export interface PlotExtensionSetupContext<Config = unknown> {
 	readonly paths: PlotToolContext<Config>["paths"];
 	/** Extension config after `parseConfig`. */
 	readonly config: Config;
+	/** Extension/workflow-scoped secret storage. Never place values in work. */
+	readonly credentials: ExtensionCredentials;
 	/** Typed identity helper for building Work Items. */
 	readonly work: (input: PlotExtensionWork) => PlotExtensionWork;
 	/** Register a tool or per-run tool factory; see {@link PlotExtensionTool}. */
@@ -274,6 +344,20 @@ export class DiscoveryUnavailableError extends Error {
 	override readonly name = "DiscoveryUnavailableError";
 }
 
+/** Signals that cached authorization is no longer usable and needs a person. */
+export class ExtensionActionRequiredError extends Error {
+	override readonly name = "ExtensionActionRequiredError";
+	readonly requirementId: string;
+
+	constructor(input: {
+		readonly requirementId: string;
+		readonly message: string;
+	}) {
+		super(input.message);
+		this.requirementId = input.requirementId;
+	}
+}
+
 /**
  * The per-session runtime returned by {@link PlotExtension.create}.
  *
@@ -285,6 +369,11 @@ export class DiscoveryUnavailableError extends Error {
  * implement a second scheduler from them.
  */
 export interface PlotExtensionRuntime {
+	/**
+	 * Source prerequisites. Plot checks all of them before every discovery
+	 * tick and preserves last-known Work Items while any is non-ready.
+	 */
+	readonly requirements?: readonly ExtensionRequirement[];
 	/**
 	 * Observe the domain and return every currently-relevant Work Item.
 	 *
@@ -332,6 +421,8 @@ export interface PlotExtension<Config = unknown> {
 	 * sessions and versions of the extension.
 	 */
 	readonly id: string;
+	/** Human-readable Source label. Defaults to `id`. */
+	readonly label?: string;
 	/**
 	 * Optional boundary validator for the Workflow's `extension.config`
 	 * value. Throw on invalid input; the parsed result is what `create` and

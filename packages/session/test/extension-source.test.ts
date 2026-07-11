@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { makePlotAgent } from "@plot/agent/agent";
+import {
+	DiscoveryUnavailableError,
+	ExtensionActionRequiredError,
+} from "@plot/sdk";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import {
 	loadPlotExtensionRuntimeFromWorkflow,
@@ -189,6 +193,254 @@ describe("extension source adapter", () => {
 		expect(result.started).toHaveLength(0);
 		expect(result.diagnostics[0]?.message).toContain(
 			"duplicate discovered work",
+		);
+		await agent.shutdown();
+	});
+
+	test("gates discovery until every extension requirement is ready", async () => {
+		let ready = false;
+		let discoveries = 0;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: {
+				id: "jira",
+				label: "Wix Jira",
+				create: () => ({ discover: () => [] }),
+			},
+			runtime: {
+				requirements: [
+					{
+						id: "wix-mcp",
+						label: "Wix MCP",
+						check: () =>
+							ready
+								? { status: "ready" as const }
+								: {
+										status: "action-required" as const,
+										message: "Connect Wix MCP to discover Jira issues",
+										actions: [{ id: "connect", label: "Connect Wix MCP" }],
+									},
+					},
+				],
+				discover: () => {
+					discoveries++;
+					return [{ id: "jira:1", version: "v1" }];
+				},
+			},
+		});
+		const agent = makePlotAgent({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+
+		const blocked = await agent.tickOnce();
+		const blockedSource = blocked.snapshot.sources.get("extension:jira");
+		ready = true;
+		const resumed = await agent.tickOnce();
+
+		expect(discoveries).toBe(1);
+		expect(blocked.started).toHaveLength(0);
+		expect(blockedSource).toEqual({
+			sourceId: "extension:jira",
+			label: "Wix Jira",
+			readiness: "action-required",
+			message: "Connect Wix MCP to discover Jira issues",
+			requirements: [
+				{
+					id: "wix-mcp",
+					label: "Wix MCP",
+					status: "action-required",
+					message: "Connect Wix MCP to discover Jira issues",
+					actions: [{ id: "connect", label: "Connect Wix MCP" }],
+				},
+			],
+		});
+		expect(resumed.started).toHaveLength(1);
+		expect(resumed.snapshot.sources.get("extension:jira")?.readiness).toBe(
+			"ready",
+		);
+		await agent.shutdown();
+	});
+
+	test("a Source setup action rechecks readiness and enables discovery", async () => {
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "setup", create: () => ({ discover: () => [] }) },
+			runtime: {
+				requirements: [
+					{
+						id: "config",
+						label: "Configuration",
+						check: async ({ credentials }) =>
+							(await credentials.get("ready")) === true
+								? { status: "ready" as const }
+								: {
+										status: "action-required" as const,
+										message: "Configure the Source",
+										actions: [{ id: "configure", label: "Configure" }],
+									},
+						action: async ({ credentials }) => {
+							await credentials.set("ready", true);
+						},
+					},
+				],
+				discover: () => [{ id: "work:1", version: "v1" }],
+			},
+		});
+		const agent = makePlotAgent({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+		await agent.tickOnce();
+
+		const source = await bundle.runAction({
+			requirementId: "config",
+			actionId: "configure",
+			interaction: {
+				openUrl: () => {},
+				createOAuthCallback: async () => ({
+					redirectUri: "http://127.0.0.1/callback",
+					wait: async () => "code",
+				}),
+				reportProgress: () => {},
+			},
+			signal: new AbortController().signal,
+		});
+		const resumed = await agent.tickOnce();
+
+		expect(source.readiness).toBe("ready");
+		expect(resumed.started).toHaveLength(1);
+		await agent.shutdown();
+	});
+
+	test("preserves last-known work when a requirement loses readiness", async () => {
+		let ready = true;
+		let discoveries = 0;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "preserve", create: () => ({ discover: () => [] }) },
+			runtime: {
+				requirements: [
+					{
+						id: "config",
+						label: "Configuration",
+						check: () =>
+							ready
+								? { status: "ready" as const }
+								: {
+										status: "action-required" as const,
+										message: "Set JIRA_URL",
+										actions: [],
+									},
+					},
+				],
+				discover: () => {
+					discoveries++;
+					return [{ id: "jira:1", version: "v1", status: "waiting" as const }];
+				},
+			},
+		});
+		const agent = makePlotAgent({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+
+		await agent.tickOnce();
+		ready = false;
+		const blocked = await agent.tickOnce();
+
+		expect(discoveries).toBe(1);
+		expect(blocked.snapshot.work.has(workKey("preserve", "jira:1", "v1"))).toBe(
+			true,
+		);
+		expect(blocked.started).toHaveLength(0);
+		await agent.shutdown();
+	});
+
+	test("typed discovery outages mark the Source unavailable and preserve work", async () => {
+		let unavailable = false;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "outage", create: () => ({ discover: () => [] }) },
+			runtime: {
+				discover: () => {
+					if (unavailable)
+						throw new DiscoveryUnavailableError("Jira is offline");
+					return [{ id: "work:1", version: "v1", status: "waiting" as const }];
+				},
+			},
+		});
+		const agent = makePlotAgent({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+		await agent.tickOnce();
+		unavailable = true;
+		const result = await agent.tickOnce();
+
+		expect(result.snapshot.sources.get("extension:outage")).toMatchObject({
+			readiness: "unavailable",
+			message: "Jira is offline",
+		});
+		expect(result.snapshot.work.has(workKey("outage", "work:1", "v1"))).toBe(
+			true,
+		);
+		await agent.shutdown();
+	});
+
+	test("runtime credential expiry moves the Source to action-required without draining work", async () => {
+		let expired = false;
+		const bundle = makePlotExtensionSourceBundle({
+			workflow,
+			paths,
+			config: undefined,
+			extension: { id: "expiry", create: () => ({ discover: () => [] }) },
+			runtime: {
+				requirements: [
+					{
+						id: "auth",
+						label: "Authentication",
+						check: () => ({ status: "ready" }),
+					},
+				],
+				discover: () => {
+					if (expired)
+						throw new ExtensionActionRequiredError({
+							requirementId: "auth",
+							message: "Authorization expired",
+						});
+					return [{ id: "work:1", version: "v1", status: "waiting" as const }];
+				},
+			},
+		});
+		const agent = makePlotAgent({
+			sources: [bundle.source],
+			runner: { run: () => ({}) },
+		});
+		await agent.tickOnce();
+		expired = true;
+		const result = await agent.tickOnce();
+
+		expect(result.snapshot.sources.get("extension:expiry")).toMatchObject({
+			readiness: "action-required",
+			requirements: [
+				{
+					id: "auth",
+					status: "action-required",
+					message: "Authorization expired",
+				},
+			],
+		});
+		expect(result.snapshot.work.has(workKey("expiry", "work:1", "v1"))).toBe(
+			true,
 		);
 		await agent.shutdown();
 	});

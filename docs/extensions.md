@@ -123,6 +123,63 @@ Plot's work key is the extension `id` plus the Work Item `id` and `version`. Eve
 - `version` is the domain revision that should trigger a rerun: a head SHA, an update token, a dependency version. A changed version supersedes the old one — Plot lets an active run for the old version drain (it is never killed for succeeding) and dispatches the new version fresh. Omit `version` only when identity alone is sufficient.
 - `subject` groups versions of the same domain item; it defaults to `id`.
 
+## Source readiness and setup
+
+Declare prerequisites in `runtime.requirements` when a Source cannot discover work until authentication, configuration, a binary, VPN access, or another local condition is satisfied. Requirements are Source state, not synthetic Work Items.
+
+```ts
+import { definePlotExtension } from "plot-ai/sdk";
+
+const beginAuthorization = async (redirectUri: string) => ({
+	url: `https://example.com/oauth?redirect_uri=${encodeURIComponent(redirectUri)}`,
+	exchange: async (code: string) => ({ accessToken: code }),
+});
+const readJiraWork = async () => ({ id: "jira:1", version: "v1" });
+
+export default definePlotExtension({
+	id: "wix-jira",
+	label: "Wix Jira",
+	create({ credentials, work }) {
+		return {
+			requirements: [
+				{
+					id: "wix-mcp",
+					label: "Wix MCP",
+					async check({ credentials }) {
+						return (await credentials.get("tokens")) === undefined
+							? {
+									status: "action-required",
+									message: "Connect Wix MCP to discover Jira issues",
+									actions: [{ id: "connect", label: "Connect Wix MCP" }],
+								}
+							: { status: "ready" };
+					},
+					async action({ actionId, interaction, credentials, signal }) {
+						if (actionId !== "connect") return;
+						const callback = await interaction.createOAuthCallback();
+						const authorization = await beginAuthorization(
+							callback.redirectUri,
+						);
+						await interaction.openUrl(authorization.url);
+						const code = await callback.wait({ signal });
+						await credentials.set("tokens", await authorization.exchange(code));
+					},
+				},
+			],
+			async discover() {
+				return [work(await readJiraWork())];
+			},
+		};
+	},
+});
+```
+
+`check()` runs before discovery and must be cheap and local: inspect credentials, environment, files, config, and installed binaries only. Do not refresh tokens or probe a network there. Plot calls `discover()` only while every requirement is `ready`; `action-required` and `unavailable` preserve last-known work and gate new dispatch.
+
+Use `credentials` for extension/workflow-scoped secret values. Plot stores them in permission-restricted files and never puts them in Work Item context, prompts, events, or logs. `plot setup` invokes declared actions; `plot doctor` only checks them and never opens a browser.
+
+If token refresh fails terminally inside `discover()` or a bound tool, delete or invalidate the cached credential and throw `ExtensionActionRequiredError`. Plot moves the Source back to `action-required`, preserves work, and exposes reconnection. Temporary network failures remain `DiscoveryUnavailableError`.
+
 ## Discovery outcomes
 
 Plot calls `discover` once per tick and reconciles against that single observation. For a known item, discovery has exactly five outcomes:

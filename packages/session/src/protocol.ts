@@ -11,7 +11,7 @@ import type {
 	SessionRuntime,
 } from "./runtime.js";
 
-export const sessionProtocolVersion = "plot.session.v5";
+export const sessionProtocolVersion = "plot.session.v6";
 
 export const sessionProtocolMethods = [
 	"ping",
@@ -22,6 +22,10 @@ export const sessionProtocolMethods = [
 	"session.dispatch.pause",
 	"session.dispatch.resume",
 	"scheduler.snapshot",
+	"source.list",
+	"source.get",
+	"source.action",
+	"source.action.cancel",
 	"work.list",
 	"work.get",
 	"attempt.list",
@@ -438,6 +442,33 @@ const decodeObservationParams = (value: unknown): OperatorObservationInput => {
 	};
 };
 
+const decodeSourceActionParams = (value: unknown) => {
+	const input = params(value, "source.action");
+	return {
+		sourceId: string(input["sourceId"], "source.action sourceId"),
+		requirementId: string(
+			input["requirementId"],
+			"source.action requirementId",
+		),
+		actionId: string(input["actionId"], "source.action actionId"),
+	};
+};
+
+const decodeSourceActionCancelParams = (value: unknown) => {
+	const input = params(value, "source.action.cancel");
+	return {
+		actionRunId: string(
+			input["actionRunId"],
+			"source.action.cancel actionRunId",
+		),
+	};
+};
+
+const decodeSourceGetParams = (value: unknown): { sourceId: string } => {
+	const input = params(value, "source.get");
+	return { sourceId: string(input["sourceId"], "source.get sourceId") };
+};
+
 const decodeWorkGetParams = (value: unknown): { workKey: string } => {
 	const input = params(value, "work.get");
 	return { workKey: string(input["workKey"], "work.get workKey") };
@@ -621,6 +652,30 @@ export const makeSessionProtocol = (
 				return success(request, await options.runtime.state());
 			case "scheduler.snapshot":
 				return success(request, await options.runtime.schedulerSnapshot());
+			case "source.list":
+				return success(request, {
+					sources: (await options.runtime.schedulerSnapshot()).sources,
+				});
+			case "source.get": {
+				const { sourceId } = decodeSourceGetParams(request.params);
+				const { sources } = await options.runtime.schedulerSnapshot();
+				return success(request, {
+					source: sources.find((candidate) => candidate.sourceId === sourceId),
+				});
+			}
+			case "source.action":
+				return success(
+					request,
+					await options.runtime.startSourceAction(
+						decodeSourceActionParams(request.params),
+					),
+				);
+			case "source.action.cancel": {
+				const { actionRunId } = decodeSourceActionCancelParams(request.params);
+				return success(request, {
+					accepted: await options.runtime.cancelSourceAction(actionRunId),
+				});
+			}
 			case "work.list":
 				return success(request, {
 					work: (await options.runtime.schedulerSnapshot()).work,

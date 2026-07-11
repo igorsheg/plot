@@ -172,6 +172,58 @@ describe("plot CLI", () => {
 		expect(output).not.toContain("--request-queue-capacity");
 	});
 
+	test("setup resolves extension requirements through scoped credentials", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "plot-cli-setup-"));
+		tempDirs.push(dir);
+		const workflowPath = join(dir, "WORKFLOW.md");
+		await writeFile(
+			workflowPath,
+			"---\nname: setup-test\nextension:\n  source: ./extension.ts\n---\nRun.\n",
+		);
+		await writeFile(
+			join(dir, "extension.ts"),
+			`import { definePlotExtension } from "plot-ai/sdk";
+export default definePlotExtension({
+  id: "setup-test",
+  create: () => ({
+    requirements: [{
+      id: "config",
+      label: "Configuration",
+      async check({ credentials }) {
+        return await credentials.get("ready")
+          ? { status: "ready" }
+          : { status: "action-required", message: "Configure", actions: [{ id: "configure", label: "Configure" }] };
+      },
+      async action({ credentials }) { await credentials.set("ready", true); }
+    }],
+    discover: () => []
+  })
+});
+`,
+		);
+		const stdout: string[] = [];
+
+		await runPlotCli(
+			[
+				"setup",
+				workflowPath,
+				"--cwd",
+				dir,
+				"--agent-dir",
+				join(dir, "agent"),
+				"--no-browser",
+			],
+			{
+				stdin: chunks([]),
+				writeStdout: (line) => {
+					stdout.push(line);
+				},
+			},
+		);
+
+		expect(stdout.join("")).toContain("OK extension setup-test is ready");
+	});
+
 	test("prints root short help", async () => {
 		const stdout: string[] = [];
 		await runPlotCli(["-h"], {

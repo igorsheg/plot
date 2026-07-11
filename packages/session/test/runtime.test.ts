@@ -7,6 +7,14 @@ import type { WorkSource } from "@plot/agent/work-source";
 import { readSessionEvents } from "../src/history.js";
 import { makeSessionRuntime } from "../src/runtime.js";
 
+const deferred = <A>() => {
+	let resolve!: (value: A) => void;
+	const promise = new Promise<A>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+};
+
 const waitForEvent = async <A>(
 	iterable: AsyncIterable<A>,
 	predicate: (item: A) => boolean,
@@ -268,6 +276,51 @@ test("runtime shutdown publishes shutdown and is idempotent", async () => {
 		event: { type: "session_shutdown" },
 	});
 	expect(await runtime.shutdown()).toBe(true);
+});
+
+test("Source setup actions publish progress and can be cancelled", async () => {
+	const started = deferred<void>();
+	const runtime = makeSessionRuntime({
+		id: "session-source-action",
+		sources: [],
+		runner,
+		sourceAction: {
+			sourceId: "extension:jira",
+			runAction: async ({ interaction, signal }) => {
+				await interaction.reportProgress("Waiting for authorization");
+				await interaction.openUrl("https://example.com/oauth");
+				started.resolve();
+				await new Promise<void>((resolve) =>
+					signal.addEventListener("abort", () => resolve(), { once: true }),
+				);
+				throw new Error("cancelled");
+			},
+		},
+	});
+	const events: string[] = [];
+	const collector = (async () => {
+		for await (const record of runtime.events())
+			if (record.kind === "session_event") events.push(record.event.type);
+	})();
+
+	const action = await runtime.startSourceAction({
+		sourceId: "extension:jira",
+		requirementId: "wix-mcp",
+		actionId: "connect",
+	});
+	await started.promise;
+	expect(action.accepted).toBe(true);
+	if (action.actionRunId === undefined)
+		throw new Error("missing action run id");
+	expect(await runtime.cancelSourceAction(action.actionRunId)).toBe(true);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await runtime.shutdown();
+	await collector;
+
+	expect(events).toContain("source_action_started");
+	expect(events).toContain("source_action_progress");
+	expect(events).toContain("source_interaction_open_url");
+	expect(events).toContain("source_action_cancelled");
 });
 
 test("operator observations reach sources on the next tick", async () => {

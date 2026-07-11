@@ -5,15 +5,26 @@ import {
 	removeWork,
 	scheduleWake,
 	setFact,
+	upsertSource,
 	upsertWork,
 	type Completion,
+	type SourceRecord,
+	type SourceRequirementRecord,
 	type WorkItem,
 	type WorkRecord,
 } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
 import { isRecord } from "@plot/common/primitives";
+import {
+	DiscoveryUnavailableError,
+	ExtensionActionRequiredError,
+} from "@plot/sdk";
 import type {
+	ExtensionCredentials,
+	ExtensionInteraction,
+	ExtensionRequirement,
+	ExtensionRequirementState,
 	PlotExtension,
 	PlotExtensionOperatorActionEvent,
 	PlotExtensionRuntime,
@@ -108,6 +119,103 @@ export const templateContextForWork = (
 	return { ...base, value: work.context };
 };
 
+const requirementRecord = (
+	requirement: ExtensionRequirement,
+	state: ExtensionRequirementState,
+): SourceRequirementRecord => {
+	if (state.status === "ready")
+		return { id: requirement.id, label: requirement.label, status: "ready" };
+	if (state.status === "action-required")
+		return {
+			id: requirement.id,
+			label: requirement.label,
+			status: state.status,
+			message: state.message,
+			actions: [...state.actions],
+		};
+	const record: {
+		id: string;
+		label: string;
+		status: "unavailable";
+		message: string;
+		retryAfterMs?: number;
+	} = {
+		id: requirement.id,
+		label: requirement.label,
+		status: state.status,
+		message: state.message,
+	};
+	if (state.retryAfterMs !== undefined)
+		record.retryAfterMs = state.retryAfterMs;
+	return record;
+};
+
+const sourceReadiness = (
+	sourceId: string,
+	label: string,
+	requirements: readonly SourceRequirementRecord[],
+): SourceRecord => {
+	const readiness = requirements.some(
+		(item) => item.status === "action-required",
+	)
+		? "action-required"
+		: requirements.some((item) => item.status === "unavailable")
+			? "unavailable"
+			: "ready";
+	const record: {
+		sourceId: string;
+		label: string;
+		readiness: SourceRecord["readiness"];
+		requirements: readonly SourceRequirementRecord[];
+		message?: string;
+	} = { sourceId, label, readiness, requirements };
+	const message = requirements.find((item) => item.status !== "ready")?.message;
+	if (message !== undefined) record.message = message;
+	return record;
+};
+
+export const extensionRequirements = (
+	runtime: PlotExtensionRuntime,
+): readonly ExtensionRequirement[] => {
+	const requirements = runtime.requirements ?? [];
+	const requirementIds = new Set<string>();
+	for (const requirement of requirements) {
+		if (requirement.id.length === 0)
+			throw new Error("extension requirement id must be a non-empty string");
+		if (requirementIds.has(requirement.id))
+			throw new Error(`duplicate extension requirement id: ${requirement.id}`);
+		requirementIds.add(requirement.id);
+	}
+	return requirements;
+};
+
+export const checkRequirements = async (input: {
+	readonly sourceId: string;
+	readonly label: string;
+	readonly requirements: readonly ExtensionRequirement[];
+	readonly credentials: ExtensionCredentials;
+	readonly signal: AbortSignal;
+}): Promise<SourceRecord> => {
+	const checked = await Promise.all(
+		input.requirements.map(async (requirement) => {
+			const state = await requirement.check({
+				signal: input.signal,
+				credentials: input.credentials,
+			});
+			if (
+				state.status !== "ready" &&
+				state.status !== "action-required" &&
+				state.status !== "unavailable"
+			)
+				throw new Error(
+					`requirement ${requirement.id} returned an invalid status`,
+				);
+			return requirementRecord(requirement, state);
+		}),
+	);
+	return sourceReadiness(input.sourceId, input.label, checked);
+};
+
 export const discover = async (input: {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
@@ -159,6 +267,12 @@ export const invokeCompletionHook = async (
 
 export interface PlotExtensionSourceBundle {
 	readonly source: WorkSource;
+	readonly runAction: (input: {
+		readonly requirementId: string;
+		readonly actionId: string;
+		readonly interaction: ExtensionInteraction;
+		readonly signal: AbortSignal;
+	}) => Promise<SourceRecord>;
 	readonly createOptions: (
 		context: WorkRunnerContext,
 	) => Promise<PiAgentSessionRunOptions>;
@@ -181,6 +295,7 @@ const decodeRetryState = (value: unknown): Record<string, number> => ({
 export const makePlotExtensionSourceBundle = (options: {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
+	readonly credentials?: ExtensionCredentials;
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
 	readonly config: unknown;
@@ -188,23 +303,146 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly maxConcurrentRuns?: number | undefined;
 }): PlotExtensionSourceBundle => {
 	const source = sourceIdForExtension(options.extension);
+	const label = options.extension.label ?? options.extension.id;
+	const requirements = extensionRequirements(options.runtime);
+	const memoryCredentials = new Map<string, unknown>();
+	const credentials: ExtensionCredentials = options.credentials ?? {
+		get: async <T>(key: string) => memoryCredentials.get(key) as T | undefined,
+		set: async (key, value) => {
+			memoryCredentials.set(key, value);
+		},
+		delete: async (key) => {
+			memoryCredentials.delete(key);
+		},
+	};
+	let forcedActionRequired:
+		| { readonly requirementId: string; readonly message: string }
+		| undefined;
+	const applyForcedReadiness = (readiness: SourceRecord): SourceRecord => {
+		const forced = forcedActionRequired;
+		if (forced === undefined) return readiness;
+		const target = readiness.requirements.find(
+			(requirement) => requirement.id === forced.requirementId,
+		);
+		if (target === undefined) return readiness;
+		const nextRequirements = readiness.requirements.map((requirement) =>
+			requirement.id === forced.requirementId
+				? {
+						...requirement,
+						status: "action-required" as const,
+						message: forced.message,
+					}
+				: requirement,
+		);
+		return {
+			...readiness,
+			readiness: "action-required",
+			requirements: nextRequirements,
+		};
+	};
 	const selectedWork = new Map<string, PlotExtensionWork>();
 	const activeRuns = new Map<string, PlotExtensionWork>();
+	const actions = new Map<string, Promise<SourceRecord>>();
+	let readinessCheck: Promise<SourceRecord> | undefined;
+	const checkReadiness = (signal: AbortSignal): Promise<SourceRecord> => {
+		if (readinessCheck !== undefined) return readinessCheck;
+		readinessCheck = checkRequirements({
+			sourceId: source,
+			label,
+			requirements,
+			credentials,
+			signal,
+		});
+		void readinessCheck.then(
+			() => {
+				readinessCheck = undefined;
+				return undefined;
+			},
+			() => {
+				readinessCheck = undefined;
+				return undefined;
+			},
+		);
+		return readinessCheck;
+	};
 	const workSource: WorkSource = {
 		id: source,
-		observeTick: async ({ signal }) => [
-			{
-				type: "plot.extension.discovered",
-				subject: source,
-				data: await discover({
-					extension: options.extension,
-					runtime: options.runtime,
-					signal,
-				}),
-			},
-		],
+		label,
+		requirements: requirements.map(({ id, label: requirementLabel }) => ({
+			id,
+			label: requirementLabel,
+		})),
+		observeTick: async ({ snapshot, signal }) => {
+			if (actions.size > 0) {
+				const current = snapshot.sources.get(source);
+				return current === undefined
+					? []
+					: [
+							{
+								type: "plot.extension.readiness",
+								subject: source,
+								data: current,
+							},
+						];
+			}
+			const readiness = applyForcedReadiness(await checkReadiness(signal));
+			const observations = [
+				{
+					type: "plot.extension.readiness",
+					subject: source,
+					data: readiness,
+				},
+			];
+			if (readiness.readiness !== "ready") return observations;
+			try {
+				return [
+					...observations,
+					{
+						type: "plot.extension.discovered",
+						subject: source,
+						data: await discover({
+							extension: options.extension,
+							runtime: options.runtime,
+							signal,
+						}),
+					},
+				];
+			} catch (error) {
+				if (error instanceof DiscoveryUnavailableError)
+					return [
+						{
+							type: "plot.extension.readiness",
+							subject: source,
+							data: {
+								...readiness,
+								readiness: "unavailable",
+								message: error.message,
+							},
+						},
+					];
+				if (!(error instanceof ExtensionActionRequiredError)) throw error;
+				forcedActionRequired = {
+					requirementId: error.requirementId,
+					message: error.message,
+				};
+				return [
+					{
+						type: "plot.extension.readiness",
+						subject: source,
+						data: applyForcedReadiness(await checkReadiness(signal)),
+					},
+				];
+			}
+		},
 		reconcile: async ({ snapshot }) => {
 			const proposals = [];
+			const latestReadiness = snapshot.observations.findLast(
+				(observation) =>
+					observation.type === "plot.extension.readiness" &&
+					observation.subject === source,
+			);
+			if (latestReadiness !== undefined)
+				proposals.push(upsertSource(latestReadiness.data as SourceRecord));
 			const previousDiscoveredWorks = storedWorks(
 				snapshot.facts.get(discoveredFactKey(source)),
 			);
@@ -407,6 +645,7 @@ export const makePlotExtensionSourceBundle = (options: {
 		// Continuation consults the current tick's reconciled fact instead of
 		// polling the extension again; staleness is bounded by the tick interval.
 		continueWork: ({ work, snapshot }) => {
+			if (snapshot.sources.get(source)?.readiness !== "ready") return false;
 			if (!selectedWork.has(work.workKey)) return false;
 			return storedWorks(snapshot.facts.get(discoveredFactKey(source))).some(
 				(candidate) =>
@@ -416,6 +655,7 @@ export const makePlotExtensionSourceBundle = (options: {
 			);
 		},
 		selectWork: ({ snapshot }) => {
+			if (snapshot.sources.get(source)?.readiness !== "ready") return [];
 			const claimedIds = new Set<string>();
 			for (const run of snapshot.running.values()) {
 				if (run.sourceId !== source) continue;
@@ -459,9 +699,53 @@ export const makePlotExtensionSourceBundle = (options: {
 	};
 	if (options.maxConcurrentRuns !== undefined)
 		workSource.policy = { maxConcurrentRuns: options.maxConcurrentRuns };
+	const runAction: PlotExtensionSourceBundle["runAction"] = (input) => {
+		const active = actions.get(input.requirementId);
+		if (active !== undefined) return active;
+		const action = (async () => {
+			const requirement = requirements.find(
+				(candidate) => candidate.id === input.requirementId,
+			);
+			if (requirement === undefined)
+				throw new Error(
+					`unknown extension requirement: ${input.requirementId}`,
+				);
+			const before = await checkReadiness(input.signal);
+			const state = before.requirements.find(
+				(candidate) => candidate.id === requirement.id,
+			);
+			if (state?.status !== "action-required")
+				throw new Error(
+					`extension requirement ${requirement.id} needs no action`,
+				);
+			if (!state.actions?.some((candidate) => candidate.id === input.actionId))
+				throw new Error(
+					`unknown action ${input.actionId} for extension requirement ${requirement.id}`,
+				);
+			if (requirement.action === undefined)
+				throw new Error(
+					`extension requirement ${requirement.id} has no action hook`,
+				);
+			await requirement.action({
+				actionId: input.actionId,
+				signal: input.signal,
+				credentials,
+				interaction: input.interaction,
+			});
+			forcedActionRequired = undefined;
+			return checkReadiness(input.signal);
+		})();
+		actions.set(input.requirementId, action);
+		void action.then(
+			() => actions.delete(input.requirementId),
+			() => actions.delete(input.requirementId),
+		);
+		return action;
+	};
 	let shutdownPromise: Promise<void> | undefined;
 	return {
 		source: workSource,
+		runAction,
 		createOptions: async (context) => {
 			const work = selectedWork.get(context.work.workKey)!;
 			const customTools = options.tools?.length
@@ -472,6 +756,13 @@ export const makePlotExtensionSourceBundle = (options: {
 						config: options.config,
 						work,
 						runId: context.run.runId,
+						onError: (error) => {
+							if (!(error instanceof ExtensionActionRequiredError)) return;
+							forcedActionRequired = {
+								requirementId: error.requirementId,
+								message: error.message,
+							};
+						},
 					})
 				: [];
 			return { customTools, cwd: work.workspace };
@@ -509,11 +800,12 @@ export const makePlotExtensionSourceBundleFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
 }): Promise<PlotExtensionSourceBundle> => {
-	const { extension, runtime, tools, config } =
+	const { extension, runtime, credentials, tools, config } =
 		await loadPlotExtensionRuntimeFromWorkflow(options);
 	return makePlotExtensionSourceBundle({
 		extension,
 		runtime,
+		credentials,
 		workflow: options.workflow,
 		paths: options.paths,
 		config,

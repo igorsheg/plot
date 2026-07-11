@@ -10,13 +10,17 @@ import type {
 	Diagnostic,
 	PlotAgentEvent,
 	ScheduledWake,
+	SourceRecord,
 	TickResult,
 	WorkRecord,
 	WorkRun,
 } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type { WorkSource } from "@plot/agent/work-source";
+import { errorMessage } from "@plot/common/primitives";
+import type { ExtensionInteraction } from "@plot/sdk";
 import { createSessionEventLogWriter } from "./history.js";
+import { createLoopbackOAuthCallback } from "./interaction.js";
 
 export interface TickSummary {
 	readonly tickId: number;
@@ -32,6 +36,41 @@ export type SessionEvent =
 	| { readonly type: "session_shutdown" }
 	| { readonly type: "tick_started"; readonly tickId: number }
 	| { readonly type: "tick_completed"; readonly result: TickSummary }
+	| { readonly type: "source_observed"; readonly source: SourceRecord }
+	| {
+			readonly type: "source_action_started";
+			readonly actionRunId: string;
+			readonly sourceId: string;
+			readonly requirementId: string;
+			readonly actionId: string;
+	  }
+	| {
+			readonly type: "source_action_progress";
+			readonly actionRunId: string;
+			readonly message: string;
+	  }
+	| {
+			readonly type: "source_interaction_open_url";
+			readonly actionRunId: string;
+			readonly url: string;
+			readonly fallbackText?: string;
+	  }
+	| {
+			readonly type: "source_action_completed";
+			readonly actionRunId: string;
+			readonly source: SourceRecord;
+	  }
+	| {
+			readonly type: "source_action_failed";
+			readonly actionRunId: string;
+			readonly sourceId: string;
+			readonly message: string;
+	  }
+	| {
+			readonly type: "source_action_cancelled";
+			readonly actionRunId: string;
+			readonly sourceId: string;
+	  }
 	| { readonly type: "work_observed"; readonly work: WorkRecord }
 	| { readonly type: "work_removed"; readonly workKey: string }
 	| {
@@ -78,6 +117,27 @@ export interface InterruptAgentRunInput {
 	readonly workKey?: string;
 }
 
+export interface SourceActionInput {
+	readonly sourceId: string;
+	readonly requirementId: string;
+	readonly actionId: string;
+}
+
+export interface SourceActionStartResult {
+	readonly accepted: boolean;
+	readonly actionRunId?: string;
+}
+
+export interface SourceActionHandler {
+	readonly sourceId: string;
+	readonly runAction: (input: {
+		readonly requirementId: string;
+		readonly actionId: string;
+		readonly interaction: ExtensionInteraction;
+		readonly signal: AbortSignal;
+	}) => Promise<SourceRecord>;
+}
+
 export interface OperatorObservationInput {
 	readonly sourceId: string;
 	readonly workKey: string;
@@ -101,6 +161,7 @@ export interface SessionRuntimeState {
 
 export interface SchedulerSnapshotState {
 	readonly tickId: number;
+	readonly sources: readonly SourceRecord[];
 	readonly work: readonly WorkRecord[];
 	readonly running: readonly WorkRun[];
 	readonly scheduledWakes: readonly ScheduledWake[];
@@ -122,6 +183,10 @@ export interface SessionRuntime {
 	readonly recordOperatorObservation: (
 		input: OperatorObservationInput,
 	) => Promise<boolean>;
+	readonly startSourceAction: (
+		input: SourceActionInput,
+	) => Promise<SourceActionStartResult>;
+	readonly cancelSourceAction: (actionRunId: string) => Promise<boolean>;
 	readonly events: (signal?: AbortSignal) => AsyncIterable<RuntimeEvent>;
 	readonly appendAgentEvent: (input: AgentEventInput) => Promise<RuntimeEvent>;
 	readonly lastEventSequence: () => Promise<number>;
@@ -134,6 +199,7 @@ export interface SessionRuntimeOptions {
 	readonly id: string;
 	readonly sources: readonly WorkSource[];
 	readonly runner: WorkRunner;
+	readonly sourceAction?: SourceActionHandler;
 	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
 	readonly sessionFile?: string;
 	readonly agent?: Omit<PlotAgentOptions, "sources" | "runner">;
@@ -183,6 +249,14 @@ export const makeSessionRuntime = (
 	let agentEventFailure: unknown;
 	const tickWaiters = new Map<number, Deferred[]>();
 	const completionWaiters = new Map<string, Deferred[]>();
+	const sourceActions = new Map<
+		string,
+		{
+			readonly sourceId: string;
+			readonly requirementId: string;
+			readonly controller: AbortController;
+		}
+	>();
 
 	const assertOpen = (operation: string): void => {
 		if (lifecycle !== "open")
@@ -329,6 +403,7 @@ export const makeSessionRuntime = (
 			const snapshot = await agent.snapshot();
 			return {
 				tickId: snapshot.tickId,
+				sources: [...snapshot.sources.values()],
 				work: [...snapshot.work.values()],
 				running: [...snapshot.running.values()],
 				scheduledWakes: snapshot.scheduledWakes ?? [],
@@ -359,6 +434,108 @@ export const makeSessionRuntime = (
 			if (accepted) await agent.wakeAfter(1, "operator observation");
 			return accepted;
 		},
+		startSourceAction: async (input) => {
+			assertOpen("start a Source action");
+			const handler = options.sourceAction;
+			if (handler === undefined || handler.sourceId !== input.sourceId)
+				return { accepted: false };
+			if (
+				[...sourceActions.values()].some(
+					(action) => action.requirementId === input.requirementId,
+				)
+			)
+				return { accepted: false };
+			const actionRunId = `source-action-${randomUUID()}`;
+			const controller = new AbortController();
+			sourceActions.set(actionRunId, {
+				sourceId: input.sourceId,
+				requirementId: input.requirementId,
+				controller,
+			});
+			await publishSessionEvent({
+				type: "source_action_started",
+				actionRunId,
+				sourceId: input.sourceId,
+				requirementId: input.requirementId,
+				actionId: input.actionId,
+			});
+			void (async () => {
+				const callbacks = new Set<{ readonly cancel: () => void }>();
+				const interaction: ExtensionInteraction = {
+					openUrl: async (url, interactionOptions) => {
+						const fallbackText = interactionOptions?.fallbackText;
+						if (fallbackText === undefined) {
+							await publishSessionEvent({
+								type: "source_interaction_open_url",
+								actionRunId,
+								url,
+							});
+						} else {
+							await publishSessionEvent({
+								type: "source_interaction_open_url",
+								actionRunId,
+								url,
+								fallbackText,
+							});
+						}
+					},
+					createOAuthCallback: async (callbackOptions) => {
+						const callback = await createLoopbackOAuthCallback(
+							callbackOptions?.timeoutMs,
+						);
+						callbacks.add(callback);
+						return callback;
+					},
+					reportProgress: async (message) => {
+						await publishSessionEvent({
+							type: "source_action_progress",
+							actionRunId,
+							message,
+						});
+					},
+				};
+				try {
+					const source = await handler.runAction({
+						requirementId: input.requirementId,
+						actionId: input.actionId,
+						interaction,
+						signal: controller.signal,
+					});
+					await publishSessionEvent({
+						type: "source_action_completed",
+						actionRunId,
+						source,
+					});
+					await publishSessionEvent({ type: "source_observed", source });
+					await agent.wakeAfter(1, "Source setup completed");
+				} catch (error) {
+					if (controller.signal.aborted)
+						await publishSessionEvent({
+							type: "source_action_cancelled",
+							actionRunId,
+							sourceId: input.sourceId,
+						});
+					else
+						await publishSessionEvent({
+							type: "source_action_failed",
+							actionRunId,
+							sourceId: input.sourceId,
+							message: errorMessage(error),
+						});
+				} finally {
+					for (const callback of callbacks) callback.cancel();
+					sourceActions.delete(actionRunId);
+				}
+			})();
+			return { accepted: true, actionRunId };
+		},
+		cancelSourceAction: async (actionRunId) => {
+			assertOpen("cancel a Source action");
+			const action = sourceActions.get(actionRunId);
+			if (action === undefined) return false;
+			action.controller.abort();
+			return true;
+		},
 		events: (signal) => events.subscribe(signal),
 		appendAgentEvent: async (input) => {
 			assertOpen("append an agent event");
@@ -371,6 +548,7 @@ export const makeSessionRuntime = (
 		shutdown: () => {
 			if (shutdownPromise !== undefined) return shutdownPromise;
 			lifecycle = "closing";
+			for (const action of sourceActions.values()) action.controller.abort();
 			shutdownPromise = (async () => {
 				try {
 					const accepted = await agent.shutdown();

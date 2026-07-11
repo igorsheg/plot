@@ -18,6 +18,12 @@ export interface DashboardActions {
 	readonly refresh: () => void;
 	readonly toggleDebug: () => void;
 	readonly quit: () => void;
+	readonly sourceAction?: (input: {
+		readonly sourceId: string;
+		readonly requirementId: string;
+		readonly actionId: string;
+	}) => void;
+	readonly cancelSourceAction?: (actionRunId: string) => void;
 	readonly openUrl?: (url: string) => void;
 	readonly height?: () => number;
 	readonly requestRender?: () => void;
@@ -107,6 +113,8 @@ export class PlotDashboard implements Component {
 		else if (key === "t") this.actions.tick();
 		else if (key === "g") this.actions.refresh();
 		else if (key === "o") this.openSelectedUrl();
+		else if (key === "s") this.runSourceAction();
+		else if (key === "x") this.cancelSourceAction();
 		else if (key === "d") {
 			this.actions.toggleDebug();
 			this.changeMode(this.mode === "debug" ? "runs" : "debug");
@@ -169,9 +177,35 @@ export class PlotDashboard implements Component {
 		if (this.showHelp)
 			return {
 				footerText:
-					"↑↓ select · enter details · o open · t tick · c config · d debug · ? hide · q quit",
+					"↑↓ select · enter details · o open · s setup · x cancel · t tick · c config · d debug · ? hide · q quit",
 			};
 		return { footerText: "? help · q quit" };
+	}
+
+	private runSourceAction(): void {
+		const source = dashboardModelFrom(this.projection).sources.find(
+			(candidate) => candidate.actionRunId === undefined,
+		);
+		const action = source?.actions.find((candidate) => !candidate.disabled);
+		if (
+			source === undefined ||
+			source.requirementId === undefined ||
+			action === undefined
+		)
+			return;
+		this.actions.sourceAction?.({
+			sourceId: source.sourceId,
+			requirementId: source.requirementId,
+			actionId: action.id,
+		});
+	}
+
+	private cancelSourceAction(): void {
+		const actionRunId = dashboardModelFrom(this.projection).sources.find(
+			(source) => source.actionRunId !== undefined,
+		)?.actionRunId;
+		if (actionRunId !== undefined)
+			this.actions.cancelSourceAction?.(actionRunId);
 	}
 
 	private openSelectedUrl(): void {

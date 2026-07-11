@@ -60,6 +60,40 @@ describe("PlotDashboard", () => {
 		expect(rendered).toContain("Do thing");
 	});
 
+	test("renders Source setup before any work exists", () => {
+		const projection: DashboardProjection = {
+			...emptyProjection("default", "workflow"),
+			status: "idle",
+			sources: new Map([
+				[
+					"extension:jira",
+					{
+						sourceId: "extension:jira",
+						label: "Wix Jira",
+						readiness: "action-required",
+						diagnostics: [],
+						requirements: [
+							{
+								id: "wix-mcp",
+								label: "Wix MCP",
+								status: "action-required",
+								message: "Connect Wix MCP to discover Jira issues",
+								actions: [{ id: "connect", label: "Connect Wix MCP" }],
+							},
+						],
+					},
+				],
+			]),
+		};
+		const rendered = new PlotDashboard(projection, actions().actions)
+			.render(100)
+			.join("\n");
+
+		expect(rendered).toContain("Sources");
+		expect(rendered).toContain("Wix Jira");
+		expect(rendered).toContain("Connect Wix MCP to discover Jira issues");
+	});
+
 	test("renders streaming status as one terminal row", () => {
 		const rendered = new PlotDashboard(
 			withWork({
