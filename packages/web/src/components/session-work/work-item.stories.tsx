@@ -25,6 +25,39 @@ export const River: StoryObj = {
 					<WorkItem.Frame interactive onClick={noop}>
 						<WorkItem.Line>
 							<WorkItem.Icon state="attention" />
+							<WorkItem.Title>Wix Jira to PR</WorkItem.Title>
+						</WorkItem.Line>
+						<WorkItem.Subline>
+							Connect Wix MCP to discover Jira issues
+						</WorkItem.Subline>
+					</WorkItem.Frame>
+				</WorkItem.Root>
+				<WorkItem.Root>
+					<WorkItem.Frame interactive onClick={noop}>
+						<WorkItem.Line>
+							<WorkItem.Icon state="active" />
+							<WorkItem.Title>Wix Jira to PR</WorkItem.Title>
+						</WorkItem.Line>
+						<WorkItem.Subline tone="secondary">
+							Waiting for Wix MCP authorization…
+						</WorkItem.Subline>
+					</WorkItem.Frame>
+				</WorkItem.Root>
+				<WorkItem.Root>
+					<WorkItem.Frame interactive onClick={noop}>
+						<WorkItem.Line>
+							<WorkItem.Icon state="held" />
+							<WorkItem.Title tone="secondary">Wix Jira to PR</WorkItem.Title>
+						</WorkItem.Line>
+						<WorkItem.Subline tone="secondary">
+							Wix MCP unreachable — retrying
+						</WorkItem.Subline>
+					</WorkItem.Frame>
+				</WorkItem.Root>
+				<WorkItem.Root>
+					<WorkItem.Frame interactive onClick={noop}>
+						<WorkItem.Line>
+							<WorkItem.Icon state="attention" />
 							<WorkItem.Title>Approve deploy to staging?</WorkItem.Title>
 							<WorkItem.Edge>2m</WorkItem.Edge>
 						</WorkItem.Line>

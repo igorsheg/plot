@@ -9,6 +9,16 @@ import Stack, { VStack } from "../ui/stack.js";
 import { Text } from "../ui/text.js";
 import { ThroughputSparkline } from "../session-header/throughput-sparkline.js";
 import { StateIcon } from "./atoms.js";
+import {
+	SessionWorkProvider,
+	type SessionWorkContextValue,
+} from "./context.js";
+import {
+	WorkDetailProvider,
+	type WorkDetailContextValue,
+} from "./detail-context.js";
+import type { DetailView } from "./detail-view-model.js";
+import { WorkDetail } from "./work-detail.js";
 
 /**
  * Scratch: the work detail as an inline split — clicking a row pushes the river
@@ -334,4 +344,76 @@ export const Interactive: StoryObj = {
 /** Pre-opened, for reviewing the split layout at rest. */
 export const Open: StoryObj = {
 	render: () => <DetailSplit initialKey="decision" />,
+};
+
+const noop = () => {};
+
+/** The real source drawer: requirement, guidance, and its connect action. */
+const SOURCE_VIEW: DetailView = {
+	kind: "source",
+	ref: { kind: "source", sourceId: "extension:jira" },
+	sourceId: "extension:jira",
+	title: "Wix Jira to PR",
+	status: "action-required",
+	requirements: [
+		{
+			id: "wix-mcp",
+			label: "Wix MCP",
+			status: "action-required",
+			message: "Connect Wix MCP to discover Jira issues.",
+			actions: [
+				{
+					id: "connect",
+					label: "Connect Wix MCP",
+					tone: "primary",
+					requiresComment: false,
+				},
+			],
+		},
+	],
+	diagnostics: ["Last probe: 401 from mcp.wix.com"],
+};
+
+const sourceWork: SessionWorkContextValue = {
+	state: {
+		nowMs: 0,
+		attention: [],
+		motion: [],
+		settled: [],
+		denseDecisions: false,
+		loaded: true,
+	},
+	actions: {
+		act: noop,
+		actOnSource: noop,
+		cancelSourceAction: noop,
+		acting: false,
+	},
+};
+
+const sourceDetail: WorkDetailContextValue = {
+	state: { open: true, view: SOURCE_VIEW, nowMs: 0 },
+	actions: { open: noop, close: noop, step: noop, act: noop, acting: false },
+};
+
+/** The source drawer rendered by the real component from a view-model fixture. */
+export const SourceDrawer: StoryObj = {
+	render: () => (
+		<div
+			style={{
+				height: 620,
+				display: "flex",
+				justifyContent: "flex-end",
+				background: "var(--background)",
+			}}
+		>
+			<div style={{ width: PANEL, borderLeft: "1px solid var(--border)" }}>
+				<SessionWorkProvider value={sourceWork}>
+					<WorkDetailProvider value={sourceDetail}>
+						<WorkDetail />
+					</WorkDetailProvider>
+				</SessionWorkProvider>
+			</div>
+		</div>
+	),
 };

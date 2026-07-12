@@ -26,12 +26,10 @@ export type AttentionItem =
 			readonly kind: "source";
 			readonly key: string;
 			readonly sourceId: string;
-			readonly requirementId?: string | undefined;
 			readonly title: string;
-			readonly status: "checking" | "action-required" | "unavailable";
+			readonly status: "action-required" | "unavailable";
+			readonly actionStatus?: "running" | "failed" | undefined;
 			readonly message?: string | undefined;
-			readonly actions: readonly OperatorActionView[];
-			readonly actionRunId?: string | undefined;
 			readonly progress?: string | undefined;
 			readonly sinceMs?: number | undefined;
 	  }
@@ -175,30 +173,39 @@ export const parseOperatorActions = (
 export const buildAttention = (
 	projection: SerializedDashboardProjection,
 ): readonly AttentionItem[] => {
-	const pending: Exclude<AttentionItem, { kind: "diagnostic" }>[] = [];
+	const sources: Extract<AttentionItem, { kind: "source" }>[] = [];
 	for (const source of Object.values(projection.sources)) {
-		if (source.readiness === "ready") continue;
+		// `checking` flashes at startup with nothing to act on; `ready` is settled.
+		if (source.readiness === "ready" || source.readiness === "checking")
+			continue;
 		const requirement = source.requirements.find(
 			(candidate) => candidate.status !== "ready",
 		);
-		pending.push({
+		// A cancelled action is no longer in flight; only running/failed carry state.
+		const actionStatus =
+			source.action?.status === "running"
+				? "running"
+				: source.action?.status === "failed"
+					? "failed"
+					: undefined;
+		sources.push({
 			kind: "source",
 			key: `source:${source.sourceId}`,
 			sourceId: source.sourceId,
-			requirementId: requirement?.id,
 			title: source.label,
 			status: source.readiness,
+			actionStatus,
 			message: requirement?.message ?? source.message,
-			actions: parseOperatorActions(requirement?.actions),
-			actionRunId: source.action?.actionRunId,
-			progress: source.action?.progress,
+			progress:
+				actionStatus === undefined ? undefined : source.action?.progress,
 		});
 	}
+	const decisions: Extract<AttentionItem, { kind: "decision" }>[] = [];
 	for (const work of Object.values(projection.work)) {
 		const attempt = attemptFor(projection, work);
 		const sinceMs = attempt?.lastEventAtMs;
 		if (work.status === "blocked") {
-			pending.push({
+			decisions.push({
 				kind: "decision",
 				key: work.workKey,
 				workKey: work.workKey,
@@ -210,7 +217,7 @@ export const buildAttention = (
 			});
 		}
 	}
-	pending.sort(byOldestSince);
+	decisions.sort(byOldestSince);
 	const diagnostics: AttentionItem[] = projection.diagnostics
 		.slice(0, 3)
 		.map((text, index) => ({
@@ -218,7 +225,8 @@ export const buildAttention = (
 			key: `diagnostic:${index}`,
 			text,
 		}));
-	return [...pending, ...diagnostics];
+	// Source state groups above work decisions, then diagnostics last.
+	return [...sources, ...decisions, ...diagnostics];
 };
 
 export const buildMotion = (

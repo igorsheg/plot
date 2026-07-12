@@ -18,6 +18,7 @@ import {
 	capTimeline,
 	formatTokens,
 	openableRefs,
+	refEquals,
 	settledKey,
 	stepRef,
 	type DetailRef,
@@ -108,38 +109,180 @@ const projection = (
 	...overrides,
 });
 
-test("buildAttention includes Source setup without Work Items", () => {
+const source = (
+	overrides: Partial<SerializedDashboardProjection["sources"][string]> & {
+		sourceId: string;
+	},
+): SerializedDashboardProjection["sources"][string] => ({
+	label: overrides.sourceId,
+	readiness: "action-required",
+	requirements: [],
+	diagnostics: [],
+	...overrides,
+});
+
+test("buildAttention maps an action-required source to an openable item", () => {
 	const attention = buildAttention(
 		projection({
 			sources: {
-				"extension:jira": {
+				"extension:jira": source({
 					sourceId: "extension:jira",
 					label: "Wix Jira",
 					readiness: "action-required",
-					diagnostics: [],
 					requirements: [
 						{
 							id: "wix-mcp",
 							label: "Wix MCP",
 							status: "action-required",
 							message: "Connect Wix MCP",
+							actions: [{ id: "connect", label: "Connect Wix MCP" }],
 						},
 					],
-				},
+				}),
 			},
 		}),
 	);
 
+	// The river item is a status frame: no requirementId, no actions — those
+	// move to the drawer. The message reads as guidance, not an error.
 	expect(attention).toContainEqual({
 		kind: "source",
 		key: "source:extension:jira",
 		sourceId: "extension:jira",
-		requirementId: "wix-mcp",
 		title: "Wix Jira",
 		status: "action-required",
+		actionStatus: undefined,
 		message: "Connect Wix MCP",
-		actions: [],
+		progress: undefined,
 	});
+});
+
+test("buildAttention suppresses checking and ready sources", () => {
+	const attention = buildAttention(
+		projection({
+			sources: {
+				a: source({ sourceId: "a", readiness: "checking" }),
+				b: source({ sourceId: "b", readiness: "ready" }),
+			},
+		}),
+	);
+	expect(attention).toEqual([]);
+});
+
+test("buildAttention keeps a running action in the source item", () => {
+	const attention = buildAttention(
+		projection({
+			sources: {
+				w: source({
+					sourceId: "w",
+					label: "Wix",
+					readiness: "action-required",
+					requirements: [
+						{ id: "mcp", label: "MCP", status: "action-required" },
+					],
+					action: {
+						actionRunId: "run-1",
+						requirementId: "mcp",
+						actionId: "connect",
+						status: "running",
+						progress: "Waiting for authorization…",
+					},
+				}),
+			},
+		}),
+	);
+	expect(attention[0]).toMatchObject({
+		kind: "source",
+		status: "action-required",
+		actionStatus: "running",
+		progress: "Waiting for authorization…",
+	});
+});
+
+test("buildAttention surfaces a failed action's progress", () => {
+	const attention = buildAttention(
+		projection({
+			sources: {
+				w: source({
+					sourceId: "w",
+					readiness: "action-required",
+					requirements: [
+						{ id: "mcp", label: "MCP", status: "action-required" },
+					],
+					action: {
+						actionRunId: "run-1",
+						requirementId: "mcp",
+						actionId: "connect",
+						status: "failed",
+						progress: "Authorization denied",
+					},
+				}),
+			},
+		}),
+	);
+	expect(attention[0]).toMatchObject({
+		kind: "source",
+		actionStatus: "failed",
+		progress: "Authorization denied",
+	});
+});
+
+test("buildAttention treats a cancelled action as no action in flight", () => {
+	const attention = buildAttention(
+		projection({
+			sources: {
+				w: source({
+					sourceId: "w",
+					readiness: "action-required",
+					action: {
+						actionRunId: "run-1",
+						requirementId: "mcp",
+						actionId: "connect",
+						status: "cancelled",
+					},
+				}),
+			},
+		}),
+	);
+	expect(attention[0]).toMatchObject({
+		kind: "source",
+		actionStatus: undefined,
+		progress: undefined,
+	});
+});
+
+test("buildAttention keeps an unavailable source muted", () => {
+	const attention = buildAttention(
+		projection({
+			sources: {
+				w: source({
+					sourceId: "w",
+					readiness: "unavailable",
+					message: "Wix MCP unreachable — retrying",
+				}),
+			},
+		}),
+	);
+	expect(attention[0]).toMatchObject({
+		kind: "source",
+		status: "unavailable",
+		actionStatus: undefined,
+		message: "Wix MCP unreachable — retrying",
+	});
+});
+
+test("buildAttention orders sources before work decisions", () => {
+	const attention = buildAttention(
+		projection({
+			sources: {
+				w: source({ sourceId: "w", readiness: "action-required" }),
+			},
+			work: {
+				pick: work("pick", { status: "blocked", blockedReason: "why" }),
+			},
+		}),
+	);
+	expect(attention.map((item) => item.kind)).toEqual(["source", "decision"]);
 });
 
 test("parseOperatorActions parses the real OperatorAction shape", () => {
@@ -816,6 +959,138 @@ test("buildDetail maps waiting work to held while queued remains closed", () => 
 	expect(
 		buildDetail(projection({}), { kind: "settled", key: "x" }, NOW),
 	).toBeUndefined();
+});
+
+test("buildDetail resolves a source ref with requirements and diagnostics", () => {
+	const view = buildDetail(
+		projection({
+			sources: {
+				"extension:jira": source({
+					sourceId: "extension:jira",
+					label: "Wix Jira",
+					readiness: "action-required",
+					diagnostics: ["last probe failed"],
+					requirements: [
+						{
+							id: "mcp",
+							label: "Wix MCP",
+							status: "action-required",
+							message: "Connect Wix MCP",
+							actions: [{ id: "connect", label: "Connect" }],
+						},
+					],
+				}),
+			},
+		}),
+		{ kind: "source", sourceId: "extension:jira" },
+		NOW,
+	);
+	expect(view?.kind).toBe("source");
+	if (view?.kind === "source") {
+		expect(view.sourceId).toBe("extension:jira");
+		expect(view.title).toBe("Wix Jira");
+		expect(view.status).toBe("action-required");
+		expect(view.requirements).toHaveLength(1);
+		expect(view.requirements[0]?.actions[0]?.label).toBe("Connect");
+		expect(view.diagnostics).toEqual(["last probe failed"]);
+	}
+});
+
+test("buildDetail carries the in-flight action's requirementId", () => {
+	const view = buildDetail(
+		projection({
+			sources: {
+				w: source({
+					sourceId: "w",
+					readiness: "action-required",
+					requirements: [
+						{ id: "mcp", label: "MCP", status: "action-required" },
+					],
+					action: {
+						actionRunId: "run-1",
+						requirementId: "mcp",
+						actionId: "connect",
+						status: "running",
+						progress: "Waiting…",
+					},
+				}),
+			},
+		}),
+		{ kind: "source", sourceId: "w" },
+		NOW,
+	);
+	expect(view?.kind).toBe("source");
+	if (view?.kind === "source") {
+		expect(view.action).toEqual({
+			actionRunId: "run-1",
+			requirementId: "mcp",
+			status: "running",
+			progress: "Waiting…",
+		});
+	}
+});
+
+test("buildDetail returns undefined when the source id is gone", () => {
+	expect(
+		buildDetail(projection({}), { kind: "source", sourceId: "gone" }, NOW),
+	).toBeUndefined();
+});
+
+test("buildDetail keeps a ready source resolvable so the drawer survives", () => {
+	const view = buildDetail(
+		projection({
+			sources: {
+				w: source({
+					sourceId: "w",
+					readiness: "ready",
+					requirements: [{ id: "mcp", label: "MCP", status: "ready" }],
+				}),
+			},
+		}),
+		{ kind: "source", sourceId: "w" },
+		NOW,
+	);
+	expect(view?.kind).toBe("source");
+	if (view?.kind === "source")
+		expect(view.requirements.every((r) => r.status === "ready")).toBe(true);
+});
+
+test("refEquals compares source refs by sourceId", () => {
+	expect(
+		refEquals(
+			{ kind: "source", sourceId: "a" },
+			{ kind: "source", sourceId: "a" },
+		),
+	).toBe(true);
+	expect(
+		refEquals(
+			{ kind: "source", sourceId: "a" },
+			{ kind: "source", sourceId: "b" },
+		),
+	).toBe(false);
+	expect(
+		refEquals(
+			{ kind: "source", sourceId: "a" },
+			{ kind: "work", workKey: "a" },
+		),
+	).toBe(false);
+});
+
+test("openableRefs lists source refs first, in river order", () => {
+	const p = projection({
+		sources: { w: source({ sourceId: "w", readiness: "action-required" }) },
+		work: { pick: work("pick", { status: "blocked", blockedReason: "b" }) },
+	});
+	expect(
+		openableRefs({
+			attention: buildAttention(p),
+			motion: buildMotion(p),
+			settled: buildSettled(p),
+		}),
+	).toEqual([
+		{ kind: "source", sourceId: "w" },
+		{ kind: "work", workKey: "pick" },
+	]);
 });
 
 const walkerProjection = (): SerializedDashboardProjection =>

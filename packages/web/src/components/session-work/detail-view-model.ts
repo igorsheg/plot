@@ -10,6 +10,8 @@ import {
 	workLabel,
 	type CompletedWorkProjection,
 	type SerializedDashboardProjection,
+	type SourceProjection,
+	type SourceReadiness,
 	type TimelineEntry,
 	type TokenUsageProjection,
 	type WorkCheck,
@@ -26,12 +28,22 @@ import {
 
 export type DetailRef =
 	| { readonly kind: "work"; readonly workKey: string }
-	| { readonly kind: "settled"; readonly key: string };
+	| { readonly kind: "settled"; readonly key: string }
+	| { readonly kind: "source"; readonly sourceId: string };
 
 /** The minimal slice `DecisionActions` needs in the drawer. */
 export interface DecisionActionTarget {
 	readonly sourceId: string;
 	readonly workKey: string;
+	readonly actions: readonly OperatorActionView[];
+}
+
+/** One requirement in a source drawer — its own status, message, and actions. */
+export interface SourceRequirementView {
+	readonly id: string;
+	readonly label: string;
+	readonly status: SourceReadiness;
+	readonly message?: string | undefined;
 	readonly actions: readonly OperatorActionView[];
 }
 
@@ -71,7 +83,24 @@ export type DetailView =
 			readonly narrative: LiveLine | undefined;
 	  })
 	| (DetailCommon & { readonly kind: "settled"; readonly message: string })
-	| (DetailCommon & { readonly kind: "failed"; readonly message: string });
+	| (DetailCommon & { readonly kind: "failed"; readonly message: string })
+	| {
+			readonly kind: "source";
+			readonly ref: DetailRef;
+			readonly sourceId: string;
+			readonly title: string;
+			readonly status: "action-required" | "unavailable";
+			readonly requirements: readonly SourceRequirementView[];
+			readonly diagnostics: readonly string[];
+			readonly action?:
+				| {
+						readonly actionRunId: string;
+						readonly requirementId: string;
+						readonly status: "running" | "failed" | "cancelled";
+						readonly progress?: string | undefined;
+				  }
+				| undefined;
+	  };
 
 const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
 
@@ -280,6 +309,38 @@ const buildSettledDetail = (
 };
 
 /**
+ * A source drawer resolves regardless of readiness, so the panel survives the
+ * transition to `ready` (requirements then read as ready). `checking`/`ready`
+ * collapse to `action-required` for the status field — the header's all-ready
+ * check wins over it, so the value is never shown when the source is settled.
+ */
+const buildSourceDetail = (source: SourceProjection): DetailView => ({
+	kind: "source",
+	ref: { kind: "source", sourceId: source.sourceId },
+	sourceId: source.sourceId,
+	title: source.label,
+	status:
+		source.readiness === "unavailable" ? "unavailable" : "action-required",
+	requirements: source.requirements.map((requirement) => ({
+		id: requirement.id,
+		label: requirement.label,
+		status: requirement.status,
+		message: requirement.message,
+		actions: parseOperatorActions(requirement.actions),
+	})),
+	diagnostics: source.diagnostics,
+	action:
+		source.action === undefined
+			? undefined
+			: {
+					actionRunId: source.action.actionRunId,
+					requirementId: source.action.requirementId,
+					status: source.action.status,
+					progress: source.action.progress,
+				},
+});
+
+/**
  * Resolve an open reference into a detail view. A `work` reference that has
  * settled out of the live map is followed into `completed` by its workKey, so
  * the drawer stays open across the settle transition; unresolvable → undefined.
@@ -289,6 +350,10 @@ export const buildDetail = (
 	ref: DetailRef,
 	nowMs: number,
 ): DetailView | undefined => {
+	if (ref.kind === "source") {
+		const source = projection.sources[ref.sourceId];
+		return source === undefined ? undefined : buildSourceDetail(source);
+	}
 	if (ref.kind === "settled") {
 		const item = projection.completed.find((c) => settledKey(c) === ref.key);
 		return item === undefined
@@ -301,17 +366,18 @@ export const buildDetail = (
 	return done === undefined ? undefined : buildSettledDetail(projection, done);
 };
 
-export const refEquals = (a: DetailRef, b: DetailRef): boolean =>
-	a.kind === "work" && b.kind === "work"
-		? a.workKey === b.workKey
-		: a.kind === "settled" && b.kind === "settled"
-			? a.key === b.key
-			: false;
+export const refEquals = (a: DetailRef, b: DetailRef): boolean => {
+	if (a.kind === "work" && b.kind === "work") return a.workKey === b.workKey;
+	if (a.kind === "settled" && b.kind === "settled") return a.key === b.key;
+	if (a.kind === "source" && b.kind === "source")
+		return a.sourceId === b.sourceId;
+	return false;
+};
 
 /**
- * Openable references in river order: attention (decisions + failures) →
- * motion (active + actionable held) → settled. Queued, passive held, and
- * diagnostic rows are not openable.
+ * Openable references in river order: attention (sources + decisions +
+ * failures) → motion (active + actionable held) → settled. Queued, passive
+ * held, and diagnostic rows are not openable.
  */
 export const openableRefs = (input: {
 	readonly attention: readonly AttentionItem[];
@@ -320,7 +386,9 @@ export const openableRefs = (input: {
 }): readonly DetailRef[] => {
 	const refs: DetailRef[] = [];
 	for (const item of input.attention) {
-		if (item.kind === "decision" || item.kind === "failure")
+		if (item.kind === "source")
+			refs.push({ kind: "source", sourceId: item.sourceId });
+		else if (item.kind === "decision" || item.kind === "failure")
 			refs.push(workRef(item.key));
 	}
 	for (const item of input.motion) {

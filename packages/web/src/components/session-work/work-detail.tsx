@@ -20,19 +20,46 @@ import { StreamedProse } from "../ui/streamed.js";
 import { Text } from "../ui/text.js";
 import { StateIcon } from "./atoms.js";
 import { DecisionActions } from "./decision-actions.js";
+import { SourceActions } from "./source-actions.js";
 import { useWorkDetail } from "./detail-context.js";
 import {
 	formatTokens,
 	type DetailMetrics,
 	type DetailView,
 } from "./detail-view-model.js";
+import { drawerBodyClass } from "./styles.js";
 
-const HEADER_STATE: Record<DetailView["kind"], WorkState> = {
+/** Every drawer view but a source carries the work masthead + log sections. */
+type WorkView = Exclude<DetailView, { kind: "source" }>;
+type SourceView = Extract<DetailView, { kind: "source" }>;
+
+const HEADER_STATE: Record<WorkView["kind"], WorkState> = {
 	decision: "attention",
 	held: "held",
 	active: "active",
 	settled: "history",
 	failed: "history",
+};
+
+/** All source requirements met — the connected, nothing-to-do resting state. */
+const allConnected = (view: SourceView): boolean =>
+	view.requirements.every((requirement) => requirement.status === "ready");
+
+/** The masthead glyph: sources swing red → half-circle → muted with state. */
+const headerStateOf = (view: DetailView): WorkState => {
+	if (view.kind !== "source") return HEADER_STATE[view.kind];
+	if (view.action?.status === "running") return "active";
+	if (allConnected(view)) return "history";
+	if (view.status === "unavailable") return "held";
+	return "attention";
+};
+
+/** The one quiet stage word for a source, mirroring the river's salience. */
+const sourceStage = (view: SourceView): string => {
+	if (view.action?.status === "running") return "connecting…";
+	if (allConnected(view)) return "everything connected";
+	if (view.status === "unavailable") return "temporarily unavailable";
+	return "setup required";
 };
 
 const CHECK: Record<
@@ -53,7 +80,7 @@ function Rail({ children }: { readonly children: ReactNode }) {
 }
 
 /** Who and where: subtitle, labels, and an out-link, on one baseline row. */
-function Identity({ view }: { readonly view: DetailView }) {
+function Identity({ view }: { readonly view: WorkView }) {
 	return (
 		<Stack align="center" gap={8} wrap>
 			{view.subtitle !== undefined && <Rail>{view.subtitle}</Rail>}
@@ -76,7 +103,7 @@ function Identity({ view }: { readonly view: DetailView }) {
 }
 
 /** One quiet line: the stage word and the verify state, when there is one. */
-function Status({ view }: { readonly view: DetailView }) {
+function Status({ view }: { readonly view: WorkView }) {
 	const check =
 		view.check === undefined || view.check === "not-run"
 			? undefined
@@ -169,7 +196,7 @@ function ActiveNarrative({
  * settled/failed outcome. Active prose is height-stable; the other narratives
  * can grow with the scroll region.
  */
-function Narrative({ view }: { readonly view: DetailView }) {
+function Narrative({ view }: { readonly view: WorkView }) {
 	switch (view.kind) {
 		case "decision":
 			return view.reason === undefined ? null : (
@@ -188,7 +215,7 @@ function Narrative({ view }: { readonly view: DetailView }) {
 	}
 }
 
-function NarrativePane({ view }: { readonly view: DetailView }) {
+function NarrativePane({ view }: { readonly view: WorkView }) {
 	const stick = useStickToBottom({ resize: "auto", initial: "auto" });
 	if (
 		(view.kind === "decision" || view.kind === "held") &&
@@ -225,6 +252,100 @@ function Metrics({ metrics }: { readonly metrics: DetailMetrics }) {
 		<Text as="span" size="sm" variant="mono-secondary">
 			{parts.join("  ·  ")}
 		</Text>
+	);
+}
+
+/** The source stage word, pinned in the masthead where `Status` sits for work. */
+function SourceStatus({ view }: { readonly view: SourceView }) {
+	return (
+		<div className="flex items-baseline gap-2">
+			<Rail>{sourceStage(view)}</Rail>
+		</div>
+	);
+}
+
+/** Off-ready requirement statuses, humanized to the stage-word voice. */
+const REQUIREMENT_WORD: Record<
+	"action-required" | "unavailable" | "checking",
+	string
+> = {
+	"action-required": "needs setup",
+	unavailable: "unavailable",
+	checking: "checking…",
+};
+
+/**
+ * A source's body: one block per requirement — label, off-ready status, message,
+ * and its actions when unmet — then any source diagnostics. No log, metrics, or
+ * verify: a source has no attempt, so those sections are absent, not empty.
+ * Actions are single-flight: the running action collapses onto its own
+ * requirement, and every other requirement's buttons disable until it settles.
+ */
+function SourceBody({ view }: { readonly view: SourceView }) {
+	const running =
+		view.action?.status === "running"
+			? {
+					requirementId: view.action.requirementId,
+					actionRunId: view.action.actionRunId,
+					progress: view.action.progress,
+				}
+			: undefined;
+	return (
+		<div className={drawerBodyClass()}>
+			<VStack gap={20}>
+				{view.requirements.map((requirement) => (
+					<VStack gap={4} key={requirement.id}>
+						<Text as="p" size="sm">
+							{requirement.label}
+						</Text>
+						{requirement.status !== "ready" && (
+							<Text as="p" size="sm" variant="secondary">
+								{REQUIREMENT_WORD[requirement.status]}
+							</Text>
+						)}
+						{requirement.message !== undefined && (
+							<Text as="p" size="sm" variant="secondary">
+								{requirement.message}
+							</Text>
+						)}
+						{requirement.status !== "ready" && (
+							<SourceActions
+								actions={requirement.actions}
+								busy={
+									running !== undefined &&
+									running.requirementId !== requirement.id
+								}
+								requirementId={requirement.id}
+								running={
+									running !== undefined &&
+									running.requirementId === requirement.id
+										? {
+												actionRunId: running.actionRunId,
+												progress: running.progress,
+											}
+										: undefined
+								}
+								sourceId={view.sourceId}
+							/>
+						)}
+					</VStack>
+				))}
+				{view.diagnostics.length > 0 && (
+					<VStack gap={4}>
+						{view.diagnostics.map((line, index) => (
+							<Text
+								as="p"
+								key={`${index}:${line}`}
+								size="sm"
+								variant="secondary"
+							>
+								{line}
+							</Text>
+						))}
+					</VStack>
+				)}
+			</VStack>
+		</div>
 	);
 }
 
@@ -275,7 +396,7 @@ export function WorkDetail() {
 			>
 				<Stack align="flex-start" gap={12} justify="space-between">
 					<Stack align="center" gap={8} style={{ minWidth: 0 }}>
-						<StateIcon state={HEADER_STATE[view.kind]} />
+						<StateIcon state={headerStateOf(view)} />
 						<Text as="h2" truncate variant="heading3">
 							{view.title}
 						</Text>
@@ -290,37 +411,52 @@ export function WorkDetail() {
 					</Button>
 				</Stack>
 				{/* metadata pair — subtitle/labels and status sit tight together */}
-				<VStack gap={8}>
-					<Identity view={view} />
-					<Status view={view} />
-				</VStack>
-				{view.kind === "decision" && view.decision.actions.length > 0 && (
-					<DecisionActions target={view.decision} />
-				)}
-				{view.kind === "held" && view.decision !== undefined && (
-					<DecisionActions target={view.decision} />
+				{view.kind === "source" ? (
+					<SourceStatus view={view} />
+				) : (
+					<>
+						<VStack gap={8}>
+							<Identity view={view} />
+							<Status view={view} />
+						</VStack>
+						{view.kind === "decision" && view.decision.actions.length > 0 && (
+							<DecisionActions target={view.decision} />
+						)}
+						{view.kind === "held" && view.decision !== undefined && (
+							<DecisionActions target={view.decision} />
+						)}
+					</>
 				)}
 			</VStack>
-			{/* log — narrative and ticker share the rest, free to grow and scroll */}
-			<div
-				style={{
-					borderBottom: "1px solid var(--border)",
-				}}
-			>
-				<NarrativePane view={view} />
-			</div>
-			<Ticker events={view.events} nowMs={state.nowMs} />
-			<Stack
-				align="center"
-				gap={12}
-				justify="space-between"
-				style={{ padding: "16px 24px", borderTop: "1px solid var(--border)" }}
-			>
-				<Metrics metrics={view.metrics} />
-				<Text as="span" size="sm" variant="mono-secondary">
-					esc to close
-				</Text>
-			</Stack>
+			{view.kind === "source" ? (
+				<SourceBody view={view} />
+			) : (
+				<>
+					{/* log — narrative and ticker share the rest, free to grow and scroll */}
+					<div
+						style={{
+							borderBottom: "1px solid var(--border)",
+						}}
+					>
+						<NarrativePane view={view} />
+					</div>
+					<Ticker events={view.events} nowMs={state.nowMs} />
+					<Stack
+						align="center"
+						gap={12}
+						justify="space-between"
+						style={{
+							padding: "16px 24px",
+							borderTop: "1px solid var(--border)",
+						}}
+					>
+						<Metrics metrics={view.metrics} />
+						<Text as="span" size="sm" variant="mono-secondary">
+							esc to close
+						</Text>
+					</Stack>
+				</>
+			)}
 		</VStack>
 	);
 }

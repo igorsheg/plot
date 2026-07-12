@@ -8,9 +8,9 @@
  *
  * The root selects explicit item components by discriminated-union kind; there
  * are no boolean mode props. Every item consumes only `useSessionWork()` and
- * (for opening the detail drawer) `useWorkDetail()`. Openable rows — decision,
- * failure, active, settled — are real buttons; queued and diagnostic rows are
- * not. The drawer renders alongside the river and shares both contexts.
+ * (for opening the detail drawer) `useWorkDetail()`. Openable rows — source,
+ * decision, failure, active, settled — are real buttons; queued and diagnostic
+ * rows are not. The drawer renders alongside the river and shares both contexts.
  */
 
 import { useStore } from "@nanostores/react";
@@ -29,6 +29,7 @@ import {
 	formatDuration,
 	formatShortAge,
 } from "../../lib/relative-time.js";
+import type { WorkState } from "../ui/icons.js";
 import { Text } from "../ui/text.js";
 import { StreamedLine } from "../ui/streamed.js";
 import { VStack } from "../ui/stack.js";
@@ -80,6 +81,11 @@ const isOpen = (view: DetailView | undefined, ref: DetailRef): boolean =>
 
 const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
 
+const sourceRef = (sourceId: string): DetailRef => ({
+	kind: "source",
+	sourceId,
+});
+
 function EmptySubline() {
 	return <WorkItem.Subline empty />;
 }
@@ -90,41 +96,54 @@ const ageEdge = (
 ): string | undefined =>
 	sinceMs === undefined ? undefined : formatShortAge(nowMs - sinceMs);
 
+/**
+ * Source readiness in the river. Like a decision, the row is a frame that opens
+ * the drawer — never an action trigger; all mutation lives in the drawer. The
+ * icon and subline carry salience: red attention when setup is required, a
+ * half-circle while an action runs (the row must not leave the group mid-flow),
+ * muted `held` when the source is simply unavailable.
+ */
 function SourceRow({ item }: { readonly item: SourceItem }) {
-	const { actions } = useSessionWork();
-	const action = item.actions.find(
-		(candidate) => candidate.disabledReason === undefined,
-	);
-	const running = item.actionRunId !== undefined;
-	const interactive = running || action !== undefined;
-	const invoke = () => {
-		if (item.actionRunId !== undefined) {
-			actions.cancelSourceAction(item.actionRunId);
-			return;
-		}
-		if (action !== undefined && item.requirementId !== undefined)
-			actions.actOnSource({
-				sourceId: item.sourceId,
-				requirementId: item.requirementId,
-				actionId: action.id,
-			});
-	};
+	const detail = useWorkDetail();
+	const ref = sourceRef(item.sourceId);
+	const unavailable = item.status === "unavailable";
+	const running = item.actionStatus === "running";
+	const failedProgress =
+		item.actionStatus === "failed" ? item.progress : undefined;
+	const iconState: WorkState = unavailable
+		? "held"
+		: running
+			? "active"
+			: "attention";
+	const subline:
+		| { text: string; tone: "default" | "secondary" | "danger" }
+		| undefined = unavailable
+		? item.message === undefined
+			? undefined
+			: { text: item.message, tone: "secondary" }
+		: running
+			? { text: item.progress ?? "Working…", tone: "secondary" }
+			: failedProgress !== undefined
+				? { text: failedProgress, tone: "danger" }
+				: item.message === undefined
+					? undefined
+					: { text: item.message, tone: "default" };
 	return (
 		<WorkItem.Root>
-			<WorkItem.Frame interactive={interactive} onClick={invoke}>
+			<WorkItem.Frame
+				interactive
+				onClick={() => detail.actions.open(ref)}
+				open={isOpen(detail.state.view, ref)}
+			>
 				<WorkItem.Line>
-					<WorkItem.Icon state="attention" />
-					<WorkItem.Title>{item.title}</WorkItem.Title>
-					<WorkItem.Edge>
-						{running ? "Cancel" : (action?.label ?? item.status)}
-					</WorkItem.Edge>
+					<WorkItem.Icon state={iconState} />
+					<WorkItem.Title tone={unavailable ? "secondary" : "body"}>
+						{item.title}
+					</WorkItem.Title>
 				</WorkItem.Line>
-				{item.progress !== undefined || item.message !== undefined ? (
+				{subline !== undefined ? (
 					<WorkItem.Subline>
-						<StreamedLine
-							text={item.progress ?? item.message ?? ""}
-							tone="danger"
-						/>
+						<StreamedLine text={subline.text} tone={subline.tone} />
 					</WorkItem.Subline>
 				) : (
 					<EmptySubline />

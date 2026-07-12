@@ -103,6 +103,76 @@ test("session work river keeps row anatomy stable", () => {
 	expect(html).not.toContain("Approve");
 });
 
+test("source drawer attaches a running action to its own requirement only", () => {
+	const html = renderToString(
+		<SessionWorkProvider value={workValue}>
+			<WorkDetailProvider
+				value={{
+					state: {
+						open: true,
+						nowMs: 1_000_000,
+						view: {
+							kind: "source",
+							ref: { kind: "source", sourceId: "extension:jira" },
+							sourceId: "extension:jira",
+							title: "Wix Jira",
+							status: "action-required",
+							requirements: [
+								{
+									id: "mcp",
+									label: "Wix MCP",
+									status: "action-required",
+									actions: [
+										{
+											id: "connect",
+											label: "Connect A",
+											tone: "primary",
+											requiresComment: false,
+										},
+									],
+								},
+								{
+									id: "token",
+									label: "API token",
+									status: "action-required",
+									actions: [
+										{
+											id: "connect",
+											label: "Connect B",
+											tone: "primary",
+											requiresComment: false,
+										},
+									],
+								},
+							],
+							diagnostics: [],
+							action: {
+								actionRunId: "run-1",
+								requirementId: "mcp",
+								status: "running",
+								progress: "Waiting for authorization…",
+							},
+						},
+					},
+					actions: detailValue.actions,
+				}}
+			>
+				<WorkDetail />
+			</WorkDetailProvider>
+		</SessionWorkProvider>,
+	);
+
+	// The running requirement collapses to progress + Cancel; the other keeps
+	// its button, disabled while the single-flight action runs elsewhere.
+	expect(html.match(/Cancel/g)?.length).toBe(1);
+	expect(html).not.toContain("Connect A");
+	expect(html).toContain("Waiting for authorization…");
+	expect(html).toMatch(/<button[^>]*disabled[^>]*>[^<]*Connect B/);
+	// The raw readiness enum never leaks; the humanized word renders instead.
+	expect(html).not.toContain("action-required");
+	expect(html.match(/needs setup/g)?.length).toBe(2);
+});
+
 test("work detail reserves an active prose well for streamed agent text", () => {
 	const html = renderToString(
 		<WorkDetailProvider
