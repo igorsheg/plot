@@ -48,6 +48,9 @@ export async function* readSessionEvents(
 }
 
 const historySkippedAgentEventTypes = new Set([
+	// agent_end repeats the complete message history already owned by the
+	// Agent Transcript; Session History only needs the preceding turn events.
+	"agent_end",
 	"thinking_delta",
 	"text_delta",
 	"message_delta",
