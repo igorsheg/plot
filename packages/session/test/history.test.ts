@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import {
 	createSessionEventLogWriter,
 	readSessionEvents,
+	shouldWriteSessionEvent,
 } from "../src/history.js";
 import type { RuntimeEvent } from "../src/runtime.js";
 
@@ -26,6 +27,29 @@ test("session event replay skips structurally invalid records", async () => {
 	const events = [];
 	for await (const record of readSessionEvents(path)) events.push(record);
 	expect(events).toEqual([event()]);
+});
+
+test("session history skips agent_end transcript snapshots", () => {
+	const agentEnd: RuntimeEvent = {
+		kind: "agent_event",
+		sessionId: "session-history-test",
+		sequence: 1,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		sourceId: "extension:test",
+		runId: "run-1",
+		workKey: "work-1",
+		event: {
+			type: "agent_end",
+			messages: [{ role: "assistant", content: "large transcript snapshot" }],
+		},
+	};
+	const turnEnd: RuntimeEvent = {
+		...agentEnd,
+		event: { type: "turn_end", message: { role: "assistant" } },
+	};
+
+	expect(shouldWriteSessionEvent(agentEnd)).toBe(false);
+	expect(shouldWriteSessionEvent(turnEnd)).toBe(true);
 });
 
 test("session event log writer rejects existing logs", async () => {
