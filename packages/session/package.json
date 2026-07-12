@@ -63,8 +63,8 @@
 		"test": "bun test test"
 	},
 	"dependencies": {
-		"@earendil-works/pi-ai": "0.79.0",
-		"@earendil-works/pi-coding-agent": "0.79.0",
+		"@earendil-works/pi-ai": "0.80.6",
+		"@earendil-works/pi-coding-agent": "0.80.6",
 		"@plot/agent": "workspace:*",
 		"@plot/common": "workspace:*",
 		"@plot/sdk": "workspace:*",
