@@ -58,7 +58,7 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
 }): Promise<LoadedPlotExtensionRuntime> => {
-	const extensionConfig = options.workflow.runtime.extension!;
+	const extensionConfig = options.workflow.runtime.extension;
 	const source = extensionSource(
 		options.workflow,
 		options.paths,

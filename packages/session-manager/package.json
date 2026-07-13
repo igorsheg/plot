@@ -1,13 +1,13 @@
 {
-	"name": "@plot/registry",
+	"name": "@plot/session-manager",
 	"private": true,
 	"type": "module",
 	"sideEffects": false,
 	"exports": {
 		"./ipc": "./src/ipc.ts",
-		"./record": "./src/record.ts",
-		"./store": "./src/store.ts",
-		"./supervisor": "./src/supervisor.ts",
+		"./manager": "./src/manager.ts",
+		"./session": "./src/session.ts",
+		"./session-store": "./src/session-store.ts",
 		"./events": "./src/events.ts"
 	},
 	"scripts": {

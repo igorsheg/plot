@@ -19,7 +19,10 @@ const pathsFor = (root: string): SessionPaths => ({
 const workflow = (path: string): WorkflowDefinition => ({
 	path,
 	config: {},
-	runtime: {},
+	runtime: {
+		agent: { provider: "test", model: "fake" },
+		extension: { source: "./extension.ts" },
+	},
 	prompt: "",
 });
 

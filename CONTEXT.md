@@ -5,12 +5,16 @@ Plot is a control plane for long-running coding-agent work. This glossary keeps 
 ## Language
 
 **Workflow**:
-A durable Markdown + TypeScript definition of what work to find and how agents should handle it.
-_Avoid_: Plot run, workflow run, session
+A durable, configured use of an Extension: what work to find, which integration configuration and runtime policy to use, and how agents should handle it. Multiple Workflows may reuse the same Extension with different configuration and prompts.
+_Avoid_: Plot run, workflow run, session, Extension instance
 
 **Plot Session**:
-A live execution of a Workflow that operators can watch, pause, stop, or inspect.
+A durable execution of a Workflow that operators can watch, pause, stop, or inspect. A Workflow may have many historical Plot Sessions but at most one Active Plot Session.
 _Avoid_: Workflow, run, job
+
+**Active Plot Session**:
+A Plot Session that is starting, operating, paused, or stopping and therefore owns its Workflow's single active-session claim. Stopped and errored Plot Sessions are historical.
+_Avoid_: Live run, active run, process
 
 **Work Item**:
 A unit of work discovered by a Source and eligible for agent execution.
@@ -25,8 +29,8 @@ Trusted code that observes a domain and proposes or reconciles Work Items.
 _Avoid_: Plugin, integration, scraper
 
 **Extension**:
-Trusted TypeScript that contributes Sources, tools, and integration behavior to a Workflow.
-_Avoid_: Source, plugin
+Reusable trusted TypeScript that contributes Sources, tools, and integration behavior to one or more Workflows. It does not own a runtime lifecycle independently of a Workflow.
+_Avoid_: Source, plugin, Workflow
 
 **Process Table**:
 The operator view of Work Items and their current or latest Agent Run.
@@ -57,5 +61,5 @@ The append-only control-plane record of what happened during a Plot Session.
 _Avoid_: Agent Transcript, provider log
 
 **Workflow Bundle**:
-The `WORKFLOW.md` plus optional `workflow.extension.ts` that define a Workflow.
+The `WORKFLOW.md` and referenced Extension module that define a Workflow.
 _Avoid_: Dynamic runtime, generated pipeline

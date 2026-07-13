@@ -1,15 +1,13 @@
 import { spawn } from "node:child_process";
 import { errorMessage } from "@plot/common/primitives";
-import type { CreatePiAgentSession } from "@plot/session/pi-runner";
-import { takeOverStdout, writeRawStdout } from "./stdout-guard.js";
+import type { SessionManagerRuntime } from "@plot/session-manager/manager";
 
 export interface PlotCliIo {
 	readonly stdin: AsyncIterable<string | Uint8Array>;
 	readonly writeStdout: (text: string) => Promise<void> | void;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
-	readonly createAgentSession?: CreatePiAgentSession;
+	readonly sessionManager?: SessionManagerRuntime;
 	readonly runTui?: (options: unknown) => Promise<void> | void;
-	readonly protectStdout?: () => void;
 }
 
 export const openBrowser = (url: string): void => {
@@ -37,9 +35,8 @@ export const writeProcessStderr = (text: string) =>
 
 export const processCliIo = (): PlotCliIo => ({
 	stdin: process.stdin as AsyncIterable<string | Uint8Array>,
-	writeStdout: writeRawStdout,
+	writeStdout: (text) => writeStream(process.stdout, text),
 	writeStderr: writeProcessStderr,
-	protectStdout: takeOverStdout,
 });
 
 export const writeCliStderr = (io: PlotCliIo, text: string) =>

@@ -4,65 +4,45 @@ import {
 	runCommand as runCittyCommand,
 	type CommandDef,
 } from "citty";
-import { sessionCommandArgs } from "./args.js";
+import { workflowPathArg } from "./args.js";
 import { setCliIo } from "./cli-context.js";
-import { apiCommand } from "./commands/api.js";
 import { authCommand } from "./commands/auth.js";
-import { configCommand } from "./commands/config.js";
+import { checkCommand } from "./commands/check.js";
 import { docsCommand } from "./commands/docs.js";
-import { doctorCommand } from "./commands/doctor.js";
-import { eventsCommand } from "./commands/events.js";
-import { initCommand } from "./commands/init.js";
 import { modelsCommand } from "./commands/models.js";
-import { openCommand } from "./commands/open.js";
-import { runCommand } from "./commands/run.js";
-import { runsCommand } from "./commands/runs.js";
-import { serveCommand } from "./commands/serve.js";
-import { setupCommand } from "./commands/setup.js";
+import {
+	attachWorkflow,
+	startCommand,
+	stopCommand,
+} from "./commands/session.js";
+import { webCommand } from "./commands/web.js";
 import { processCliIo, type PlotCliIo } from "./io.js";
 import { VERSION } from "./package.js";
 
 const version = VERSION;
 
-const rootArgs = sessionCommandArgs;
-
 export const subCommands = {
-	open: openCommand,
-	run: runCommand,
-	runs: runsCommand,
-	api: apiCommand,
-	events: eventsCommand,
+	start: startCommand,
+	stop: stopCommand,
+	web: webCommand,
+	check: checkCommand,
+	docs: docsCommand,
 	auth: authCommand,
 	models: modelsCommand,
-	init: initCommand,
-	setup: setupCommand,
-	doctor: doctorCommand,
-	config: configCommand,
-	docs: docsCommand,
-	serve: serveCommand,
-};
-
-const rootMeta = {
-	name: "plot",
-	version,
-	description: "Run coding-agent workflows.",
 };
 
 const rootCommand = defineCommand({
-	meta: rootMeta,
-	args: rootArgs,
+	meta: {
+		name: "plot",
+		version,
+		description: "Run durable coding-agent Workflows.",
+	},
 	subCommands,
 });
 
 const withDefaultSubcommand = (args: readonly string[]): readonly string[] => {
-	const first = args[0];
-	const second = args[1];
-	if (first === "runs" && (second === undefined || second.startsWith("-")))
-		return ["runs", "list", ...args.slice(1)];
-	if (first === "auth" && (second === undefined || second.startsWith("-")))
+	if (args[0] === "auth" && (args[1] === undefined || args[1]!.startsWith("-")))
 		return ["auth", "status", ...args.slice(1)];
-	if (first === "config" && (second === undefined || second.startsWith("-")))
-		return ["config", "list", ...args.slice(1)];
 	return args;
 };
 
@@ -77,31 +57,39 @@ export const runPlotCli = async (
 		return;
 	}
 	const first = args[0];
-	if (first === undefined || first.startsWith("-")) {
-		await runCittyCommand(openCommand, {
-			rawArgs: [...args],
-			showUsage: false,
-		});
+	if (first === undefined || first.startsWith("-") || !(first in subCommands)) {
+		if (
+			first !== undefined &&
+			!first.startsWith("-") &&
+			looksLikeCommand(first)
+		) {
+			await io.writeStdout(
+				`Unknown command: ${first}\n\n${renderRootHelp(commandSuggestion(first))}`,
+			);
+			return;
+		}
+		await runCittyCommand(
+			defineCommand({
+				meta: { name: "plot", description: "Open a Workflow dashboard." },
+				args: workflowPathArg,
+				run: ({ args: parsed }) => attachWorkflow(parsed),
+			}),
+			{ rawArgs: [...args], showUsage: false },
+		);
 		return;
 	}
-	if (first in subCommands) {
-		await runCittyCommand(rootCommand, {
-			rawArgs: [...withDefaultSubcommand(args)],
-			showUsage: false,
-		});
-		return;
-	}
-	await io.writeStdout(
-		`Unknown command: ${first}\n\n${renderRootHelp(commandSuggestion(first))}`,
-	);
+	await runCittyCommand(rootCommand, {
+		rawArgs: [...withDefaultSubcommand(args)],
+		showUsage: false,
+	});
 };
 
-const asCommandDef = (command: unknown): CommandDef => command as CommandDef;
+const looksLikeCommand = (value: string): boolean =>
+	!value.includes("/") && !value.endsWith(".md") && !value.startsWith(".");
 
+const asCommandDef = (command: unknown): CommandDef => command as CommandDef;
 const commandChildren = (command: CommandDef): Record<string, CommandDef> =>
 	(command.subCommands ?? {}) as Record<string, CommandDef>;
-
-const commandNames = Object.keys(subCommands);
 
 const editDistance = (left: string, right: string): number => {
 	const previous = Array.from(
@@ -124,57 +112,34 @@ const editDistance = (left: string, right: string): number => {
 };
 
 const commandSuggestion = (input: string): string | undefined => {
-	const scored = commandNames
+	const best = Object.keys(subCommands)
 		.map((name) => ({ name, distance: editDistance(input, name) }))
-		.toSorted((left, right) => left.distance - right.distance);
-	const best = scored[0];
+		.toSorted((left, right) => left.distance - right.distance)[0];
 	return best !== undefined && best.distance <= 2 ? best.name : undefined;
 };
 
 const renderRootHelp = (suggestion?: string): string => {
 	const suggestionText =
 		suggestion === undefined ? "" : `\nDid you mean: plot ${suggestion}\n`;
-	return `Run coding-agent workflows. (plot v${version})
+	return `Plot runs durable coding-agent Workflows. (plot v${version})
 
 USAGE
-  plot                          Open the terminal dashboard
-  plot open [workflow]          Open a dashboard for a workflow
-  plot open [workflow] --web    Open the browser dashboard
-  plot run [workflow]           Run current work without a dashboard
-  plot runs                     List runs in the shared registry
-  plot api schema               Print the public session protocol schema
-  plot events wait <run-id>     Replay/follow events until one matches
+  plot [workflow]          Start or attach, then open the terminal dashboard
+  plot start [workflow]    Start a Session without attaching
+  plot stop [workflow]     Stop the Workflow's active Session
+  plot web                 Open the Fleet Web Console
 
-START HERE
-  plot init
-  plot auth login
-  plot setup WORKFLOW.md
-  plot doctor WORKFLOW.md
-  plot open WORKFLOW.md
+AUTHORING
+  plot check [workflow]    Validate Workflow, Extension, Source, and model readiness
+  plot docs [topic]        Read bundled documentation
 
-COMMANDS
-  open, run                     Start Workflows
-  runs, events                  Inspect managed runs and RuntimeEvents
-  api                           Inspect/call the Session protocol
-  auth, models, config          Manage provider auth, models, and defaults
-  init, setup, doctor           Create, configure, and validate a Workflow
-  docs, serve                   Read references or serve transports/daemons
-
-FOR CODING AGENTS
-  This package ships its full documentation, the typed extension contract,
-  and complete example extensions. To build a Plot extension:
-
-  plot docs guide               Authoring brief: read order, rules, checklist
-  plot docs sdk                 Typed contract (plot-ai/sdk declarations)
-  plot docs extensions          Discovery, identity, version, tool semantics
-  plot docs --paths             Where docs, examples, and sdk live on disk
-  plot doctor WORKFLOW.md       Validate what you built
+ACCOUNT
+  plot auth                Manage provider credentials
+  plot models [query]      List available models
 
 HELP
-  plot help <command>            Show command details
-  plot <command> --help          Show command details
-  plot open --help               Show Workflow/dashboard options
-  plot docs cli                  Print the complete CLI/protocol reference
+  plot help <command>      Show command details
+  plot <command> --help    Show command details
 ${suggestionText}`;
 };
 

@@ -53,6 +53,19 @@ try {
 		throw new Error("missing plot bin after install");
 	}
 
+	if (
+		existsSync(
+			join(tempDir, "node_modules", "plot-ai", "examples", "debug", ".plot"),
+		)
+	)
+		throw new Error("release includes example runtime state");
+	if (
+		existsSync(
+			join(tempDir, "node_modules", "plot-ai", "docs", "nuclear-refactor.md"),
+		)
+	)
+		throw new Error("release includes the internal implementation plan");
+
 	const manifest = (await Bun.file(
 		join(tempDir, "node_modules", "plot-ai", "package.json"),
 	).json()) as { readonly version?: string };

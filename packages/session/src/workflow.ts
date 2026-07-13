@@ -57,8 +57,8 @@ export type WorkflowThinkingLevel =
 export type WorkflowAgentToolMode = boolean | "all" | "builtin";
 
 export interface WorkflowAgentConfig {
-	readonly provider?: string;
-	readonly model?: string;
+	readonly provider: string;
+	readonly model: string;
 	readonly thinking?: WorkflowThinkingLevel;
 	readonly tools?: readonly string[];
 	readonly excludeTools?: readonly string[];
@@ -73,7 +73,6 @@ export interface WorkflowPlotConfig {
 	readonly stallTimeoutMs?: number;
 	readonly queueCapacity?: number;
 	readonly eventCapacity?: number;
-	readonly eventBufferCapacity?: number;
 }
 
 export interface WorkflowResourcesConfig {
@@ -93,9 +92,9 @@ export interface WorkflowExtensionConfig {
 export interface WorkflowRuntimeConfig {
 	readonly name?: string;
 	readonly plot?: WorkflowPlotConfig;
-	readonly agent?: WorkflowAgentConfig;
+	readonly agent: WorkflowAgentConfig;
 	readonly resources?: WorkflowResourcesConfig;
-	readonly extension?: WorkflowExtensionConfig;
+	readonly extension: WorkflowExtensionConfig;
 }
 
 const mapping = (value: unknown, name: string): Record<string, unknown> => {
@@ -147,7 +146,6 @@ const decodePlot = (value: unknown): WorkflowPlotConfig => {
 		"stallTimeoutMs",
 		"queueCapacity",
 		"eventCapacity",
-		"eventBufferCapacity",
 	] as const;
 	const record = fields(value, "runtime.plot", keys);
 	return Object.fromEntries(
@@ -180,19 +178,18 @@ const decodeAgent = (value: unknown): WorkflowAgentConfig => {
 		"maxTurns",
 	]);
 	const config: {
-		provider?: string;
-		model?: string;
+		provider: string;
+		model: string;
 		thinking?: WorkflowThinkingLevel;
 		tools?: readonly string[];
 		excludeTools?: readonly string[];
 		noTools?: WorkflowAgentToolMode;
 		allowProjectConfig?: boolean;
 		maxTurns?: number;
-	} = {};
-	if (record["provider"] !== undefined)
-		config.provider = string(record["provider"], "runtime.agent.provider");
-	if (record["model"] !== undefined)
-		config.model = string(record["model"], "runtime.agent.model");
+	} = {
+		provider: string(record["provider"], "runtime.agent.provider"),
+		model: string(record["model"], "runtime.agent.model"),
+	};
 	if (record["thinking"] !== undefined) {
 		const thinking = string(record["thinking"], "runtime.agent.thinking");
 		if (!thinkingLevels.has(thinking as WorkflowThinkingLevel))
@@ -303,9 +300,14 @@ export const decodeWorkflowRuntimeConfig = (
 		config.agent = decodeAgent(record["agent"]);
 	if (record["resources"] !== undefined)
 		config.resources = decodeResources(record["resources"]);
-	if (record["extension"] !== undefined)
-		config.extension = decodeExtension(record["extension"]);
-	return config;
+	if (record["extension"] === undefined)
+		throw new Error(
+			"WORKFLOW.md requires an extension with at least one Source.",
+		);
+	config.extension = decodeExtension(record["extension"]);
+	if (config.agent === undefined)
+		throw new Error("WORKFLOW.md requires agent.provider and agent.model.");
+	return config as WorkflowRuntimeConfig;
 };
 
 const nodeFileSystem: WorkflowFileSystem = {

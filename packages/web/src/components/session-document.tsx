@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { motion } from "motion/react";
-import { $selectedRun } from "../app/runs-store.js";
+import { $selectedSession } from "../app/sessions-store.js";
 import {
 	sessionDetailClass,
 	sessionDetailInnerClass,
@@ -99,6 +99,10 @@ function SessionDocument() {
 }
 
 export function SessionMain() {
-	const selectedRun = useStore($selectedRun);
-	return selectedRun === undefined ? <EmptySelection /> : <SessionDocument />;
+	const selectedSession = useStore($selectedSession);
+	return selectedSession === undefined ? (
+		<EmptySelection />
+	) : (
+		<SessionDocument />
+	);
 }

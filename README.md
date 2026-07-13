@@ -1,71 +1,81 @@
 # Plot
 
-Plot is a control plane for coding-agent work. Trusted TypeScript observes real systems and exposes safe tools; Markdown teaches agent judgment; Plot owns scheduling, retries, durability, and operator surfaces.
-
-```bash
-npx plot-ai --help
-```
-
-## Mental model
+Plot is a control plane for long-running coding-agent work. Reusable trusted TypeScript observes real systems and exposes safe tools; each Workflow supplies integration configuration and agent judgment; Plot owns reconciliation, scheduling, retries, durability, and operator surfaces.
 
 ```txt
-world -> extension/Source -> versioned Work Item -> Plot -> Agent Run
-              |                                      |
-              +----------- registered tools --------+
-
-Plot: tick -> reconcile facts -> act
+world -> Extension/Source -> Work Item -> Plot -> Agent Run
+                                       |
+                                       +-> Session History and dashboards
 ```
 
-- The extension owns authoritative facts, stable identity/revision, integration correctness, and idempotent side effects.
-- The Workflow prompt owns investigation strategy and quality criteria.
-- Plot owns claims, concurrency, draining, continuation, exponential retry, timeout/stall handling, shutdown, RuntimeEvents, and managed processes.
-- Dashboards reduce canonical events; they do not become another source of runtime truth.
+## Core model
 
-## One-shot work
+- An **Extension** implements reusable integration behavior.
+- A **Workflow** configures an Extension for one use: system, prompt, model, and runtime policy.
+- A **Plot Session** is the durable execution of one Workflow.
+- A Workflow has at most one Active Plot Session.
+- The same Extension can back many concurrent Workflows.
+
+For example, two repository-specific PR-review Workflows can share one PR-review Extension while using different repository configuration and prompts.
+
+## Start
 
 ```bash
 npm install -g plot-ai
-plot init
 plot auth login
-plot open WORKFLOW.md
+plot check WORKFLOW.md
+plot WORKFLOW.md
 ```
 
-A Workflow without an extension creates one synthetic Work Item and runs once.
+`plot WORKFLOW.md` starts or attaches to its Session and opens the terminal dashboard. Leaving the dashboard detaches; the Session keeps running.
 
-## Continuous discovered work
+```bash
+plot start WORKFLOW.md    # start without attaching
+plot stop WORKFLOW.md     # explicit shutdown
+plot web                  # Fleet Web Console
+```
 
-`WORKFLOW.md`:
+## Workflow
 
 ```md
 ---
-name: review-open-prs
-agent: { provider: openai-codex, model: gpt-5.5, maxTurns: 4 }
-extension: { source: ./github-pr-reviewer.extension.ts, maxConcurrentRuns: 2 }
-plot: { tickIntervalMs: 300000, maxRunDurationMs: 900000 }
+name: review-acme-prs
+agent:
+  provider: openai-codex
+  model: gpt-5.5
+  maxTurns: 4
+extension:
+  source: ./github-pr-reviewer.extension.ts
+  maxConcurrentRuns: 2
+  config:
+    repository: acme/web
+plot:
+  tickIntervalMs: 300000
 ---
 
 # Review {{ work.title }}
 
-Inspect the diff and callers, run relevant checks, and use `post_review` only after verification.
+Inspect the diff and callers, run relevant checks, and post a review only after verification.
 ```
 
-`github-pr-reviewer.extension.ts`:
+A Workflow must reference an Extension. Plot has one continuous, Source-driven scheduler mode.
+
+## Extension
 
 ```ts
 import { definePlotExtension } from "plot-ai/sdk";
 
 export default definePlotExtension({
 	id: "github-pr-reviewer",
-	create: ({ work }) => ({
+	create: ({ config, work }) => ({
 		async discover() {
-			const prs = await listOpenPullRequests();
+			const prs = await listOpenPullRequests(config.repository);
 			return prs.map((pr) =>
 				work({
 					id: `github:pr:${pr.number}`,
 					version: pr.headSha,
 					title: pr.title,
-					url: pr.url,
-					context: { prNumber: pr.number, repository: pr.repository },
+					context: { repository: config.repository, prNumber: pr.number },
 				}),
 			);
 		},
@@ -73,46 +83,20 @@ export default definePlotExtension({
 });
 ```
 
-The API call above is application code. Production discovery must throw on observation failure; returning `[]` authoritatively means all previously known work is gone.
+Production discovery must throw on observation failure. Returning `[]` authoritatively means previously known work is gone.
 
-## Scheduling semantics
-
-| Source observation   | Plot behavior                                           |
-| -------------------- | ------------------------------------------------------- |
-| `pending` or omitted | Eligible for dispatch.                                  |
-| `waiting`            | Keep claim visible; wait for the external world.        |
-| `blocked`            | Keep claim visible; wait for a human decision.          |
-| `cancelled`          | Interrupt active work and release immediately.          |
-| Item absent          | Drain an active turn, then release without redispatch.  |
-| Same id, new version | Drain old revision before dispatching replacement.      |
-| Run fails/times out  | Retry with exponential backoff, capped at five minutes. |
-| Run becomes inactive | Optional stall timeout interrupts it.                   |
-
-## Operator surfaces
-
-```bash
-plot open WORKFLOW.md          # live terminal dashboard
-plot open WORKFLOW.md --web    # durable browser projection + HTTP/SSE
-plot run WORKFLOW.md           # no dashboard
-plot runs                      # managed-run catalog
-plot events stream <run-id>    # durable replay then live JSONL
-plot api schema                # exact Session protocol methods
-```
-
-The TUI starts and watches one live run. The web gateway can reconstruct durable projections and continue gaplessly from Session RuntimeEvent JSONL.
-
-## Authoring references
+## Documentation
 
 ```bash
 plot docs quickstart
+plot docs guide
 plot docs workflows
 plot docs extensions
-plot docs cli
-plot docs web
-plot docs extension-prompt | pbcopy
+plot docs sdk
+plot docs --paths
 ```
 
-[Quickstart](docs/quickstart.md) · [Workflows](docs/workflows.md) · [Extensions](docs/extensions.md) · [CLI](docs/cli.md) · [TUI](docs/tui.md) · [Web/API](docs/web.md)
+[Quickstart](docs/quickstart.md) · [Workflows](docs/workflows.md) · [Extensions](docs/extensions.md) · [CLI](docs/cli.md) · [TUI](docs/tui.md) · [Web Console](docs/web.md)
 
 ## Development and release
 

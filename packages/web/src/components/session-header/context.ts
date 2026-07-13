@@ -4,16 +4,16 @@
  * Fixtures and the store adapter both flow through the same interface.
  */
 
-import type { RunStatus } from "@plot/registry/record";
+import type { SessionState } from "@plot/session-manager/session";
 import { createRequiredContext } from "../../lib/required-context.js";
 
-/** Cumulative usage for the run — the ledger's tally. */
+/** Cumulative usage for the Plot Session — the ledger's tally. */
 export interface SessionUsage {
 	readonly tokens: number;
 	readonly cost: number | undefined;
 }
 
-/** Static run configuration, disclosed from the kicker popover. */
+/** Static Session configuration, disclosed from the kicker popover. */
 export interface SessionConfig {
 	readonly model: string | undefined;
 	readonly provider: string | undefined;
@@ -24,13 +24,12 @@ export interface SessionConfig {
 	readonly tickIntervalMs: number | undefined;
 	readonly maxConcurrentRuns: number | undefined;
 	readonly maxRunDurationMs: number | undefined;
-	readonly pid: number | undefined;
 }
 
 export interface SessionHeaderState {
 	readonly place: string;
 	readonly title: string;
-	readonly status: RunStatus;
+	readonly status: SessionState;
 	readonly startedAtMs: number | undefined;
 	readonly lastEventAtMs: number | undefined;
 	readonly nowMs: number;

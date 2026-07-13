@@ -97,6 +97,9 @@ export default definePlotExtension<{ dir: string }>({
 ```md
 ---
 name: todo-files
+agent:
+  provider: openai-codex
+  model: gpt-5.5
 extension:
   source: ./todos.extension.ts
   config:
@@ -109,8 +112,8 @@ Complete the task described in {{ file }}, then call `mark_done`.
 ```
 
 ```bash
-plot doctor WORKFLOW.md
-plot open WORKFLOW.md
+plot check WORKFLOW.md
+plot WORKFLOW.md
 ```
 
 Notice what the extension does **not** do: no completion bookkeeping, no queue, no retry logic. The filesystem is the state — done work simply stops being discovered. Prefer this shape: derive work from an authoritative system (API, database, files, CLI) instead of tracking progress in memory. When the domain has no natural "done" marker, write one into the domain itself, the way `examples/pr-review` stamps an anchor comment on the PR.
@@ -176,7 +179,7 @@ export default definePlotExtension({
 
 `check()` runs before discovery and must be cheap and local: inspect credentials, environment, files, config, and installed binaries only. Do not refresh tokens or probe a network there. Plot calls `discover()` only while every requirement is `ready`; `action-required` and `unavailable` preserve last-known work and gate new dispatch.
 
-Use `credentials` for extension/workflow-scoped secret values. Plot stores them in permission-restricted files and never puts them in Work Item context, prompts, events, or logs. `plot setup` invokes declared actions; `plot doctor` only checks them and never opens a browser.
+Use `credentials` for Extension/Workflow-scoped secret values. Plot stores them in permission-restricted files and never puts them in Work Item context, prompts, events, or logs. `plot check` reports requirement state without invoking actions. Start the Session and invoke an available Operator Action from the TUI or Web Console.
 
 If token refresh fails terminally inside `discover()` or a bound tool, delete or invalidate the cached credential and throw `ExtensionActionRequiredError`. Plot moves the Source back to `action-required`, preserves work, and exposes reconnection. Temporary network failures remain `DiscoveryUnavailableError`.
 

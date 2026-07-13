@@ -25,8 +25,10 @@ export const matchesKey = (data: string, key: string): boolean =>
 	parseKey(data) === key;
 
 export class ProcessTerminal {
-	readonly input = process.stdin;
-	readonly output = process.stdout;
+	constructor(
+		readonly input: NodeJS.ReadStream = process.stdin,
+		readonly output: NodeJS.WriteStream = process.stdout,
+	) {}
 	get columns(): number {
 		return this.output.columns ?? 80;
 	}

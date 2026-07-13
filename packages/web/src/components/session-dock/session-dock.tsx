@@ -17,11 +17,11 @@ import {
 	useState,
 } from "react";
 import {
-	$pastRuns,
-	$runs,
-	$selectedRun,
-	selectRun,
-} from "../../app/runs-store.js";
+	$pastSessions,
+	$sessions,
+	$selectedSession,
+	selectSession,
+} from "../../app/sessions-store.js";
 import { $nowMs } from "../../app/time-store.js";
 import { formatRelative } from "../../lib/relative-time.js";
 import { Text } from "../ui/text.js";
@@ -277,20 +277,20 @@ export function StoreSessionDockProvider({
 }: {
 	readonly children: ReactNode;
 }) {
-	const runs = useStore($runs);
-	const pastRuns = useStore($pastRuns);
-	const selected = useStore($selectedRun);
+	const sessions = useStore($sessions);
+	const pastSessions = useStore($pastSessions);
+	const selected = useStore($selectedSession);
 	const nowMs = useStore($nowMs);
 	const expanded = useStore($dockExpanded);
 	const value: SessionDockContextValue = {
 		state: {
-			live: buildLiveLines(runs, selected?.id),
-			past: buildPastLines(pastRuns, selected?.id),
+			live: buildLiveLines(sessions, selected?.id),
+			past: buildPastLines(pastSessions, selected?.id),
 			expanded,
 			nowMs,
 		},
 		actions: {
-			select: selectRun,
+			select: selectSession,
 			toggleExpanded: toggleDockExpanded,
 		},
 	};

@@ -10,7 +10,7 @@
 				{ "title": "Extensions", "path": "extensions.md" },
 				{ "title": "CLI", "path": "cli.md" },
 				{ "title": "TUI", "path": "tui.md" },
-				{ "title": "Web and HTTP API", "path": "web.md" }
+				{ "title": "Fleet Web Console", "path": "web.md" }
 			]
 		}
 	]

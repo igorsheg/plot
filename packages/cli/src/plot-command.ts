@@ -1,10 +1,14 @@
 import { basename } from "node:path";
-import type { RunIpcOptions } from "@plot/registry/ipc";
+
+export interface PlotCommand {
+	readonly command: string;
+	readonly args: readonly string[];
+}
 
 const sourceEntry = (value: string | undefined): string | undefined =>
 	value !== undefined && /\.[cm]?[jt]sx?$/.test(value) ? value : undefined;
 
-export const resolvePlotCommand = (): NonNullable<RunIpcOptions["cli"]> => {
+export const resolvePlotCommand = (): PlotCommand => {
 	const script = sourceEntry(process.argv[1]);
 	const isBun = basename(process.execPath) === "bun";
 	return {

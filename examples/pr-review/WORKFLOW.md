@@ -5,7 +5,6 @@ version: 9.0.0
 plot:
   queueCapacity: 64
   eventCapacity: 256
-  eventBufferCapacity: 512
   tickIntervalMs: 30000
   maxRunDurationMs: 1800000
   stallTimeoutMs: 120000

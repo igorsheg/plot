@@ -1,19 +1,18 @@
-import type { RunRecord } from "@plot/registry/record";
+import type { SessionSummary } from "@plot/session-manager/session";
 
-export const runsUrl = "/api/runs";
+export const sessionsUrl = "/api/sessions";
 
-export const runProjectionUrl = (run: RunRecord): string =>
-	`/api/runs/${encodeURIComponent(run.id)}/projection`;
+export const sessionProjectionUrl = (session: SessionSummary): string =>
+	`/api/sessions/${encodeURIComponent(session.id)}/projection`;
 
-export const runEventsUrl = (
-	run: RunRecord,
-	after = run.lastSequence ?? 0,
-): string => `/api/runs/${encodeURIComponent(run.id)}/events?after=${after}`;
+export const sessionEventsUrl = (
+	session: SessionSummary,
+	after = session.lastSequence,
+): string =>
+	`/api/sessions/${encodeURIComponent(session.id)}/events?after=${after}`;
 
-export const runTranscriptUrl = (input: {
-	readonly runId: string;
+export const sessionTranscriptUrl = (input: {
+	readonly sessionId: string;
 	readonly attemptRunId: string;
 }): string =>
-	`/api/runs/${encodeURIComponent(input.runId)}/attempts/${encodeURIComponent(
-		input.attemptRunId,
-	)}/transcript`;
+	`/api/sessions/${encodeURIComponent(input.sessionId)}/attempts/${encodeURIComponent(input.attemptRunId)}/transcript`;

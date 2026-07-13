@@ -34,8 +34,8 @@
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/gateway": "workspace:*",
-        "@plot/registry": "workspace:*",
         "@plot/session": "workspace:*",
+        "@plot/session-manager": "workspace:*",
         "@plot/tui": "workspace:*",
         "citty": "^0.1.6",
       },
@@ -55,8 +55,8 @@
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/projection": "workspace:*",
-        "@plot/registry": "workspace:*",
         "@plot/session": "workspace:*",
+        "@plot/session-manager": "workspace:*",
       },
       "devDependencies": {
         "@repo/tsconfig": "workspace:*",
@@ -64,16 +64,6 @@
     },
     "packages/projection": {
       "name": "@plot/projection",
-      "dependencies": {
-        "@plot/common": "workspace:*",
-        "@plot/session": "workspace:*",
-      },
-      "devDependencies": {
-        "@repo/tsconfig": "workspace:*",
-      },
-    },
-    "packages/registry": {
-      "name": "@plot/registry",
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/session": "workspace:*",
@@ -104,13 +94,23 @@
         "@repo/tsconfig": "workspace:*",
       },
     },
+    "packages/session-manager": {
+      "name": "@plot/session-manager",
+      "dependencies": {
+        "@plot/common": "workspace:*",
+        "@plot/session": "workspace:*",
+      },
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
     "packages/tui": {
       "name": "@plot/tui",
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/projection": "workspace:*",
-        "@plot/registry": "workspace:*",
         "@plot/session": "workspace:*",
+        "@plot/session-manager": "workspace:*",
         "get-east-asian-width": "1.6.0",
       },
       "devDependencies": {
@@ -127,8 +127,8 @@
         "@phosphor-icons/react": "^2.1.10",
         "@plot/common": "workspace:*",
         "@plot/projection": "workspace:*",
-        "@plot/registry": "workspace:*",
         "@plot/session": "workspace:*",
+        "@plot/session-manager": "workspace:*",
         "@tailwindcss/vite": "^4.3.1",
         "@vitejs/plugin-react": "latest",
         "class-variance-authority": "^0.7.1",
@@ -555,11 +555,11 @@
 
     "@plot/projection": ["@plot/projection@workspace:packages/projection"],
 
-    "@plot/registry": ["@plot/registry@workspace:packages/registry"],
-
     "@plot/sdk": ["@plot/sdk@workspace:packages/sdk"],
 
     "@plot/session": ["@plot/session@workspace:packages/session"],
+
+    "@plot/session-manager": ["@plot/session-manager@workspace:packages/session-manager"],
 
     "@plot/tui": ["@plot/tui@workspace:packages/tui"],
 

@@ -22,7 +22,7 @@ import {
 	$cancelSourceAction,
 } from "../../app/actions-store.js";
 import { $selectedProjection } from "../../app/projection-store.js";
-import { $selectedRun } from "../../app/runs-store.js";
+import { $selectedSession } from "../../app/sessions-store.js";
 import { $nowMs } from "../../app/time-store.js";
 import {
 	formatCountdown,
@@ -453,7 +453,7 @@ export function StoreSessionWorkProvider({
 }: {
 	readonly children: ReactNode;
 }) {
-	const run = useStore($selectedRun);
+	const session = useStore($selectedSession);
 	const projection = useStore($selectedProjection);
 	const nowMs = useStore($nowMs);
 	const actState = useStore($actOnWork);
@@ -461,7 +461,7 @@ export function StoreSessionWorkProvider({
 	const sourceCancelState = useStore($cancelSourceAction);
 	const detailView = useStore($detailView);
 	const openDetailRef = useStore($openDetail);
-	if (run === undefined) return null;
+	if (session === undefined) return null;
 	const attention = projection === undefined ? [] : buildAttention(projection);
 	const acting = actState.loading ?? false;
 	const workValue: SessionWorkContextValue = {

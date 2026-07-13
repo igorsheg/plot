@@ -5,11 +5,12 @@ version: 2.0.0
 plot:
   queueCapacity: 32
   eventCapacity: 512
-  eventBufferCapacity: 1024
   tickIntervalMs: 5000
   maxRunDurationMs: 600000
   stallTimeoutMs: 120000
 agent:
+  provider: openai-codex
+  model: gpt-5.5
   thinking: minimal
   maxTurns: 8
   allowProjectConfig: true

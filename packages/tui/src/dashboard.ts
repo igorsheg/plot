@@ -9,7 +9,7 @@ import {
 } from "./dashboard-render.js";
 import { debugViewLines } from "./debug-view.js";
 import { detailBodyLines, detailViewLines } from "./detail-view.js";
-import { runsViewLines } from "./runs-view.js";
+import { processTableViewLines } from "./process-table-view.js";
 import type { DashboardProjection, DashboardStatus } from "@plot/projection";
 import { style } from "./style.js";
 
@@ -29,7 +29,7 @@ export interface DashboardActions {
 	readonly requestRender?: () => void;
 }
 
-type ViewMode = "runs" | "debug" | "config" | "detail";
+type ViewMode = "process-table" | "debug" | "config" | "detail";
 
 const statusGlyph = (status: DashboardStatus) => {
 	switch (status) {
@@ -65,7 +65,7 @@ const statusStyle = (status: DashboardStatus) => {
 
 export class PlotDashboard implements Component {
 	private projection: DashboardProjection;
-	private mode: ViewMode = "runs";
+	private mode: ViewMode = "process-table";
 	private selectedIndex = 0;
 	private scrollOffset = 0;
 	private showHelp = false;
@@ -117,11 +117,12 @@ export class PlotDashboard implements Component {
 		else if (key === "x") this.cancelSourceAction();
 		else if (key === "d") {
 			this.actions.toggleDebug();
-			this.changeMode(this.mode === "debug" ? "runs" : "debug");
+			this.changeMode(this.mode === "debug" ? "process-table" : "debug");
 		} else if (key === "c")
-			this.changeMode(this.mode === "config" ? "runs" : "config");
+			this.changeMode(this.mode === "config" ? "process-table" : "config");
 		else if (key === "enter" || key === "return") this.changeMode("detail");
-		else if (key === "escape" || key === "esc") this.changeMode("runs");
+		else if (key === "escape" || key === "esc")
+			this.changeMode("process-table");
 		else if (key === "j" || key === "down") this.moveDown();
 		else if (key === "k" || key === "up") this.moveUp();
 	}
@@ -159,18 +160,18 @@ export class PlotDashboard implements Component {
 								),
 								viewportRows,
 							})
-						: runsViewLines({
+						: processTableViewLines({
 								header,
 								model,
 								selectedIndex: this.selectedIndex,
 								width,
 								maxRows: Math.max(1, (this.actions.height?.() ?? 24) - 1),
-								...this.runsFooter(),
+								...this.processTableFooter(),
 							});
 		return ["", ...renderLines(lines, width, style.row.selected)];
 	}
 
-	private runsFooter(): {
+	private processTableFooter(): {
 		readonly footerText: string;
 		readonly footerStyle?: (value: string) => string;
 	} {
@@ -216,7 +217,8 @@ export class PlotDashboard implements Component {
 			if (url !== undefined) this.actions.openUrl?.(url);
 			return;
 		}
-		const url = this.mode === "runs" ? model.completed[0]?.url : undefined;
+		const url =
+			this.mode === "process-table" ? model.completed[0]?.url : undefined;
 		if (url !== undefined) this.actions.openUrl?.(url);
 	}
 
@@ -260,12 +262,12 @@ export class PlotDashboard implements Component {
 	}
 
 	private moveDown(): void {
-		if (this.mode === "runs") this.selectedIndex++;
+		if (this.mode === "process-table") this.selectedIndex++;
 		else this.scrollOffset++;
 	}
 
 	private moveUp(): void {
-		if (this.mode === "runs")
+		if (this.mode === "process-table")
 			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
 		else this.scrollOffset = Math.max(0, this.scrollOffset - 1);
 	}

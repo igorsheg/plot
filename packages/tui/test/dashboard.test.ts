@@ -94,6 +94,47 @@ describe("PlotDashboard", () => {
 		expect(rendered).toContain("Connect Wix MCP to discover Jira issues");
 	});
 
+	test("invokes an available Source setup action", () => {
+		const started: unknown[] = [];
+		const state = actions();
+		const projection: DashboardProjection = {
+			...emptyProjection("default", "workflow"),
+			sources: new Map([
+				[
+					"extension:jira",
+					{
+						sourceId: "extension:jira",
+						label: "Jira",
+						readiness: "action-required",
+						diagnostics: [],
+						requirements: [
+							{
+								id: "auth",
+								label: "Auth",
+								status: "action-required",
+								actions: [{ id: "connect", label: "Connect" }],
+							},
+						],
+					},
+				],
+			]),
+		};
+		const dashboard = new PlotDashboard(projection, {
+			...state.actions,
+			sourceAction: (input) => started.push(input),
+		});
+
+		dashboard.handleInput("s");
+
+		expect(started).toEqual([
+			{
+				sourceId: "extension:jira",
+				requirementId: "auth",
+				actionId: "connect",
+			},
+		]);
+	});
+
 	test("renders streaming status as one terminal row", () => {
 		const rendered = new PlotDashboard(
 			withWork({

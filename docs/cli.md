@@ -1,274 +1,105 @@
-# CLI Reference
+# CLI
 
 The npm package is `plot-ai`; its binary is `plot`.
 
-```bash
-npx plot-ai --help
-# installed form:
-plot --help
-```
-
-`plot` coordinates three boundaries:
-
-- human commands and dashboards;
-- shared run-registry IPC for process lifecycle;
-- the versioned Session JSONL protocol for runtime control and events.
-
-## Command map
+## Complete command map
 
 ```txt
-plot [workflow options]                  open terminal dashboard (same as plot open)
-plot open [workflow] [--web]            start a managed run and dashboard
-plot run [workflow]                     run current work without a dashboard
-plot runs [list|show|logs|stop|clean]   inspect shared managed runs
-plot events [stream|wait]               consume gapless RuntimeEvent records
-plot api [schema|ping|snapshot]         inspect/call Session protocol
-plot auth [status|login|logout]         provider credentials
-plot models [search]                    provider/model catalog
-plot config [list|get|set]              project/global defaults
-plot init [workflow]                    create one-shot starter Workflow
-plot setup [workflow]                   resolve extension setup requirements
-plot doctor [workflow]                  validate Workflow and auth readiness
-plot docs [topic] [--paths]             print bundled documentation
-plot serve api [workflow]               HTTP gateway or stdio Session protocol
-plot serve registry                     run shared registry daemon
+plot [workflow]          start or attach, then open the terminal dashboard
+plot start [workflow]    start without attaching
+plot stop [workflow]     stop the Workflow's Active Plot Session
+plot web                 open the Fleet Web Console
+plot check [workflow]    validate Workflow and readiness
+plot docs [topic]        print bundled documentation
+plot auth                show provider authentication status
+plot auth login [name]   authenticate a provider
+plot auth logout [name]  remove provider authentication
+plot models [query]      list available models
 ```
 
-`plot`, `plot runs`, `plot auth`, and `plot config` default to `open`, `runs list`, `auth status`, and `config list` respectively.
+The Workflow defaults to `WORKFLOW.md` in the current directory.
 
-## Start commands
+## Session lifecycle
+
+### `plot [workflow]`
+
+Plot canonicalizes the Workflow file path and starts or gets its Active Plot Session. Equivalent paths to the same file attach to the same Session.
+
+The terminal dashboard reconstructs its projection from durable Session History and follows live events. Exiting with `q`, Ctrl-C, or terminal loss only detaches.
+
+### `plot start [workflow]`
+
+Start without opening a dashboard. The operation is idempotent:
+
+```txt
+Started review-acme
+Already running review-acme
+```
+
+### `plot stop [workflow]`
+
+Stop by Workflow, not by an internal process or Session identifier. Stopping an inactive Workflow succeeds with an informational message.
+
+### `plot web`
+
+Open the local Fleet Web Console. It is not scoped to one Workflow and does not silently create one. Development and supervised deployments may set `--host` and `--port`.
+
+## Validation
 
 ```bash
-plot
-plot open [workflow]
-plot open [workflow] --web [--open]
-plot run [workflow]
+plot check WORKFLOW.md
 ```
 
-- Terminal `open` starts a managed child Session through the shared run registry and renders live events. Exiting the TUI stops that run.
-- Web `open` starts the HTTP gateway/browser UI. The UI can create and watch managed runs. Without `--open`, the terminal landing screen accepts `o` to open and `q` to stop the gateway.
-- `run` starts an in-process Session, waits for current work to settle according to Source reconciliation, prints the final assistant message for human output, and exits.
+`check`:
 
-The Workflow defaults to `WORKFLOW.md` under `--cwd`.
+- parses the Workflow;
+- requires and loads its Extension;
+- parses Extension configuration;
+- constructs the Extension runtime;
+- checks Source requirements;
+- validates Workflow provider/model selection and auth.
 
-## Workflow and Session options
+It never discovers work, invokes an Operator Action, opens a browser, or starts a Session.
 
-These options are accepted by the root command, `open`, `run`, and stdio `serve api` where applicable:
+An action-required Source is reported as `NEEDS YOU` but remains a valid Workflow. Start the Workflow and resolve its Operator Action in the TUI or Web Console.
 
-| Option                 | Meaning                                                                                                                     |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `[workflow]`           | Positional Workflow path.                                                                                                   |
-| `--workflow <path>`    | Explicit Workflow path; overrides the positional value.                                                                     |
-| `--session-id <id>`    | 1–128 letters, digits, dots, underscores, or hyphens, beginning with a letter or digit. Existing Session logs are rejected. |
-| `--cwd <path>`         | Project root for Workflow execution and Plot state.                                                                         |
-| `--plot-dir <path>`    | Project state directory. Default: `<cwd>/.plot`.                                                                            |
-| `--agent-dir <path>`   | Agent auth/model directory. Default: `~/.plot/agent`.                                                                       |
-| `--session-dir <path>` | Session JSONL directory. Default: `<plot-dir>/sessions`.                                                                    |
-| `--log-level <level>`  | `debug`, `info`, `warn`, or `error`. Default: `warn`.                                                                       |
-
-Runtime overrides:
-
-- `--request-queue-capacity <count>`
-- `--event-capacity <count>`
-- `--event-buffer-capacity <count>`
-- `--tick-interval-ms <ms>`
-- `--max-run-duration-ms <ms>`
-
-Agent overrides:
-
-- `--provider <id>`
-- `--model <id>` or `--model <provider>/<model>`
-- `--api-key <key>`
-- `--thinking <off|minimal|low|medium|high|xhigh>`
-- `--tools <comma-separated allowlist>`
-- `--exclude-tools <comma-separated list>`
-- `--no-tools`
-- `--no-builtin-tools`
-- `--allow-project-config`
-
-Resource overrides:
-
-- repeatable `--skill <path>`
-- repeatable `--prompt-template <path>`
-- `--no-skills`
-- `--no-prompt-templates`
-- `--no-context-files`
-- `--system-prompt <text>`
-- repeatable `--append-system-prompt <text>`
-
-## Run registry
-
-```bash
-plot runs [--json]
-plot runs list [--json]
-plot runs show <run-id> [--json]
-plot runs logs <run-id> [--after <sequence>]
-plot runs stop <run-id> [--json]
-plot runs clean [--json]
-```
-
-A run id may be complete or any unique prefix from `plot runs list`.
-
-- `list`: catalog all managed runs.
-- `show`: one catalog record.
-- `logs`: when a Session file is known, replay durable records after the sequence and then follow the live tail as JSONL; otherwise follow the live tail only.
-- `stop`: stop a managed child.
-- `clean`: remove stopped/errored catalog records from the registry. It does not delete Session JSONL or Agent Transcript files.
-
-Registry options are `--cwd <path>` and `--registry-dir <path>`. `--json` prints raw registry IPC responses instead of human tables/messages.
-
-## Events
-
-```bash
-plot events stream <run-id> [--after <sequence>]
-plot events wait <run-id> --type <event-type> [filters]
-```
-
-When the run catalog has a Session file, both commands use a gapless stream: subscribe to the child tail, replay durable Session events after the requested sequence, suppress durable/live duplicates, then continue live. Before a Session file is known, registry streaming falls back to the live child tail; unlike the web event endpoint, the CLI does not reject that live-only case.
-
-`stream` writes Session protocol records as JSONL.
-
-`wait` scans replay and then live records, writes the first match as pretty JSON, and exits. Required `--type` is one of:
-
-- Session lifecycle: `session_started`, `session_shutdown`
-- Control cycle: `tick_started`, `tick_completed`
-- Work projection: `work_observed`, `work_removed`, `wake_scheduled`
-- Attempt lifecycle: `attempt_started`, `attempt_completed`
-- Relayed Agent Session record: `agent_event`
-
-Every RuntimeEvent has `sessionId`, monotonic `sequence`, and ISO `timestamp`. Session records have `kind: "session_event"` and an `event` from the list above. Relayed records have `kind: "agent_event"`, `sourceId`, Agent Run `runId`, `workKey`, and opaque provider/agent `event` data.
-
-Work statuses in `work_observed` are `pending`, `waiting`, `running`, `blocked`, or `draining`. Attempt completion statuses are `succeeded`, `failed`, `interrupted`, or `timed_out`.
-
-`wait` filters:
-
-- `--after <non-negative sequence>`; default `0`
-- `--timeout-ms <ms>`; default no timeout
-- `--work-key <key>`
-- `--run-id <Agent Run id>`
-- `--source-id <Source id>`
-- `--status <work or completion status>`
-- `--tick-id <tick id>`
-
-The positional `<run-id>` selects the managed Plot run. `--run-id` filters the Agent Run inside events; they are different ids.
-
-## Public Session protocol
-
-```bash
-plot api schema
-plot api ping <run-id>
-plot api snapshot <run-id>
-plot serve api WORKFLOW.md --stdio
-```
-
-`api schema` prints the exact bundled schema. `api ping` and `api snapshot` call live managed runs. For arbitrary methods, own a stdio process and exchange newline-delimited JSON.
-
-Current protocol: `plot.session.v6`, schema version `1`, transport `jsonl`.
-
-Request envelope:
-
-```json
-{
-	"protocol": "plot.session.v6",
-	"kind": "request",
-	"id": "client-unique-id",
-	"method": "session.tick",
-	"params": {}
-}
-```
-
-Output records are `welcome`, `event`, and `response`. Successful responses include `ok: true`, method-specific `data`, and usually a `lastSequence` durability fence. Errors include `ok: false` and `error.code`, `error.message`, and optional `error.details`.
-
-Methods:
-
-| Method                    | Params                                                                      | Result/purpose                                                      |
-| ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `ping`                    | none                                                                        | `{ pong: true }`                                                    |
-| `session.start`           | none                                                                        | Start Session event publication.                                    |
-| `session.shutdown`        | none                                                                        | Request host/runtime shutdown.                                      |
-| `session.snapshot`        | none                                                                        | JSON-safe live runtime state. Not a durable dashboard checkpoint.   |
-| `session.tick`            | none                                                                        | Run one `discover -> reconcile -> act` cycle and return its result. |
-| `session.dispatch.pause`  | none                                                                        | Pause new dispatch while preserving state.                          |
-| `session.dispatch.resume` | none                                                                        | Resume dispatch.                                                    |
-| `scheduler.snapshot`      | none                                                                        | Current Sources/work/runs/wakes/diagnostics snapshot.               |
-| `source.list`             | none                                                                        | Current Source readiness records.                                   |
-| `source.get`              | `{ "sourceId": "..." }`                                                     | One current Source record, if present.                              |
-| `source.action`           | `{ sourceId, requirementId, actionId }`                                     | Start a Source setup action.                                        |
-| `source.action.cancel`    | `{ actionRunId }`                                                           | Cancel an in-flight Source setup action.                            |
-| `work.list`               | none                                                                        | Current scheduler Work Records.                                     |
-| `work.get`                | `{ "workKey": "..." }`                                                      | One current Work Record, if present.                                |
-| `attempt.list`            | none                                                                        | Current running Agent Runs.                                         |
-| `agent.interrupt`         | `{ "runId": "...", "workKey"?: "..." }`                                     | Interrupt a matching Agent Run.                                     |
-| `operator.observe`        | `{ sourceId, workKey, actionId, actionLabel, comment?, clientId?, actor? }` | Record controller input for Source reconciliation.                  |
-
-Boundary error codes are `parse_error`, `invalid_request`, `payload_too_large`, `request_queue_full`, `session_closed`, and `internal_error`.
-
-## Auth, models, and settings
+## Auth and models
 
 ```bash
 plot auth
-plot auth status
-plot auth login [provider]
-plot auth logout [provider]
-plot models [search]
+plot auth login
+plot auth logout anthropic
+plot models
+plot models claude
 ```
 
-Auth/model path options: `--cwd`, `--plot-dir`, `--agent-dir`.
-
-```bash
-plot config
-plot config list [--global]
-plot config get defaultProvider [--global]
-plot config set defaultProvider openai-codex [--global]
-```
-
-Supported keys are `defaultProvider`, `defaultModel`, and `defaultThinkingLevel`. Project settings live in `.plot/settings.json`; `--global` uses `~/.plot/settings.json` with default paths.
-
-## Setup and validation
-
-```bash
-plot init [workflow] [--cwd <path>] [--force]
-plot setup [workflow] [--no-browser] [--json]
-plot doctor [workflow] [--cwd <path>] [--plot-dir <path>] [--agent-dir <path>]
-```
-
-`init` writes a one-shot Workflow and refuses to overwrite unless `--force` is present. `setup` loads the extension, runs local readiness checks, and invokes its declared setup actions; `--no-browser` prints authorization URLs without opening them. `doctor` parses the Workflow, runs side-effect-free extension readiness checks, and checks that at least one model provider is authenticated. Neither command calls `discover()`.
-
-## Servers
-
-```bash
-plot serve api [workflow] --stdio
-plot serve api [workflow] [--http] [--host 127.0.0.1] [--port 0] [--open]
-plot serve registry [--cwd <path>] [--registry-dir <path>]
-```
-
-- `--stdio`: one Workflow Session over JSONL stdin/stdout. Protocol output owns stdout; diagnostics go to stderr.
-- HTTP is the default when `--stdio` is absent. It serves the browser assets, run API, and SSE.
-- `serve registry` runs the shared local process/catalog daemon.
+Provider credentials are global agent state. Provider, model, thinking, tools, resources, and scheduling policy are Workflow configuration.
 
 ## Bundled docs
 
-The package ships its documentation, the SDK type declarations, and complete example extensions. `plot docs` prints them; `plot docs --paths` prints where they live on disk so file-reading agents can open them directly.
-
 ```bash
-plot docs                         # index
+plot docs
 plot docs quickstart
-plot docs guide                   # agent brief for building an extension
+plot docs guide
 plot docs workflows
 plot docs extensions
-plot docs sdk                     # TypeScript declarations for plot-ai/sdk
+plot docs sdk
 plot docs tui
 plot docs web
 plot docs cli
-plot docs --paths                 # on-disk locations of docs, examples, sdk
+plot docs --paths
 ```
 
-`plot docs extension-prompt` remains as an alias for `plot docs guide`.
+`plot docs sdk` prints the supported `plot-ai/sdk` declarations.
+
+## Intentionally absent
+
+Plot does not expose commands for process registries, raw event streams, Session protocol methods, daemons, arbitrary settings, or caller-chosen Session IDs. Worker IPC, RuntimeEvents, and browser routes are private implementation details used by Plot's own dashboards.
 
 Help routing:
 
 ```bash
 plot --help
-plot help <command> [subcommand]
-plot <command> [subcommand] --help
+plot help <command>
+plot <command> --help
 ```

@@ -171,7 +171,6 @@ export interface SchedulerSnapshotState {
 export interface SessionRuntime {
 	readonly id: string;
 	readonly start: () => Promise<void>;
-	readonly runOnce: () => Promise<TickSummary>;
 	readonly tickOnce: () => Promise<TickSummary>;
 	readonly state: () => Promise<SessionRuntimeState>;
 	readonly schedulerSnapshot: () => Promise<SchedulerSnapshotState>;
@@ -240,15 +239,11 @@ export const makeSessionRuntime = (
 	let sequence = 0;
 	let publishChain: Promise<unknown> = Promise.resolve();
 	let lifecycle: "open" | "closing" | "closed" = "open";
-	let execution: "idle" | "continuous" | "once" = "idle";
 	let sessionStarted: Promise<void> | undefined;
-	let agentStarted: Promise<void> | undefined;
-	let runOncePromise: Promise<TickSummary> | undefined;
 	let shutdownPromise: Promise<boolean> | undefined;
 	let publishedTick = 0;
 	let agentEventFailure: unknown;
 	const tickWaiters = new Map<number, Deferred[]>();
-	const completionWaiters = new Map<string, Deferred[]>();
 	const sourceActions = new Map<
 		string,
 		{
@@ -263,13 +258,9 @@ export const makeSessionRuntime = (
 			throw new Error(`cannot ${operation}: session runtime is closed`);
 	};
 	const rejectWaiters = (error: unknown): void => {
-		for (const waiters of [
-			...tickWaiters.values(),
-			...completionWaiters.values(),
-		])
+		for (const waiters of tickWaiters.values())
 			for (const waiter of waiters) waiter.reject(error);
 		tickWaiters.clear();
-		completionWaiters.clear();
 	};
 
 	const publish = (record: UnsequencedRuntimeEvent): Promise<RuntimeEvent> => {
@@ -305,12 +296,6 @@ export const makeSessionRuntime = (
 			for (const waiter of waiters) waiter.resolve();
 			tickWaiters.delete(target);
 		}
-		for (const completion of event.result.completions) {
-			const waiters = completionWaiters.get(completion.runId);
-			if (waiters === undefined) continue;
-			for (const waiter of waiters) waiter.resolve();
-			completionWaiters.delete(completion.runId);
-		}
 	};
 
 	const agentEvents = (async () => {
@@ -337,17 +322,11 @@ export const makeSessionRuntime = (
 		});
 	const waitForPublishedTick = (tickId: number): Promise<void> =>
 		publishedTick >= tickId ? Promise.resolve() : wait(tickWaiters, tickId);
-	const waitForReconciledCompletion = (runId: string): Promise<void> =>
-		wait(completionWaiters, runId);
 	const startSession = (): Promise<void> => {
 		sessionStarted ??= publishSessionEvent({ type: "session_started" }).then(
 			() => undefined,
 		);
 		return sessionStarted;
-	};
-	const startAgent = (): Promise<void> => {
-		agentStarted ??= agent.start();
-		return agentStarted;
 	};
 	const tickAgent = async (): Promise<TickResult> => {
 		const result = await agent.tickOnce();
@@ -359,32 +338,8 @@ export const makeSessionRuntime = (
 		id: options.id,
 		start: async () => {
 			assertOpen("start");
-			if (execution === "once")
-				throw new Error("cannot start a one-shot session runtime");
-			execution = "continuous";
 			await startSession();
-			await startAgent();
-		},
-		runOnce: () => {
-			assertOpen("run once");
-			if (runOncePromise !== undefined) return runOncePromise;
-			if (execution !== "idle" || publishedTick !== 0)
-				throw new Error("runOnce requires a fresh session runtime");
-			execution = "once";
-			runOncePromise = (async () => {
-				await startSession();
-				const result = await tickAgent();
-				await agent.pauseDispatch();
-				const completions = result.started.map((run) =>
-					waitForReconciledCompletion(run.runId),
-				);
-				if (completions.length > 0) {
-					await startAgent();
-					await Promise.all(completions);
-				}
-				return toTickSummary(result);
-			})();
-			return runOncePromise;
+			await agent.start();
 		},
 		tickOnce: async () => {
 			assertOpen("tick");

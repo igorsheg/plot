@@ -1,65 +1,38 @@
-# Terminal Dashboard
+# Terminal dashboard
 
 ```bash
-plot open WORKFLOW.md
-# `plot` alone is the same terminal entrypoint
+plot WORKFLOW.md
 ```
 
-The TUI starts one managed child Session through the shared run registry and renders events observed during that process lifetime. It is a live control room, not a durable attach/resume client. Exiting the TUI stops the run it started.
+The terminal dashboard is an attached operator view of one durable Plot Session.
 
-## What it shows
+## Lifecycle
 
-The default Process Table projects generic Plot concepts:
+- If the Workflow has no Active Plot Session, Plot starts one.
+- Otherwise Plot attaches to the existing Session.
+- Durable Session History reconstructs the current projection before live continuation.
+- `q` and Ctrl-C detach; they do not stop the Session.
+- `plot stop WORKFLOW.md` is the explicit shutdown path.
 
-- Work Items and Source-owned state: pending, running, waiting, blocked, draining, completed;
-- current or latest Agent Run;
-- live agent prose/tool activity;
-- retries, scheduled wakes, diagnostics, and recent history;
-- token usage and throughput when reported by the Agent Session.
+This ownership rule allows a Workflow to continue discovering and handling Work Items while no dashboard is connected.
 
-Raw RuntimeEvents remain available in debug mode and through `plot events`/`plot runs logs`.
+## Views
 
-## Keys
+The Process Table shows Source readiness, Work Items, current or latest Agent Runs, scheduled wakes, and diagnostics. Detail views expose Agent Transcript activity and Source-declared Operator Actions.
 
-| Key          | Action                                                |
-| ------------ | ----------------------------------------------------- |
-| `j` / Down   | Select next Work Item or scroll the current view.     |
-| `k` / Up     | Select previous Work Item or scroll the current view. |
-| Enter        | Open selected Work Item detail.                       |
-| Escape       | Return to runs or close help.                         |
-| `o`          | Open the selected Work Item HTTP(S) URL.              |
-| `t`          | Request an immediate `session.tick`.                  |
-| `g`          | Refresh rendering.                                    |
-| `d`          | Toggle RuntimeEvent debug view.                       |
-| `c`          | Toggle Session configuration view.                    |
-| `?`          | Toggle key help.                                      |
-| `q` / Ctrl-C | Stop the run and exit.                                |
+Source requirements that need human work appear as `Needs You`. Their actions run inside the Session, stream progress, and may open authorization URLs.
 
-## Display contract
+## Controls
 
-Extensions may provide generic `display` hints:
+The dashboard displays its current key map in the footer. Core controls include:
 
-```ts
-import type { WorkDisplay } from "plot-ai/sdk";
+- `q` — detach
+- `t` — request a reconciliation tick
+- `d` — toggle debug projection details
+- `c` — toggle runtime configuration
+- arrow keys or `j`/`k` — move selection
+- `Enter` — inspect selected work
+- `s` — invoke an available Source setup action
+- `Esc` — return to the Process Table
 
-const display: WorkDisplay = {
-	kind: "pull-request",
-	primary: "#42",
-	title: "Fix checkout totals",
-	subtitle: "acme/web · main...feature",
-	url: "https://github.com/acme/web/pull/42",
-	version: "abc1234",
-	labels: ["fresh"],
-};
-```
-
-These fields have no scheduling semantics. Extensions cannot provide components, row renderers, keybindings, custom panels, or terminal drawing code. Domain meaning belongs in titles, labels, URLs, tool output, and agent prose; the TUI remains generic over Plot Work Items, Agent Runs, Sources, and RuntimeEvents.
-
-## Live versus durable views
-
-The TUI subscribes after spawning its run and intentionally does not rebuild old state from the Session JSONL file. The web gateway owns durable baseline replay plus gapless SSE continuation. To inspect durable history from a terminal, use:
-
-```bash
-plot runs logs <run-id> --after 0
-plot events stream <run-id> --after 0
-```
+The TUI consumes Plot concepts and direct RuntimeEvents through the internal Session Manager. It does not own child process lifecycle or expose transport records.

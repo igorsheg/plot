@@ -2,7 +2,7 @@ import {
 	parseSerializedDashboardProjection,
 	type SerializedDashboardProjection,
 } from "@plot/projection";
-import type { RunRecord } from "@plot/registry/record";
+import type { SessionSummary } from "@plot/session-manager/session";
 import type {
 	OperatorObservationInput,
 	SourceActionInput,
@@ -10,7 +10,7 @@ import type {
 } from "@plot/session/runtime";
 import type { TranscriptEntry } from "@plot/session/transcript";
 import { asRecord, asString } from "./parse.js";
-import { parsePlotRuns } from "./run.js";
+import { parsePlotSessions } from "./session.js";
 
 const httpError = (response: Response): Error =>
 	new Error(`HTTP ${response.status}`);
@@ -24,33 +24,39 @@ const fetchOk = async (url: string, init?: RequestInit): Promise<Response> => {
 const fetchJson = async (url: string, init?: RequestInit): Promise<unknown> =>
 	(await fetchOk(url, init)).json();
 
-export const fetchRuns = async (): Promise<readonly RunRecord[]> =>
-	parsePlotRuns(await fetchJson("/api/runs"));
+export const fetchSessions = async (): Promise<readonly SessionSummary[]> =>
+	parsePlotSessions(await fetchJson("/api/sessions"));
 
 export const recordObservation = async (
-	runId: string,
+	sessionId: string,
 	input: Omit<OperatorObservationInput, "actor">,
 ): Promise<boolean> => {
 	const data = asRecord(
-		await fetchJson(`/api/runs/${encodeURIComponent(runId)}/observations`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(input),
-		}),
+		await fetchJson(
+			`/api/sessions/${encodeURIComponent(sessionId)}/observations`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(input),
+			},
+		),
 	);
 	return data?.["accepted"] === true;
 };
 
 export const startSourceAction = async (
-	runId: string,
+	sessionId: string,
 	input: SourceActionInput,
 ): Promise<SourceActionStartResult> => {
 	const data = asRecord(
-		await fetchJson(`/api/runs/${encodeURIComponent(runId)}/source-actions`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(input),
-		}),
+		await fetchJson(
+			`/api/sessions/${encodeURIComponent(sessionId)}/source-actions`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(input),
+			},
+		),
 	);
 	const result: { accepted: boolean; actionRunId?: string } = {
 		accepted: data?.["accepted"] === true,
@@ -61,23 +67,25 @@ export const startSourceAction = async (
 };
 
 export const cancelSourceAction = async (
-	runId: string,
+	sessionId: string,
 	actionRunId: string,
 ): Promise<boolean> => {
 	const data = asRecord(
 		await fetchJson(
-			`/api/runs/${encodeURIComponent(runId)}/source-actions/${encodeURIComponent(actionRunId)}`,
+			`/api/sessions/${encodeURIComponent(sessionId)}/source-actions/${encodeURIComponent(actionRunId)}`,
 			{ method: "DELETE" },
 		),
 	);
 	return data?.["accepted"] === true;
 };
 
-export const stopRun = async (id: string): Promise<void> => {
-	await fetchOk(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const stopSession = async (id: string): Promise<void> => {
+	await fetchOk(`/api/sessions/${encodeURIComponent(id)}`, {
+		method: "DELETE",
+	});
 };
 
-export const fetchRunProjectionUrl = async (
+export const fetchSessionProjectionUrl = async (
 	url: string,
 ): Promise<SerializedDashboardProjection> => {
 	const projection = parseSerializedDashboardProjection(await fetchJson(url));
@@ -140,11 +148,11 @@ export const parseTranscript = (value: unknown): TranscriptResult => {
  * it means no transcript was recorded, surfaced as an empty flagged result.
  */
 export const fetchAttemptTranscript = async (
-	runId: string,
+	sessionId: string,
 	attemptRunId: string,
 ): Promise<TranscriptResult> => {
 	const response = await fetch(
-		`/api/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(
+		`/api/sessions/${encodeURIComponent(sessionId)}/attempts/${encodeURIComponent(
 			attemptRunId,
 		)}/transcript`,
 	);

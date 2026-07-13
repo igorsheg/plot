@@ -1,16 +1,16 @@
 import { computed } from "nanostores";
 import { $projectionBaselineQuery } from "./projection-store.js";
-import { $runsQuery } from "./runs-store.js";
+import { $sessionsQuery } from "./sessions-store.js";
 import { actionError } from "./actions-store.js";
 
 const errorText = (caught: unknown): string =>
 	caught instanceof Error ? caught.message : String(caught);
 
 export const $plotError = computed(
-	[$runsQuery, $projectionBaselineQuery, actionError],
-	(runs, projection, action): string | undefined =>
-		runs.error !== undefined
-			? errorText(runs.error)
+	[$sessionsQuery, $projectionBaselineQuery, actionError],
+	(sessions, projection, action): string | undefined =>
+		sessions.error !== undefined
+			? errorText(sessions.error)
 			: projection.error !== undefined
 				? errorText(projection.error)
 				: action,

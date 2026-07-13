@@ -1,6 +1,6 @@
 # Agent guide: build a Plot extension
 
-You are a coding agent asked to automate work with Plot. Your deliverable is a **Workflow Bundle**: a `WORKFLOW.md` and, when work comes from an external system, a TypeScript extension next to it. Plot then runs the loop for you — it discovers work, dispatches an agent per Work Item, retries failures, drains superseded work, and gives the human a dashboard.
+You are a coding agent asked to automate work with Plot. Your deliverable is a **Workflow Bundle**: a `WORKFLOW.md` and its referenced TypeScript Extension. Plot then runs the loop for you — it discovers work, dispatches an agent per Work Item, retries failures, drains superseded work, and gives the human durable dashboards.
 
 ```txt
 world -> your extension observes -> Work Items -> Plot schedules -> Agent Runs
@@ -40,7 +40,7 @@ Read these fully, in order. `plot docs --paths` prints where they live on disk s
 
 Ship this set:
 
-- `WORKFLOW.md` — front matter (at minimum `extension.source`; add `plot.tickIntervalMs`, `extension.maxConcurrentRuns`, and agent settings deliberately) plus a prompt that teaches judgment.
+- `WORKFLOW.md` — front matter with `extension.source`, `agent.provider`, and `agent.model`; add scheduling, concurrency, and resource policy deliberately; include a prompt that teaches judgment.
 - `<name>.extension.ts` — the extension module, default export.
 - Tests for the pure logic you extracted.
 - A short README: prerequisites (auth, tokens), how to run, what the operator will see.
@@ -48,13 +48,12 @@ Ship this set:
 Then verify — actually run these, do not just hand them over:
 
 ```bash
-plot setup WORKFLOW.md    # resolves declared extension setup requirements
-plot doctor WORKFLOW.md   # checks extension readiness and provider auth
-plot open WORKFLOW.md     # live dashboard; q to stop
-plot run WORKFLOW.md      # headless one-shot of current work
+plot check WORKFLOW.md    # side-effect-free readiness validation
+plot WORKFLOW.md          # start or attach the terminal dashboard
+plot stop WORKFLOW.md     # explicit shutdown after verification
 ```
 
-`setup` loads the extension, runs local readiness checks, and invokes its declared setup actions; `--no-browser` prints authorization URLs without opening them. `doctor` parses the Workflow, runs side-effect-free extension readiness checks, and checks that at least one model provider is authenticated. Neither command calls `discover()`.
+`check` parses the Workflow, loads the Extension, checks Source requirements, and validates the configured provider/model and auth. It never calls `discover()` or invokes requirement actions. Action-required Sources are resolved from the TUI or Web Console after the Session starts.
 
 Also confirm discovery works: run the Workflow and check that the expected Work Items appear, that completing one makes it disappear on the next tick, and that an unreachable backend makes discovery throw rather than report an empty board.
 

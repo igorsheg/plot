@@ -1,9 +1,8 @@
 import { createInterface } from "node:readline/promises";
 import { defineCommand, type ParsedArgs } from "citty";
-import { authPathArgs } from "../args.js";
 import { getCliIo } from "../cli-context.js";
 import { openBrowser, runHumanCommand, writeProcessStderr } from "../io.js";
-import { makeAuthFromArgs, str } from "../options.js";
+import { makeAuth, str } from "../options.js";
 import { renderAuthStatus } from "../render.js";
 
 interface SelectPrompt {
@@ -112,7 +111,7 @@ const selectLogoutProvider = async (
 };
 
 const runLogout = (args: ParsedArgs) => {
-	const auth = makeAuthFromArgs(args);
+	const auth = makeAuth();
 	return runHumanCommand(
 		getCliIo(),
 		(async () => {
@@ -128,7 +127,7 @@ const runLogout = (args: ParsedArgs) => {
 };
 
 const runLogin = (args: ParsedArgs) => {
-	const auth = makeAuthFromArgs(args);
+	const auth = makeAuth();
 	return runHumanCommand(
 		getCliIo(),
 		(async () => {
@@ -168,12 +167,12 @@ const runLogin = (args: ParsedArgs) => {
 	);
 };
 
-const runStatus = (args: ParsedArgs) =>
+const runStatus = () =>
 	runHumanCommand(
 		getCliIo(),
-		makeAuthFromArgs(args).status(),
+		makeAuth().status(),
 		renderAuthStatus,
-		"Run `plot auth login` or pass valid --cwd/--plot-dir/--agent-dir paths.",
+		"Run `plot auth login`.",
 	);
 
 export const authCommand = defineCommand({
@@ -187,18 +186,14 @@ export const authCommand = defineCommand({
 				name: "status",
 				description: "Show provider authentication status.",
 			},
-			args: authPathArgs,
-			run: ({ args }) => runStatus(args),
+			run: () => runStatus(),
 		}),
 		login: defineCommand({
 			meta: {
 				name: "login",
 				description: "Start an interactive provider login.",
 			},
-			args: {
-				...optionalProviderArg,
-				...authPathArgs,
-			},
+			args: optionalProviderArg,
 			run: ({ args }) => runLogin(args),
 		}),
 		logout: defineCommand({
@@ -206,10 +201,7 @@ export const authCommand = defineCommand({
 				name: "logout",
 				description: "Remove stored authentication for a provider.",
 			},
-			args: {
-				...optionalProviderArg,
-				...authPathArgs,
-			},
+			args: optionalProviderArg,
 			run: ({ args }) => runLogout(args),
 		}),
 	},

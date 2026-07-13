@@ -1,91 +1,37 @@
 import { spawn } from "node:child_process";
-import { basename } from "node:path";
 import { errorMessage } from "@plot/common/primitives";
-import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
-import type { CreateSessionHostOptions } from "@plot/session/host";
-import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
-import {
-	sessionProtocolVersion,
-	type ClientRequest,
-	type ServerRecord,
-	type SessionProtocolMethod,
-} from "@plot/session/protocol";
-import { PlotDashboard } from "./dashboard.js";
+import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionSummary } from "@plot/session-manager/session";
 import {
 	emptyProjection,
-	reduceRecord,
+	reduceProjectableEvent,
 	type DashboardProjection,
 } from "@plot/projection";
+import { basename } from "node:path";
+import { PlotDashboard } from "./dashboard.js";
+import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 
-export interface PlotTuiOptions extends CreateSessionHostOptions {
-	readonly mode?: "watch" | "oneshot";
-	readonly cli?: RunIpcOptions["cli"];
+export interface PlotTuiOptions {
+	readonly manager: SessionManagerRuntime;
+	readonly session: SessionSummary;
+	readonly terminal?: ProcessTerminal;
 }
 
-const withTimeout = async <A>(
-	work: Promise<A>,
-	ms: number,
-): Promise<A | undefined> => {
-	let timeout: ReturnType<typeof setTimeout> | undefined;
-	try {
-		return await Promise.race([
-			work,
-			new Promise<undefined>((resolve) => {
-				timeout = setTimeout(() => resolve(undefined), ms);
-				timeout.unref?.();
-			}),
-		]);
-	} finally {
-		if (timeout !== undefined) clearTimeout(timeout);
-	}
-};
-
-const initialProjection = (input: {
-	readonly id: string;
-	readonly sessionId?: string;
-	readonly cwd: string;
-	readonly cwdName?: string;
-	readonly workflowName?: string;
-	readonly workflowPath?: string;
-}): DashboardProjection =>
-	emptyProjection(
-		input.sessionId ?? input.id,
-		input.workflowName ??
-			(input.workflowPath === undefined
-				? "workflow"
-				: basename(input.workflowPath)),
-		{
-			cwd: input.cwd,
-			cwdName: input.cwdName ?? basename(input.cwd),
-			skills: [],
-			skillPaths: [],
-		},
-	);
+const initialProjection = (session: SessionSummary): DashboardProjection =>
+	emptyProjection(session.id, session.workflowName, {
+		cwd: session.projectPath,
+		cwdName: basename(session.projectPath),
+		skills: [],
+		skillPaths: [],
+	});
 
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
-	const runIpc = await openOrStartRunIpc({
-		cwd: options.cwd,
-		cli: options.cli,
-	} as RunIpcOptions);
-	const run = await runIpc.runRegistry.spawn({
-		cwd: options.cwd,
-		sessionId: options.sessionId,
-		workflowPath: options.workflowPath,
-	} as Parameters<typeof runIpc.runRegistry.spawn>[0]);
-	let projection = initialProjection({
-		id: run.id,
-		sessionId: run.sessionId,
-		cwd: run.cwd,
-		cwdName: run.cwdName,
-		workflowName: run.workflowName,
-		workflowPath: run.workflowPath ?? options.workflowPath,
-	} as Parameters<typeof initialProjection>[0]);
-	let requestIndex = 0;
-	let resolveStopped!: () => void;
-	const stopped = new Promise<void>((resolve) => {
-		resolveStopped = resolve;
+	let projection = initialProjection(options.session);
+	let resolveDetached!: () => void;
+	const detached = new Promise<void>((resolve) => {
+		resolveDetached = resolve;
 	});
-	const terminal = new ProcessTerminal();
+	const terminal = options.terminal ?? new ProcessTerminal();
 	const tui = new TUI(terminal);
 	const render = () => {
 		dashboard.setProjection(projection);
@@ -105,19 +51,6 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			diagnostics: [errorMessage(error), ...projection.diagnostics].slice(0, 5),
 		});
 	};
-	const request = async (
-		method: SessionProtocolMethod,
-		params?: unknown,
-	): Promise<ServerRecord> => {
-		const id = `tui-${++requestIndex}`;
-		return runIpc.runRegistry.submit(run.id, {
-			protocol: sessionProtocolVersion,
-			kind: "request",
-			id,
-			method,
-			params,
-		} as ClientRequest);
-	};
 	const refresh = () => render();
 	const openUrl = (url: string) => {
 		if (!/^https?:\/\//.test(url)) return;
@@ -133,26 +66,29 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			fail(error);
 		}
 	};
-	let stopping = false;
-	const stopTui = () => {
-		if (stopping) return;
-		stopping = true;
-		setStatus("shutting_down");
-		resolveStopped();
+	let detaching = false;
+	const detach = () => {
+		if (detaching) return;
+		detaching = true;
+		resolveDetached();
 		tui.stop();
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
-			void request("session.tick").catch(fail);
+			void options.manager.tick(options.session.id).catch(fail);
 		},
 		refresh,
 		toggleDebug: render,
-		quit: stopTui,
+		quit: detach,
 		sourceAction: (input) => {
-			void request("source.action", input).catch(fail);
+			void options.manager
+				.startSourceAction(options.session.id, input)
+				.catch(fail);
 		},
 		cancelSourceAction: (actionRunId) => {
-			void request("source.action.cancel", { actionRunId }).catch(fail);
+			void options.manager
+				.cancelSourceAction(options.session.id, actionRunId)
+				.catch(fail);
 		},
 		openUrl,
 		height: () => terminal.rows,
@@ -167,38 +103,47 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		}
 		return undefined;
 	});
-	// TUI is intentionally live-only: durable replay/resume is owned by the web gateway continuation contract.
-	void (async () => {
-		for await (const record of runIpc.runRegistry.attachRecords(
-			run.id,
-			run.lastSequence ?? 0,
-		)) {
-			if (record.kind === "event") {
-				const event = record.event;
-				if (
-					event.kind === "session_event" &&
-					event.event.type === "source_interaction_open_url"
-				)
-					openUrl(event.event.url);
-				projection = reduceRecord(projection, record);
-				render();
-			}
+	const eventController = new AbortController();
+	const sessionEvents = options.manager.events(
+		options.session.id,
+		0,
+		eventController.signal,
+	);
+	const eventIterator = sessionEvents[Symbol.asyncIterator]();
+	let eventsStopped = false;
+	const eventPump = (async () => {
+		for (;;) {
+			// eslint-disable-next-line no-await-in-loop -- Session events are ordered.
+			const next = await eventIterator.next();
+			if (next.done) return;
+			const event = next.value;
+			if (
+				event.kind === "session_event" &&
+				event.event.type === "source_interaction_open_url"
+			)
+				openUrl(event.event.url);
+			projection = reduceProjectableEvent(projection, event);
+			render();
 		}
-	})().catch(fail);
-	process.once("SIGINT", stopTui);
-	process.once("SIGTERM", stopTui);
+	})().catch((error) => {
+		if (!eventsStopped) fail(error);
+	});
+	process.once("SIGINT", detach);
+	process.once("SIGTERM", detach);
 	try {
 		dashboard.startLiveUpdates();
 		tui.start();
 		setStatus("running");
 		render();
-		await stopped;
+		await detached;
 	} finally {
-		process.off("SIGINT", stopTui);
-		process.off("SIGTERM", stopTui);
+		process.off("SIGINT", detach);
+		process.off("SIGTERM", detach);
+		eventsStopped = true;
+		eventController.abort();
+		await eventIterator.return?.();
+		await eventPump;
 		dashboard.stopLiveUpdates();
 		tui.stop();
-		await withTimeout(runIpc.runRegistry.stop(run.id), 5_000);
-		await withTimeout(runIpc.close(), 5_000);
 	}
 };

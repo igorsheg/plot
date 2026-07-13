@@ -113,7 +113,7 @@ const clampWorkViewport = (
 	];
 };
 
-export const runsViewLines = (input: {
+export const processTableViewLines = (input: {
 	readonly header: readonly DashboardLine[];
 	readonly model: DashboardModel;
 	readonly selectedIndex: number;
@@ -188,7 +188,7 @@ export const runsViewLines = (input: {
 	const completionBlock =
 		model.work.length === 0 && lastRun !== undefined
 			? [
-					section("Last run"),
+					section("Latest Agent Run"),
 					blank(),
 					completionRowLine(lastRun, input.width),
 					blank(),
