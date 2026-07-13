@@ -9,4 +9,4 @@
 │   no active work                                                                                                      
 │   ↻ wake in 26s · poll                                                                                                
 │                                                                                                                       
-╰─ ? help · q quit                                                                                                      
+╰─ ? help · d detach · q stop

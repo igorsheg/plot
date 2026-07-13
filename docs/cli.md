@@ -25,7 +25,7 @@ The Workflow defaults to `WORKFLOW.md` in the current directory.
 
 Plot canonicalizes the Workflow file path and starts or gets its Active Plot Session. Equivalent paths to the same file attach to the same Session.
 
-The terminal dashboard reconstructs its projection from durable Session History and follows live events. Exiting with `q`, Ctrl-C, or terminal loss only detaches.
+The terminal dashboard reconstructs its projection from durable Session History and follows live events. `q` or Ctrl-C asks for confirmation before stopping. `d` explicitly detaches; terminal loss cannot be treated as a confirmed stop, so the durable Session remains active.
 
 ### `plot start [workflow]`
 

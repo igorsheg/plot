@@ -4,12 +4,16 @@ import { emptyProjection, type DashboardProjection } from "@plot/projection";
 
 const actions = () => {
 	const opened: string[] = [];
-	let quit = 0;
+	let stops = 0;
+	let detaches = 0;
 	let renders = 0;
 	return {
 		opened,
-		get quitCount() {
-			return quit;
+		get stopCount() {
+			return stops;
+		},
+		get detachCount() {
+			return detaches;
 		},
 		get renderCount() {
 			return renders;
@@ -18,8 +22,11 @@ const actions = () => {
 			tick: () => {},
 			refresh: () => {},
 			toggleDebug: () => {},
-			quit: () => {
-				quit++;
+			stop: () => {
+				stops++;
+			},
+			detach: () => {
+				detaches++;
 			},
 			openUrl: (url: string) => opened.push(url),
 			height: () => 24,
@@ -193,13 +200,33 @@ describe("PlotDashboard", () => {
 		).toContain("hello world again");
 	});
 
-	test("q exits and o opens selected work url", () => {
+	test("q confirms before stopping while d explicitly detaches", () => {
 		const a = actions();
 		const dashboard = new PlotDashboard(withWork(), a.actions);
 		dashboard.handleInput("o");
 		dashboard.handleInput("q");
+
 		expect(a.opened).toEqual(["https://example.com"]);
-		expect(a.quitCount).toBe(1);
+		expect(a.stopCount).toBe(0);
+		expect(dashboard.render(100).join("\n")).toContain("Stop workflow?");
+
+		dashboard.handleInput("q");
+		expect(a.stopCount).toBe(1);
+
+		const detached = actions();
+		new PlotDashboard(withWork(), detached.actions).handleInput("d");
+		expect(detached.detachCount).toBe(1);
+	});
+
+	test("escape cancels stop confirmation", () => {
+		const a = actions();
+		const dashboard = new PlotDashboard(withWork(), a.actions);
+		dashboard.handleInput("q");
+		dashboard.handleInput("\u001b");
+		dashboard.handleInput("q");
+
+		expect(a.stopCount).toBe(0);
+		expect(dashboard.render(100).join("\n")).toContain("Stop workflow?");
 	});
 
 	test("live render clock only runs while active", async () => {

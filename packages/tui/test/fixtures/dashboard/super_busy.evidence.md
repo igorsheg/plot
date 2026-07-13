@@ -15,5 +15,5 @@
 │
 ├─ Activity
 │   nothing yet
-╰─ ↑↓ select   enter details   o open   t tick   c config   d debug   q quit
+╰─ ↑↓ select   enter details   o open   t tick   c config   b debug   d detach   q stop
 ```

@@ -114,9 +114,10 @@ Advanced implementation tuning is not part of root help. Runtime capacities and 
 2. Ask the Session Manager to start-or-get its Session.
 3. Attach the terminal dashboard.
 4. Replay enough durable Session History to construct the current projection, then follow live events without a gap.
-5. On `q`, Ctrl-C, terminal loss, or UI failure, detach only.
+5. On `q` or Ctrl-C, request explicit stop confirmation; confirm stops the Session.
+6. On `d`, terminal loss, or UI failure, detach only. An explicit detach warns that token use may continue and prints the exact stop command.
 
-The command must never stop a Session merely because the TUI exits.
+The command must never stop a Session without confirmed operator intent.
 
 If readiness requires an Operator Action, open the dashboard with the Source in `Needs You`; do not instruct users to run a separate setup command. If the Workflow cannot load at all, or no usable model/auth configuration exists, fail before reserving the Workflow key and print one actionable diagnostic.
 
@@ -519,12 +520,12 @@ Exit condition: runtime code outside the Agent Run domain does not use bare `run
 ### Slice 3: change dashboard ownership
 
 1. Make root `plot [workflow]` start-or-get and attach.
-2. Make TUI exit detach without stopping.
+2. Make TUI stop the safe confirmed default while retaining an explicit detach action.
 3. Add `plot start` and `plot stop` by Workflow.
 4. Move durable replay plus live continuation behind the Session Manager.
 5. Remove protocol envelopes from TUI projection input.
 
-Exit condition: a Session survives TUI exit and the next root invocation reconstructs and attaches to it.
+Exit condition: an explicitly detached Session survives TUI exit and the next root invocation reconstructs and attaches to it.
 
 ### Slice 4: separate Fleet Web Console
 
@@ -577,7 +578,7 @@ Required tests:
 2. Two concurrent starts for one Workflow produce one active Session.
 3. Two Workflows using the same Extension can run concurrently with separate configuration.
 4. Editing a running Workflow does not hot-reload its Session; restarting loads the new definition.
-5. TUI exit leaves the Session online.
+5. Explicit TUI detach leaves the Session online; confirmed TUI stop terminates it.
 6. Reattaching reconstructs projection from history and follows live events without loss or duplication.
 7. `plot start` is idempotent.
 8. `plot stop` is idempotent and releases the Workflow key.
@@ -640,7 +641,7 @@ The final smoke test must prove:
 ```bash
 plot check workflows/acme.md
 plot start workflows/acme.md
-plot workflows/acme.md       # attach, then detach
+plot workflows/acme.md       # attach, then explicitly detach with d
 plot workflows/acme.md       # reconstruct and reattach
 plot web                     # Session is visible
 plot stop workflows/acme.md
@@ -655,6 +656,6 @@ This refactor is done when a new user only needs to understand:
 1. an Extension implements reusable integration behavior;
 2. a Workflow configures that Extension and teaches agent judgment;
 3. Plot keeps one active Session for that Workflow;
-4. `plot` attaches, `plot start` detaches, `plot stop` stops, and `plot web` shows the fleet.
+4. `plot` attaches with safe stop and explicit detach controls, `plot start` starts in the background, `plot stop` stops, and `plot web` shows the fleet.
 
 Users do not need to understand run registries, protocol records, event sequence cursors, daemon commands, one-shot scheduler modes, process IDs, or raw Session IDs. Those concepts either disappear or remain local to the implementation that owns them.

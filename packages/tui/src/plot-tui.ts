@@ -25,11 +25,17 @@ const initialProjection = (session: SessionSummary): DashboardProjection =>
 		skillPaths: [],
 	});
 
+const shellArgument = (value: string): string =>
+	process.platform === "win32"
+		? JSON.stringify(value)
+		: `'${value.replaceAll("'", `'\\''`)}'`;
+
 export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	let projection = initialProjection(options.session);
-	let resolveDetached!: () => void;
-	const detached = new Promise<void>((resolve) => {
-		resolveDetached = resolve;
+	let exitReason: "detached" | "stopped" | undefined;
+	let resolveExit!: () => void;
+	const exited = new Promise<void>((resolve) => {
+		resolveExit = resolve;
 	});
 	const terminal = options.terminal ?? new ProcessTerminal();
 	const tui = new TUI(terminal);
@@ -66,12 +72,33 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 			fail(error);
 		}
 	};
-	let detaching = false;
-	const detach = () => {
-		if (detaching) return;
-		detaching = true;
-		resolveDetached();
+	const finish = (reason: "detached" | "stopped") => {
+		if (exitReason !== undefined) return;
+		exitReason = reason;
+		resolveExit();
 		tui.stop();
+	};
+	let stopping = false;
+	const detach = () => {
+		if (stopping) return;
+		finish("detached");
+	};
+	let stopPromise: Promise<void> | undefined;
+	const stop = () => {
+		if (stopping || exitReason !== undefined) return;
+		stopping = true;
+		setStatus("shutting_down");
+		stopPromise = options.manager
+			.stopSession(options.session.id)
+			.then((session) => {
+				if (session === undefined) throw new Error("Session not found");
+				finish("stopped");
+				return undefined;
+			})
+			.catch((error: unknown) => {
+				stopping = false;
+				fail(error);
+			});
 	};
 	const dashboard = new PlotDashboard(projection, {
 		tick: () => {
@@ -79,7 +106,8 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		},
 		refresh,
 		toggleDebug: render,
-		quit: detach,
+		stop,
+		detach,
 		sourceAction: (input) => {
 			void options.manager
 				.startSourceAction(options.session.id, input)
@@ -128,16 +156,17 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 	})().catch((error) => {
 		if (!eventsStopped) fail(error);
 	});
-	process.once("SIGINT", detach);
+	const confirmStop = () => dashboard.handleInput("\u0003");
+	process.on("SIGINT", confirmStop);
 	process.once("SIGTERM", detach);
 	try {
 		dashboard.startLiveUpdates();
 		tui.start();
 		setStatus("running");
 		render();
-		await detached;
+		await exited;
 	} finally {
-		process.off("SIGINT", detach);
+		process.off("SIGINT", confirmStop);
 		process.off("SIGTERM", detach);
 		eventsStopped = true;
 		eventController.abort();
@@ -145,5 +174,12 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 		await eventPump;
 		dashboard.stopLiveUpdates();
 		tui.stop();
+		await stopPromise;
+		if (exitReason === "detached")
+			terminal.write(
+				`Detached; ${options.session.workflowName} is still running and may continue using tokens.\nStop it with: plot stop ${shellArgument(options.session.workflowPath)}\n`,
+			);
+		else if (exitReason === "stopped")
+			terminal.write(`Stopped ${options.session.workflowName}.\n`);
 	}
 };

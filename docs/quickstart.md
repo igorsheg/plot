@@ -79,9 +79,9 @@ plot WORKFLOW.md
 
 The first command validates the Workflow, loads the Extension, checks Source requirements, and validates model/auth readiness without discovery. The second starts or attaches to the Workflow's durable Session.
 
-## Detach and reattach
+## Stop, or explicitly detach
 
-Press `q` in the terminal dashboard. The Session continues in the background.
+Press `q` or Ctrl-C and confirm to stop the Session. Press `d` when you deliberately want it to continue in the background; Plot prints the exact stop command before returning to the shell.
 
 ```bash
 plot WORKFLOW.md         # reconstruct and reattach

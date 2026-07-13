@@ -11,4 +11,4 @@
 │   ● #43 Item 43                                                                                          5s · 4.0k tok
 │     Posting review                                                                                                    
 │                                                                                                                       
-╰─ ? help · q quit                                                                                                      
+╰─ ? help · d detach · q stop

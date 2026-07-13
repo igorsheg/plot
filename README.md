@@ -27,7 +27,7 @@ plot check WORKFLOW.md
 plot WORKFLOW.md
 ```
 
-`plot WORKFLOW.md` starts or attaches to its Session and opens the terminal dashboard. Leaving the dashboard detaches; the Session keeps running.
+`plot WORKFLOW.md` starts or attaches to its Session and opens the terminal dashboard. `q` or Ctrl-C confirms before stopping; `d` explicitly detaches and leaves the Session running.
 
 ```bash
 plot start WORKFLOW.md    # start without attaching
