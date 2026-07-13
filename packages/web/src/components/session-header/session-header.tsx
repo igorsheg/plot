@@ -1,17 +1,20 @@
 /**
  * Session header — identity above, a live ledger below. Row one is the title
- * and the Stop action; row two is the run's kicker (a config popover trigger)
+ * and the Stop action; row two is the Session's kicker (a config popover trigger)
  * on the left and the cumulative token/cost ledger with the live throughput
  * spark on the right. The root selects an explicit variant by status; every
  * variant consumes only `useSessionHeader()`.
  */
 
 import { useStore } from "@nanostores/react";
-import type { RunStatus } from "@plot/registry/record";
+import type { SessionState } from "@plot/session-manager/session";
 import type { ReactNode } from "react";
-import { $stopSelectedRun, stopSelectedRun } from "../../app/actions-store.js";
+import {
+	$stopSelectedSession,
+	stopSelectedSession,
+} from "../../app/actions-store.js";
 import { $selectedProjection } from "../../app/projection-store.js";
-import { $selectedRun, displayName } from "../../app/runs-store.js";
+import { $selectedSession, displayName } from "../../app/sessions-store.js";
 import { $nowMs } from "../../app/time-store.js";
 import { formatRelative } from "../../lib/relative-time.js";
 import { Badge } from "../ui/badge.js";
@@ -33,7 +36,7 @@ import { ThroughputSparkline } from "./throughput-sparkline.js";
 type HeaderVariant = "live" | "starting" | "errored" | "stopped";
 
 /** Pure variant selection: online/stopping share the live band. */
-export function headerVariant(status: RunStatus): HeaderVariant {
+export function headerVariant(status: SessionState): HeaderVariant {
 	switch (status) {
 		case "starting":
 			return "starting";
@@ -73,7 +76,6 @@ const loopParts = (config: SessionConfig): string => {
 		parts.push(`${config.maxConcurrentRuns} concurrent`);
 	if (config.maxRunDurationMs !== undefined)
 		parts.push(`${fmtDuration(config.maxRunDurationMs)} max`);
-	if (config.pid !== undefined) parts.push(`pid ${config.pid}`);
 	return parts.join(" · ");
 };
 
@@ -212,7 +214,7 @@ function FinalTally() {
 
 // --- status chip ----------------------------------------------------------
 
-const STATUS_WORD: Partial<Record<RunStatus, string>> = {
+const STATUS_WORD: Partial<Record<SessionState, string>> = {
 	starting: "starting…",
 	stopping: "stopping…",
 	stopped: "stopped",
@@ -228,7 +230,7 @@ function Sep() {
 }
 
 /**
- * The run's status, inline after the kicker. Errored discloses its stderr in a
+ * The Session's status, inline after the kicker. Errored discloses its stderr in a
  * popover — the same disclosure model as the config popover beside it.
  */
 function StatusChip({ state }: { readonly state: SessionHeaderState }) {
@@ -353,23 +355,26 @@ export function StoreSessionHeaderProvider({
 }: {
 	readonly children: ReactNode;
 }) {
-	const run = useStore($selectedRun);
+	const session = useStore($selectedSession);
 	const projection = useStore($selectedProjection);
 	const nowMs = useStore($nowMs);
 	const throughput = tokenThroughput(projection, nowMs);
-	const stopState = useStore($stopSelectedRun);
-	if (run === undefined) return null;
+	const stopState = useStore($stopSelectedSession);
+	if (session === undefined) return null;
 	const value: SessionHeaderContextValue = {
 		state: {
-			place: run.cwdName ?? projection?.runtime.cwdName ?? "session",
-			title: projection?.workflowName ?? displayName(run),
-			status: run.status,
-			startedAtMs: parseTimeMs(run.createdAt),
-			lastEventAtMs: parseTimeMs(run.lastSeenAt),
+			place:
+				projection?.runtime.cwdName ??
+				session.projectPath.split("/").at(-1) ??
+				"session",
+			title: projection?.workflowName ?? displayName(session),
+			status: session.state,
+			startedAtMs: parseTimeMs(session.createdAt),
+			lastEventAtMs: parseTimeMs(session.updatedAt),
 			nowMs,
 			throughputGraph: throughput.graph,
 			throughputRate: throughput.rate,
-			stderrTail: run.stderrTail,
+			stderrTail: session.diagnostic,
 			usage: {
 				tokens: projection?.usageTotals.tokens ?? 0,
 				cost: projection?.usageTotals.cost,
@@ -377,18 +382,17 @@ export function StoreSessionHeaderProvider({
 			config: {
 				model: projection?.runtime.model,
 				provider: projection?.runtime.provider,
-				workflow: projection?.workflowName ?? displayName(run),
-				workflowPath: projection?.runtime.workflowPath ?? run.workflowPath,
-				cwd: projection?.runtime.cwd ?? run.cwd,
+				workflow: projection?.workflowName ?? displayName(session),
+				workflowPath: projection?.runtime.workflowPath ?? session.workflowPath,
+				cwd: projection?.runtime.cwd ?? session.projectPath,
 				skills: projection?.runtime.skills ?? [],
 				tickIntervalMs: projection?.runtime.tickIntervalMs,
 				maxConcurrentRuns: projection?.runtime.maxConcurrentRuns,
 				maxRunDurationMs: projection?.runtime.maxRunDurationMs,
-				pid: run.pid,
 			},
 		},
 		actions: {
-			stop: () => void stopSelectedRun(),
+			stop: () => void stopSelectedSession(),
 			stopping: stopState.loading ?? false,
 		},
 	};

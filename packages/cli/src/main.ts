@@ -1,17 +1,53 @@
 #!/usr/bin/env bun
-import { runCommand as runCittyCommand } from "citty";
 import { runPlotCli } from "./cli.js";
-import { serveApiCommand } from "./commands/serve-api.js";
+import { serveSessionWorker } from "@plot/session/worker";
+import { runSessionManagerDaemon } from "@plot/session-manager/ipc";
+import { resolvePlotCommand } from "./plot-command.js";
 
 const args = process.argv.slice(2);
-const run =
-	args[0] === "__internal-api-stdio"
-		? runCittyCommand(serveApiCommand, {
-				rawArgs: ["--stdio", ...args.slice(1)],
-				showUsage: false,
-			})
-		: runPlotCli(args);
 
+const valueAfter = (name: string): string | undefined => {
+	const index = args.indexOf(name);
+	return index === -1 ? undefined : args[index + 1];
+};
+
+const runInternal = (): Promise<void> | undefined => {
+	if (args[0] === "__internal-session-worker") {
+		const cwd = valueAfter("--cwd");
+		const sessionId = valueAfter("--session-id");
+		const workflowPath = valueAfter("--workflow");
+		if (
+			cwd === undefined ||
+			sessionId === undefined ||
+			workflowPath === undefined
+		)
+			throw new Error("invalid Session worker invocation");
+		return serveSessionWorker({
+			cwd,
+			sessionId,
+			workflowPath,
+			stdin: process.stdin,
+			writeLine: (line) =>
+				new Promise<void>((resolve, reject) => {
+					process.stdout.write(line, (error) => {
+						if (error) reject(error);
+						else resolve();
+					});
+				}),
+		});
+	}
+	if (args[0] === "__internal-session-manager") {
+		const managerDir = valueAfter("--manager-dir");
+		return runSessionManagerDaemon(
+			managerDir === undefined
+				? { cli: resolvePlotCommand() }
+				: { cli: resolvePlotCommand(), managerDir },
+		);
+	}
+	return undefined;
+};
+
+const run = runInternal() ?? runPlotCli(args);
 run.catch((error) => {
 	if (error === null || error === undefined) return;
 	process.stderr.write(

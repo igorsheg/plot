@@ -1,6 +1,4 @@
-import { isRecord } from "@plot/common/primitives";
 import type { AuthStatusInfo, ModelInfo } from "@plot/session/auth";
-import type { RuntimeEvent } from "@plot/session/runtime";
 
 const formatTokenCount = (count: number): string => {
 	const scaled =
@@ -63,50 +61,3 @@ export const renderAuthStatus = (statuses: readonly AuthStatusInfo[]) =>
 					s.label ?? "",
 				]),
 			])}\n`;
-
-const finalAssistantTextFromAgentEnd = (event: unknown): string | undefined => {
-	if (!isRecord(event) || !Array.isArray(event["messages"])) return undefined;
-	const assistant = event["messages"].findLast(
-		(m) => isRecord(m) && m["role"] === "assistant",
-	);
-	if (!isRecord(assistant)) return undefined;
-	const content = assistant["content"];
-	if (typeof content === "string") return content.trim() || undefined;
-	if (!Array.isArray(content)) return undefined;
-	const text = content
-		.flatMap((block) =>
-			isRecord(block) &&
-			block["type"] === "text" &&
-			typeof block["text"] === "string"
-				? [block["text"]]
-				: [],
-		)
-		.join("\n")
-		.trim();
-	return text.length ? text : undefined;
-};
-
-export const renderRunEvent = (record: RuntimeEvent): string | undefined => {
-	if (record.kind === "agent_event") {
-		const event = record.event;
-		if (!isRecord(event)) return undefined;
-		if (event["type"] === "agent_start") return "Inner agent started.\n";
-		if (event["type"] === "agent_end") {
-			const text = finalAssistantTextFromAgentEnd(event);
-			return text === undefined
-				? "Inner agent finished.\n"
-				: `\nFinal assistant message:\n${text}\n\nInner agent finished.\n`;
-		}
-		return undefined;
-	}
-	const event = record.event;
-	if (event.type === "session_started")
-		return `Started session ${record.sessionId}.\n`;
-	if (event.type === "session_shutdown")
-		return `Shutdown session ${record.sessionId}.\n`;
-	if (event.type === "attempt_started")
-		return `Started work ${event.run.workKey}.\n`;
-	if (event.type === "attempt_completed")
-		return `Completed work ${event.completion.workKey}: ${event.completion.status}.\n`;
-	return undefined;
-};

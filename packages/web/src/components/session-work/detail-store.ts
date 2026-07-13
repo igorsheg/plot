@@ -9,7 +9,7 @@
 
 import { atom, computed } from "nanostores";
 import { $selectedProjection } from "../../app/projection-store.js";
-import { $selectedRunId } from "../../app/runs-store.js";
+import { $selectedSessionId } from "../../app/sessions-store.js";
 import { $nowMs } from "../../app/time-store.js";
 import {
 	buildDetail,
@@ -53,4 +53,4 @@ export const stepDetail = (direction: 1 | -1): void => {
 // Switching sessions closes the drawer; transient unresolved projection state does
 // not. `$openDetail` is the durable UI intent, while `$detailView` is only the
 // currently resolvable content for that intent.
-$selectedRunId.listen(() => closeDetail());
+$selectedSessionId.listen(() => closeDetail());

@@ -5,12 +5,12 @@ import {
 	type ProjectableEvent,
 	type SerializedDashboardProjection,
 } from "@plot/projection";
-import type { RunRecord } from "@plot/registry/record";
+import type { SessionSummary } from "@plot/session-manager/session";
 
-export const projectionMatchesRun = (
+export const projectionMatchesSession = (
 	projection: SerializedDashboardProjection,
-	run: RunRecord,
-): boolean => projection.sessionId === (run.sessionId ?? run.id);
+	session: SessionSummary,
+): boolean => projection.sessionId === session.id;
 
 export const reduceSerializedProjection = (
 	projection: SerializedDashboardProjection,

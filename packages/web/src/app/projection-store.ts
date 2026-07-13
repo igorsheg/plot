@@ -2,16 +2,16 @@ import { atom, computed, onMount } from "nanostores";
 import type { SerializedDashboardProjection } from "@plot/projection";
 import { createFetcherStore } from "../data/query.js";
 import {
-	projectionMatchesRun,
+	projectionMatchesSession,
 	reduceSerializedProjection,
 } from "../data/projection-client.js";
-import { isRunLive } from "../data/run.js";
-import { runEventsUrl, runProjectionUrl } from "../data/routes.js";
+import { isActiveSession } from "../data/session.js";
+import { sessionEventsUrl, sessionProjectionUrl } from "../data/routes.js";
 import { projectionEvents } from "../data/sse.js";
-import { $selectedRun } from "./runs-store.js";
+import { $selectedSession } from "./sessions-store.js";
 
-const $selectedProjectionUrl = computed($selectedRun, (run) =>
-	run === undefined ? null : runProjectionUrl(run),
+const $selectedProjectionUrl = computed($selectedSession, (session) =>
+	session === undefined ? null : sessionProjectionUrl(session),
 );
 
 export const $projectionBaselineQuery =
@@ -38,16 +38,16 @@ onMount($selectedProjection, () => {
 		continuation = undefined;
 	};
 	const openContinuation = (
-		run: NonNullable<ReturnType<typeof $selectedRun.get>>,
+		session: NonNullable<ReturnType<typeof $selectedSession.get>>,
 		projection: SerializedDashboardProjection,
 	): void => {
 		closeContinuation();
-		if (!isRunLive(run)) return;
+		if (!isActiveSession(session)) return;
 		const controller = new AbortController();
 		continuation = controller;
 		void (async () => {
 			for await (const event of projectionEvents(
-				runEventsUrl(run, projection.frontier),
+				sessionEventsUrl(session, projection.frontier),
 				controller.signal,
 			)) {
 				if (
@@ -62,12 +62,12 @@ onMount($selectedProjection, () => {
 		})().catch(() => undefined);
 	};
 	const syncBaseline = (): void => {
-		const run = $selectedRun.get();
+		const session = $selectedSession.get();
 		const projection = $projectionBaselineQuery.get().data;
 		if (
-			run === undefined ||
+			session === undefined ||
 			projection === undefined ||
-			!projectionMatchesRun(projection, run)
+			!projectionMatchesSession(projection, session)
 		) {
 			closeContinuation();
 			$selectedProjection.set(undefined);
@@ -77,14 +77,14 @@ onMount($selectedProjection, () => {
 		if (!shouldAcceptProjectionBaseline({ current, baseline: projection }))
 			return;
 		$selectedProjection.set(projection);
-		openContinuation(run, projection);
+		openContinuation(session, projection);
 	};
 	const unsubscribeProjection = $projectionBaselineQuery.listen(syncBaseline);
-	const unsubscribeRun = $selectedRun.listen(syncBaseline);
+	const unsubscribeSession = $selectedSession.listen(syncBaseline);
 	syncBaseline();
 	return () => {
 		unsubscribeProjection();
-		unsubscribeRun();
+		unsubscribeSession();
 		closeContinuation();
 	};
 });

@@ -53,8 +53,7 @@ export const docsCommand = defineCommand({
 			await io.writeStdout(await readPlotDoc("index"));
 			return;
 		}
-		// Renamed topic; the old name stays routable.
-		const topic = requested === "extension-prompt" ? "guide" : requested;
+		const topic = requested;
 		if (topic === "sdk") {
 			await io.writeStdout(await readSdkReference());
 			return;

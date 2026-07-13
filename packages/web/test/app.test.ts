@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
-import type { RunRecord } from "@plot/registry/record";
+import type { SessionSummary } from "@plot/session-manager/session";
 import {
-	activeRuns,
-	pastRuns,
-	selectedRunFrom,
-} from "../src/app/runs-store.js";
+	activeSessions,
+	pastSessions,
+	selectedSessionFrom,
+} from "../src/app/sessions-store.js";
 import { shouldAcceptProjectionBaseline } from "../src/app/projection-store.js";
 import { reduceSerializedProjection } from "../src/data/projection-client.js";
-import { runEventsUrl, runProjectionUrl } from "../src/data/routes.js";
+import { sessionEventsUrl, sessionProjectionUrl } from "../src/data/routes.js";
 import { projectionEventFromSse } from "../src/data/sse.js";
 import {
 	eventSourceMessages,
@@ -18,15 +18,21 @@ import {
 	serializeDashboardProjection,
 } from "@plot/projection";
 
-const run = (
+const session = (
 	id: string,
-	status: RunRecord["status"],
-	extra: Partial<RunRecord> = {},
-): RunRecord => ({
+	state: SessionSummary["state"],
+	extra: Partial<SessionSummary> = {},
+): SessionSummary => ({
 	id,
-	status,
-	cwd: `/tmp/${id}`,
+	workflowKey: `/tmp/${id}/WORKFLOW.md`,
+	workflowName: id,
+	workflowPath: `/tmp/${id}/WORKFLOW.md`,
+	projectPath: `/tmp/${id}`,
+	state,
 	createdAt: "2026-01-01T00:00:00.000Z",
+	updatedAt: "2026-01-01T00:00:00.000Z",
+	historyPath: `/tmp/${id}/.plot/sessions/${id}.jsonl`,
+	lastSequence: 0,
 	...extra,
 });
 
@@ -56,44 +62,54 @@ class FakeEventSource implements EventSourceLike {
 
 test("session dock keeps only active runs", () => {
 	expect(
-		activeRuns([
-			run("one", "online"),
-			run("two", "stopped"),
-			run("three", "error"),
+		activeSessions([
+			session("one", "online"),
+			session("two", "stopped"),
+			session("three", "error"),
 		]).map((entry) => entry.id),
 	).toEqual(["one"]);
 });
 
 test("selected run falls back to the first active session", () => {
-	const runs = [run("one", "online"), run("two", "online")];
-	const active = activeRuns(runs);
-	expect(selectedRunFrom(runs, active, "two")?.id).toBe("two");
-	expect(selectedRunFrom(runs, active, "missing")?.id).toBe("one");
+	const runs = [session("one", "online"), session("two", "online")];
+	const active = activeSessions(runs);
+	expect(selectedSessionFrom(runs, active, "two")?.id).toBe("two");
+	expect(selectedSessionFrom(runs, active, "missing")?.id).toBe("one");
 });
 
 test("a stopped run stays selectable by id across all runs", () => {
-	const runs = [run("live", "online"), run("gone", "stopped")];
-	const active = activeRuns(runs);
-	expect(selectedRunFrom(runs, active, "gone")?.id).toBe("gone");
-	expect(selectedRunFrom(runs, active, undefined)?.id).toBe("live");
+	const runs = [session("live", "online"), session("gone", "stopped")];
+	const active = activeSessions(runs);
+	expect(selectedSessionFrom(runs, active, "gone")?.id).toBe("gone");
+	expect(selectedSessionFrom(runs, active, undefined)?.id).toBe("live");
 });
 
 test("past runs keep stopped sessions, most-recently-seen first", () => {
 	const runs = [
-		run("live", "online"),
-		run("old", "stopped", { lastSeenAt: "2026-01-01T00:00:00.000Z" }),
-		run("recent", "stopped", { lastSeenAt: "2026-01-02T00:00:00.000Z" }),
-		run("errored", "error"),
+		session("live", "online"),
+		session("old", "stopped", { updatedAt: "2026-01-01T00:00:00.000Z" }),
+		session("recent", "stopped", { updatedAt: "2026-01-02T00:00:00.000Z" }),
+		session("errored", "error", {
+			updatedAt: "2026-01-03T00:00:00.000Z",
+		}),
 	];
-	expect(pastRuns(runs).map((entry) => entry.id)).toEqual(["recent", "old"]);
+	expect(pastSessions(runs).map((entry) => entry.id)).toEqual([
+		"errored",
+		"recent",
+		"old",
+	]);
 });
 
 test("projection fetch key is stable and event stream resumes after a projection frontier", () => {
-	const selected = { ...run("one/two", "online"), lastSequence: 7 };
-	expect(runProjectionUrl(selected)).toBe("/api/runs/one%2Ftwo/projection");
-	expect(runEventsUrl(selected)).toBe("/api/runs/one%2Ftwo/events?after=7");
-	expect(runEventsUrl(selected, 11)).toBe(
-		"/api/runs/one%2Ftwo/events?after=11",
+	const selected = { ...session("one/two", "online"), lastSequence: 7 };
+	expect(sessionProjectionUrl(selected)).toBe(
+		"/api/sessions/one%2Ftwo/projection",
+	);
+	expect(sessionEventsUrl(selected)).toBe(
+		"/api/sessions/one%2Ftwo/events?after=7",
+	);
+	expect(sessionEventsUrl(selected, 11)).toBe(
+		"/api/sessions/one%2Ftwo/events?after=11",
 	);
 });
 

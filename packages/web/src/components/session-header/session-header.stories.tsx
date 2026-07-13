@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { RunStatus } from "@plot/registry/record";
+import type { SessionState } from "@plot/session-manager/session";
 import { SessionHeader } from "./session-header.js";
 import {
 	SessionHeaderProvider,
@@ -15,7 +15,7 @@ export default meta;
 
 const NOW = 1_720_000_000_000;
 
-const base = (status: RunStatus): SessionHeaderContextValue => ({
+const base = (status: SessionState): SessionHeaderContextValue => ({
 	state: {
 		place: "epic",
 		title: "pr-review",
@@ -37,7 +37,6 @@ const base = (status: RunStatus): SessionHeaderContextValue => ({
 			tickIntervalMs: 30_000,
 			maxConcurrentRuns: 8,
 			maxRunDurationMs: 3_600_000,
-			pid: 99113,
 		},
 	},
 	actions: { stop: () => {}, stopping: false },

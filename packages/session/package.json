@@ -32,10 +32,6 @@
 			"types": "./src/pi-session.ts",
 			"import": "./src/pi-session.ts"
 		},
-		"./protocol": {
-			"types": "./src/protocol.ts",
-			"import": "./src/protocol.ts"
-		},
 		"./readiness": {
 			"types": "./src/readiness.ts",
 			"import": "./src/readiness.ts"
@@ -44,10 +40,6 @@
 			"types": "./src/runtime.ts",
 			"import": "./src/runtime.ts"
 		},
-		"./serve": {
-			"types": "./src/serve.ts",
-			"import": "./src/serve.ts"
-		},
 		"./transcript": {
 			"types": "./src/transcript.ts",
 			"import": "./src/transcript.ts"
@@ -55,6 +47,10 @@
 		"./workflow": {
 			"types": "./src/workflow.ts",
 			"import": "./src/workflow.ts"
+		},
+		"./worker": {
+			"types": "./src/worker.ts",
+			"import": "./src/worker.ts"
 		}
 	},
 	"scripts": {

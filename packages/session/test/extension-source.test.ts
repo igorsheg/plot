@@ -33,7 +33,10 @@ const makeTempDir = async () => {
 
 const workflow: WorkflowDefinition = {
 	config: { name: "extension-test" },
-	runtime: {},
+	runtime: {
+		agent: { provider: "test", model: "fake" },
+		extension: { source: "./extension.ts" },
+	},
 	prompt: "Review {{ repo }} #{{ prNumber }} with {{ workflow.name }}.",
 };
 
@@ -979,7 +982,10 @@ export default definePlotExtension({
 			workflow: {
 				...workflow,
 				path: join(dir, "WORKFLOW.md"),
-				runtime: { extension: { source: "./extension.ts" } },
+				runtime: {
+					agent: { provider: "test", model: "fake" },
+					extension: { source: "./extension.ts" },
+				},
 			},
 		});
 

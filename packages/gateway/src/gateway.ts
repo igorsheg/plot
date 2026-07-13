@@ -1,13 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { openOrStartRunIpc, type RunIpcOptions } from "@plot/registry/ipc";
-import type { RunRecord } from "@plot/registry/record";
-import { gaplessRunEventRecords } from "@plot/registry/events";
+import type { SessionManagerIpcOptions } from "@plot/session-manager/ipc";
+import { openSessionManager } from "@plot/session-manager/ipc";
+import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionSummary } from "@plot/session-manager/session";
 import { isRecord } from "@plot/common/primitives";
-import {
-	sessionProtocolVersion,
-	type ServerRecord,
-} from "@plot/session/protocol";
 import {
 	emptyProjection,
 	reduceProjectableEvent,
@@ -15,29 +11,26 @@ import {
 	type DashboardProjection,
 } from "@plot/projection";
 import { readSessionEvents } from "@plot/session/history";
+import type {
+	OperatorObservationInput,
+	RuntimeEvent,
+	SourceActionInput,
+} from "@plot/session/runtime";
 import { readAgentTranscript } from "@plot/session/transcript";
 import { webAssets, type WebAsset } from "./web-assets.generated.js";
-
-export { gaplessRunEventRecords };
 
 const assets: Record<string, WebAsset> = webAssets;
 
 export interface PlotWebGatewayOptions {
-	readonly cwd: string;
-	readonly agentDir?: string | undefined;
-	readonly registryDir?: string | undefined;
-	readonly workflowPath?: string | undefined;
-	readonly host?: string | undefined;
-	readonly port?: number | undefined;
-	readonly open?: boolean | undefined;
+	readonly host?: string;
+	readonly port?: number;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
 	readonly openUrl?: (url: string) => Promise<void> | void;
-	readonly cli?: RunIpcOptions["cli"];
+	readonly cli?: SessionManagerIpcOptions["cli"];
+	readonly manager?: SessionManagerRuntime;
 }
 
-type RunIpcConnection = Awaited<ReturnType<typeof openOrStartRunIpc>>;
-
-const text = (body: unknown, init: ResponseInit = {}) =>
+const json = (body: unknown, init: ResponseInit = {}) =>
 	new Response(JSON.stringify(body), {
 		...init,
 		headers: { "content-type": "application/json; charset=utf-8" },
@@ -53,57 +46,8 @@ const assetResponse = (pathname: string): Response => {
 	});
 };
 
-const sseFrame = (event: unknown, id?: number): string =>
-	`${id === undefined ? "" : `id: ${id}\n`}event: plot\ndata: ${JSON.stringify(event)}\n\n`;
-
-const runCatalogEventsResponse = (input: {
-	readonly request: Request;
-	readonly listRuns: () => Promise<readonly RunRecord[]>;
-}): Response => {
-	const encoder = new TextEncoder();
-	let interval: ReturnType<typeof setInterval> | undefined;
-	let cancelled = false;
-	let previous = "";
-	let sequence = 0;
-	const cancel = () => {
-		cancelled = true;
-		if (interval !== undefined) clearInterval(interval);
-	};
-	input.request.signal.addEventListener("abort", cancel, { once: true });
-	return new Response(
-		new ReadableStream<Uint8Array>({
-			start(controller) {
-				const write = (chunk: string) => {
-					if (!cancelled) controller.enqueue(encoder.encode(chunk));
-				};
-				const emit = async () => {
-					try {
-						const runs = await input.listRuns();
-						const serialized = JSON.stringify(runs);
-						if (serialized === previous) return;
-						previous = serialized;
-						write(sseFrame({ kind: "runs", runs }, ++sequence));
-					} catch (error) {
-						write(
-							sseFrame({ kind: "error", error: String(error) }, ++sequence),
-						);
-					}
-				};
-				write(": connected\n\n");
-				void emit();
-				interval = setInterval(() => void emit(), 1_000);
-			},
-			cancel,
-		}),
-		{
-			headers: {
-				"content-type": "text/event-stream; charset=utf-8",
-				"cache-control": "no-cache, no-transform",
-				connection: "keep-alive",
-			},
-		},
-	);
-};
+const sseFrame = (event: unknown, id: number): string =>
+	`id: ${id}\nevent: plot\ndata: ${JSON.stringify(event)}\n\n`;
 
 const parseSequence = (value: string | null): number | undefined => {
 	if (value === null) return undefined;
@@ -111,160 +55,136 @@ const parseSequence = (value: string | null): number | undefined => {
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
-const nonEmptyString = (value: unknown): string | undefined =>
-	typeof value === "string" && value.trim().length > 0 ? value : undefined;
-
-const parseSourceActionBody = async (
-	request: Request,
-): Promise<Record<string, string> | undefined> => {
-	const value = await request.json().catch(() => undefined);
-	if (!isRecord(value)) return;
-	const body: Record<string, string> = {};
-	for (const key of ["sourceId", "requirementId", "actionId"] as const) {
-		const field = nonEmptyString(value[key]);
-		if (field === undefined) return;
-		body[key] = field;
-	}
-	return body;
-};
-
-const parseObservationBody = async (
-	request: Request,
-): Promise<Record<string, unknown> | undefined> => {
-	const value = await request.json().catch(() => undefined);
-	if (!isRecord(value)) return;
-	for (const key of ["sourceId", "workKey", "actionId", "actionLabel"] as const)
-		if (nonEmptyString(value[key]) === undefined) return;
-	for (const key of ["comment", "clientId"] as const)
-		if (value[key] !== undefined && typeof value[key] !== "string") return;
-	return value;
-};
-
-type CreateRunBody = {
-	readonly cwd?: string;
-	readonly workflowPath?: string;
-	readonly label?: string;
-};
-
-const parseCreateRunBody = async (
-	request: Request,
-): Promise<CreateRunBody | undefined> => {
-	if (!request.headers.get("content-type")?.includes("application/json"))
-		return {};
-	const value = await request.json().catch(() => undefined);
-	if (!isRecord(value)) return;
-	const body: { cwd?: string; workflowPath?: string; label?: string } = {};
-	for (const key of ["cwd", "workflowPath", "label"] as const) {
-		if (value[key] === undefined) continue;
-		const field = nonEmptyString(value[key]);
-		if (field === undefined) return;
-		body[key] = field;
-	}
-	return body;
-};
-
-const parseAfterSequence = (input: {
-	readonly header: string | null;
-	readonly query: string | null;
-}): number | undefined => {
-	const header = parseSequence(input.header);
-	const query = parseSequence(input.query);
-	if (input.header !== null && header === undefined) return undefined;
-	if (input.query !== null && query === undefined) return undefined;
+const parseAfter = (request: Request, url: URL): number | undefined => {
+	const headerValue = request.headers.get("last-event-id");
+	const queryValue = url.searchParams.get("after");
+	const header = parseSequence(headerValue);
+	const query = parseSequence(queryValue);
+	if (headerValue !== null && header === undefined) return undefined;
+	if (queryValue !== null && query === undefined) return undefined;
 	return Math.max(header ?? 0, query ?? 0);
 };
 
-const sessionEventsPageLimit = 20_000;
+const nonEmptyString = (value: unknown): string | undefined =>
+	typeof value === "string" && value.trim().length > 0 ? value : undefined;
 
-const emptyRunProjection = (run: RunRecord): DashboardProjection =>
-	emptyProjection(run.sessionId ?? run.id, run.workflowName ?? "workflow", {
-		cwd: run.cwd,
-		cwdName: run.cwdName ?? basename(run.cwd),
-		workflowPath: run.workflowPath ?? "WORKFLOW.md",
+const parseSourceAction = async (
+	request: Request,
+): Promise<SourceActionInput | undefined> => {
+	const value = await request.json().catch(() => undefined);
+	if (!isRecord(value)) return;
+	const sourceId = nonEmptyString(value["sourceId"]);
+	const requirementId = nonEmptyString(value["requirementId"]);
+	const actionId = nonEmptyString(value["actionId"]);
+	if (
+		sourceId === undefined ||
+		requirementId === undefined ||
+		actionId === undefined
+	)
+		return;
+	return { sourceId, requirementId, actionId };
+};
+
+const parseObservation = async (
+	request: Request,
+): Promise<OperatorObservationInput | undefined> => {
+	const value = await request.json().catch(() => undefined);
+	if (!isRecord(value)) return;
+	const sourceId = nonEmptyString(value["sourceId"]);
+	const workKey = nonEmptyString(value["workKey"]);
+	const actionId = nonEmptyString(value["actionId"]);
+	const actionLabel = nonEmptyString(value["actionLabel"]);
+	if (
+		sourceId === undefined ||
+		workKey === undefined ||
+		actionId === undefined ||
+		actionLabel === undefined
+	)
+		return;
+	const input: {
+		sourceId: string;
+		workKey: string;
+		actionId: string;
+		actionLabel: string;
+		actor: string;
+		comment?: string;
+		clientId?: string;
+	} = { sourceId, workKey, actionId, actionLabel, actor: "web" };
+	if (typeof value["comment"] === "string") input.comment = value["comment"];
+	if (typeof value["clientId"] === "string") input.clientId = value["clientId"];
+	return input;
+};
+
+const parseStart = async (
+	request: Request,
+): Promise<{ cwd: string; workflowPath?: string } | undefined> => {
+	const value = await request.json().catch(() => undefined);
+	if (!isRecord(value)) return;
+	const cwd = nonEmptyString(value["cwd"]);
+	if (cwd === undefined) return;
+	const workflowPath = nonEmptyString(value["workflowPath"]);
+	return workflowPath === undefined ? { cwd } : { cwd, workflowPath };
+};
+
+const emptySessionProjection = (session: SessionSummary): DashboardProjection =>
+	emptyProjection(session.id, session.workflowName, {
+		cwd: session.projectPath,
+		cwdName: basename(session.projectPath),
+		workflowPath: session.workflowPath,
 		skills: [],
 		skillPaths: [],
 	});
 
-/** Dashboard baseline: replay the session-owned durable event log. */
-const replaySessionProjection = async (
-	run: RunRecord,
-): Promise<DashboardProjection | undefined> => {
-	if (run.sessionFile === undefined) return undefined;
-	let projection: DashboardProjection | undefined;
-	for await (const event of readSessionEvents(run.sessionFile)) {
-		projection = reduceProjectableEvent(
-			projection ?? emptyRunProjection(run),
-			event,
-		);
-	}
+const replayProjection = async (
+	session: SessionSummary,
+): Promise<DashboardProjection> => {
+	let projection = emptySessionProjection(session);
+	for await (const event of readSessionEvents(session.historyPath))
+		projection = reduceProjectableEvent(projection, event);
 	return projection;
 };
 
-const runProjectionResponse = async (run: RunRecord): Promise<Response> => {
-	const projection = await replaySessionProjection(run);
-	if (projection === undefined)
-		return new Response("run has no session event log", { status: 409 });
-	return text({ projection: serializeDashboardProjection(projection) });
-};
-
-const runSessionEventsResponse = async (
-	run: RunRecord,
-	after: number,
+const withSession = async (
+	manager: SessionManagerRuntime,
+	id: string,
+	handle: (session: SessionSummary) => Promise<Response> | Response,
 ): Promise<Response> => {
-	if (run.sessionFile === undefined)
-		return new Response("run has no session event log", { status: 409 });
-	const records: unknown[] = [];
-	let truncated = false;
-	for await (const event of readSessionEvents(run.sessionFile)) {
-		const sequence = event.sequence;
-		if (sequence <= after) continue;
-		if (records.length === sessionEventsPageLimit) {
-			truncated = true;
-			break;
-		}
-		records.push({ kind: "event", sequence, event });
-	}
-	return text({ records, truncated });
+	const session = await manager.get(id);
+	return session === undefined
+		? new Response("Session not found", { status: 404 })
+		: handle(session);
 };
 
-/** The transcript path is derived server-side; clients never name files. */
-export const runTranscriptResponse = async (
-	run: RunRecord,
-	attemptRunId: string,
-): Promise<Response> => {
-	const projection = await replaySessionProjection(run);
-	if (projection === undefined)
-		return new Response("run has no session event log", { status: 409 });
-	const path = projection.attempts.get(attemptRunId)?.transcript?.path;
-	if (path === undefined)
-		return new Response("no transcript recorded", { status: 404 });
-	return text({ entries: await readAgentTranscript(path) });
-};
-
-const sessionEventsResponse = (input: {
+const eventsResponse = (input: {
 	readonly request: Request;
-	readonly records: AsyncIterable<ServerRecord>;
+	readonly events: (signal: AbortSignal) => AsyncIterable<RuntimeEvent>;
 }): Response => {
 	const encoder = new TextEncoder();
+	const eventController = new AbortController();
+	const iterator = input.events(eventController.signal)[Symbol.asyncIterator]();
 	let cancelled = false;
 	const cancel = () => {
 		cancelled = true;
+		eventController.abort();
+		void iterator.return?.();
 	};
 	input.request.signal.addEventListener("abort", cancel, { once: true });
 	return new Response(
 		new ReadableStream<Uint8Array>({
 			async start(controller) {
-				const write = (chunkText: string) => {
-					if (!cancelled) controller.enqueue(encoder.encode(chunkText));
+				const write = (text: string) => {
+					if (!cancelled) controller.enqueue(encoder.encode(text));
 				};
 				write(": connected\n\n");
 				try {
-					for await (const record of input.records) {
-						if (cancelled) break;
+					for (;;) {
+						// eslint-disable-next-line no-await-in-loop -- Session events are ordered.
+						const next = await iterator.next();
+						if (next.done || cancelled) break;
 						write(
 							sseFrame(
-								record,
-								record.kind === "event" ? record.event.sequence : undefined,
+								{ kind: "event", event: next.value },
+								next.value.sequence,
 							),
 						);
 					}
@@ -285,281 +205,144 @@ const sessionEventsResponse = (input: {
 	);
 };
 
-const spawnRunResponse = async (
-	request: Request,
-	options: PlotWebGatewayOptions,
-	runIpc: RunIpcConnection,
-): Promise<Response> => {
-	const body = await parseCreateRunBody(request);
-	if (body === undefined)
-		return text({ error: "invalid run body" }, { status: 400 });
-	const run = await runIpc.runRegistry.spawn({
-		cwd: body.cwd ?? options.cwd,
-		workflowPath: body.workflowPath ?? options.workflowPath,
-		label: body.label,
-	} as Parameters<typeof runIpc.runRegistry.spawn>[0]);
-	return text({ run });
-};
-
-const listRunsResponse = async (
-	runIpc: RunIpcConnection,
-): Promise<Response> => {
-	return text({ runs: await runIpc.runRegistry.list() });
-};
-
-const stopRunResponse = async (
-	id: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> => {
-	const run = await runIpc.runRegistry.stop(id);
-	return run === undefined
-		? new Response("run not found", { status: 404 })
-		: text({ run });
-};
-
-const runResponse = async (
-	id: string,
-	runIpc: RunIpcConnection,
-	handle: (run: RunRecord) => Promise<Response> | Response,
-): Promise<Response> => {
-	const run = await runIpc.runRegistry.status(id);
-	return run === undefined
-		? new Response("run not found", { status: 404 })
-		: handle(run);
-};
-
-const operatorObservationResponse = async (
-	request: Request,
-	id: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> =>
-	runResponse(id, runIpc, async () => {
-		const body = await parseObservationBody(request);
-		if (body === undefined)
-			return text({ error: "invalid observation body" }, { status: 400 });
-		const response = await runIpc.runRegistry
-			.submit(id, {
-				protocol: sessionProtocolVersion,
-				kind: "request",
-				id: `web_observation_${randomUUID()}`,
-				method: "operator.observe",
-				params: { ...body, actor: "web" },
-			})
-			.catch(() => undefined);
-		if (response === undefined || response.kind !== "response" || !response.ok)
-			return text({ error: "run not live" }, { status: 409 });
-		return text({
-			accepted: isRecord(response.data) && response.data["accepted"] === true,
-		});
-	});
-
-const sourceActionResponse = async (
-	request: Request,
-	id: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> =>
-	runResponse(id, runIpc, async () => {
-		const body = await parseSourceActionBody(request);
-		if (body === undefined)
-			return text({ error: "invalid Source action body" }, { status: 400 });
-		const response = await runIpc.runRegistry
-			.submit(id, {
-				protocol: sessionProtocolVersion,
-				kind: "request",
-				id: `web_source_action_${randomUUID()}`,
-				method: "source.action",
-				params: body,
-			})
-			.catch(() => undefined);
-		if (response === undefined || response.kind !== "response" || !response.ok)
-			return text({ error: "run not live" }, { status: 409 });
-		return text(response.data);
-	});
-
-const cancelSourceActionResponse = async (
-	id: string,
-	actionRunId: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> =>
-	runResponse(id, runIpc, async () => {
-		const response = await runIpc.runRegistry
-			.submit(id, {
-				protocol: sessionProtocolVersion,
-				kind: "request",
-				id: `web_source_action_cancel_${randomUUID()}`,
-				method: "source.action.cancel",
-				params: { actionRunId },
-			})
-			.catch(() => undefined);
-		if (response === undefined || response.kind !== "response" || !response.ok)
-			return text({ error: "run not live" }, { status: 409 });
-		return text(response.data);
-	});
-
-const runEventsEndpointResponse = async (
-	request: Request,
-	url: URL,
-	id: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> => {
-	const after = parseAfterSequence({
-		header: request.headers.get("last-event-id"),
-		query: url.searchParams.get("after"),
-	});
-	if (after === undefined) return text({ error: "invalid after sequence" });
-	return runResponse(id, runIpc, (run) => {
-		if (run.sessionFile === undefined)
-			return new Response("run has no session event log", { status: 409 });
-		return sessionEventsResponse({
-			request,
-			records: gaplessRunEventRecords({
-				sessionFile: run.sessionFile,
-				after,
-				liveRecords: runIpc.runRegistry.attachRecords(id, after),
-			}),
-		});
-	});
-};
-
-const runSessionEventsEndpointResponse = async (
-	url: URL,
-	id: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> => {
-	const after = parseSequence(url.searchParams.get("after"));
-	if (after === undefined) return text({ error: "invalid after sequence" });
-	return runResponse(id, runIpc, (run) => runSessionEventsResponse(run, after));
-};
-
-const runTranscriptEndpointResponse = async (
-	runId: string,
+export const sessionTranscriptResponse = async (
+	session: SessionSummary,
 	attemptRunId: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> =>
-	runResponse(runId, runIpc, (run) => runTranscriptResponse(run, attemptRunId));
-
-const runProjectionEndpointResponse = async (
-	id: string,
-	runIpc: RunIpcConnection,
-): Promise<Response> => runResponse(id, runIpc, runProjectionResponse);
+): Promise<Response> => {
+	const projection = await replayProjection(session);
+	const path = projection.attempts.get(attemptRunId)?.transcript?.path;
+	if (path === undefined)
+		return new Response("no transcript recorded", { status: 404 });
+	return json({ entries: await readAgentTranscript(path) });
+};
 
 const gatewayResponse = async (
 	request: Request,
-	options: PlotWebGatewayOptions,
-	runIpc: RunIpcConnection,
+	manager: SessionManagerRuntime,
 ): Promise<Response> => {
 	const url = new URL(request.url);
-	if (url.pathname === "/api/runs/events")
-		return runCatalogEventsResponse({
-			request,
-			listRuns: () => runIpc.runRegistry.list(),
-		});
-	if (url.pathname === "/api/runs" && request.method === "POST")
-		return spawnRunResponse(request, options, runIpc);
-	const stopPath = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
-	if (stopPath !== null && request.method === "DELETE")
-		return stopRunResponse(decodeURIComponent(stopPath[1] ?? ""), runIpc);
-	if (url.pathname === "/api/runs") return listRunsResponse(runIpc);
-	const sourceActionPath = /^\/api\/runs\/([^/]+)\/source-actions$/.exec(
-		url.pathname,
-	);
-	if (sourceActionPath !== null && request.method === "POST")
-		return sourceActionResponse(
-			request,
-			decodeURIComponent(sourceActionPath[1] ?? ""),
-			runIpc,
+	if (url.pathname === "/api/sessions" && request.method === "POST") {
+		const input = await parseStart(request);
+		if (input === undefined)
+			return json({ error: "invalid Session body" }, { status: 400 });
+		return json(await manager.start(input));
+	}
+	if (url.pathname === "/api/sessions")
+		return json({ sessions: await manager.list() });
+	const sessionPath = /^\/api\/sessions\/([^/]+)$/.exec(url.pathname);
+	if (sessionPath !== null && request.method === "DELETE") {
+		const session = await manager.stopSession(
+			decodeURIComponent(sessionPath[1] ?? ""),
 		);
-	const sourceActionCancelPath =
-		/^\/api\/runs\/([^/]+)\/source-actions\/([^/]+)$/.exec(url.pathname);
-	if (sourceActionCancelPath !== null && request.method === "DELETE")
-		return cancelSourceActionResponse(
-			decodeURIComponent(sourceActionCancelPath[1] ?? ""),
-			decodeURIComponent(sourceActionCancelPath[2] ?? ""),
-			runIpc,
-		);
-	const observationPath = /^\/api\/runs\/([^/]+)\/observations$/.exec(
-		url.pathname,
-	);
-	if (observationPath !== null && request.method === "POST")
-		return operatorObservationResponse(
-			request,
-			decodeURIComponent(observationPath[1] ?? ""),
-			runIpc,
-		);
-	const eventPath = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
-	if (eventPath !== null)
-		return runEventsEndpointResponse(
-			request,
-			url,
-			decodeURIComponent(eventPath[1] ?? ""),
-			runIpc,
-		);
-	const sessionEventsPath = /^\/api\/runs\/([^/]+)\/session-events$/.exec(
-		url.pathname,
-	);
-	if (sessionEventsPath !== null)
-		return runSessionEventsEndpointResponse(
-			url,
-			decodeURIComponent(sessionEventsPath[1] ?? ""),
-			runIpc,
-		);
-	const transcriptPath =
-		/^\/api\/runs\/([^/]+)\/attempts\/([^/]+)\/transcript$/.exec(url.pathname);
-	if (transcriptPath !== null)
-		return runTranscriptEndpointResponse(
-			decodeURIComponent(transcriptPath[1] ?? ""),
-			decodeURIComponent(transcriptPath[2] ?? ""),
-			runIpc,
-		);
-	const projectionPath = /^\/api\/runs\/([^/]+)\/projection$/.exec(
+		return session === undefined
+			? new Response("Session not found", { status: 404 })
+			: json({ session });
+	}
+	const projectionPath = /^\/api\/sessions\/([^/]+)\/projection$/.exec(
 		url.pathname,
 	);
 	if (projectionPath !== null)
-		return runProjectionEndpointResponse(
+		return withSession(
+			manager,
 			decodeURIComponent(projectionPath[1] ?? ""),
-			runIpc,
+			async (session) =>
+				json({
+					projection: serializeDashboardProjection(
+						await replayProjection(session),
+					),
+				}),
 		);
-	if (url.pathname === "/api/health")
-		return text({ ok: true, socketPath: runIpc.socketPath });
+	const eventsPath = /^\/api\/sessions\/([^/]+)\/events$/.exec(url.pathname);
+	if (eventsPath !== null) {
+		const after = parseAfter(request, url);
+		if (after === undefined)
+			return json({ error: "invalid after sequence" }, { status: 400 });
+		const id = decodeURIComponent(eventsPath[1] ?? "");
+		return withSession(manager, id, () =>
+			eventsResponse({
+				request,
+				events: (signal) => manager.events(id, after, signal),
+			}),
+		);
+	}
+	const observationPath = /^\/api\/sessions\/([^/]+)\/observations$/.exec(
+		url.pathname,
+	);
+	if (observationPath !== null && request.method === "POST") {
+		const input = await parseObservation(request);
+		if (input === undefined)
+			return json({ error: "invalid observation" }, { status: 400 });
+		return json({
+			accepted: await manager.observe(
+				decodeURIComponent(observationPath[1] ?? ""),
+				input,
+			),
+		});
+	}
+	const sourceActionPath = /^\/api\/sessions\/([^/]+)\/source-actions$/.exec(
+		url.pathname,
+	);
+	if (sourceActionPath !== null && request.method === "POST") {
+		const input = await parseSourceAction(request);
+		if (input === undefined)
+			return json({ error: "invalid Source action" }, { status: 400 });
+		return json(
+			await manager.startSourceAction(
+				decodeURIComponent(sourceActionPath[1] ?? ""),
+				input,
+			),
+		);
+	}
+	const cancelPath = /^\/api\/sessions\/([^/]+)\/source-actions\/([^/]+)$/.exec(
+		url.pathname,
+	);
+	if (cancelPath !== null && request.method === "DELETE")
+		return json({
+			accepted: await manager.cancelSourceAction(
+				decodeURIComponent(cancelPath[1] ?? ""),
+				decodeURIComponent(cancelPath[2] ?? ""),
+			),
+		});
+	const transcriptPath =
+		/^\/api\/sessions\/([^/]+)\/attempts\/([^/]+)\/transcript$/.exec(
+			url.pathname,
+		);
+	if (transcriptPath !== null)
+		return withSession(
+			manager,
+			decodeURIComponent(transcriptPath[1] ?? ""),
+			(session) =>
+				sessionTranscriptResponse(
+					session,
+					decodeURIComponent(transcriptPath[2] ?? ""),
+				),
+		);
+	if (url.pathname === "/api/health") return json({ ok: true });
 	return assetResponse(url.pathname);
 };
 
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const runIpc = await openOrStartRunIpc({
-		cwd: options.cwd,
-		runRegistryDir: options.registryDir,
-		cli: options.cli,
-	} as RunIpcOptions);
+	const manager =
+		options.manager ??
+		(await openSessionManager(
+			options.cli === undefined ? {} : { cli: options.cli },
+		));
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
 		port: options.port ?? 0,
 		idleTimeout: 255,
 		async fetch(request) {
 			try {
-				return await gatewayResponse(request, options, runIpc);
+				return await gatewayResponse(request, manager);
 			} catch (error) {
-				return text({ error: String(error) }, { status: 503 });
+				return json({ error: String(error) }, { status: 503 });
 			}
 		},
 	});
 	const url = `http://${server.hostname}:${server.port}/`;
-	await options.writeStderr?.(`Plot web: ${url}\n`);
-	if (options.open !== false && options.openUrl !== undefined)
-		await options.openUrl(url);
-	return {
-		url,
-		stop: () => {
-			server.stop(true);
-			void runIpc.close();
-		},
-	};
-};
-
-export const runPlotWebGateway = async (
-	options: PlotWebGatewayOptions,
-): Promise<void> => {
-	await startPlotWebGateway(options);
-	await new Promise<void>(() => {});
+	await options.writeStderr?.(`Plot Web Console: ${url}\n`);
+	await options.openUrl?.(url);
+	return { url, stop: () => server.stop(true) };
 };

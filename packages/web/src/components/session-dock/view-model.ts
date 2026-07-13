@@ -1,11 +1,7 @@
-/**
- * Pure view-model for the session dock. The dock is a line-nav control: live
- * sessions first, optionally revealed past sessions, then a ghost line that
- * toggles the past group. No React and no animation primitives live here.
- */
+/** Pure view-model for the Session dock. */
 
-import type { RunRecord } from "@plot/registry/record";
-import { displayName } from "../../app/runs-store.js";
+import type { SessionSummary } from "@plot/session-manager/session";
+import { displayName } from "../../app/sessions-store.js";
 
 export interface DockLineItem {
 	readonly id: string;
@@ -13,7 +9,7 @@ export interface DockLineItem {
 	readonly place: string;
 	readonly selected: boolean;
 	readonly attention: boolean;
-	readonly stoppedAtMs?: number | undefined;
+	readonly stoppedAtMs?: number;
 }
 
 export const GHOST_LINE_KEY = "__dock_ghost__";
@@ -53,51 +49,49 @@ export const dockShortcutId = (
 	digit: number,
 ): string | undefined => live[digit - 1]?.id;
 
-const timeMs = (value: string | undefined): number | undefined => {
-	if (value === undefined) return undefined;
+const timeMs = (value: string): number | undefined => {
 	const ms = Date.parse(value);
 	return Number.isNaN(ms) ? undefined : ms;
 };
 
-const place = (run: RunRecord): string => run.cwdName ?? "session";
+const place = (session: SessionSummary): string =>
+	session.projectPath.split("/").at(-1) ?? "session";
 
-/**
- * The dock's live group is every run that has not been stopped — errored runs
- * stay live until stopped (binding UX), so this deliberately does not reuse the
- * store's `isRunLive` (which treats `error` as non-live).
- */
 export const buildLiveLines = (
-	runs: readonly RunRecord[],
+	sessions: readonly SessionSummary[],
 	selectedId: string | undefined,
 ): readonly DockLineItem[] =>
-	runs
-		.filter((run) => run.status !== "stopped")
-		.toSorted((a, b) => (timeMs(a.createdAt) ?? 0) - (timeMs(b.createdAt) ?? 0))
-		.map((run) => ({
-			id: run.id,
-			title: displayName(run),
-			place: place(run),
-			selected: run.id === selectedId,
-			attention: run.status === "error",
+	sessions
+		.filter(
+			(session) => session.state !== "stopped" && session.state !== "error",
+		)
+		.toSorted((a, b) => timeMs(a.createdAt)! - timeMs(b.createdAt)!)
+		.map((session) => ({
+			id: session.id,
+			title: displayName(session),
+			place: place(session),
+			selected: session.id === selectedId,
+			attention: false,
 		}));
 
-/** Past group: stopped runs only, most-recently-seen first. */
 export const buildPastLines = (
-	runs: readonly RunRecord[],
+	sessions: readonly SessionSummary[],
 	selectedId: string | undefined,
 ): readonly DockLineItem[] =>
-	runs
-		.filter((run) => run.status === "stopped")
-		.toSorted(
-			(a, b) =>
-				(timeMs(b.lastSeenAt ?? b.createdAt) ?? 0) -
-				(timeMs(a.lastSeenAt ?? a.createdAt) ?? 0),
+	sessions
+		.filter(
+			(session) => session.state === "stopped" || session.state === "error",
 		)
-		.map((run) => ({
-			id: run.id,
-			title: displayName(run),
-			place: place(run),
-			selected: run.id === selectedId,
-			attention: false,
-			stoppedAtMs: timeMs(run.lastSeenAt ?? run.createdAt),
-		}));
+		.toSorted((a, b) => timeMs(b.updatedAt)! - timeMs(a.updatedAt)!)
+		.map((session) => {
+			const item: DockLineItem = {
+				id: session.id,
+				title: displayName(session),
+				place: place(session),
+				selected: session.id === selectedId,
+				attention: session.state === "error",
+			};
+			const stoppedAtMs = timeMs(session.updatedAt);
+			if (stoppedAtMs !== undefined) return { ...item, stoppedAtMs };
+			return item;
+		});

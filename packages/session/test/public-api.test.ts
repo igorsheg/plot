@@ -9,12 +9,11 @@ const expectedExports = [
 	"./interaction",
 	"./readiness",
 	"./runtime",
-	"./serve",
 	"./host",
 	"./paths",
 	"./pi-runner",
-	"./protocol",
 	"./transcript",
+	"./worker",
 	"./workflow",
 ] as const;
 

@@ -13,8 +13,8 @@
 	"dependencies": {
 		"@plot/common": "workspace:*",
 		"@plot/gateway": "workspace:*",
-		"@plot/registry": "workspace:*",
 		"@plot/session": "workspace:*",
+		"@plot/session-manager": "workspace:*",
 		"@plot/tui": "workspace:*",
 		"citty": "^0.1.6"
 	},

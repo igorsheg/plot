@@ -15,13 +15,13 @@ Each item has its own workspace, emits progress checkpoints, waits between stage
 From the repository root:
 
 ```bash
-plot --workflow examples/debug/WORKFLOW.md
+plot examples/debug/WORKFLOW.md
 ```
 
 In another terminal:
 
 ```bash
-plot open --web
+plot web
 ```
 
 The extension is designed to run for a long time without intentionally creating failures, cancellations, or timeout noise.

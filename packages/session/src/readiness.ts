@@ -32,8 +32,7 @@ export interface InspectWorkflowReadinessOptions {
 /** Loads an extension and runs only its cheap, local requirement checks. */
 export const inspectWorkflowExtensionReadiness = async (
 	options: InspectWorkflowReadinessOptions,
-): Promise<SourceRecord | undefined> => {
-	if (options.workflow.runtime.extension === undefined) return;
+): Promise<SourceRecord> => {
 	const loaded = await loadPlotExtensionRuntimeFromWorkflow(options);
 	const controller =
 		options.signal === undefined ? new AbortController() : undefined;
@@ -61,8 +60,6 @@ export interface RunWorkflowExtensionActionOptions extends InspectWorkflowReadin
 export const runWorkflowExtensionAction = async (
 	options: RunWorkflowExtensionActionOptions,
 ): Promise<SourceRecord> => {
-	if (options.workflow.runtime.extension === undefined)
-		throw new Error("workflow has no extension");
 	const loaded = await loadPlotExtensionRuntimeFromWorkflow(options);
 	const controller =
 		options.signal === undefined ? new AbortController() : undefined;

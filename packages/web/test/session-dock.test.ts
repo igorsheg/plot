@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { RunRecord } from "@plot/registry/record";
+import type { SessionSummary } from "@plot/session-manager/session";
 import {
 	buildLiveLines,
 	buildPastLines,
@@ -10,15 +10,21 @@ import {
 	nextDockKey,
 } from "../src/components/session-dock/view-model.js";
 
-const run = (
+const session = (
 	id: string,
-	status: RunRecord["status"],
-	extra: Partial<RunRecord> = {},
-): RunRecord => ({
+	state: SessionSummary["state"],
+	extra: Partial<SessionSummary> = {},
+): SessionSummary => ({
 	id,
-	status,
-	cwd: `/tmp/${id}`,
+	workflowKey: `/tmp/${id}/WORKFLOW.md`,
+	workflowName: id,
+	workflowPath: `/tmp/${id}/WORKFLOW.md`,
+	projectPath: `/tmp/${id}`,
+	state,
 	createdAt: "2026-01-01T00:00:00.000Z",
+	updatedAt: "2026-01-01T00:00:00.000Z",
+	historyPath: `/tmp/${id}/.plot/sessions/${id}.jsonl`,
+	lastSequence: 0,
 	...extra,
 });
 
@@ -30,15 +36,15 @@ test("line width tokens encode idle, attention, active, and hover states", () =>
 
 test("buildLiveLines keeps non-stopped runs in createdAt order", () => {
 	const runs = [
-		run("b", "online", {
+		session("b", "online", {
 			createdAt: "2026-01-02T00:00:00.000Z",
 			workflowName: "beta",
 		}),
-		run("a", "online", {
+		session("a", "online", {
 			createdAt: "2026-01-01T00:00:00.000Z",
 			workflowName: "alpha",
 		}),
-		run("gone", "stopped"),
+		session("gone", "stopped"),
 	];
 	const lines = buildLiveLines(runs, "a");
 	expect(lines.map((line) => line.id)).toEqual(["a", "b"]);
@@ -47,30 +53,32 @@ test("buildLiveLines keeps non-stopped runs in createdAt order", () => {
 	expect(lines[1]?.selected).toBe(false);
 });
 
-test("buildLiveLines keeps an errored run live and marks it for attention", () => {
-	const runs = [run("boom", "error", { workflowName: "boom" })];
-	const lines = buildLiveLines(runs, undefined);
+test("buildPastLines keeps errored Sessions and marks them for attention", () => {
+	const sessions = [session("boom", "error", { workflowName: "boom" })];
+	const lines = buildPastLines(sessions, undefined);
 	expect(lines).toHaveLength(1);
 	expect(lines[0]?.attention).toBe(true);
 });
 
-test("buildPastLines keeps stopped runs by lastSeenAt desc with stoppedAtMs", () => {
+test("buildPastLines keeps stopped runs by updatedAt desc with stoppedAtMs", () => {
 	const runs = [
-		run("live", "online"),
-		run("old", "stopped", {
-			lastSeenAt: "2026-01-01T00:00:00.000Z",
+		session("live", "online"),
+		session("old", "stopped", {
+			updatedAt: "2026-01-01T00:00:00.000Z",
 			workflowName: "old",
 		}),
-		run("recent", "stopped", {
-			lastSeenAt: "2026-01-02T00:00:00.000Z",
+		session("recent", "stopped", {
+			updatedAt: "2026-01-02T00:00:00.000Z",
 			workflowName: "recent",
 		}),
-		run("errored", "error"),
+		session("errored", "error", {
+			updatedAt: "2026-01-03T00:00:00.000Z",
+		}),
 	];
 	const lines = buildPastLines(runs, "recent");
-	expect(lines.map((line) => line.id)).toEqual(["recent", "old"]);
-	expect(lines[0]?.stoppedAtMs).toBe(Date.parse("2026-01-02T00:00:00.000Z"));
-	expect(lines[0]?.selected).toBe(true);
+	expect(lines.map((line) => line.id)).toEqual(["errored", "recent", "old"]);
+	expect(lines[0]?.stoppedAtMs).toBe(Date.parse("2026-01-03T00:00:00.000Z"));
+	expect(lines[1]?.selected).toBe(true);
 });
 
 test("dockLineOrder exposes live, expanded past, and ghost keys", () => {

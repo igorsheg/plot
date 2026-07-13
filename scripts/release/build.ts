@@ -9,7 +9,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
 	cliEntrypoint,
 	cliTsconfig,
@@ -52,7 +52,7 @@ async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 	}
 
 	chmodSync(join(binDir, "plot"), 0o755);
-	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), { recursive: true });
+	copyDocs(packageDir);
 	copyExamples(packageDir);
 	copySdkDeclarations(packageDir);
 
@@ -105,7 +105,7 @@ async function buildUmbrellaPackage() {
 	);
 	const readmeSrc = join(npmPackageDir, "README.md");
 	if (existsSync(readmeSrc)) cpSync(readmeSrc, join(packageDir, "README.md"));
-	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), { recursive: true });
+	copyDocs(packageDir);
 	copyExamples(packageDir);
 
 	writeJson(join(packageDir, "package.json"), {
@@ -141,10 +141,20 @@ async function buildUmbrellaPackage() {
 	await $`npm pack`.cwd(packageDir);
 }
 
+function copyDocs(packageDir: string) {
+	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), {
+		recursive: true,
+		filter: (source) => basename(source) !== "nuclear-refactor.md",
+	});
+}
+
 function copyExamples(packageDir: string) {
 	cpSync(join(repoDir, "examples"), join(packageDir, "examples"), {
 		recursive: true,
-		filter: (source) => !source.includes("node_modules"),
+		filter: (source) => {
+			const name = basename(source);
+			return name !== "node_modules" && name !== ".plot";
+		},
 	});
 }
 

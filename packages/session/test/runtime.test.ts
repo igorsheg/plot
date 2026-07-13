@@ -228,33 +228,6 @@ test("runtime publishes session start once", async () => {
 	).rejects.toThrow("closed");
 });
 
-test("runOnce waits for Sources to reconcile attempt completion", async () => {
-	let reconciled = false;
-	const oneShotSource: WorkSource = {
-		id: "one-shot",
-		reconcile: ({ snapshot }) => {
-			if (
-				snapshot.completions.some(
-					(completion) => completion.workKey === "work-1",
-				)
-			)
-				reconciled = true;
-			return [];
-		},
-		selectWork: () => (reconciled ? [] : [{ workKey: "work-1" }]),
-	};
-	const runtime = makeSessionRuntime({
-		id: "session-once",
-		sources: [oneShotSource],
-		runner,
-	});
-
-	await runtime.runOnce();
-
-	expect(reconciled).toBe(true);
-	await runtime.shutdown();
-});
-
 test("runtime shutdown publishes shutdown and is idempotent", async () => {
 	const runtime = makeSessionRuntime({
 		id: "session-1",
@@ -311,7 +284,7 @@ test("Source setup actions publish progress and can be cancelled", async () => {
 	await started.promise;
 	expect(action.accepted).toBe(true);
 	if (action.actionRunId === undefined)
-		throw new Error("missing action run id");
+		throw new Error("missing Source action identifier");
 	expect(await runtime.cancelSourceAction(action.actionRunId)).toBe(true);
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	await runtime.shutdown();
