@@ -17,7 +17,7 @@ plot check WORKFLOW.md
 plot WORKFLOW.md
 ```
 
-Leaving the TUI detaches. Stop explicitly with `plot stop WORKFLOW.md`.
+`q` or Ctrl-C confirms before stopping the Session. Use `d` to explicitly detach and leave it running.
 
 ## Documentation map
 

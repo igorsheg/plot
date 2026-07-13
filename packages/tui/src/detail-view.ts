@@ -110,7 +110,7 @@ export const detailViewLines = (input: {
 		asLine(`${style.border("╭─ ")}${style.brand(input.selected.label)}`),
 		...body.slice(input.scrollOffset, input.scrollOffset + input.viewportRows),
 		footer(
-			`j/k scroll · ${input.selected.work.url === undefined ? "" : "o open · "}esc back · q quit`,
+			`j/k scroll · ${input.selected.work.url === undefined ? "" : "o open · "}esc back · d detach · q stop`,
 			style.muted,
 		),
 	];

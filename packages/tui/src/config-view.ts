@@ -35,7 +35,7 @@ export const configViewLines = (
 			? [emptyItem(style.muted)]
 			: r.skillPaths.map((skill) => item(skill))),
 		footer(
-			"j/k scroll · esc back · c close · t tick · g refresh · q quit",
+			"j/k scroll · esc back · c close · t tick · g refresh · d detach · q stop",
 			style.muted,
 		),
 	];

@@ -14,4 +14,4 @@
 │   ↻ retry in 2s · attempt 4                                                                                           
 │   ↻ wake in 10s · poll                                                                                                
 │                                                                                                                       
-╰─ ? help · q quit                                                                                                      
+╰─ ? help · d detach · q stop

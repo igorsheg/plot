@@ -21,5 +21,5 @@ export const debugViewLines = (input: {
 		: input.projection.debugEvents
 				.slice(input.scrollOffset, input.scrollOffset + input.viewportRows)
 				.map((entry) => item(entry))),
-	footer("j/k scroll · esc back · d close · q quit", style.muted),
+	footer("j/k scroll · esc back · b close · d detach · q stop", style.muted),
 ];

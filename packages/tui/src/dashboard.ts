@@ -4,6 +4,7 @@ import { dashboardModelFrom, type DashboardModel } from "./dashboard-model.js";
 import {
 	renderLines,
 	asLine,
+	footer,
 	type DashboardLine,
 	maxScroll,
 } from "./dashboard-render.js";
@@ -17,7 +18,8 @@ export interface DashboardActions {
 	readonly tick: () => void;
 	readonly refresh: () => void;
 	readonly toggleDebug: () => void;
-	readonly quit: () => void;
+	readonly stop: () => void;
+	readonly detach: () => void;
 	readonly sourceAction?: (input: {
 		readonly sourceId: string;
 		readonly requirementId: string;
@@ -69,6 +71,7 @@ export class PlotDashboard implements Component {
 	private selectedIndex = 0;
 	private scrollOffset = 0;
 	private showHelp = false;
+	private confirmingStop = false;
 	private liveRenderTimer: ReturnType<typeof setInterval> | undefined;
 	private liveRenderIntervalMs: number | undefined;
 	private liveUpdatesActive = false;
@@ -100,22 +103,42 @@ export class PlotDashboard implements Component {
 
 	handleInput(data: string): void {
 		const key = parseKey(data);
-		if (matchesKey(data, "ctrl+c")) {
-			this.actions.quit();
+		const ctrlC = matchesKey(data, "ctrl+c");
+		if (this.confirmingStop) {
+			if (
+				ctrlC ||
+				key === "q" ||
+				key === "enter" ||
+				key === "return" ||
+				key === "y"
+			) {
+				this.confirmingStop = false;
+				this.actions.stop();
+			} else if (key === "d") this.actions.detach();
+			else if (key === "escape" || key === "esc" || key === "n") {
+				this.confirmingStop = false;
+				this.actions.requestRender?.();
+			}
+			return;
+		}
+		if (ctrlC || key === "q") {
+			this.confirmingStop = true;
+			this.showHelp = false;
+			this.actions.requestRender?.();
 			return;
 		}
 		if ((key === "escape" || key === "esc") && this.showHelp) {
 			this.showHelp = false;
 			return;
 		}
-		if (key === "q") this.actions.quit();
+		if (key === "d") this.actions.detach();
 		else if (key === "?") this.showHelp = !this.showHelp;
 		else if (key === "t") this.actions.tick();
 		else if (key === "g") this.actions.refresh();
 		else if (key === "o") this.openSelectedUrl();
 		else if (key === "s") this.runSourceAction();
 		else if (key === "x") this.cancelSourceAction();
-		else if (key === "d") {
+		else if (key === "b") {
 			this.actions.toggleDebug();
 			this.changeMode(this.mode === "debug" ? "process-table" : "debug");
 		} else if (key === "c")
@@ -168,7 +191,16 @@ export class PlotDashboard implements Component {
 								maxRows: Math.max(1, (this.actions.height?.() ?? 24) - 1),
 								...this.processTableFooter(),
 							});
-		return ["", ...renderLines(lines, width, style.row.selected)];
+		const visibleLines = this.confirmingStop
+			? [
+					...lines.slice(0, -1),
+					footer(
+						`Stop ${this.projection.workflowName}? enter/q yes · d detach instead · esc cancel`,
+						style.warn,
+					),
+				]
+			: lines;
+		return ["", ...renderLines(visibleLines, width, style.row.selected)];
 	}
 
 	private processTableFooter(): {
@@ -178,9 +210,9 @@ export class PlotDashboard implements Component {
 		if (this.showHelp)
 			return {
 				footerText:
-					"↑↓ select · enter details · o open · s setup · x cancel · t tick · c config · d debug · ? hide · q quit",
+					"↑↓ select · enter details · o open · s setup · x cancel · t tick · c config · b debug · d detach · q stop · ? hide",
 			};
-		return { footerText: "? help · q quit" };
+		return { footerText: "? help · d detach · q stop" };
 	}
 
 	private runSourceAction(): void {

@@ -9,7 +9,7 @@ plot check WORKFLOW.md
 plot WORKFLOW.md
 ```
 
-`plot WORKFLOW.md` starts or attaches to the Workflow's Active Plot Session. Leaving the terminal dashboard detaches; use `plot stop WORKFLOW.md` for explicit shutdown and `plot web` for the Fleet Web Console.
+`plot WORKFLOW.md` starts or attaches to the Workflow's Active Plot Session. `q` or Ctrl-C confirms before stopping; `d` explicitly detaches. Use `plot stop WORKFLOW.md` from another shell and `plot web` for the Fleet Web Console.
 
 Extensions import only the public SDK:
 
