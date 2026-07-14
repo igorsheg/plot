@@ -6,6 +6,7 @@ const summary = (id: string) => ({
 	workflowKey: `/${id}/WORKFLOW.md`,
 	workflowName: id,
 	workflowPath: `/${id}/WORKFLOW.md`,
+	workflowAliases: [`/${id}/WORKFLOW.md`],
 	projectPath: `/${id}`,
 	state: "online",
 	createdAt: "2026-01-01T00:00:00.000Z",

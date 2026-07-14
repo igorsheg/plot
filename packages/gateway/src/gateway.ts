@@ -1,6 +1,4 @@
 import { basename } from "node:path";
-import type { SessionManagerIpcOptions } from "@plot/session-manager/ipc";
-import { openSessionManager } from "@plot/session-manager/ipc";
 import type { SessionManagerRuntime } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import { isRecord } from "@plot/common/primitives";
@@ -26,8 +24,7 @@ export interface PlotWebGatewayOptions {
 	readonly port?: number;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
 	readonly openUrl?: (url: string) => Promise<void> | void;
-	readonly cli?: SessionManagerIpcOptions["cli"];
-	readonly manager?: SessionManagerRuntime;
+	readonly manager: SessionManagerRuntime;
 }
 
 const json = (body: unknown, init: ResponseInit = {}) =>
@@ -324,11 +321,7 @@ const gatewayResponse = async (
 export const startPlotWebGateway = async (
 	options: PlotWebGatewayOptions,
 ): Promise<{ readonly url: string; readonly stop: () => void }> => {
-	const manager =
-		options.manager ??
-		(await openSessionManager(
-			options.cli === undefined ? {} : { cli: options.cli },
-		));
+	const manager = options.manager;
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
 		port: options.port ?? 0,

@@ -81,3 +81,34 @@ Prompt
 	);
 	await rm(dir, { recursive: true, force: true });
 });
+
+test("private Session worker reports startup failure on the protocol", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-worker-failure-"));
+	await writeFile(join(dir, "WORKFLOW.md"), "No Extension.\n");
+	const output: string[] = [];
+	try {
+		await serveSessionWorker({
+			cwd: dir,
+			workflowPath: join(dir, "WORKFLOW.md"),
+			sessionId: "worker-failure",
+			createAgentSession: async () => ({ session: new FakeSession() }),
+			stdin: commands([]),
+			writeLine: (line) => {
+				output.push(line);
+			},
+		});
+		const records = output.map((line) =>
+			decodeSessionWorkerRecord(JSON.parse(line) as unknown),
+		);
+		expect(records).toEqual([
+			expect.objectContaining({
+				kind: "failure",
+				error: expect.objectContaining({
+					code: "workflow_invalid",
+				}),
+			}),
+		]);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

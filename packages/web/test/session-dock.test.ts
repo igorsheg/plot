@@ -19,6 +19,7 @@ const session = (
 	workflowKey: `/tmp/${id}/WORKFLOW.md`,
 	workflowName: id,
 	workflowPath: `/tmp/${id}/WORKFLOW.md`,
+	workflowAliases: [`/tmp/${id}/WORKFLOW.md`],
 	projectPath: `/tmp/${id}`,
 	state,
 	createdAt: "2026-01-01T00:00:00.000Z",

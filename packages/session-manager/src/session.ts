@@ -12,6 +12,7 @@ export interface SessionSummary {
 	readonly workflowKey: string;
 	readonly workflowName: string;
 	readonly workflowPath: string;
+	readonly workflowAliases: readonly string[];
 	readonly projectPath: string;
 	readonly state: SessionState;
 	readonly createdAt: string;
@@ -39,6 +40,12 @@ const text = (value: unknown, label: string): string => {
 	throw new Error(`${label} must be a non-empty string`);
 };
 
+const aliases = (value: unknown): readonly string[] => {
+	if (!Array.isArray(value))
+		throw new Error("Workflow aliases must be an array");
+	return value.map((alias) => text(alias, "Workflow alias"));
+};
+
 export const parseSessionSummary = (value: unknown): SessionSummary => {
 	if (!isRecord(value)) throw new Error("Session summary must be an object");
 	const state = text(value["state"], "Session state");
@@ -56,6 +63,7 @@ export const parseSessionSummary = (value: unknown): SessionSummary => {
 		workflowKey: text(value["workflowKey"], "Workflow key"),
 		workflowName: text(value["workflowName"], "Workflow name"),
 		workflowPath: text(value["workflowPath"], "Workflow path"),
+		workflowAliases: aliases(value["workflowAliases"]),
 		projectPath: text(value["projectPath"], "project path"),
 		state: state as SessionState,
 		createdAt: text(value["createdAt"], "Session createdAt"),

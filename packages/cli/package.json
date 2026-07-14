@@ -15,11 +15,9 @@
 		"@plot/gateway": "workspace:*",
 		"@plot/session": "workspace:*",
 		"@plot/session-manager": "workspace:*",
-		"@plot/tui": "workspace:*",
-		"citty": "^0.1.6"
+		"@plot/tui": "workspace:*"
 	},
 	"devDependencies": {
-		"@plot/sdk": "workspace:*",
 		"@repo/tsconfig": "workspace:*"
 	}
 }

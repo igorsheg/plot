@@ -7,6 +7,7 @@ const expectedExports = [
 	"./auth",
 	"./history",
 	"./interaction",
+	"./preparation",
 	"./readiness",
 	"./runtime",
 	"./host",

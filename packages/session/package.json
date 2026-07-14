@@ -32,6 +32,10 @@
 			"types": "./src/pi-session.ts",
 			"import": "./src/pi-session.ts"
 		},
+		"./preparation": {
+			"types": "./src/preparation.ts",
+			"import": "./src/preparation.ts"
+		},
 		"./readiness": {
 			"types": "./src/readiness.ts",
 			"import": "./src/readiness.ts"

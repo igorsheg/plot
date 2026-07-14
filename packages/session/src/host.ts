@@ -1,20 +1,13 @@
-import { basename, resolve } from "node:path";
+import { basename } from "node:path";
 import type { Mutable } from "@plot/common/primitives";
-import { createSessionId } from "./runtime.js";
-import {
-	assertWorkflowAgentReady,
-	makeCreatePiAgentSession,
-} from "./pi-session.js";
-import { makePlotExtensionSourceBundleFromWorkflow } from "./extension-source.js";
-import {
-	resolveSessionPaths,
-	sessionEventLogPath,
-	type SessionPaths,
-} from "./paths.js";
+import type { PlotExtensionSourceBundle } from "./extension-source.js";
+import { sessionEventLogPath, type SessionPaths } from "./paths.js";
+import { makeCreatePiAgentSession } from "./pi-session.js";
 import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
-import { makeSessionRuntime } from "./runtime.js";
+import { prepareWorkflow } from "./preparation.js";
+import { createSessionId, makeSessionRuntime } from "./runtime.js";
 import type { SessionRuntime, SessionRuntimeOptions } from "./runtime.js";
-import { loadDiscoveredWorkflow, type WorkflowDefinition } from "./workflow.js";
+import type { WorkflowDefinition } from "./workflow.js";
 
 export interface SessionHostMetadata {
 	readonly workflowName: string;
@@ -62,111 +55,113 @@ const optionalPositive = (
 export const createSessionHost = async (
 	options: CreateSessionHostOptions,
 ): Promise<SessionHost> => {
-	const paths = resolveSessionPaths(options);
-	const workflow = await loadDiscoveredWorkflow({
-		cwd: paths.cwd,
-		workflowPath:
-			options.workflowPath === undefined
-				? undefined
-				: resolve(paths.cwd, options.workflowPath),
+	const prepared = await prepareWorkflow({
+		...options,
+		skipAgentReadiness: options.createAgentSession !== undefined,
 	});
-	const plot = workflow.runtime.plot;
-	const requestQueueCapacity = positive(
-		options.requestQueueCapacity ?? plot?.queueCapacity ?? 64,
-		"requestQueueCapacity",
-	);
-	const eventCapacity = positive(
-		options.eventCapacity ?? plot?.eventCapacity ?? 256,
-		"eventCapacity",
-	);
-	const tickIntervalMs = optionalPositive(
-		options.tickIntervalMs ?? plot?.tickIntervalMs,
-		"tickIntervalMs",
-	);
-	const maxRunDurationMs = optionalPositive(
-		options.maxRunDurationMs ?? plot?.maxRunDurationMs,
-		"maxRunDurationMs",
-	);
-	const stallTimeoutMs = optionalPositive(
-		options.stallTimeoutMs ?? plot?.stallTimeoutMs,
-		"stallTimeoutMs",
-	);
-	const sessionId = options.sessionId ?? createSessionId();
-	if (options.createAgentSession === undefined)
-		assertWorkflowAgentReady(workflow, paths);
-	const extensionBundle = await makePlotExtensionSourceBundleFromWorkflow({
-		workflow,
-		paths,
-	});
-	const createAgentSession =
-		options.createAgentSession ?? makeCreatePiAgentSession({ workflow, paths });
-	let runtime: SessionRuntime;
-	const runner = makePiWorkRunner({
-		createAgentSession,
-		prompt: workflow.prompt,
-		create: (context) => extensionBundle.createOptions(context),
-		maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
-		onEvent: async ({ context, event }) => {
-			await runtime.appendAgentEvent({
-				sourceId: context.sourceId,
-				runId: context.run.runId,
-				workKey: context.work.workKey,
-				event,
-			});
-		},
-	});
-	const metadata: SessionHostMetadata = {
-		workflowName:
-			workflow.runtime.name ??
-			(workflow.path ? basename(workflow.path) : "workflow"),
-		workflowPath: workflow.path ?? "WORKFLOW.md",
-		cwd: paths.cwd,
-		cwdName: basename(paths.cwd),
-		sessionDir: paths.sessionDir,
-	};
-	const sessionFile = sessionEventLogPath(paths.sessionDir, sessionId);
-	const runtimeOptions: Mutable<SessionRuntimeOptions> = {
-		id: sessionId,
-		sources: [extensionBundle.source],
-		runner: extensionBundle.wrapRunner(runner),
-		state: metadata,
-		sessionFile,
-		eventCapacity,
-		agent: {
-			queueCapacity: requestQueueCapacity,
-			tickIntervalMs,
-			maxRunDurationMs,
-			stallTimeoutMs,
-		} as NonNullable<Parameters<typeof makeSessionRuntime>[0]["agent"]>,
-	};
-	runtimeOptions.sourceAction = {
-		sourceId: extensionBundle.source.id,
-		runAction: extensionBundle.runAction,
-	};
-	runtime = makeSessionRuntime(runtimeOptions);
-	let shutdownPromise: Promise<void> | undefined;
-	const shutdown = (): Promise<void> => {
-		shutdownPromise ??= (async () => {
-			let failure: unknown;
-			try {
-				await runtime.shutdown();
-			} catch (error) {
-				failure = error;
-			}
-			try {
-				await extensionBundle.shutdown();
-			} catch (error) {
-				failure ??= error;
-			}
-			if (failure !== undefined) throw failure;
-		})();
-		return shutdownPromise;
-	};
-	return {
-		runtime,
-		paths,
-		workflow,
-		metadata,
-		shutdown,
-	};
+	const { paths, workflow } = prepared;
+	let extensionBundle: PlotExtensionSourceBundle | undefined;
+	try {
+		const plot = workflow.runtime.plot;
+		const requestQueueCapacity = positive(
+			options.requestQueueCapacity ?? plot?.queueCapacity ?? 64,
+			"requestQueueCapacity",
+		);
+		const eventCapacity = positive(
+			options.eventCapacity ?? plot?.eventCapacity ?? 256,
+			"eventCapacity",
+		);
+		const tickIntervalMs = optionalPositive(
+			options.tickIntervalMs ?? plot?.tickIntervalMs,
+			"tickIntervalMs",
+		);
+		const maxRunDurationMs = optionalPositive(
+			options.maxRunDurationMs ?? plot?.maxRunDurationMs,
+			"maxRunDurationMs",
+		);
+		const stallTimeoutMs = optionalPositive(
+			options.stallTimeoutMs ?? plot?.stallTimeoutMs,
+			"stallTimeoutMs",
+		);
+		const sessionId = options.sessionId ?? createSessionId();
+		const bundle = prepared.takeExtensionBundle();
+		extensionBundle = bundle;
+		const createAgentSession =
+			options.createAgentSession ??
+			makeCreatePiAgentSession({ workflow, paths });
+		let runtime: SessionRuntime;
+		const runner = makePiWorkRunner({
+			createAgentSession,
+			prompt: workflow.prompt,
+			create: (context) => bundle.createOptions(context),
+			maxTurns: workflow.runtime.agent?.maxTurns ?? 20,
+			onEvent: async ({ context, event }) => {
+				await runtime.appendAgentEvent({
+					sourceId: context.sourceId,
+					runId: context.run.runId,
+					workKey: context.work.workKey,
+					event,
+				});
+			},
+		});
+		const metadata: SessionHostMetadata = {
+			workflowName:
+				workflow.runtime.name ??
+				(workflow.path ? basename(workflow.path) : "workflow"),
+			workflowPath: workflow.path ?? "WORKFLOW.md",
+			cwd: paths.cwd,
+			cwdName: basename(paths.cwd),
+			sessionDir: paths.sessionDir,
+		};
+		const sessionFile = sessionEventLogPath(paths.sessionDir, sessionId);
+		const runtimeOptions: Mutable<SessionRuntimeOptions> = {
+			id: sessionId,
+			sources: [bundle.source],
+			runner: bundle.wrapRunner(runner),
+			state: metadata,
+			sessionFile,
+			eventCapacity,
+			agent: {
+				queueCapacity: requestQueueCapacity,
+				tickIntervalMs,
+				maxRunDurationMs,
+				stallTimeoutMs,
+			} as NonNullable<Parameters<typeof makeSessionRuntime>[0]["agent"]>,
+		};
+		runtimeOptions.sourceAction = {
+			sourceId: bundle.source.id,
+			runAction: bundle.runAction,
+		};
+		runtime = makeSessionRuntime(runtimeOptions);
+		let shutdownPromise: Promise<void> | undefined;
+		const shutdown = (): Promise<void> => {
+			shutdownPromise ??= (async () => {
+				let failure: unknown;
+				try {
+					await runtime.shutdown();
+				} catch (error) {
+					failure = error;
+				}
+				try {
+					await bundle.shutdown();
+				} catch (error) {
+					failure ??= error;
+				}
+				if (failure !== undefined) throw failure;
+			})();
+			return shutdownPromise;
+		};
+		return {
+			runtime,
+			paths,
+			workflow,
+			metadata,
+			shutdown,
+		};
+	} catch (error) {
+		if (extensionBundle === undefined)
+			await prepared.close().catch(() => undefined);
+		else await extensionBundle.shutdown().catch(() => undefined);
+		throw error;
+	}
 };

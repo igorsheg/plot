@@ -7,15 +7,15 @@ import {
 	getSdkReferenceCandidates,
 } from "./package.js";
 
-const docNames = [
+export const docNames = [
 	"index",
 	"quickstart",
 	"guide",
 	"workflows",
 	"extensions",
+	"cli",
 	"tui",
 	"web",
-	"cli",
 ] as const;
 export type DocName = (typeof docNames)[number];
 

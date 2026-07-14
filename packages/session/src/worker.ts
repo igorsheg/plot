@@ -1,5 +1,11 @@
+import {
+	parseBoundaryErrorRecord,
+	PlotBoundaryError,
+	toBoundaryErrorRecord,
+	type BoundaryErrorRecord,
+} from "@plot/common/boundary-error";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
-import { errorMessage, isRecord } from "@plot/common/primitives";
+import { isRecord } from "@plot/common/primitives";
 import {
 	createSessionHost,
 	type CreateSessionHostOptions,
@@ -47,6 +53,11 @@ export interface SessionWorkerEvent {
 	readonly event: RuntimeEvent;
 }
 
+export interface SessionWorkerFailure {
+	readonly kind: "failure";
+	readonly error: BoundaryErrorRecord;
+}
+
 export type SessionWorkerResult =
 	| {
 			readonly kind: "result";
@@ -58,19 +69,41 @@ export type SessionWorkerResult =
 			readonly kind: "result";
 			readonly id: string;
 			readonly ok: false;
-			readonly error: string;
+			readonly error: BoundaryErrorRecord;
 	  };
 
 export type SessionWorkerRecord =
 	| SessionWorkerReady
 	| SessionWorkerEvent
+	| SessionWorkerFailure
 	| SessionWorkerResult;
 
-const invalid = (message: string): never => {
-	throw new Error(message);
+export class SessionWorkerProtocolError extends PlotBoundaryError {
+	override readonly name = "SessionWorkerProtocolError";
+
+	constructor(message: string, phase: "command" | "record") {
+		super({
+			code: "worker_protocol_error",
+			message,
+			retryable: false,
+			context: { phase },
+		});
+	}
+}
+
+const invalidCommand = (message: string): never => {
+	throw new SessionWorkerProtocolError(message, "command");
 };
 
-const nonEmptyString = (value: unknown, label: string): string =>
+const invalidRecord = (message: string): never => {
+	throw new SessionWorkerProtocolError(message, "record");
+};
+
+const nonEmptyString = (
+	value: unknown,
+	label: string,
+	invalid: (message: string) => never,
+): string =>
 	typeof value === "string" && value.length > 0
 		? value
 		: invalid(`${label} must be a non-empty string`);
@@ -92,13 +125,17 @@ export const decodeSessionWorkerCommand = (
 	value: unknown,
 ): SessionWorkerCommand => {
 	if (!isRecord(value) || value["kind"] !== "command")
-		return invalid("invalid Session worker command");
-	const action = nonEmptyString(value["action"], "worker action");
+		return invalidCommand("invalid Session worker command");
+	const action = nonEmptyString(
+		value["action"],
+		"worker action",
+		invalidCommand,
+	);
 	if (!actions.has(action as SessionWorkerAction))
-		return invalid(`unknown Session worker action: ${action}`);
+		return invalidCommand(`unknown Session worker action: ${action}`);
 	return {
 		kind: "command",
-		id: nonEmptyString(value["id"], "worker command id"),
+		id: nonEmptyString(value["id"], "worker command id", invalidCommand),
 		action: action as SessionWorkerAction,
 		input: value["input"],
 	};
@@ -107,23 +144,44 @@ export const decodeSessionWorkerCommand = (
 export const decodeSessionWorkerRecord = (
 	value: unknown,
 ): SessionWorkerRecord => {
-	if (!isRecord(value)) return invalid("invalid Session worker record");
+	if (!isRecord(value)) return invalidRecord("invalid Session worker record");
 	if (value["kind"] === "ready")
 		return {
 			kind: "ready",
-			sessionId: nonEmptyString(value["sessionId"], "sessionId"),
-			workflowName: nonEmptyString(value["workflowName"], "workflowName"),
-			workflowPath: nonEmptyString(value["workflowPath"], "workflowPath"),
-			projectPath: nonEmptyString(value["projectPath"], "projectPath"),
-			historyPath: nonEmptyString(value["historyPath"], "historyPath"),
+			sessionId: nonEmptyString(value["sessionId"], "sessionId", invalidRecord),
+			workflowName: nonEmptyString(
+				value["workflowName"],
+				"workflowName",
+				invalidRecord,
+			),
+			workflowPath: nonEmptyString(
+				value["workflowPath"],
+				"workflowPath",
+				invalidRecord,
+			),
+			projectPath: nonEmptyString(
+				value["projectPath"],
+				"projectPath",
+				invalidRecord,
+			),
+			historyPath: nonEmptyString(
+				value["historyPath"],
+				"historyPath",
+				invalidRecord,
+			),
 		};
 	if (value["kind"] === "event") {
-		if (!isRecord(value["event"])) return invalid("invalid worker event");
+		if (!isRecord(value["event"])) return invalidRecord("invalid worker event");
 		return { kind: "event", event: value["event"] as unknown as RuntimeEvent };
 	}
+	if (value["kind"] === "failure")
+		return {
+			kind: "failure",
+			error: parseBoundaryErrorRecord(value["error"]),
+		};
 	if (value["kind"] !== "result")
-		return invalid("unknown Session worker record");
-	const id = nonEmptyString(value["id"], "worker result id");
+		return invalidRecord("unknown Session worker record");
+	const id = nonEmptyString(value["id"], "worker result id", invalidRecord);
 	if (value["ok"] === true)
 		return { kind: "result", id, ok: true, value: value["value"] };
 	if (value["ok"] === false)
@@ -131,9 +189,9 @@ export const decodeSessionWorkerRecord = (
 			kind: "result",
 			id,
 			ok: false,
-			error: nonEmptyString(value["error"], "worker result error"),
+			error: parseBoundaryErrorRecord(value["error"]),
 		};
-	return invalid("worker result ok must be boolean");
+	return invalidRecord("worker result ok must be boolean");
 };
 
 export const encodeSessionWorkerRecord = (
@@ -141,7 +199,9 @@ export const encodeSessionWorkerRecord = (
 ): string => stringifyJsonl(record, { maxLineBytes: workerMaxLineBytes });
 
 const objectInput = <A>(value: unknown, label: string): A =>
-	isRecord(value) ? (value as A) : invalid(`${label} input must be an object`);
+	isRecord(value)
+		? (value as A)
+		: invalidCommand(`${label} input must be an object`);
 
 const handleCommand = async (
 	host: SessionHost,
@@ -178,7 +238,7 @@ const handleCommand = async (
 			);
 		case "source-action-cancel":
 			return host.runtime.cancelSourceAction(
-				nonEmptyString(command.input, "actionRunId"),
+				nonEmptyString(command.input, "actionRunId", invalidCommand),
 			);
 	}
 };
@@ -191,7 +251,6 @@ export interface ServeSessionWorkerOptions extends CreateSessionHostOptions {
 export const serveSessionWorker = async (
 	options: ServeSessionWorkerOptions,
 ): Promise<void> => {
-	const host = await createSessionHost(options);
 	let writes = Promise.resolve();
 	const write = (record: SessionWorkerRecord): Promise<void> => {
 		writes = writes.then(() =>
@@ -199,6 +258,16 @@ export const serveSessionWorker = async (
 		);
 		return writes;
 	};
+	let host: SessionHost;
+	try {
+		host = await createSessionHost(options);
+	} catch (error) {
+		await write({
+			kind: "failure",
+			error: toBoundaryErrorRecord(error, "session-worker-startup"),
+		});
+		return;
+	}
 	const state = await host.runtime.state();
 	if (state.sessionFile === undefined)
 		throw new Error("Session worker requires durable history");
@@ -228,7 +297,7 @@ export const serveSessionWorker = async (
 					kind: "result",
 					id: "invalid",
 					ok: false,
-					error: errorMessage(error),
+					error: toBoundaryErrorRecord(error, "session-worker-command"),
 				});
 				continue;
 			}
@@ -240,7 +309,7 @@ export const serveSessionWorker = async (
 					kind: "result",
 					id: command.id,
 					ok: false,
-					error: errorMessage(error),
+					error: toBoundaryErrorRecord(error, "session-worker-runtime"),
 				});
 			}
 			if (command.action === "shutdown") break;

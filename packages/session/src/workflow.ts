@@ -1,19 +1,27 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { PlotBoundaryError } from "@plot/common/boundary-error";
 import { errorMessage } from "@plot/common/primitives";
 
-export class WorkflowBoundaryError extends Error {
+export class WorkflowBoundaryError extends PlotBoundaryError {
 	override readonly name = "WorkflowBoundaryError";
-	readonly phase: "read" | "parse";
+	readonly phase: "read" | "parse" | "prepare";
 	readonly path?: string | undefined;
 
 	constructor(input: {
-		readonly phase: "read" | "parse";
+		readonly phase: "read" | "parse" | "prepare";
 		readonly message: string;
 		readonly path?: string | undefined;
 	}) {
-		super(input.message);
+		const context: Record<string, string> = { phase: input.phase };
+		if (input.path !== undefined) context["path"] = input.path;
+		super({
+			code: "workflow_invalid",
+			message: input.message,
+			retryable: false,
+			context,
+		});
 		this.phase = input.phase;
 		this.path = input.path;
 	}

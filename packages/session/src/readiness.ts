@@ -9,49 +9,10 @@ import {
 } from "./extension-source.js";
 import { loadPlotExtensionRuntimeFromWorkflow } from "./extension-loader.js";
 
-export class ExtensionSetupRequiredError extends Error {
-	override readonly name = "ExtensionSetupRequiredError";
-	readonly source: SourceRecord;
-
-	constructor(source: SourceRecord) {
-		const requirements = source.requirements
-			.filter((requirement) => requirement.status === "action-required")
-			.map((requirement) => requirement.label)
-			.join(", ");
-		super(`extension ${source.label} requires setup: ${requirements}`);
-		this.source = source;
-	}
-}
-
-export interface InspectWorkflowReadinessOptions {
+export interface RunWorkflowExtensionActionOptions {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
 	readonly signal?: AbortSignal;
-}
-
-/** Loads an extension and runs only its cheap, local requirement checks. */
-export const inspectWorkflowExtensionReadiness = async (
-	options: InspectWorkflowReadinessOptions,
-): Promise<SourceRecord> => {
-	const loaded = await loadPlotExtensionRuntimeFromWorkflow(options);
-	const controller =
-		options.signal === undefined ? new AbortController() : undefined;
-	const signal = options.signal ?? controller!.signal;
-	try {
-		return await checkRequirements({
-			sourceId: sourceIdForExtension(loaded.extension),
-			label: loaded.extension.label ?? loaded.extension.id,
-			requirements: extensionRequirements(loaded.runtime),
-			credentials: loaded.credentials,
-			signal,
-		});
-	} finally {
-		controller?.abort();
-		await loaded.runtime.shutdown?.({ signal });
-	}
-};
-
-export interface RunWorkflowExtensionActionOptions extends InspectWorkflowReadinessOptions {
 	readonly requirementId: string;
 	readonly actionId: string;
 	readonly interaction: ExtensionInteraction;

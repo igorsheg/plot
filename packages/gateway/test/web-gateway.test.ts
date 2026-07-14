@@ -8,6 +8,7 @@ const session: SessionSummary = {
 	workflowKey: "/repo/WORKFLOW.md",
 	workflowName: "review-acme",
 	workflowPath: "/repo/WORKFLOW.md",
+	workflowAliases: ["/repo/WORKFLOW.md"],
 	projectPath: "/repo",
 	state: "online",
 	createdAt: "2026-01-01T00:00:00.000Z",

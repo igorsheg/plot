@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
+import { createWriteStream } from "node:fs";
 import { runPlotCli } from "./cli.js";
 import { serveSessionWorker } from "@plot/session/worker";
 import { runSessionManagerDaemon } from "@plot/session-manager/ipc";
-import { resolvePlotCommand } from "./plot-command.js";
+import { plotProcessIdentity, resolvePlotCommand } from "./plot-command.js";
 
 const args = process.argv.slice(2);
 
@@ -22,6 +23,10 @@ const runInternal = (): Promise<void> | undefined => {
 			workflowPath === undefined
 		)
 			throw new Error("invalid Session worker invocation");
+		const protocol = createWriteStream("plot-worker-protocol", {
+			fd: 3,
+			autoClose: false,
+		});
 		return serveSessionWorker({
 			cwd,
 			sessionId,
@@ -29,29 +34,38 @@ const runInternal = (): Promise<void> | undefined => {
 			stdin: process.stdin,
 			writeLine: (line) =>
 				new Promise<void>((resolve, reject) => {
-					process.stdout.write(line, (error) => {
+					protocol.write(line, (error) => {
 						if (error) reject(error);
 						else resolve();
 					});
 				}),
-		});
+		}).finally(() => protocol.end());
 	}
 	if (args[0] === "__internal-session-manager") {
 		const managerDir = valueAfter("--manager-dir");
+		const cli = resolvePlotCommand();
+		const identity = plotProcessIdentity(cli);
 		return runSessionManagerDaemon(
 			managerDir === undefined
-				? { cli: resolvePlotCommand() }
-				: { cli: resolvePlotCommand(), managerDir },
+				? { cli, identity }
+				: { cli, identity, managerDir },
 		);
 	}
 	return undefined;
 };
 
-const run = runInternal() ?? runPlotCli(args);
-run.catch((error) => {
-	if (error === null || error === undefined) return;
-	process.stderr.write(
-		`${error instanceof Error ? error.message : String(error)}\n`,
-	);
-	process.exitCode = 1;
-});
+const internal = runInternal();
+if (internal === undefined) {
+	void runPlotCli(args).then((code) => {
+		process.exitCode = code;
+		return undefined;
+	});
+} else {
+	void internal.catch((error) => {
+		if (error === null || error === undefined) return;
+		process.stderr.write(
+			`${error instanceof Error ? error.message : String(error)}\n`,
+		);
+		process.exitCode = 1;
+	});
+}

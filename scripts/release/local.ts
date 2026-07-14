@@ -97,15 +97,49 @@ async function createIsolatedInstall(
 	}
 
 	createPlotShim(installDir);
-	const help = await $`node ${join(installDir, "plot")} --help`
-		.cwd(installDir)
-		.quiet();
-	if (!help.stdout.toString().includes(`plot v${options.version}`)) {
+	const runPlot = (args: readonly string[]) => {
+		const result = Bun.spawnSync({
+			cmd: ["node", join(installDir, "plot"), ...args],
+			cwd: installDir,
+			env: { ...process.env, HOME: join(installDir, "home") },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		return {
+			exitCode: result.exitCode,
+			stdout: result.stdout.toString(),
+			stderr: result.stderr.toString(),
+		};
+	};
+	const help = runPlot(["--help"]);
+	if (!help.stdout.includes(`plot v${options.version}`))
 		throw new Error(
 			`${manager} install printed the wrong Plot version; expected ${options.version}`,
 		);
+	const printedVersion = runPlot(["--version"]);
+	if (
+		printedVersion.exitCode !== 0 ||
+		printedVersion.stdout !== `${options.version}\n`
+	)
+		throw new Error(
+			`${manager} install failed plot --version: ${printedVersion.stderr}`,
+		);
+	for (const [args, message] of [
+		[["wat"], "Unknown command: wat"],
+		[["docs", "wat"], "Unknown docs topic: wat"],
+	] as const) {
+		const result = runPlot(args);
+		if (
+			result.exitCode !== 2 ||
+			result.stdout !== "" ||
+			result.stderr !== `Error: ${message}\n`
+		)
+			throw new Error(
+				`${manager} install violated CLI failure contract for ${args.join(" ")}`,
+			);
 	}
-	await $`node ${join(installDir, "plot")} docs quickstart`.cwd(installDir);
+	const docs = runPlot(["docs", "quickstart"]);
+	if (docs.exitCode !== 0) throw new Error(docs.stderr);
 	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
 		installDir,
 	);

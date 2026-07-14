@@ -38,7 +38,7 @@ Already running review-acme
 
 ### `plot stop [workflow]`
 
-Stop by Workflow, not by an internal process or Session identifier. Stopping an inactive Workflow succeeds with an informational message.
+Stop by Workflow, not by an internal process or Session identifier. Stopping an inactive Workflow succeeds with an informational message. Stop does not require the Workflow file to still exist, so its active Session remains stoppable after the original file is removed.
 
 ### `plot web`
 
@@ -96,10 +96,15 @@ plot docs --paths
 
 Plot does not expose commands for process registries, raw event streams, Session protocol methods, daemons, arbitrary settings, or caller-chosen Session IDs. Worker IPC, RuntimeEvents, and browser routes are private implementation details used by Plot's own dashboards.
 
-Help routing:
+## Shell contract
 
 ```bash
+plot --version
 plot --help
 plot help <command>
 plot <command> --help
 ```
+
+Help and version are pure: they do not inspect a Workflow or connect to the Session Manager. Success exits `0`, an invalid invocation exits `2`, and an operational failure exits `1`. Diagnostics are written once to stderr.
+
+Known command names select commands. Other path-like first arguments select a Workflow. Use `plot -- <workflow>` to explicitly select an unusual bare Workflow path.

@@ -3,13 +3,17 @@
 import { $ } from "bun";
 import {
 	chmodSync,
+	copyFileSync,
 	cpSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { dirname, join, normalize, relative, sep } from "node:path";
 import {
 	cliEntrypoint,
 	cliTsconfig,
@@ -141,21 +145,89 @@ async function buildUmbrellaPackage() {
 	await $`npm pack`.cwd(packageDir);
 }
 
+interface DocsManifest {
+	readonly navigation: readonly {
+		readonly items: readonly { readonly path: string }[];
+	}[];
+}
+
+function safeRelativePath(path: string, root: string): string {
+	const normalized = normalize(path);
+	if (
+		normalized === "" ||
+		normalized === "." ||
+		normalized.startsWith(`..${sep}`) ||
+		normalized === ".." ||
+		normalized.startsWith(sep)
+	)
+		throw new Error(`unsafe ${root} release path: ${path}`);
+	return normalized;
+}
+
+function copyRegularFile(source: string, destination: string): void {
+	const stat = lstatSync(source);
+	if (stat.isSymbolicLink())
+		throw new Error(`release file is a symlink: ${source}`);
+	if (!stat.isFile()) throw new Error(`release entry is not a file: ${source}`);
+	mkdirSync(dirname(destination), { recursive: true });
+	copyFileSync(source, destination);
+}
+
 function copyDocs(packageDir: string) {
-	cpSync(join(repoDir, "docs"), join(packageDir, "docs"), {
-		recursive: true,
-		filter: (source) => basename(source) !== "nuclear-refactor.md",
-	});
+	const docsDir = join(repoDir, "docs");
+	const manifestPath = join(docsDir, "docs.json");
+	const manifest = JSON.parse(
+		readFileSync(manifestPath, "utf8"),
+	) as DocsManifest;
+	const files = new Set(["docs.json"]);
+	for (const group of manifest.navigation)
+		for (const item of group.items)
+			files.add(safeRelativePath(item.path, "docs"));
+	for (const file of files)
+		copyRegularFile(join(docsDir, file), join(packageDir, "docs", file));
+}
+
+function forbiddenExample(path: string): boolean {
+	const parts = path.split(/[\\/]/);
+	const name = parts.at(-1)?.toLowerCase() ?? "";
+	return (
+		parts.some((part) =>
+			new Set([".plot", "node_modules", ".git", ".hg", ".svn"]).has(part),
+		) ||
+		name === ".env" ||
+		name.startsWith(".env.") ||
+		name === ".dev.vars" ||
+		name.startsWith(".dev.vars.") ||
+		name.endsWith(".pem") ||
+		name.endsWith(".key") ||
+		name.endsWith(".p12") ||
+		name.endsWith(".pfx") ||
+		name.endsWith(".crt") ||
+		name.endsWith(".cer") ||
+		name.endsWith(".swp") ||
+		name.endsWith(".swo")
+	);
 }
 
 function copyExamples(packageDir: string) {
-	cpSync(join(repoDir, "examples"), join(packageDir, "examples"), {
-		recursive: true,
-		filter: (source) => {
-			const name = basename(source);
-			return name !== "node_modules" && name !== ".plot";
-		},
+	const output = execFileSync("git", ["ls-files", "-z", "--", "examples"], {
+		cwd: repoDir,
+		encoding: "utf8",
 	});
+	const files = output.split("\0").filter((file) => file.length > 0);
+	if (files.length === 0) throw new Error("release has no tracked examples");
+	for (const tracked of files) {
+		const relativePath = safeRelativePath(
+			relative("examples", tracked),
+			"example",
+		);
+		if (forbiddenExample(relativePath))
+			throw new Error(`forbidden tracked example file: ${tracked}`);
+		copyRegularFile(
+			join(repoDir, tracked),
+			join(packageDir, "examples", relativePath),
+		);
+	}
 }
 
 // The declarations double as the printed `plot docs sdk` reference, so the
