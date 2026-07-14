@@ -4,7 +4,9 @@ import {
 	activeSessions,
 	pastSessions,
 	selectedSessionFrom,
+	workflowTabSessions,
 } from "../src/app/sessions-store.js";
+import { nextLayoutMode, parseStoredLayout } from "../src/app/layout-store.js";
 import { shouldAcceptProjectionBaseline } from "../src/app/projection-store.js";
 import { reduceSerializedProjection } from "../src/data/projection-client.js";
 import { sessionEventsUrl, sessionProjectionUrl } from "../src/data/routes.js";
@@ -99,6 +101,34 @@ test("past runs keep stopped sessions, most-recently-seen first", () => {
 		"recent",
 		"old",
 	]);
+});
+
+test("board tabs represent Workflows rather than layouts or Session history", () => {
+	const review = session("review-live", "online", { workflowKey: "review" });
+	const release = session("release-live", "online", { workflowKey: "release" });
+	const oldReview = session("review-old", "stopped", {
+		workflowKey: "review",
+	});
+	const archived = session("archived", "stopped", {
+		workflowKey: "archived",
+	});
+
+	expect(workflowTabSessions([review, release], oldReview)).toEqual([
+		review,
+		release,
+	]);
+	expect(workflowTabSessions([review, release], archived)).toEqual([
+		review,
+		release,
+		archived,
+	]);
+});
+
+test("layout preference is a separate river/board toggle", () => {
+	expect(parseStoredLayout("board")).toBe("board");
+	expect(parseStoredLayout("unknown")).toBe("river");
+	expect(nextLayoutMode("river")).toBe("board");
+	expect(nextLayoutMode("board")).toBe("river");
 });
 
 test("projection fetch key is stable and event stream resumes after a projection frontier", () => {

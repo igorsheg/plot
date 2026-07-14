@@ -7,6 +7,7 @@ import { fetchAttemptTranscript, parseTranscript } from "../src/data/api.js";
 import { $selectedProjection } from "../src/app/projection-store.js";
 import {
 	buildAttention,
+	buildBoardColumns,
 	buildMotion,
 	buildSettled,
 	decisionCount,
@@ -668,6 +669,42 @@ test("decisionCount counts only decisions", () => {
 		}),
 	);
 	expect(decisionCount(attention)).toBe(1);
+});
+
+test("buildBoardColumns splits motion by kind and passes attention/settled through", () => {
+	const p = projection({
+		work: {
+			run: work("run", { status: "running", currentRunId: "r" }),
+			queuedItem: work("a-queued", { status: "pending" }),
+			heldItem: work("b-held", { status: "waiting", blockedReason: "held" }),
+			pick: work("pick", { status: "blocked", blockedReason: "why" }),
+		},
+		attempts: { r: attempt("r", "run", { startedAtMs: 1_000 }) },
+		completed: [
+			{
+				workKey: "done",
+				runId: "rd",
+				label: "done",
+				status: "succeeded",
+				message: "m",
+				atMs: 10,
+			},
+		],
+	});
+	const attention = buildAttention(p);
+	const motion = buildMotion(p);
+	const settled = buildSettled(p);
+	const columns = buildBoardColumns(motion, attention, settled);
+
+	// Attention and settled pass through untouched.
+	expect(columns.attention).toBe(attention);
+	expect(columns.settled).toBe(settled);
+	// Active alone; queued + held merged in their motion order.
+	expect(columns.active.map((item) => item.key)).toEqual(["run"]);
+	expect(columns.queued.map((item) => [item.kind, item.key])).toEqual([
+		["queued", "a-queued"],
+		["held", "b-held"],
+	]);
 });
 
 test("verifyingLine prefixes without doubling", () => {

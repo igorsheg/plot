@@ -298,6 +298,34 @@ export const buildSettled = (
 		durationMs: item.durationMs,
 	}));
 
+/**
+ * The board's four salience columns, mirroring the river's vocabulary: attention
+ * (decisions, failures, diagnostics, sources), active motion, queued/held motion,
+ * and settled history. Composed from the already-built river lists — the motion
+ * list is split by kind (active alone, queued + held together in their existing
+ * relative order); attention and settled pass through untouched.
+ */
+export interface BoardColumns {
+	readonly attention: readonly AttentionItem[];
+	readonly active: readonly Extract<MotionItem, { kind: "active" }>[];
+	readonly queued: readonly Extract<MotionItem, { kind: "queued" | "held" }>[];
+	readonly settled: readonly SettledItem[];
+}
+
+export const buildBoardColumns = (
+	motion: readonly MotionItem[],
+	attention: readonly AttentionItem[],
+	settled: readonly SettledItem[],
+): BoardColumns => {
+	const active: Extract<MotionItem, { kind: "active" }>[] = [];
+	const queued: Extract<MotionItem, { kind: "queued" | "held" }>[] = [];
+	for (const item of motion) {
+		if (item.kind === "active") active.push(item);
+		else queued.push(item);
+	}
+	return { attention, active, queued, settled };
+};
+
 /** Count of decisions in the attention list — dense at 3+. */
 export const decisionCount = (attention: readonly AttentionItem[]): number =>
 	attention.filter((item) => item.kind === "decision").length;

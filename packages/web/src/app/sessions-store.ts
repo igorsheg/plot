@@ -32,6 +32,15 @@ export const pastSessions = (
 		)
 		.toSorted((a, b) => updatedMs(b) - updatedMs(a));
 
+/** One board tab per active Workflow, plus a selected historical-only Workflow. */
+export const workflowTabSessions = (
+	active: readonly SessionSummary[],
+	selected: SessionSummary,
+): readonly SessionSummary[] =>
+	active.some((session) => session.workflowKey === selected.workflowKey)
+		? active
+		: [...active, selected];
+
 export const $selectedSessionId = atom<string | undefined>(undefined);
 
 export const $sessionsQuery = createFetcherStore<readonly SessionSummary[]>(
@@ -50,6 +59,19 @@ export const $selectedSession = computed(
 	selectedSessionFrom,
 );
 
+export const $workflowTabSessions = computed(
+	[$activeSessions, $selectedSession],
+	(active, selected) =>
+		selected === undefined ? [] : workflowTabSessions(active, selected),
+);
+
 export const selectSession = (id: string): void => {
 	$selectedSessionId.set(id);
+};
+
+export const selectWorkflow = (workflowKey: string): void => {
+	const session = $workflowTabSessions
+		.get()
+		.find((item) => item.workflowKey === workflowKey);
+	if (session !== undefined) selectSession(session.id);
 };

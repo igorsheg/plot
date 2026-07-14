@@ -4,7 +4,7 @@ import { Text } from "../ui/text.js";
 import { StateIcon } from "./atoms.js";
 
 const meta = {
-	title: "Foundations/State Icon",
+	title: "Foundations/Work states",
 	parameters: { layout: "padded" },
 } satisfies Meta;
 

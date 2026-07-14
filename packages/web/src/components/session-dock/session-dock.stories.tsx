@@ -15,7 +15,7 @@ import type { DockLineItem } from "./view-model.js";
  * `DEFAULT_DOCK_MOTION` in motion.ts.
  */
 const meta = {
-	title: "Session/Dock",
+	title: "Components/Session dock",
 	parameters: { layout: "fullscreen" },
 	args: DEFAULT_DOCK_MOTION,
 	argTypes: {
