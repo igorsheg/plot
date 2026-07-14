@@ -25,6 +25,11 @@ export interface PlotAgent {
 	shutdown: () => Promise<boolean>;
 }
 export const PlotAgent = Symbol("PlotAgent");
+export interface PlotAgentClock {
+	readonly now: () => number;
+	readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
 export interface PlotAgentOptions {
 	sources: WorkSource[];
 	runner: WorkRunner;
@@ -37,6 +42,8 @@ export interface PlotAgentOptions {
 	maxRunDurationMs?: number;
 	/** Interrupt a run after this much time with no emitted observations. */
 	stallTimeoutMs?: number;
+	/** Test seam for scheduler time; production uses wall-clock time. */
+	clock?: PlotAgentClock;
 }
 
 export const makePlotAgent = (options: PlotAgentOptions): PlotAgent =>

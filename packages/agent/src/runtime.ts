@@ -95,7 +95,9 @@ const waitForAbort = (signal: AbortSignal) => {
 export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 	const sources = options.sources,
 		runner = options.runner,
-		policy = options.policy ?? {};
+		policy = options.policy ?? {},
+		now = options.clock?.now ?? Date.now,
+		sleepFor = options.clock?.sleep ?? sleep;
 	const sourceIds = new Set<string>();
 	for (const source of sources) {
 		if (sourceIds.has(source.id))
@@ -138,7 +140,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 		}),
 	);
 	let state = startingState,
-		snapshotCache = snapshotFrom(startingState),
+		snapshotCache = snapshotFrom(startingState, now()),
 		lifecycle: AgentLifecycle = "new",
 		dispatchPaused = false,
 		activeTickToken: number | undefined,
@@ -152,40 +154,70 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 		events = new EventHub<PlotAgentEvent>(eventCapacity),
 		runHandles = new Map<string, RunHandle>(),
 		timers = new Set<AbortController>(),
-		stallTimers = new Map<string, AbortController>(),
+		stallTimers = new Map<
+			string,
+			{ readonly controller: AbortController; readonly dueAtMs: number }
+		>(),
 		// Last emitObservation per active run; drives stall detection.
 		lastActivityAt = new Map<string, number>();
 	const stoppingOrStopped = () =>
 		lifecycle === "stopping" || lifecycle === "stopped";
+	const snapshot = (s: RuntimeState = state) => snapshotFrom(s, now());
 	const publishSnapshot = (s: RuntimeState) => {
-		snapshotCache = snapshotFrom(s);
+		snapshotCache = snapshot(s);
 	};
 	const publishEvent = (event: PlotAgentEvent) => events.publish(event);
 	// Control messages must never be dropped: a lost run_completed would leave
 	// a run claimed forever. Only observations are subject to the queue bound.
 	const offerControl = (message: InternalMessage) =>
 		mailbox.offer(message, { force: true });
-	const timer = (delayMs: number, message: InternalMessage) => {
+	const timer = (
+		delayMs: number,
+		message: InternalMessage,
+		onFire?: () => void,
+	) => {
 		if (stoppingOrStopped()) return new AbortController();
 		const c = new AbortController();
 		timers.add(c);
-		void sleep(delayMs, c.signal).then(() => {
+		void sleepFor(delayMs, c.signal).then(() => {
 			timers.delete(c);
-			if (!c.signal.aborted && !stoppingOrStopped())
+			if (!c.signal.aborted && !stoppingOrStopped()) {
+				onFire?.();
 				return offerControl(message);
+			}
 			return false;
 		});
 		return c;
 	};
 	const clearStallTimer = (run: WorkRun) => {
 		const stallTimer = stallTimers.get(run.runId);
-		if (stallTimer) stallTimer.abort();
+		if (stallTimer) stallTimer.controller.abort();
 		stallTimers.delete(run.runId);
 	};
-	const scheduleStallTimer = (run: WorkRun) => {
+	const scheduleStallTimer = (run: WorkRun, delayMs?: number) => {
 		if (stallTimeoutMs === undefined) return;
 		clearStallTimer(run);
-		stallTimers.set(run.runId, timer(stallTimeoutMs + 1, { type: "wake" }));
+		const safeDelayMs = positive(delayMs, stallTimeoutMs, "stallTimerDelayMs");
+		const dueAtMs = now() + safeDelayMs;
+		let controller!: AbortController;
+		controller = timer(safeDelayMs, { type: "wake" }, () => {
+			const existing = stallTimers.get(run.runId);
+			if (existing?.controller === controller) stallTimers.delete(run.runId);
+		});
+		stallTimers.set(run.runId, { controller, dueAtMs });
+	};
+	const ensureStallTimer = (run: WorkRun, delayMs: number) => {
+		if (stallTimeoutMs === undefined) return;
+		const safeDelayMs = Math.max(1, delayMs);
+		const dueAtMs = now() + safeDelayMs;
+		const existing = stallTimers.get(run.runId);
+		if (
+			existing !== undefined &&
+			!existing.controller.signal.aborted &&
+			existing.dueAtMs <= dueAtMs
+		)
+			return;
+		scheduleStallTimer(run, safeDelayMs);
 	};
 	const interruptRunHandles = (runs: WorkRun[]) => {
 		for (const run of runs) {
@@ -198,7 +230,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 	const abortTimers = () => {
 		for (const c of timers) c.abort();
 		timers.clear();
-		for (const c of stallTimers.values()) c.abort();
+		for (const c of stallTimers.values()) c.controller.abort();
 		stallTimers.clear();
 		activeTickToken = undefined;
 	};
@@ -312,10 +344,10 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 		runSnapshot: RuntimeSnapshot,
 		signal: AbortSignal,
 	) => {
-		const startedAt = Date.now();
+		const startedAt = now();
 		const reportActivity = () => {
 			if (signal.aborted || stoppingOrStopped()) return;
-			lastActivityAt.set(run.runId, Date.now());
+			lastActivityAt.set(run.runId, now());
 			scheduleStallTimer(run);
 		};
 		const emitObservation = async (observation: Observation) => {
@@ -334,7 +366,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 					selection.source.continueWork!({
 						sourceId: selection.source.id,
 						tickId: runSnapshot.tickId,
-						snapshot: snapshotFrom(state),
+						snapshot: snapshot(),
 						signal,
 						run,
 						work: selection.work,
@@ -366,7 +398,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 				run_id: run.runId,
 				work_key: run.workKey,
 				tick_id: runSnapshot.tickId,
-				duration_ms: Date.now() - startedAt,
+				duration_ms: now() - startedAt,
 			});
 			offerControl({ type: "run_completed", run, completion });
 		} catch (error) {
@@ -388,7 +420,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 					run_id: run.runId,
 					work_key: run.workKey,
 					tick_id: runSnapshot.tickId,
-					duration_ms: Date.now() - startedAt,
+					duration_ms: now() - startedAt,
 				},
 				"error",
 			);
@@ -418,7 +450,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 				skipped: [],
 				completions: input.completions ?? [],
 				diagnostics: input.diagnostics ?? [],
-				snapshot: snapshotFrom(state),
+				snapshot: snapshot(),
 			});
 			try {
 				const drained = drainMessages([...initialMessages, ...mailbox.drain()]);
@@ -430,21 +462,29 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 						result: noDispatchResult(state.tickId),
 					};
 				}
-				const now = Date.now();
-				const stalledRuns: TimedOutRun[] =
-					stallTimeoutMs === undefined
-						? []
-						: [...state.running.values()]
-								.filter(
-									(run) =>
-										now - (lastActivityAt.get(run.runId) ?? now) >
-										stallTimeoutMs,
-								)
-								.map((run) => ({
-									run,
-									error: `work run stalled; no activity for ${stallTimeoutMs}ms`,
-								}));
-				const began = beginTick(state, drained, stalledRuns, historyLimit);
+				const tickStartedAt = now();
+				const stalledRuns: TimedOutRun[] = [];
+				if (stallTimeoutMs !== undefined) {
+					for (const run of state.running.values()) {
+						const lastActivity = lastActivityAt.get(run.runId) ?? tickStartedAt;
+						const elapsedMs = tickStartedAt - lastActivity;
+						if (elapsedMs >= stallTimeoutMs) {
+							stalledRuns.push({
+								run,
+								error: `work run stalled; no activity for ${stallTimeoutMs}ms`,
+							});
+						} else {
+							ensureStallTimer(run, stallTimeoutMs - elapsedMs);
+						}
+					}
+				}
+				const began = beginTick(
+					state,
+					drained,
+					stalledRuns,
+					historyLimit,
+					tickStartedAt,
+				);
 				state = began.state;
 				const tickId = state.tickId;
 				publishEvent({ type: "tick_started", tickId });
@@ -465,7 +505,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 										source.observeTick!({
 											sourceId: source.id,
 											tickId,
-											snapshot: snapshotFrom(state),
+											snapshot: snapshot(),
 											signal,
 										})
 								: undefined,
@@ -505,7 +545,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 										source.reconcile!({
 											sourceId: source.id,
 											tickId,
-											snapshot: snapshotFrom(state),
+											snapshot: snapshot(),
 											signal,
 										})
 								: undefined,
@@ -539,6 +579,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 					proposals,
 					reconcileDiagnostics,
 					historyLimit,
+					now(),
 				);
 				for (const proposal of proposals) {
 					if (proposal.type === "upsert_source") {
@@ -579,7 +620,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 					clearStallTimer(run);
 				}
 				const policyDiagnostics: Diagnostic[] = policy.validate
-					? await Promise.resolve(policy.validate(snapshotFrom(state))).catch(
+					? await Promise.resolve(policy.validate(snapshot())).catch(
 							(error: unknown) => [
 								{
 									level: "error" as const,
@@ -619,7 +660,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 										source.selectWork!({
 											sourceId: source.id,
 											tickId,
-											snapshot: snapshotFrom(state),
+											snapshot: snapshot(),
 											signal,
 										})
 								: undefined,
@@ -663,10 +704,10 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 					interrupted.interruptedKeys,
 				);
 				state = startedResult.state;
-				const runSnapshot = snapshotFrom(state);
+				const runSnapshot = snapshot();
 				for (const { run, selection } of startedResult.started) {
 					publishEvent({ type: "attempt_started", run });
-					lastActivityAt.set(run.runId, Date.now());
+					lastActivityAt.set(run.runId, now());
 					scheduleStallTimer(run);
 					const runController = new AbortController();
 					runHandles.set(run.workKey, { run, controller: runController });
@@ -696,7 +737,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 						...policyDiagnostics,
 						...selectDiagnostics,
 					],
-					snapshot: snapshotFrom(state),
+					snapshot: snapshot(),
 				};
 				publishEvent({ type: "tick_completed", result });
 				return { shutdownRequested: false, result };
@@ -808,7 +849,7 @@ export const makePlotAgentRuntime = (options: PlotAgentOptions): PlotAgent => {
 			if (stoppingOrStopped()) return;
 			const safeDelay = positive(delayMs, 1, "delayMs");
 			const wake: ScheduledWake = {
-				dueAtMs: Date.now() + safeDelay,
+				dueAtMs: now() + safeDelay,
 				delayMs: safeDelay,
 			};
 			if (reason !== undefined) wake.reason = reason;

@@ -148,7 +148,10 @@ export const pendingWorkRecord = (record: WorkRecord): WorkRecord =>
 		status: "pending",
 		currentRunId: undefined,
 	}) as unknown as WorkRecord;
-export const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
+export const snapshotFrom = (
+	state: RuntimeState,
+	now = Date.now(),
+): RuntimeSnapshot => ({
 	tickId: state.tickId,
 	facts: new Map(state.facts),
 	observations: [...state.observations],
@@ -157,9 +160,7 @@ export const snapshotFrom = (state: RuntimeState): RuntimeSnapshot => ({
 	sources: new Map(state.sources),
 	work: new Map(state.work),
 	running: new Map(state.running),
-	scheduledWakes: state.scheduledWakes.filter(
-		(wake) => wake.dueAtMs > Date.now(),
-	),
+	scheduledWakes: state.scheduledWakes.filter((wake) => wake.dueAtMs > now),
 });
 export const drainMessages = (messages: InternalMessage[]): DrainedMessages => {
 	const observations: Observation[] = [],
@@ -267,6 +268,7 @@ export const beginTick = (
 	drained: DrainedMessages,
 	stalledRuns: TimedOutRun[],
 	historyLimit: number,
+	now = Date.now(),
 ) => {
 	const running = new Map(state.running),
 		work = new Map(state.work),
@@ -333,7 +335,6 @@ export const beginTick = (
 		if (record?.currentRunId !== completion.runId) continue;
 		work.set(completion.workKey, pendingWorkRecord(record));
 	}
-	const now = Date.now();
 	const next = boundStateHistory(
 		{
 			...state,
@@ -399,8 +400,8 @@ export const applyReconciled = (
 	proposals: ReconcileProposal[],
 	diagnostics: Diagnostic[],
 	historyLimit: number,
+	now = Date.now(),
 ): RuntimeState => {
-	const now = Date.now();
 	const scheduledWakes = [
 		...state.scheduledWakes.filter((wake) => wake.dueAtMs > now),
 		...proposals

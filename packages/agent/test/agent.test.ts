@@ -19,6 +19,67 @@ const deferred = <A>() => {
 };
 const yieldNow = () => new Promise((resolve) => setTimeout(resolve, 0));
 const never = <A>() => new Promise<A>(() => {});
+
+interface ManualSleeper {
+	dueAt: number;
+	resolve: () => void;
+	signal?: AbortSignal;
+	abort?: () => void;
+}
+
+class ManualClock {
+	private ms = 0;
+	private sleepers: ManualSleeper[] = [];
+
+	readonly now = () => this.ms;
+
+	readonly sleep = (delayMs: number, signal?: AbortSignal): Promise<void> =>
+		new Promise<void>((resolve) => {
+			if (signal?.aborted) {
+				resolve();
+				return;
+			}
+			let settled = false;
+			let sleeper!: ManualSleeper;
+			const finish = () => {
+				if (settled) return;
+				settled = true;
+				this.sleepers = this.sleepers.filter((item) => item !== sleeper);
+				if (sleeper.signal !== undefined && sleeper.abort !== undefined)
+					sleeper.signal.removeEventListener("abort", sleeper.abort);
+				resolve();
+			};
+			sleeper = { dueAt: this.ms + delayMs, resolve: finish };
+			if (signal !== undefined) {
+				sleeper.signal = signal;
+				sleeper.abort = finish;
+				signal.addEventListener("abort", finish, { once: true });
+			}
+			this.sleepers.push(sleeper);
+			this.flush();
+		});
+
+	advance(ms: number): void {
+		this.ms += ms;
+		this.flush();
+	}
+
+	resolveNext(): void {
+		const next = this.sleepers.toSorted(
+			(left, right) => left.dueAt - right.dueAt,
+		)[0];
+		if (next === undefined) throw new Error("manual clock has no sleepers");
+		next.resolve();
+	}
+
+	private flush(): void {
+		for (;;) {
+			const ready = this.sleepers.filter((sleeper) => sleeper.dueAt <= this.ms);
+			if (ready.length === 0) return;
+			for (const sleeper of ready) sleeper.resolve();
+		}
+	}
+}
 const waitForEvent = async <A>(
 	iterable: AsyncIterable<A>,
 	predicate: (item: A) => boolean,
@@ -35,6 +96,7 @@ const waitForEvent = async <A>(
 			}
 			throw new Error("event stream ended before matching event");
 		})();
+		void nextMatching.catch(() => undefined);
 		const timedOut = new Promise<never>((_, reject) => {
 			timeout = setTimeout(
 				() => reject(new Error("timed out waiting for matching event")),
@@ -44,7 +106,7 @@ const waitForEvent = async <A>(
 		return await Promise.race([nextMatching, timedOut]);
 	} finally {
 		if (timeout) clearTimeout(timeout);
-		await iterator.return?.();
+		void Promise.resolve(iterator.return?.()).catch(() => undefined);
 	}
 };
 const collectN = async <A>(iterable: AsyncIterable<A>, n: number) => {
@@ -814,6 +876,7 @@ describe("task-agnostic Plot agent", () => {
 	});
 
 	test("stall timeout wakes the actor instead of waiting for poll cadence", async () => {
+		const clock = new ManualClock();
 		const key = "stall-wake:1";
 		const source: WorkSource = {
 			id: "stall-wake",
@@ -824,9 +887,14 @@ describe("task-agnostic Plot agent", () => {
 			[source],
 			{ run: () => never() },
 			{
+				clock,
 				stallTimeoutMs: 5,
 				tickIntervalMs: 60_000,
 			},
+		);
+		const started = waitForEvent(
+			agent.events(),
+			(event) => event.type === "attempt_started" && event.run.workKey === key,
 		);
 		const completed = waitForEvent(
 			agent.events(),
@@ -834,6 +902,20 @@ describe("task-agnostic Plot agent", () => {
 				event.type === "attempt_completed" && event.completion.workKey === key,
 		);
 		await agent.start();
+		await started;
+		const earlyWake = waitForEvent(
+			agent.events(),
+			(event) => event.type === "tick_completed" && event.result.tickId > 1,
+		);
+		clock.advance(4);
+		clock.resolveNext();
+		await expect(earlyWake).resolves.toEqual(
+			expect.objectContaining({
+				type: "tick_completed",
+				result: expect.objectContaining({ completions: [] }),
+			}),
+		);
+		clock.advance(1);
 		const event = await completed;
 		await agent.shutdown();
 		expect(event).toEqual(
