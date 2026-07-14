@@ -228,7 +228,7 @@ const defineManagerContract = (name: string, connect: ConnectManager) => {
 					cwd: "/repo",
 					workflowPath: "/repo/WORKFLOW.md",
 				});
-				await Bun.sleep(1);
+				await waitFor(async () => worker !== undefined);
 				const stopping = harness.manager.stop("/repo/WORKFLOW.md");
 				worker.ready();
 				expect((await starting).started).toBe(true);
