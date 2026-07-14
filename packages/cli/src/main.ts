@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
-import { createWriteStream } from "node:fs";
 import { runPlotCli } from "./cli.js";
-import { serveSessionWorker } from "@plot/session/worker";
 import { runSessionManagerDaemon } from "@plot/session-manager/ipc";
+import {
+	isBrokenPipeError,
+	runInternalSessionWorker,
+} from "./internal-session-worker.js";
 import { plotProcessIdentity, resolvePlotCommand } from "./plot-command.js";
 
 const args = process.argv.slice(2);
@@ -23,23 +25,7 @@ const runInternal = (): Promise<void> | undefined => {
 			workflowPath === undefined
 		)
 			throw new Error("invalid Session worker invocation");
-		const protocol = createWriteStream("plot-worker-protocol", {
-			fd: 3,
-			autoClose: false,
-		});
-		return serveSessionWorker({
-			cwd,
-			sessionId,
-			workflowPath,
-			stdin: process.stdin,
-			writeLine: (line) =>
-				new Promise<void>((resolve, reject) => {
-					protocol.write(line, (error) => {
-						if (error) reject(error);
-						else resolve();
-					});
-				}),
-		}).finally(() => protocol.end());
+		return runInternalSessionWorker({ cwd, sessionId, workflowPath });
 	}
 	if (args[0] === "__internal-session-manager") {
 		const managerDir = valueAfter("--manager-dir");
@@ -63,6 +49,7 @@ if (internal === undefined) {
 } else {
 	void internal.catch((error) => {
 		if (error === null || error === undefined) return;
+		if (isBrokenPipeError(error)) return;
 		process.stderr.write(
 			`${error instanceof Error ? error.message : String(error)}\n`,
 		);

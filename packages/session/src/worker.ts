@@ -252,11 +252,27 @@ export const serveSessionWorker = async (
 	options: ServeSessionWorkerOptions,
 ): Promise<void> => {
 	let writes = Promise.resolve();
+	let writeFailure: unknown;
+	let abortEventPump: (() => void) | undefined;
+	const rememberWriteFailure = (error: unknown): unknown => {
+		if (writeFailure === undefined) {
+			writeFailure = error;
+			abortEventPump?.();
+		}
+		return error;
+	};
 	const write = (record: SessionWorkerRecord): Promise<void> => {
-		writes = writes.then(() =>
-			options.writeLine(encodeSessionWorkerRecord(record)),
+		if (writeFailure !== undefined) return Promise.reject(writeFailure);
+		const next = writes
+			.then(() => options.writeLine(encodeSessionWorkerRecord(record)))
+			.catch((error: unknown) => {
+				throw rememberWriteFailure(error);
+			});
+		writes = next.then(
+			() => undefined,
+			() => undefined,
 		);
-		return writes;
+		return next;
 	};
 	let host: SessionHost;
 	try {
@@ -280,10 +296,14 @@ export const serveSessionWorker = async (
 		historyPath: state.sessionFile,
 	});
 	const controller = new AbortController();
+	abortEventPump = () => controller.abort();
 	const eventPump = (async () => {
 		for await (const event of host.runtime.events(controller.signal))
 			await write({ kind: "event", event });
-	})();
+	})().catch((error: unknown) => {
+		rememberWriteFailure(error);
+	});
+	let failure: unknown;
 	try {
 		for await (const line of jsonlLines(options.stdin, {
 			maxLineBytes: workerMaxLineBytes,
@@ -314,10 +334,14 @@ export const serveSessionWorker = async (
 			}
 			if (command.action === "shutdown") break;
 		}
+	} catch (error) {
+		failure = error;
 	} finally {
 		await host.shutdown().catch(() => undefined);
 		controller.abort();
 		await eventPump;
 		await writes;
 	}
+	if (failure !== undefined) throw failure;
+	if (writeFailure !== undefined) throw writeFailure;
 };

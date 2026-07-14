@@ -82,6 +82,51 @@ Prompt
 	await rm(dir, { recursive: true, force: true });
 });
 
+test("private Session worker stops when the protocol pipe breaks", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-worker-pipe-"));
+	await writeFile(
+		join(dir, "extension.ts"),
+		`export default { id: "worker-pipe", create: () => ({ discover: () => [] }) };\n`,
+	);
+	await writeFile(
+		join(dir, "WORKFLOW.md"),
+		`---
+name: worker-pipe
+extension:
+  source: ./extension.ts
+agent:
+  provider: test
+  model: fake
+---
+Prompt
+`,
+	);
+	const failure = Object.assign(new Error("broken pipe"), {
+		code: "EPIPE",
+		syscall: "write",
+		fd: 3,
+	});
+	let writes = 0;
+	try {
+		await expect(
+			serveSessionWorker({
+				cwd: dir,
+				workflowPath: join(dir, "WORKFLOW.md"),
+				sessionId: "worker-pipe",
+				createAgentSession: async () => ({ session: new FakeSession() }),
+				stdin: commands([{ kind: "command", id: "start", action: "start" }]),
+				writeLine: () => {
+					writes += 1;
+					if (writes > 1) throw failure;
+				},
+			}),
+		).rejects.toBe(failure);
+		expect(writes).toBeGreaterThan(1);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("private Session worker reports startup failure on the protocol", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "plot-worker-failure-"));
 	await writeFile(join(dir, "WORKFLOW.md"), "No Extension.\n");
