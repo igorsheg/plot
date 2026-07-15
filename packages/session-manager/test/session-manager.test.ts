@@ -473,7 +473,7 @@ test("stop still finds a Session after its Workflow alias disappears", async () 
 	);
 });
 
-test("an aborted IPC continuation releases an idle event stream", async () => {
+test("an idle IPC continuation survives Bun's default timeout and releases on abort", async () => {
 	const managerDir = await mkdtemp(join(tmpdir(), "plot-manager-ipc-"));
 	const sessions = manager();
 	const active = await sessions.start({
@@ -489,7 +489,15 @@ test("an aborted IPC continuation releases an idle event stream", async () => {
 	const events = client.events(active.session.id, 0, controller.signal);
 	const iterator = events[Symbol.asyncIterator]();
 	const next = iterator.next();
-	await Bun.sleep(1);
+	expect(
+		await Promise.race([
+			next.then(
+				() => "closed" as const,
+				() => "failed" as const,
+			),
+			Bun.sleep(12_250).then(() => "open" as const),
+		]),
+	).toBe("open");
 	controller.abort();
 	expect(
 		await Promise.race([
@@ -500,7 +508,7 @@ test("an aborted IPC continuation releases an idle event stream", async () => {
 	await server.close();
 	await sessions.shutdown();
 	await rm(managerDir, { recursive: true, force: true });
-});
+}, 15_000);
 
 test("unknown event streams preserve session_not_found through IPC", async () => {
 	const managerDir = await mkdtemp(join(tmpdir(), "plot-manager-events-"));

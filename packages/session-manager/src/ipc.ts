@@ -267,8 +267,11 @@ export const startSessionManagerServer = async (input: {
 		assertRequestIdentity(request, input.options);
 		return work();
 	};
+	// Bun 1.3.5 honors this for Unix servers but omits it from the type.
+	// @ts-expect-error -- event continuations close through request cancellation.
 	const server = Bun.serve({
 		unix: socketPath,
+		idleTimeout: 0,
 		routes: {
 			"/health": {
 				GET: (request) => secured(request, () => Response.json({ ok: true })),
@@ -341,14 +344,13 @@ export const startSessionManagerServer = async (input: {
 					),
 			},
 			"/sessions/:sessionId/events": {
-				GET: (request, bun) =>
+				GET: (request) =>
 					secured(request, () => {
 						const after = Number(
 							new URL(request.url).searchParams.get("after") ?? 0,
 						);
 						if (!Number.isInteger(after) || after < 0)
 							throw new Error("after must be a non-negative integer");
-						bun.timeout(request, 0);
 						return eventStream(
 							request,
 							manager.events(request.params.sessionId, after, request.signal),
