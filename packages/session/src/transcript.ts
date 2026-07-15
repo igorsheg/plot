@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { hasErrnoCode, isRecord, type Mutable } from "@plot/common/primitives";
+import { hasErrnoCode, isRecord } from "@plot/common/primitives";
 import { jsonlLines, parseJsonl } from "@plot/common/jsonl";
 
 /** One display block of an Agent Transcript, flattened from pi's session store. */
@@ -45,14 +45,13 @@ const blockEntry = (
 	if (type === "toolCall") {
 		const name = str(block["name"]) ?? str(block["toolName"]);
 		const args = block["arguments"] ?? block["args"];
-		const entry: Mutable<TranscriptEntry> = {
+		const entry: TranscriptEntry = {
 			at,
 			role: "assistant",
 			kind: "tool-call",
 			text: clip(args === undefined ? "" : JSON.stringify(args, null, 1)),
 		};
-		if (name !== undefined) entry.name = name;
-		return entry;
+		return name === undefined ? entry : { ...entry, name };
 	}
 	return undefined;
 };

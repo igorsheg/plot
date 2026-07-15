@@ -105,7 +105,7 @@ export const makeCreatePiAgentSession = (
 	options: AgentSessionFactoryOptions,
 ): CreatePiAgentSession => {
 	const { workflow, paths } = options;
-	return async (perRun?: PiAgentSessionRunOptions) => {
+	return async (perRun: PiAgentSessionRunOptions) => {
 		const agent = workflow.runtime.agent;
 		const resources = workflow.runtime.resources ?? {};
 		const authStorage = AuthStorage.create(join(paths.agentDir, "auth.json"));
@@ -115,7 +115,7 @@ export const makeCreatePiAgentSession = (
 		);
 		const model = configuredModel(modelRegistry, agent);
 		const services = await createAgentSessionServices({
-			cwd: perRun?.cwd ?? paths.cwd,
+			cwd: perRun.cwd ?? paths.cwd,
 			agentDir: paths.agentDir,
 			authStorage,
 			settingsManager: SettingsManager.inMemory({}),
@@ -138,7 +138,7 @@ export const makeCreatePiAgentSession = (
 			tools: agent.tools,
 			excludeTools: agent.excludeTools,
 			noTools: toPiNoTools(agent.noTools),
-			customTools: perRun?.customTools,
+			customTools: perRun.customTools,
 		} as Parameters<typeof createAgentSessionFromServices>[0]);
 	};
 };

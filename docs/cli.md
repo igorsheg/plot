@@ -59,7 +59,7 @@ plot check WORKFLOW.md
 - checks Source requirements;
 - validates Workflow provider/model selection and auth.
 
-It never discovers work, invokes an Operator Action, opens a browser, or starts a Session.
+It never discovers work, invokes an Operator Action, opens a browser, or starts a Session. Extension code is trusted; its console output uses the process's normal stdout and stderr streams.
 
 An action-required Source is reported as `NEEDS YOU` but remains a valid Workflow. Start the Workflow and resolve its Operator Action in the TUI or Web Console.
 

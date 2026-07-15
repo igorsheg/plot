@@ -30,9 +30,10 @@ export async function* eventSourceMessages(
 	const source = (options.createEventSource ?? createBrowserEventSource)(url);
 	if (source === undefined) return;
 	const eventName = options.eventName ?? "message";
-	const queue = new AsyncQueue<MessageEvent>();
+	const queue = new AsyncQueue<MessageEvent>(256);
 	const onMessage = (event: Event): void => {
-		queue.offer(event as MessageEvent, { force: true });
+		if (!queue.offer(event as MessageEvent))
+			queue.fail(new Error("event stream buffer overflow"));
 	};
 	const onAbort = (): void => queue.close();
 	source.addEventListener(eventName, onMessage);

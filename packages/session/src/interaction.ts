@@ -68,13 +68,14 @@ export const createLoopbackOAuthCallback = async (
 	return {
 		redirectUri: `http://127.0.0.1:${address.port}${path}`,
 		wait: async (options) => {
+			const signal = options?.signal;
 			const onAbort = () => finish(new Error("OAuth callback cancelled"));
-			if (options?.signal?.aborted) onAbort();
-			else options?.signal?.addEventListener("abort", onAbort, { once: true });
+			if (signal?.aborted) onAbort();
+			else signal?.addEventListener("abort", onAbort, { once: true });
 			try {
 				return await result;
 			} finally {
-				options?.signal?.removeEventListener("abort", onAbort);
+				signal?.removeEventListener("abort", onAbort);
 				clearTimeout(timeout);
 				close();
 			}

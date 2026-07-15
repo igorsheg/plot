@@ -6,225 +6,161 @@ export type {
 	WorkDisplay,
 } from "@plot/sdk/work-contract";
 
-export type HookPhase = "observe" | "reconcile" | "select";
-
-export interface Observation {
-	type: string;
-	subject?: string;
-	data?: unknown;
-}
-export interface SetFactProposal {
-	type: "set_fact";
-	key: string;
-	value: unknown;
-}
-export const setFact = (key: string, value: unknown): SetFactProposal => ({
-	type: "set_fact",
-	key,
-	value,
-});
-export interface InterruptWorkProposal {
-	type: "interrupt_work";
-	workKey: string;
-	reason?: string;
-}
-export const interruptWork = (
-	key: string,
-	reason?: string,
-): InterruptWorkProposal =>
-	({ type: "interrupt_work", workKey: key, reason }) as InterruptWorkProposal;
-export interface ScheduleWakeOptions {
-	reason?: string;
-	workKey?: string;
-	attempt?: number;
-}
-export interface ScheduleWakeProposal {
-	type: "schedule_wake";
-	delayMs: number;
-	reason?: string;
-	workKey?: string;
-	attempt?: number;
-}
-export const scheduleWake = (
-	delayMs: number,
-	reasonOrOptions?: string | ScheduleWakeOptions,
-): ScheduleWakeProposal => {
-	const options =
-		typeof reasonOrOptions === "string"
-			? { reason: reasonOrOptions }
-			: reasonOrOptions;
-	return { type: "schedule_wake", delayMs, ...options };
-};
-
-export type WorkStatus =
-	| "pending"
-	| "waiting"
-	| "running"
-	| "blocked"
-	| "draining";
-
-export interface WorkRecord {
-	workKey: string;
-	sourceId: string;
-	status: WorkStatus;
-	subject?: string;
-	display?: WorkDisplay;
-	blockedReason?: string;
-	operatorActions?: OperatorAction[];
-	currentRunId?: string;
+export interface OperatorObservation {
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly actionId: string;
+	readonly actionLabel: string;
+	readonly timestamp: string;
+	readonly comment?: string;
+	readonly clientId?: string;
+	readonly actor?: unknown;
 }
 
-export interface UpsertWorkProposal {
-	type: "upsert_work";
-	work: WorkRecord;
-}
-export const upsertWork = (work: WorkRecord): UpsertWorkProposal => ({
-	type: "upsert_work",
-	work,
-});
+export type SourceRequirementRecord =
+	| {
+			readonly id: string;
+			readonly label: string;
+			readonly status: "checking" | "ready";
+	  }
+	| {
+			readonly id: string;
+			readonly label: string;
+			readonly status: "action-required";
+			readonly message: string;
+			readonly actions: readonly OperatorAction[];
+	  }
+	| {
+			readonly id: string;
+			readonly label: string;
+			readonly status: "unavailable";
+			readonly message: string;
+			readonly retryAfterMs?: number | undefined;
+	  };
 
-export interface RemoveWorkProposal {
-	type: "remove_work";
-	workKey: string;
-}
-export const removeWork = (key: string): RemoveWorkProposal => ({
-	type: "remove_work",
-	workKey: key,
-});
-
-export type SourceReadinessStatus =
-	| "checking"
-	| "ready"
-	| "action-required"
-	| "unavailable";
-export interface SourceRequirementRecord {
-	readonly id: string;
-	readonly label: string;
-	readonly status: SourceReadinessStatus;
-	readonly message?: string;
-	readonly retryAfterMs?: number;
-	readonly actions?: readonly OperatorAction[];
-}
 export interface SourceRecord {
 	readonly sourceId: string;
 	readonly label: string;
-	readonly readiness: SourceReadinessStatus;
-	readonly message?: string;
+	readonly readiness: SourceRequirementRecord["status"];
+	readonly message?: string | undefined;
 	readonly requirements: readonly SourceRequirementRecord[];
 }
-export interface UpsertSourceProposal {
-	readonly type: "upsert_source";
-	readonly source: SourceRecord;
-}
-export const upsertSource = (source: SourceRecord): UpsertSourceProposal => ({
-	type: "upsert_source",
-	source,
-});
 
-export type ReconcileProposal =
-	| SetFactProposal
-	| InterruptWorkProposal
-	| ScheduleWakeProposal
-	| UpsertWorkProposal
-	| RemoveWorkProposal
-	| UpsertSourceProposal;
+interface WorkIdentity {
+	readonly workKey: string;
+	readonly sourceId: string;
+	readonly subject?: string | undefined;
+	readonly display?: WorkDisplay | undefined;
+}
+
+export type SourceWorkRecord =
+	| (WorkIdentity & {
+			readonly status: "pending";
+			readonly operatorActions?: readonly OperatorAction[] | undefined;
+	  })
+	| (WorkIdentity & {
+			readonly status: "waiting";
+			readonly reason?: string | undefined;
+			readonly operatorActions?: readonly OperatorAction[] | undefined;
+	  })
+	| (WorkIdentity & {
+			readonly status: "blocked";
+			readonly reason: string;
+			readonly operatorActions: readonly OperatorAction[];
+	  });
+
+export type WorkRecord =
+	| SourceWorkRecord
+	| (WorkIdentity & {
+			readonly status: "running" | "draining";
+			readonly runId: string;
+			readonly operatorActions?: readonly OperatorAction[] | undefined;
+	  });
 
 export interface WorkItem {
-	workKey: string;
-	subject?: string;
-	templateContext?: unknown;
-	display?: WorkDisplay;
-	operatorActions?: OperatorAction[];
+	readonly workKey: string;
+	readonly subject?: string | undefined;
+	readonly templateContext?: unknown;
+	/** Source-owned data retained with the selected item for lifecycle hooks. */
+	readonly sourceData?: unknown;
+	readonly display?: WorkDisplay | undefined;
+	readonly operatorActions?: readonly OperatorAction[] | undefined;
 }
+
 export interface WorkRun {
-	runId: string;
-	sourceId: string;
-	workKey: string;
-	subject?: string;
-	display?: WorkDisplay;
+	readonly runId: string;
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly subject?: string | undefined;
+	readonly display?: WorkDisplay | undefined;
 }
+
 export interface WorkResult {
-	output?: unknown;
+	readonly output?: unknown;
 }
-export type CompletionStatus =
-	| "succeeded"
-	| "failed"
-	| "interrupted"
-	| "timed_out";
-export interface Completion {
-	runId: string;
-	sourceId: string;
-	workKey: string;
-	status: CompletionStatus;
-	subject?: string;
-	output?: unknown;
-	error?: string;
+
+interface CompletionIdentity {
+	readonly runId: string;
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly subject?: string | undefined;
 }
+
+export type Completion =
+	| (CompletionIdentity & {
+			readonly status: "succeeded";
+			readonly output?: unknown;
+	  })
+	| (CompletionIdentity & {
+			readonly status: "failed";
+			readonly error: string;
+	  })
+	| (CompletionIdentity & {
+			readonly status: "interrupted";
+			readonly reason: string;
+	  })
+	| (CompletionIdentity & {
+			readonly status: "timed_out";
+			readonly reason: string;
+	  });
+
 export interface Diagnostic {
-	level: "info" | "warning" | "error";
-	phase: HookPhase | "act" | "policy";
-	message: string;
-	sourceId?: string;
-	runId?: string;
-	workKey?: string;
+	readonly level: "info" | "warning" | "error";
+	readonly phase: "reconcile" | "act";
+	readonly message: string;
+	readonly sourceId?: string;
+	readonly runId?: string;
+	readonly workKey?: string;
 }
-export interface ScheduledWake {
-	dueAtMs: number;
-	delayMs: number;
-	reason?: string;
-	workKey?: string;
-	attempt?: number;
+
+export interface WakeRequest {
+	readonly delayMs: number;
+	readonly reason?: string | undefined;
+	readonly workKey?: string | undefined;
+	readonly attempt?: number | undefined;
 }
-export type WorkSkipReason =
-	| "already_running"
-	| "duplicate_in_tick"
-	| "interrupted_this_tick"
-	| "capacity_exhausted"
-	| "source_concurrency";
-export interface SkippedWork {
-	workKey: string;
-	sourceId: string;
-	reason: WorkSkipReason;
-	detail?: string;
-}
-export interface RuntimeSnapshot {
-	tickId: number;
-	facts: Map<string, unknown>;
-	observations: Observation[];
-	completions: Completion[];
-	diagnostics: Diagnostic[];
-	sources: Map<string, SourceRecord>;
-	work: Map<string, WorkRecord>;
-	running: Map<string, WorkRun>;
-	scheduledWakes?: ScheduledWake[];
-}
+
 export interface TickResult {
-	tickId: number;
-	observations: Observation[];
-	proposals: ReconcileProposal[];
-	selected: WorkItem[];
-	started: WorkRun[];
-	skipped: SkippedWork[];
-	completions: Completion[];
-	diagnostics: Diagnostic[];
-	snapshot: RuntimeSnapshot;
+	readonly tickId: number;
+	readonly selected: number;
+	readonly started: number;
+	readonly completions: number;
+	readonly running: number;
+	readonly diagnostics: readonly Diagnostic[];
 }
+
 export type PlotAgentEvent =
-	| { type: "tick_started"; tickId: number }
-	| { type: "tick_completed"; result: TickResult }
-	| { type: "source_observed"; source: SourceRecord }
-	| { type: "work_observed"; work: WorkRecord }
-	| { type: "work_removed"; workKey: string }
+	| { readonly type: "tick_started"; readonly tickId: number }
+	| { readonly type: "tick_completed"; readonly result: TickResult }
+	| { readonly type: "source_observed"; readonly source: SourceRecord }
+	| { readonly type: "work_observed"; readonly work: WorkRecord }
+	| { readonly type: "work_removed"; readonly workKey: string }
 	| {
-			type: "wake_scheduled";
-			delayMs: number;
-			reason?: string;
-			workKey?: string;
-			attempt?: number;
+			readonly type: "wake_scheduled";
+			readonly delayMs: number;
+			readonly reason?: string | undefined;
+			readonly workKey?: string | undefined;
+			readonly attempt?: number | undefined;
 	  }
-	| { type: "attempt_started"; run: WorkRun }
-	| { type: "attempt_completed"; completion: Completion };
-export type PlotAgentMessage =
-	| { type: "tick" }
-	| { type: "observation"; observation: Observation }
-	| { type: "shutdown" };
+	| { readonly type: "attempt_started"; readonly run: WorkRun }
+	| { readonly type: "attempt_completed"; readonly completion: Completion };

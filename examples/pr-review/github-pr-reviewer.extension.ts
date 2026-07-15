@@ -7,7 +7,11 @@ import { definePlotExtension, defineTool } from "plot-ai/sdk";
 import { parseDiffContext } from "./diff-context.ts";
 import { evaluatePr, firstSeenSeedMs } from "./eligibility.ts";
 import type { PrEligibility } from "./eligibility.ts";
-import type { OperatorAction, PlotExtensionWork } from "plot-ai/sdk";
+import type {
+	OperatorAction,
+	PlotExtensionTool,
+	PlotExtensionWork,
+} from "plot-ai/sdk";
 
 const execFileAsync = promisify(execFile);
 
@@ -687,7 +691,8 @@ const operatorActionsFor = (
 export default definePlotExtension<GitHubPrReviewerConfig>({
 	id: "github-pr-reviewer",
 	parseConfig,
-	create: ({ config, paths, work, registerTool }) => {
+	create: ({ config, paths }) => {
+		const tools: PlotExtensionTool<GitHubPrReviewerConfig>[] = [];
 		let pinnedRepo: string | undefined = config.repo;
 		const resolveRepo = async (cwd: string) => {
 			if (pinnedRepo === undefined)
@@ -708,7 +713,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 		const skips = new Map<string, string>();
 		const forced = new Set<string>();
 
-		registerTool(({ paths: toolPaths, work: toolWork }) => {
+		tools.push(({ paths: toolPaths, work: toolWork }) => {
 			const target = targetFromWork(toolWork);
 			return defineTool({
 				name: "load_pr_diff_context",
@@ -734,7 +739,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 			});
 		});
 
-		registerTool(({ paths: toolPaths, work: toolWork }) => {
+		tools.push(({ paths: toolPaths, work: toolWork }) => {
 			const target = targetFromWork(toolWork);
 			return defineTool({
 				name: "upsert_review_anchor",
@@ -803,7 +808,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 			});
 		});
 
-		registerTool(({ paths: toolPaths, work: toolWork }) => {
+		tools.push(({ paths: toolPaths, work: toolWork }) => {
 			const target = targetFromWork(toolWork);
 			const author = authorFromWork(toolWork);
 			return defineTool({
@@ -886,6 +891,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 		});
 
 		return {
+			tools,
 			discover: async (): Promise<readonly PlotExtensionWork[]> => {
 				const cwd = paths.cwd;
 				const repo = await resolveRepo(cwd);
@@ -964,71 +970,69 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 							: eligibility.label;
 					const rereviewRequested =
 						eligibility.kind === "review" && eligibility.state === "re-review";
-					works.push(
-						work({
-							id,
-							version: head,
-							workspace: prWorkspacePath(repo, pr.number),
-							...(eligibility.kind === "hold"
-								? {
-										status: "waiting" as const,
-										blockedReason: eligibility.reason,
-									}
-								: {}),
-							title: `Review ${repo} PR #${pr.number}: ${pr.title}`,
+					works.push({
+						id,
+						version: head,
+						workspace: prWorkspacePath(repo, pr.number),
+						...(eligibility.kind === "hold"
+							? {
+									status: "waiting" as const,
+									blockedReason: eligibility.reason,
+								}
+							: {}),
+						title: `Review ${repo} PR #${pr.number}: ${pr.title}`,
+						url: pr.url,
+						subject: id,
+						operatorActions: operatorActionsFor(eligibility),
+						display: {
+							kind: "github-pr-review",
+							primary: `#${pr.number}`,
+							title: pr.title,
+							subtitle: `${repo} · ${pr.baseRefName}...${pr.headRefName}`,
 							url: pr.url,
-							subject: id,
-							operatorActions: operatorActionsFor(eligibility),
-							display: {
-								kind: "github-pr-review",
-								primary: `#${pr.number}`,
-								title: pr.title,
-								subtitle: `${repo} · ${pr.baseRefName}...${pr.headRefName}`,
+							...(pr.headRefOid === undefined
+								? {}
+								: { version: pr.headRefOid.slice(0, 7) }),
+							labels: [reviewState],
+						},
+						context: {
+							github: {
+								repo,
+								prNumber: pr.number,
+								head,
 								url: pr.url,
-								...(pr.headRefOid === undefined
+								title: pr.title,
+								baseRefName: pr.baseRefName,
+								headRefName: pr.headRefName,
+								rereviewRequested,
+								...(pr.authorLogin === undefined
 									? {}
-									: { version: pr.headRefOid.slice(0, 7) }),
-								labels: [reviewState],
+									: { authorLogin: pr.authorLogin }),
+								...(anchor === undefined
+									? {}
+									: {
+											anchor: {
+												status: anchor.status,
+												head: anchor.head,
+												...(anchor.tier === undefined
+													? {}
+													: { tier: anchor.tier }),
+												...(anchor.url === undefined
+													? {}
+													: { url: anchor.url }),
+											},
+										}),
 							},
-							context: {
-								github: {
-									repo,
-									prNumber: pr.number,
-									head,
-									url: pr.url,
-									title: pr.title,
-									baseRefName: pr.baseRefName,
-									headRefName: pr.headRefName,
-									rereviewRequested,
-									...(pr.authorLogin === undefined
-										? {}
-										: { authorLogin: pr.authorLogin }),
-									...(anchor === undefined
-										? {}
-										: {
-												anchor: {
-													status: anchor.status,
-													head: anchor.head,
-													...(anchor.tier === undefined
-														? {}
-														: { tier: anchor.tier }),
-													...(anchor.url === undefined
-														? {}
-														: { url: anchor.url }),
-												},
-											}),
-								},
-								githubContext: contextBlock({
-									repo,
-									pr,
-									...(anchor === undefined ? {} : { anchor }),
-									reviewState,
-									rereviewRequested,
-									maxContextFiles: config.maxContextFiles,
-								}),
-							},
-						}),
-					);
+							githubContext: contextBlock({
+								repo,
+								pr,
+								...(anchor === undefined ? {} : { anchor }),
+								reviewState,
+								rereviewRequested,
+								maxContextFiles: config.maxContextFiles,
+							}),
+						},
+					});
 				}
 				return works;
 			},
@@ -1043,8 +1047,9 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 					forced.add(headKey);
 				}
 			},
-			completed: ({ work: doneWork }) => {
-				// A finished run consumes any pending re-review request.
+			finished: ({ work: doneWork, completion }) => {
+				if (completion.status !== "succeeded") return;
+				// A successful run consumes any pending re-review request.
 				const target = targetFromWork(doneWork);
 				forced.delete(`${doneWork.id}@${target.head}`);
 			},

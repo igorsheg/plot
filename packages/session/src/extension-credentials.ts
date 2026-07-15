@@ -82,9 +82,9 @@ export const createExtensionCredentials = (input: {
 		return next;
 	};
 	return {
-		get: async <T>(key: string) => {
+		get: async (key: string) => {
 			await writes;
-			return (await readCredentials(path))[credentialKey(key)] as T | undefined;
+			return (await readCredentials(path))[credentialKey(key)];
 		},
 		set: (key, value) => {
 			if (value === undefined)

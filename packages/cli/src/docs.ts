@@ -22,53 +22,34 @@ export type DocName = (typeof docNames)[number];
 export const isDocName = (value: string): value is DocName =>
 	(docNames as readonly string[]).includes(value);
 
+const firstExisting = (paths: readonly string[]): string | undefined =>
+	paths.find(existsSync);
+
 export const readPlotDoc = async (name: DocName): Promise<string> => {
 	const file = `${name}.md`;
-	for (const dir of getDocsDirs()) {
-		try {
-			// eslint-disable-next-line no-await-in-loop -- docs lookup checks fallback directories in order.
-			return await readFile(join(dir, file), "utf8");
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		}
-	}
-	throw new Error(`Plot docs file not found: ${file}`);
+	const path = firstExisting(getDocsDirs().map((dir) => join(dir, file)));
+	if (path === undefined) throw new Error(`Plot docs file not found: ${file}`);
+	return readFile(path, "utf8");
 };
 
-/**
- * The shipped SDK type declarations are the authoritative extension API
- * reference; `plot docs sdk` prints them verbatim.
- */
 export const readSdkReference = async (): Promise<string> => {
-	for (const candidate of getSdkReferenceCandidates()) {
-		try {
-			// eslint-disable-next-line no-await-in-loop -- reference lookup checks fallback locations in order.
-			const [sdk, workContract] = await Promise.all([
-				readFile(candidate.sdk, "utf8"),
-				readFile(candidate.workContract, "utf8"),
-			]);
-			return `// plot-ai/sdk — the authoritative Plot extension contract.\n// Prose semantics: plot docs extensions\n\n${sdk}\n// ${candidate.workContract.split("/").pop()}\n\n${workContract}`;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		}
-	}
-	throw new Error("Plot SDK declarations not found");
+	const candidate = getSdkReferenceCandidates().find(
+		(value) => existsSync(value.sdk) && existsSync(value.workContract),
+	);
+	if (candidate === undefined)
+		throw new Error("Plot SDK declarations not found");
+	const [sdk, workContract] = await Promise.all([
+		readFile(candidate.sdk, "utf8"),
+		readFile(candidate.workContract, "utf8"),
+	]);
+	return `// plot-ai/sdk — the authoritative Plot extension contract.\n// Prose semantics: plot docs extensions\n\n${sdk}\n// ${candidate.workContract.split("/").pop()}\n\n${workContract}`;
 };
-
-const firstExisting = (paths: readonly string[]): string | undefined =>
-	paths.find((path) => existsSync(path));
 
 const entry = (label: string, value: string | undefined, note: string) =>
 	`${label.padEnd(10)}${value ?? "(not found)"}${value === undefined ? "" : `\n${" ".repeat(10)}${note}`}`;
 
-/**
- * On-disk locations of the shipped docs, examples, and SDK declarations, so
- * file-reading agents can open them directly instead of consuming stdout.
- */
 export const renderDocsPaths = (): string => {
-	const docsDir = firstExisting(getDocsDirs());
-	const examplesDir = firstExisting(getExamplesDirs());
-	const sdkCandidate = getSdkReferenceCandidates().find((candidate) =>
+	const sdk = getSdkReferenceCandidates().find((candidate) =>
 		existsSync(candidate.sdk),
 	);
 	return [
@@ -76,18 +57,18 @@ export const renderDocsPaths = (): string => {
 		"",
 		entry(
 			"docs:",
-			docsDir,
+			firstExisting(getDocsDirs()),
 			"guide.md, extensions.md, workflows.md, cli.md, ...",
 		),
 		entry(
 			"examples:",
-			examplesDir,
+			firstExisting(getExamplesDirs()),
 			"pr-review/ (production-shaped), debug/ (lifecycle tour)",
 		),
 		entry(
 			"sdk:",
-			sdkCandidate?.sdk,
-			`typed extension contract; work-contract sibling: ${sdkCandidate?.workContract ?? ""}`,
+			sdk?.sdk,
+			`typed extension contract; work-contract sibling: ${sdk?.workContract ?? ""}`,
 		),
 		"",
 	].join("\n");

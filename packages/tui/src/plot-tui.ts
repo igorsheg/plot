@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { errorMessage } from "@plot/common/primitives";
-import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import {
 	emptyProjection,
@@ -12,7 +12,7 @@ import { PlotDashboard } from "./dashboard.js";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 
 export interface PlotTuiOptions {
-	readonly manager: SessionManagerRuntime;
+	readonly manager: SessionManagerClient;
 	readonly session: SessionSummary;
 	readonly terminal?: ProcessTerminal;
 }

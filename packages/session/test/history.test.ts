@@ -5,7 +5,6 @@ import { expect, test } from "bun:test";
 import {
 	createSessionEventLogWriter,
 	readSessionEvents,
-	shouldWriteSessionEvent,
 } from "../src/history.js";
 import type { RuntimeEvent } from "../src/runtime.js";
 
@@ -29,8 +28,10 @@ test("session event replay skips structurally invalid records", async () => {
 	expect(events).toEqual([event()]);
 });
 
-test("session history skips agent_end transcript snapshots", () => {
-	const agentEnd: RuntimeEvent = {
+test("session history retains every sequenced event", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-history-complete-"));
+	const path = join(dir, "events.jsonl");
+	const agentEvent: RuntimeEvent = {
 		kind: "agent_event",
 		sessionId: "session-history-test",
 		sequence: 1,
@@ -38,18 +39,14 @@ test("session history skips agent_end transcript snapshots", () => {
 		sourceId: "extension:test",
 		runId: "run-1",
 		workKey: "work-1",
-		event: {
-			type: "agent_end",
-			messages: [{ role: "assistant", content: "large transcript snapshot" }],
-		},
+		event: { type: "text_delta", delta: "hello" },
 	};
-	const turnEnd: RuntimeEvent = {
-		...agentEnd,
-		event: { type: "turn_end", message: { role: "assistant" } },
-	};
-
-	expect(shouldWriteSessionEvent(agentEnd)).toBe(false);
-	expect(shouldWriteSessionEvent(turnEnd)).toBe(true);
+	const writer = createSessionEventLogWriter(path);
+	await writer.append(agentEvent);
+	await writer.close();
+	const replayed = [];
+	for await (const record of readSessionEvents(path)) replayed.push(record);
+	expect(replayed).toEqual([agentEvent]);
 });
 
 test("session event log writer rejects existing logs", async () => {
@@ -63,7 +60,6 @@ test("session event log writer rejects existing logs", async () => {
 	await expect(second.append(event())).rejects.toMatchObject({
 		code: "EEXIST",
 	});
-	await expect(second.close()).rejects.toMatchObject({ code: "EEXIST" });
 });
 
 test("session event log writer rejects durable write failures", async () => {
@@ -75,5 +71,4 @@ test("session event log writer rejects durable write failures", async () => {
 	);
 
 	await expect(writer.append(event())).rejects.toBeInstanceOf(Error);
-	await expect(writer.close()).rejects.toBeInstanceOf(Error);
 });

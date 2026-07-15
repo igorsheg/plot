@@ -3,7 +3,6 @@ import type {
 	AgentSessionEvent,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { RuntimeSnapshot } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
 import { makePiWorkRunner, type PiAgentSessionPort } from "../src/pi-runner.js";
 
@@ -40,22 +39,10 @@ class FakePiSession implements PiAgentSessionPort {
 	}
 }
 
-const snapshot: RuntimeSnapshot = {
-	tickId: 1,
-	facts: new Map(),
-	observations: [],
-	completions: [],
-	diagnostics: [],
-	sources: new Map(),
-	work: new Map(),
-	running: new Map(),
-};
-
 const context = (
 	input: {
 		readonly signal?: AbortSignal;
 		readonly shouldContinue?: WorkRunnerContext["shouldContinue"];
-		readonly emitObservation?: WorkRunnerContext["emitObservation"];
 		readonly reportActivity?: WorkRunnerContext["reportActivity"];
 	} = {},
 ): WorkRunnerContext => {
@@ -66,13 +53,10 @@ const context = (
 		tickId: 1,
 		run: { runId: "run-1", sourceId: source, workKey: key },
 		work: { workKey: key, templateContext: { name: "Ada" } },
-		snapshot,
 		signal: input.signal ?? new AbortController().signal,
-		emitObservation: input.emitObservation ?? (async () => true),
 		reportActivity: input.reportActivity ?? (() => {}),
+		shouldContinue: input.shouldContinue ?? (async () => false),
 	};
-	if (input.shouldContinue !== undefined)
-		result.shouldContinue = input.shouldContinue;
 	return result;
 };
 
@@ -83,7 +67,8 @@ test("pi runner renders prompt, streams events, and disposes", async () => {
 	const runner = makePiWorkRunner({
 		createAgentSession: async () => ({ session }),
 		prompt: "Hello {{ name }}",
-		promptOptions: { expandPromptTemplates: false },
+		create: async () => ({}),
+		maxTurns: 20,
 		onEvent: ({ event }) => {
 			events.push(event);
 		},
@@ -97,9 +82,7 @@ test("pi runner renders prompt, streams events, and disposes", async () => {
 		}),
 	);
 
-	expect(session.prompts).toEqual([
-		{ text: "Hello Ada", options: { expandPromptTemplates: false } },
-	]);
+	expect(session.prompts).toEqual([{ text: "Hello Ada" }]);
 	expect(events.map((event) => event["type"])).toEqual(["queue_update"]);
 	expect(activityReports).toBe(1);
 	expect(session.disposed).toBe(true);
@@ -114,6 +97,9 @@ test("pi runner reports every streamed event as activity", async () => {
 	const runner = makePiWorkRunner({
 		createAgentSession: async () => ({ session }),
 		prompt: "Start",
+		create: async () => ({}),
+		maxTurns: 20,
+		onEvent: async () => {},
 	});
 
 	await runner.run(
@@ -132,7 +118,9 @@ test("pi runner validates continuation turn bounds", async () => {
 	const runner = makePiWorkRunner({
 		createAgentSession: async () => ({ session }),
 		prompt: "Start",
+		create: async () => ({}),
 		maxTurns: 3,
+		onEvent: async () => {},
 	});
 
 	await runner.run(
@@ -150,7 +138,9 @@ test("pi runner rejects invalid turn bounds", async () => {
 	const runner = makePiWorkRunner({
 		createAgentSession: async () => ({ session: new FakePiSession() }),
 		prompt: "Start",
+		create: async () => ({}),
 		maxTurns: 0,
+		onEvent: async () => {},
 	});
 
 	await expect(runner.run(context())).rejects.toThrow("positive integer");

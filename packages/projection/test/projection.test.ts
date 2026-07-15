@@ -148,6 +148,7 @@ test("projection reconstructs Source readiness and attributed diagnostics", () =
 						label: "Wix MCP",
 						status: "action-required",
 						message: "Connect Wix MCP",
+						actions: [],
 					},
 				],
 			},
@@ -166,7 +167,7 @@ test("projection reconstructs Source readiness and attributed diagnostics", () =
 				diagnostics: [
 					{
 						level: "error",
-						phase: "observe",
+						phase: "reconcile",
 						sourceId: "source-1",
 						message: "gateway unavailable",
 					},

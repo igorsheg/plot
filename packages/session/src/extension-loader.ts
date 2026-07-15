@@ -22,7 +22,6 @@ export interface LoadedPlotExtensionRuntime {
 	readonly extension: PlotExtension;
 	readonly runtime: PlotExtensionRuntime;
 	readonly credentials: ExtensionCredentials;
-	readonly tools: readonly PlotExtensionTool[];
 	readonly config: unknown;
 }
 
@@ -72,7 +71,6 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 	const config = extension.parseConfig
 		? await extension.parseConfig(extensionConfig.config)
 		: extensionConfig.config;
-	const tools: PlotExtensionTool[] = [];
 	const credentials = createExtensionCredentials({
 		extensionId: extension.id,
 		workflow: options.workflow,
@@ -83,10 +81,8 @@ export const loadPlotExtensionRuntimeFromWorkflow = async (options: {
 		workflow: options.workflow,
 		paths: options.paths,
 		credentials,
-		work: (work) => work,
-		registerTool: (tool) => tools.push(tool as PlotExtensionTool),
 	});
-	return { extension, runtime, credentials, tools, config };
+	return { extension, runtime, credentials, config };
 };
 
 const normalizeToolArguments = (
@@ -153,16 +149,16 @@ export const resolveToolDefinitions = async (options: {
 	readonly paths: SessionPaths;
 	readonly config: unknown;
 	readonly work: PlotExtensionWork;
-	readonly runId?: string;
+	readonly runId: string;
 	readonly onError?: (error: unknown) => Promise<void> | void;
 }): Promise<ToolDefinition[]> => {
-	const context = {
+	const context: PlotToolContext = {
 		workflow: options.workflow,
 		paths: options.paths,
 		config: options.config,
 		work: options.work,
 		runId: options.runId,
-	} as PlotToolContext;
+	};
 	const tools = await Promise.all(
 		options.tools.map(async (tool) =>
 			typeof tool === "function" ? await tool(context) : tool,

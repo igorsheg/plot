@@ -22,15 +22,42 @@ test("Session continuation replays history then follows live without duplicates"
 	await log.append(event(1));
 	await log.append(event(2));
 	await log.close();
-	const live = new AsyncQueue<RuntimeEvent>();
+	const live = new AsyncQueue<RuntimeEvent>(8);
 	live.offer(event(2));
 	live.offer(event(3));
 	live.close();
 
 	const seen: number[] = [];
-	for await (const item of sessionEvents({ historyPath: path, live }))
+	for await (const item of sessionEvents({
+		historyPath: path,
+		live: () => live,
+	}))
 		seen.push(item.sequence);
 
 	expect(seen).toEqual([1, 2, 3]);
+	await rm(dir, { recursive: true, force: true });
+});
+
+test("Session continuation catches up durably after live-buffer overflow", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "plot-events-overflow-"));
+	const path = join(dir, "session.jsonl");
+	const log = createSessionEventLogWriter(path);
+	for (let sequence = 1; sequence <= 400; sequence++)
+		await log.append(event(sequence));
+	await log.close();
+	let subscriptions = 0;
+	const live = () => {
+		const queue = new AsyncQueue<RuntimeEvent>(512);
+		if (subscriptions++ === 0)
+			for (let sequence = 1; sequence <= 400; sequence++)
+				queue.offer(event(sequence));
+		queue.close();
+		return queue;
+	};
+	const seen: number[] = [];
+	for await (const item of sessionEvents({ historyPath: path, live }))
+		seen.push(item.sequence);
+	expect(seen).toEqual(Array.from({ length: 400 }, (_, index) => index + 1));
+	expect(subscriptions).toBe(2);
 	await rm(dir, { recursive: true, force: true });
 });

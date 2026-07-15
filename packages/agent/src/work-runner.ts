@@ -1,23 +1,17 @@
-import type {
-	Observation,
-	RuntimeSnapshot,
-	WorkItem,
-	WorkResult,
-	WorkRun,
-} from "./model.js";
+import type { WorkItem, WorkResult, WorkRun } from "./model.js";
 
 export interface WorkRunnerContext {
-	sourceId: string;
-	tickId: number;
-	run: WorkRun;
-	work: WorkItem;
-	snapshot: RuntimeSnapshot;
-	signal: AbortSignal;
-	emitObservation: (observation: Observation) => boolean | Promise<boolean>;
-	reportActivity: () => void;
-	shouldContinue?: (turnNumber: number) => boolean | Promise<boolean>;
+	readonly sourceId: string;
+	readonly tickId: number;
+	readonly run: WorkRun;
+	readonly work: WorkItem;
+	readonly signal: AbortSignal;
+	readonly reportActivity: () => void;
+	readonly shouldContinue: (turnNumber: number) => boolean | Promise<boolean>;
 }
 
 export interface WorkRunner {
-	run: (context: WorkRunnerContext) => WorkResult | Promise<WorkResult>;
+	readonly run: (
+		context: WorkRunnerContext,
+	) => WorkResult | Promise<WorkResult>;
 }

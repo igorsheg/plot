@@ -1,34 +1,19 @@
-export interface AsyncQueueOptions {
-	readonly capacity?: number;
-	readonly overflow?: "reject" | "drop-oldest";
-}
-
 export class AsyncQueue<T> implements AsyncIterable<T> {
-	private readonly capacity: number;
-	private readonly overflow: "reject" | "drop-oldest";
 	private readonly queue: T[] = [];
 	private readonly waiters: ((result: IteratorResult<T>) => void)[] = [];
 	private closed = false;
 	private failure: unknown;
 
-	constructor(options: AsyncQueueOptions = {}) {
-		this.capacity = options.capacity ?? Number.POSITIVE_INFINITY;
-		this.overflow = options.overflow ?? "reject";
-	}
+	constructor(private readonly capacity: number) {}
 
-	offer(value: T, options?: { readonly force?: boolean }): boolean {
+	offer(value: T): boolean {
 		if (this.closed) return false;
 		const waiter = this.waiters.shift();
 		if (waiter) {
 			waiter({ value, done: false });
 			return true;
 		}
-		// force bypasses the capacity bound for messages that must never be
-		// dropped (for example run-lifecycle transitions).
-		if (options?.force !== true && this.queue.length >= this.capacity) {
-			if (this.overflow === "reject") return false;
-			this.queue.shift();
-		}
+		if (this.queue.length >= this.capacity) return false;
 		this.queue.push(value);
 		return true;
 	}

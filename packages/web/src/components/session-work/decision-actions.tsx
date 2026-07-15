@@ -3,7 +3,6 @@
  * the detail drawer so the river stays a scannable status surface.
  */
 
-import type { Mutable } from "@plot/common/primitives";
 import { useRef, useState } from "react";
 import { Button } from "../ui/button.js";
 import Stack from "../ui/stack.js";
@@ -32,14 +31,13 @@ export function DecisionActions({
 
 	const send = (action: OperatorActionView) => {
 		const trimmed = comment.trim();
-		const input: Mutable<Parameters<typeof actions.act>[0]> = {
+		const input: Parameters<typeof actions.act>[0] = {
 			sourceId: target.sourceId,
 			workKey: target.workKey,
 			actionId: action.id,
 			actionLabel: action.label,
 		};
-		if (trimmed !== "") input.comment = trimmed;
-		actions.act(input);
+		actions.act(trimmed === "" ? input : { ...input, comment: trimmed });
 		setConfirmingId(undefined);
 	};
 

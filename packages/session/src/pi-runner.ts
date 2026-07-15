@@ -1,5 +1,4 @@
 import {
-	createAgentSession,
 	type AgentSessionEvent,
 	type PromptOptions,
 	type ToolDefinition,
@@ -28,24 +27,20 @@ export interface PiAgentSessionRunOptions {
 }
 
 export type CreatePiAgentSession = (
-	perRun?: PiAgentSessionRunOptions,
+	perRun: PiAgentSessionRunOptions,
 ) => Promise<{ readonly session: PiAgentSessionPort }>;
 
-export type PiRunnerValue<A> =
-	| A
-	| ((context: WorkRunnerContext) => Promise<A> | A);
-
 export interface PiWorkRunnerConfig {
-	readonly createAgentSession?: CreatePiAgentSession;
-	readonly prompt: PiRunnerValue<string>;
-	readonly create?: PiRunnerValue<PiAgentSessionRunOptions | undefined>;
-	readonly promptOptions?: PiRunnerValue<PromptOptions | undefined>;
-	readonly maxTurns?: number;
-	readonly eventCapacity?: number;
-	readonly onEvent?: (input: {
+	readonly createAgentSession: CreatePiAgentSession;
+	readonly prompt: string;
+	readonly create: (
+		context: WorkRunnerContext,
+	) => Promise<PiAgentSessionRunOptions>;
+	readonly maxTurns: number;
+	readonly onEvent: (input: {
 		readonly context: WorkRunnerContext;
 		readonly event: AgentSessionEvent;
-	}) => Promise<void> | void;
+	}) => unknown | Promise<unknown>;
 }
 
 const eta = new Eta({
@@ -54,14 +49,6 @@ const eta = new Eta({
 	useWith: true,
 	autoEscape: false,
 });
-
-const resolveValue = async <A>(
-	value: PiRunnerValue<A>,
-	context: WorkRunnerContext,
-): Promise<A> =>
-	typeof value === "function"
-		? (value as (context: WorkRunnerContext) => Promise<A> | A)(context)
-		: value;
 
 const promptData = (context: WorkRunnerContext): Record<string, unknown> => {
 	const data = context.work.templateContext;
@@ -83,28 +70,15 @@ Continuation guidance:
 - Focus on remaining work and do not end the turn while the work stays active unless truly blocked.
 `;
 
-const defaultCreateAgentSession: CreatePiAgentSession = async (perRun) => {
-	const { session } = await createAgentSession({
-		cwd: perRun?.cwd,
-		customTools: perRun?.customTools,
-	} as Parameters<typeof createAgentSession>[0]);
-	return { session };
-};
-
 async function* promptSession(input: {
 	readonly createAgentSession: CreatePiAgentSession;
-	readonly create?: PiAgentSessionRunOptions | undefined;
+	readonly create: PiAgentSessionRunOptions;
 	readonly prompt: string;
-	readonly promptOptions?: PromptOptions | undefined;
 	readonly signal: AbortSignal;
 	readonly maxTurns: number;
-	readonly eventCapacity: number;
-	readonly shouldContinue?: WorkRunnerContext["shouldContinue"] | undefined;
+	readonly shouldContinue: WorkRunnerContext["shouldContinue"];
 }): AsyncIterable<AgentSessionEvent> {
-	const queue = new AsyncQueue<AgentSessionEvent>({
-		capacity: input.eventCapacity,
-		overflow: "reject",
-	});
+	const queue = new AsyncQueue<AgentSessionEvent>(256);
 	let session: PiAgentSessionPort | undefined;
 	let unsubscribe: (() => void) | undefined;
 	let disposed = false;
@@ -136,10 +110,9 @@ async function* promptSession(input: {
 				// eslint-disable-next-line no-await-in-loop
 				await session.prompt(
 					turn === 1 ? input.prompt : continuationPrompt(turn, input.maxTurns),
-					input.promptOptions,
 				);
 				// eslint-disable-next-line no-await-in-loop
-				if (turn === input.maxTurns || !(await input.shouldContinue?.(turn)))
+				if (turn === input.maxTurns || !(await input.shouldContinue(turn)))
 					break;
 			}
 			queue.close();
@@ -160,27 +133,17 @@ async function* promptSession(input: {
 
 export const makePiWorkRunner = (config: PiWorkRunnerConfig): WorkRunner => ({
 	run: async (context): Promise<WorkResult> => {
-		const template = await resolveValue(config.prompt, context);
-		const prompt = eta.renderString(template, promptData(context));
-		const create = config.create
-			? await resolveValue(config.create, context)
-			: undefined;
-		const promptOptions = config.promptOptions
-			? await resolveValue(config.promptOptions, context)
-			: undefined;
+		const prompt = eta.renderString(config.prompt, promptData(context));
 		for await (const event of promptSession({
-			createAgentSession:
-				config.createAgentSession ?? defaultCreateAgentSession,
-			create,
+			createAgentSession: config.createAgentSession,
+			create: await config.create(context),
 			prompt,
-			promptOptions,
 			signal: context.signal,
-			maxTurns: positive(config.maxTurns ?? 20, "maxTurns"),
-			eventCapacity: positive(config.eventCapacity ?? 256, "eventCapacity"),
+			maxTurns: positive(config.maxTurns, "maxTurns"),
 			shouldContinue: context.shouldContinue,
 		})) {
 			context.reportActivity();
-			await config.onEvent?.({ context, event });
+			await config.onEvent({ context, event });
 		}
 		return {};
 	},

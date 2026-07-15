@@ -25,7 +25,6 @@ const session = (
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	historyPath: `/tmp/${id}/.plot/sessions/${id}.jsonl`,
-	lastSequence: 0,
 	...extra,
 });
 

@@ -18,7 +18,6 @@ export interface SessionSummary {
 	readonly createdAt: string;
 	readonly updatedAt: string;
 	readonly historyPath: string;
-	readonly lastSequence: number;
 	readonly diagnostic?: string;
 }
 
@@ -51,13 +50,6 @@ export const parseSessionSummary = (value: unknown): SessionSummary => {
 	const state = text(value["state"], "Session state");
 	if (!states.has(state as SessionState))
 		throw new Error(`unknown Session state: ${state}`);
-	const lastSequence = value["lastSequence"];
-	if (
-		typeof lastSequence !== "number" ||
-		!Number.isInteger(lastSequence) ||
-		lastSequence < 0
-	)
-		throw new Error("Session lastSequence must be a non-negative integer");
 	const summary: SessionSummary = {
 		id: text(value["id"], "Session id"),
 		workflowKey: text(value["workflowKey"], "Workflow key"),
@@ -69,7 +61,6 @@ export const parseSessionSummary = (value: unknown): SessionSummary => {
 		createdAt: text(value["createdAt"], "Session createdAt"),
 		updatedAt: text(value["updatedAt"], "Session updatedAt"),
 		historyPath: text(value["historyPath"], "Session historyPath"),
-		lastSequence,
 	};
 	if (typeof value["diagnostic"] === "string")
 		return { ...summary, diagnostic: value["diagnostic"] };

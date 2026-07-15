@@ -47,48 +47,9 @@ export async function* readSessionEvents(
 	}
 }
 
-const historySkippedAgentEventTypes = new Set([
-	// agent_end repeats the complete message history already owned by the
-	// Agent Transcript; Session History only needs the preceding turn events.
-	"agent_end",
-	"thinking_delta",
-	"text_delta",
-	"message_delta",
-	"message_partial",
-	"toolcall_delta",
-]);
-
-const agentEventType = (event: unknown): string | undefined => {
-	if (!isRecord(event)) return undefined;
-	const update = event["assistantMessageEvent"];
-	const nested = isRecord(update) ? update["type"] : undefined;
-	const type = nested ?? event["type"];
-	return typeof type === "string" ? type : undefined;
-};
-
-export const shouldWriteSessionEvent = (event: RuntimeEvent): boolean => {
-	if (
-		event.kind === "session_event" &&
-		event.event.type === "source_interaction_open_url"
-	)
-		return false;
-	return (
-		event.kind !== "agent_event" ||
-		!historySkippedAgentEventTypes.has(agentEventType(event.event) ?? "")
-	);
-};
-
-export interface SessionEventLogWriter {
-	readonly append: (event: RuntimeEvent) => Promise<void>;
-	readonly close: () => Promise<void>;
-}
-
 /** Create a new durable log. Existing paths are rejected rather than resumed. */
-export const createSessionEventLogWriter = (
-	path: string,
-): SessionEventLogWriter => {
+export const createSessionEventLogWriter = (path: string) => {
 	let file: FileHandle | undefined;
-	let pending = Promise.resolve();
 	const getFile = async (): Promise<FileHandle> => {
 		if (file !== undefined) return file;
 		await mkdir(dirname(path), { recursive: true });
@@ -96,22 +57,13 @@ export const createSessionEventLogWriter = (
 		return file;
 	};
 	return {
-		append: (event) => {
-			if (!shouldWriteSessionEvent(event)) return pending;
-			pending = pending.then(async () => {
-				const target = await getFile();
-				await target.writeFile(stringifyJsonl(event, historyLimits));
-				return undefined;
-			});
-			return pending;
+		append: async (event: RuntimeEvent) => {
+			const target = await getFile();
+			await target.writeFile(stringifyJsonl(event, historyLimits));
 		},
 		close: async () => {
-			try {
-				await pending;
-			} finally {
-				await file?.close();
-				file = undefined;
-			}
+			await file?.close();
+			file = undefined;
 		},
 	};
 };

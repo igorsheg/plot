@@ -1,6 +1,4 @@
-import type { CliHelpTarget } from "./cli-parser.js";
-
-export const renderRootHelp = (
+const renderRootHelp = (
 	version: string,
 ): string => `Plot runs durable coding-agent Workflows. (plot v${version})
 
@@ -23,7 +21,7 @@ HELP
   plot <command> --help    Show command details
 `;
 
-const commandHelp: Record<Exclude<CliHelpTarget, "root">, string> = {
+const commandHelp = {
 	start: `Start a Workflow without attaching.
 
 USAGE
@@ -91,7 +89,12 @@ USAGE
 USAGE
   plot models [query]
 `,
-};
+} as const;
+
+export type CliHelpTarget = "root" | keyof typeof commandHelp;
+
+export const isHelpTarget = (value: string): value is CliHelpTarget =>
+	value === "root" || Object.hasOwn(commandHelp, value);
 
 export const renderHelp = (target: CliHelpTarget, version: string): string =>
 	target === "root" ? renderRootHelp(version) : commandHelp[target];

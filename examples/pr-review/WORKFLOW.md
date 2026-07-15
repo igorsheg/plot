@@ -3,8 +3,6 @@ name: plot-pr-review
 description: Continuous senior-level review of open GitHub PRs — one bounded Agent Run per PR head, durable state on the PR itself.
 version: 9.0.0
 plot:
-  queueCapacity: 64
-  eventCapacity: 256
   tickIntervalMs: 30000
   maxRunDurationMs: 1800000
   stallTimeoutMs: 120000

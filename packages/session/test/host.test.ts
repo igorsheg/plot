@@ -159,6 +159,7 @@ describe("host composition", () => {
 			}),
 		]);
 
+		await Promise.all([acme.runtime.start(), plot.runtime.start()]);
 		await Promise.all([acme.runtime.tickOnce(), plot.runtime.tickOnce()]);
 		await Bun.sleep(0);
 
@@ -191,6 +192,7 @@ Edited {{ message }}
 `,
 		);
 
+		await first.runtime.start();
 		await first.runtime.tickOnce();
 		await Bun.sleep(0);
 		expect(firstSession.prompts).toEqual(["hello"]);
@@ -202,26 +204,23 @@ Edited {{ message }}
 			sessionId: "after-edit",
 			createAgentSession: async () => ({ session: secondSession }),
 		});
+		await second.runtime.start();
 		await second.runtime.tickOnce();
 		await Bun.sleep(0);
 		expect(secondSession.prompts).toEqual(["Edited hello"]);
 		await second.shutdown();
 	});
 
-	test("shutdown closes the Extension even when runtime shutdown fails", async () => {
+	test("shutdown closes the loaded Extension", async () => {
 		const marker = join(tmpdir(), `plot-host-marker-${crypto.randomUUID()}`);
 		const cwd = await makeWorkflow({ shutdownMarker: marker });
 		const host = await createSessionHost({
 			cwd,
-			sessionId: "shutdown-error",
+			sessionId: "shutdown",
 			createAgentSession: async () => ({ session: new FakePiSession() }),
 		});
-		(host.runtime as { shutdown: () => Promise<boolean> }).shutdown =
-			async () => {
-				throw new Error("runtime shutdown failed");
-			};
-
-		await expect(host.shutdown()).rejects.toThrow("runtime shutdown failed");
+		await host.runtime.start();
+		await host.shutdown();
 		expect(await readFile(marker, "utf8")).toBe("done");
 		await rm(marker, { force: true });
 	});

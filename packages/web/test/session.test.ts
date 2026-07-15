@@ -12,7 +12,6 @@ const summary = (id: string) => ({
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:01.000Z",
 	historyPath: `/${id}/.plot/sessions/${id}.jsonl`,
-	lastSequence: 4,
 });
 
 describe("Web Session parser", () => {

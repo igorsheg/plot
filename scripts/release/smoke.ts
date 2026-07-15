@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun";
-import { spawn, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
 import {
 	existsSync,
 	lstatSync,
@@ -14,8 +12,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { createInterface } from "node:readline";
-import type { Readable } from "node:stream";
 import { releaseDir } from "./shared.js";
 
 const umbrellaDir = join(releaseDir, "plot-ai");
@@ -97,7 +93,7 @@ try {
 	assertUsageFailure(plot, ["wat"], "Unknown command: wat");
 	assertUsageFailure(plot, ["docs", "wat"], "Unknown docs topic: wat");
 	runPlot(plot, ["docs", "cli"]);
-	await assertLoggingWorkerProtocol(plot);
+	await assertLoggingWorkerIpc(plot);
 	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
 		tempDir,
 	);
@@ -131,7 +127,7 @@ async function assertPackagePayload(root: string): Promise<void> {
 		);
 }
 
-async function assertLoggingWorkerProtocol(plot: string): Promise<void> {
+async function assertLoggingWorkerIpc(plot: string): Promise<void> {
 	const cwd = join(tempDir, "logging-worker");
 	const workflowPath = join(cwd, "WORKFLOW.md");
 	const extensionPath = join(cwd, "extension.ts");
@@ -165,9 +161,11 @@ extension:
 Prompt
 `,
 	);
-	const child = spawn(
-		plot,
+	const messages: Record<string, unknown>[] = [];
+	let wake: (() => void) | undefined;
+	const child = Bun.spawn(
 		[
+			plot,
 			"__internal-session-worker",
 			"--cwd",
 			cwd,
@@ -179,44 +177,46 @@ Prompt
 		{
 			cwd,
 			env: { ...process.env, HOME: homeDir, ANTHROPIC_API_KEY: "release-test" },
-			stdio: ["pipe", "pipe", "pipe", "pipe"],
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "pipe",
+			serialization: "json",
+			ipc: (message) => {
+				messages.push(message as Record<string, unknown>);
+				wake?.();
+				wake = undefined;
+			},
 		},
 	);
-	const exited = once(child, "exit");
-	const protocol = child.stdio[3];
-	if (
-		protocol === null ||
-		protocol === undefined ||
-		typeof protocol === "number"
-	)
-		throw new Error("packaged worker has no fd 3 protocol stream");
-	let stdout = "";
-	let stderr = "";
-	child.stdout!.on("data", (chunk) => (stdout += chunk.toString()));
-	child.stderr!.on("data", (chunk) => (stderr += chunk.toString()));
-	const records = createInterface({ input: protocol as Readable })[
-		Symbol.asyncIterator
-	]();
+	const stdoutOutput = new Response(child.stdout).text();
+	const stderrOutput = new Response(child.stderr).text();
 	const next = async (
 		predicate: (record: Record<string, unknown>) => boolean,
 	): Promise<Record<string, unknown>> => {
 		for (;;) {
-			const line = await Promise.race([
-				records.next(),
+			const record = messages.shift();
+			if (record !== undefined) {
+				if (record["kind"] === "failure")
+					throw new Error(`packaged worker failed: ${JSON.stringify(record)}`);
+				if (predicate(record)) return record;
+				continue;
+			}
+			await Promise.race([
+				new Promise<void>((resolve) => {
+					wake = resolve;
+				}),
+				child.exited.then((code) => {
+					throw new Error(`packaged worker exited before response: ${code}`);
+				}),
 				Bun.sleep(5_000).then(() => {
-					throw new Error("packaged worker protocol timed out");
+					throw new Error("packaged worker IPC timed out");
 				}),
 			]);
-			if (line.done) throw workerExitError(child, stdout, stderr);
-			const record = JSON.parse(line.value) as Record<string, unknown>;
-			if (record["kind"] === "failure")
-				throw new Error(`packaged worker failed: ${line.value}`);
-			if (predicate(record)) return record;
 		}
 	};
 	await next((record) => record["kind"] === "ready");
 	const command = async (id: string, action: string) => {
-		child.stdin!.write(`${JSON.stringify({ kind: "command", id, action })}\n`);
+		child.send({ kind: "command", id, action });
 		const result = await next(
 			(record) => record["kind"] === "result" && record["id"] === id,
 		);
@@ -229,26 +229,17 @@ Prompt
 	await command("tick", "tick");
 	await command("shutdown", "shutdown");
 	await Promise.race([
-		exited,
+		child.exited,
 		Bun.sleep(5_000).then(() => {
 			child.kill("SIGKILL");
 			throw new Error("packaged worker did not exit");
 		}),
 	]);
+	const [stdout, stderr] = await Promise.all([stdoutOutput, stderrOutput]);
 	if (!stdout.includes("import output") || !stdout.includes("create output"))
 		throw new Error(`packaged worker lost stdout diagnostics: ${stdout}`);
 	if (!stderr.includes("discover output"))
 		throw new Error(`packaged worker lost stderr diagnostics: ${stderr}`);
-}
-
-function workerExitError(
-	child: ChildProcess,
-	stdout: string,
-	stderr: string,
-): Error {
-	return new Error(
-		`packaged worker protocol closed (${child.exitCode}/${child.signalCode}); stdout=${JSON.stringify(stdout)} stderr=${JSON.stringify(stderr)}`,
-	);
 }
 
 function runPlot(plot: string, args: readonly string[]) {

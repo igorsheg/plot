@@ -4,40 +4,42 @@ import {
 	toBoundaryErrorRecord,
 	type BoundaryErrorRecord,
 } from "@plot/common/boundary-error";
-import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
 import { isRecord } from "@plot/common/primitives";
 import {
 	createSessionHost,
 	type CreateSessionHostOptions,
 	type SessionHost,
 } from "./host.js";
-import type {
-	InterruptAgentRunInput,
-	OperatorObservationInput,
-	RuntimeEvent,
-	SourceActionInput,
+import {
+	decodeOperatorObservation,
+	decodeRuntimeEvent,
+	decodeSourceActionInput,
+	type OperatorObservationInput,
+	type RuntimeEvent,
+	type SourceActionInput,
 } from "./runtime.js";
 
-export const workerMaxLineBytes = 2 * 1024 * 1024;
-
-export type SessionWorkerAction =
-	| "start"
-	| "shutdown"
-	| "state"
-	| "tick"
-	| "pause"
-	| "resume"
-	| "interrupt"
-	| "observe"
-	| "source-action"
-	| "source-action-cancel";
-
-export interface SessionWorkerCommand {
+interface WorkerCommandBase {
 	readonly kind: "command";
 	readonly id: string;
-	readonly action: SessionWorkerAction;
-	readonly input?: unknown;
 }
+
+export type SessionWorkerCommand =
+	| (WorkerCommandBase & { readonly action: "start" | "shutdown" | "tick" })
+	| (WorkerCommandBase & {
+			readonly action: "observe";
+			readonly input: OperatorObservationInput;
+	  })
+	| (WorkerCommandBase & {
+			readonly action: "source-action";
+			readonly input: SourceActionInput;
+	  })
+	| (WorkerCommandBase & {
+			readonly action: "source-action-cancel";
+			readonly input: string;
+	  });
+
+export type SessionWorkerAction = SessionWorkerCommand["action"];
 
 export interface SessionWorkerReady {
 	readonly kind: "ready";
@@ -99,7 +101,7 @@ const invalidRecord = (message: string): never => {
 	throw new SessionWorkerProtocolError(message, "record");
 };
 
-const nonEmptyString = (
+const text = (
 	value: unknown,
 	label: string,
 	invalid: (message: string) => never,
@@ -108,37 +110,40 @@ const nonEmptyString = (
 		? value
 		: invalid(`${label} must be a non-empty string`);
 
-const actions = new Set<SessionWorkerAction>([
-	"start",
-	"shutdown",
-	"state",
-	"tick",
-	"pause",
-	"resume",
-	"interrupt",
-	"observe",
-	"source-action",
-	"source-action-cancel",
-]);
-
 export const decodeSessionWorkerCommand = (
 	value: unknown,
 ): SessionWorkerCommand => {
 	if (!isRecord(value) || value["kind"] !== "command")
 		return invalidCommand("invalid Session worker command");
-	const action = nonEmptyString(
-		value["action"],
-		"worker action",
-		invalidCommand,
-	);
-	if (!actions.has(action as SessionWorkerAction))
-		return invalidCommand(`unknown Session worker action: ${action}`);
-	return {
-		kind: "command",
-		id: nonEmptyString(value["id"], "worker command id", invalidCommand),
-		action: action as SessionWorkerAction,
-		input: value["input"],
-	};
+	const id = text(value["id"], "worker command id", invalidCommand);
+	const action = text(value["action"], "worker action", invalidCommand);
+	if (action === "start" || action === "shutdown" || action === "tick") {
+		if (value["input"] !== undefined)
+			return invalidCommand(`${action} cannot carry input`);
+		return { kind: "command", id, action };
+	}
+	if (action === "observe")
+		return {
+			kind: "command",
+			id,
+			action,
+			input: decodeOperatorObservation(value["input"]),
+		};
+	if (action === "source-action")
+		return {
+			kind: "command",
+			id,
+			action,
+			input: decodeSourceActionInput(value["input"]),
+		};
+	if (action === "source-action-cancel")
+		return {
+			kind: "command",
+			id,
+			action,
+			input: text(value["input"], "actionRunId", invalidCommand),
+		};
+	return invalidCommand(`unknown Session worker action: ${action}`);
 };
 
 export const decodeSessionWorkerRecord = (
@@ -148,40 +153,19 @@ export const decodeSessionWorkerRecord = (
 	if (value["kind"] === "ready")
 		return {
 			kind: "ready",
-			sessionId: nonEmptyString(value["sessionId"], "sessionId", invalidRecord),
-			workflowName: nonEmptyString(
-				value["workflowName"],
-				"workflowName",
-				invalidRecord,
-			),
-			workflowPath: nonEmptyString(
-				value["workflowPath"],
-				"workflowPath",
-				invalidRecord,
-			),
-			projectPath: nonEmptyString(
-				value["projectPath"],
-				"projectPath",
-				invalidRecord,
-			),
-			historyPath: nonEmptyString(
-				value["historyPath"],
-				"historyPath",
-				invalidRecord,
-			),
+			sessionId: text(value["sessionId"], "sessionId", invalidRecord),
+			workflowName: text(value["workflowName"], "workflowName", invalidRecord),
+			workflowPath: text(value["workflowPath"], "workflowPath", invalidRecord),
+			projectPath: text(value["projectPath"], "projectPath", invalidRecord),
+			historyPath: text(value["historyPath"], "historyPath", invalidRecord),
 		};
-	if (value["kind"] === "event") {
-		if (!isRecord(value["event"])) return invalidRecord("invalid worker event");
-		return { kind: "event", event: value["event"] as unknown as RuntimeEvent };
-	}
+	if (value["kind"] === "event")
+		return { kind: "event", event: decodeRuntimeEvent(value["event"]) };
 	if (value["kind"] === "failure")
-		return {
-			kind: "failure",
-			error: parseBoundaryErrorRecord(value["error"]),
-		};
+		return { kind: "failure", error: parseBoundaryErrorRecord(value["error"]) };
 	if (value["kind"] !== "result")
 		return invalidRecord("unknown Session worker record");
-	const id = nonEmptyString(value["id"], "worker result id", invalidRecord);
+	const id = text(value["id"], "worker result id", invalidRecord);
 	if (value["ok"] === true)
 		return { kind: "result", id, ok: true, value: value["value"] };
 	if (value["ok"] === false)
@@ -194,15 +178,6 @@ export const decodeSessionWorkerRecord = (
 	return invalidRecord("worker result ok must be boolean");
 };
 
-export const encodeSessionWorkerRecord = (
-	record: SessionWorkerRecord | SessionWorkerCommand,
-): string => stringifyJsonl(record, { maxLineBytes: workerMaxLineBytes });
-
-const objectInput = <A>(value: unknown, label: string): A =>
-	isRecord(value)
-		? (value as A)
-		: invalidCommand(`${label} input must be an object`);
-
 const handleCommand = async (
 	host: SessionHost,
 	command: SessionWorkerCommand,
@@ -210,138 +185,104 @@ const handleCommand = async (
 	switch (command.action) {
 		case "start":
 			await host.runtime.start();
-			return host.runtime.state();
+			return true;
 		case "shutdown":
 			await host.shutdown();
 			return true;
-		case "state":
-			return host.runtime.state();
 		case "tick":
 			return host.runtime.tickOnce();
-		case "pause":
-			await host.runtime.pauseDispatch();
-			return true;
-		case "resume":
-			await host.runtime.resumeDispatch();
-			return true;
-		case "interrupt":
-			return host.runtime.interruptAgentRun(
-				objectInput<InterruptAgentRunInput>(command.input, command.action),
-			);
 		case "observe":
-			return host.runtime.recordOperatorObservation(
-				objectInput<OperatorObservationInput>(command.input, command.action),
-			);
+			return host.runtime.recordOperatorObservation(command.input);
 		case "source-action":
-			return host.runtime.startSourceAction(
-				objectInput<SourceActionInput>(command.input, command.action),
-			);
+			return host.runtime.startSourceAction(command.input);
 		case "source-action-cancel":
-			return host.runtime.cancelSourceAction(
-				nonEmptyString(command.input, "actionRunId", invalidCommand),
-			);
+			return host.runtime.cancelSourceAction(command.input);
 	}
 };
 
-export interface ServeSessionWorkerOptions extends CreateSessionHostOptions {
-	readonly stdin: AsyncIterable<string | Uint8Array>;
-	readonly writeLine: (line: string) => Promise<void> | void;
-}
+const sendWorkerRecord = (record: SessionWorkerRecord): void => {
+	if (process.send === undefined)
+		throw new Error("Session worker requires parent IPC");
+	process.send(record);
+};
 
 export const serveSessionWorker = async (
-	options: ServeSessionWorkerOptions,
+	options: CreateSessionHostOptions,
 ): Promise<void> => {
-	let writes = Promise.resolve();
-	let writeFailure: unknown;
-	let abortEventPump: (() => void) | undefined;
-	const rememberWriteFailure = (error: unknown): unknown => {
-		if (writeFailure === undefined) {
-			writeFailure = error;
-			abortEventPump?.();
-		}
-		return error;
-	};
-	const write = (record: SessionWorkerRecord): Promise<void> => {
-		if (writeFailure !== undefined) return Promise.reject(writeFailure);
-		const next = writes
-			.then(() => options.writeLine(encodeSessionWorkerRecord(record)))
-			.catch((error: unknown) => {
-				throw rememberWriteFailure(error);
-			});
-		writes = next.then(
-			() => undefined,
-			() => undefined,
-		);
-		return next;
-	};
 	let host: SessionHost;
 	try {
 		host = await createSessionHost(options);
 	} catch (error) {
-		await write({
+		sendWorkerRecord({
 			kind: "failure",
 			error: toBoundaryErrorRecord(error, "session-worker-startup"),
 		});
 		return;
 	}
-	const state = await host.runtime.state();
-	if (state.sessionFile === undefined)
-		throw new Error("Session worker requires durable history");
-	await write({
+	sendWorkerRecord({
 		kind: "ready",
 		sessionId: host.runtime.id,
 		workflowName: host.metadata.workflowName,
 		workflowPath: host.metadata.workflowPath,
 		projectPath: host.metadata.cwd,
-		historyPath: state.sessionFile,
+		historyPath: host.metadata.historyPath,
 	});
 	const controller = new AbortController();
-	abortEventPump = () => controller.abort();
-	const eventPump = (async () => {
-		for await (const event of host.runtime.events(controller.signal))
-			await write({ kind: "event", event });
-	})().catch((error: unknown) => {
-		rememberWriteFailure(error);
+	let finish!: (error?: unknown) => void;
+	const done = new Promise<void>((resolve, reject) => {
+		finish = (error) => (error === undefined ? resolve() : reject(error));
 	});
-	let failure: unknown;
-	try {
-		for await (const line of jsonlLines(options.stdin, {
-			maxLineBytes: workerMaxLineBytes,
-		})) {
-			if (line.trim() === "") continue;
+	let commands = Promise.resolve();
+	const onMessage = (value: unknown) => {
+		commands = commands.then(async () => {
 			let command: SessionWorkerCommand;
 			try {
-				command = decodeSessionWorkerCommand(parseJsonl(line));
+				command = decodeSessionWorkerCommand(value);
 			} catch (error) {
-				await write({
+				sendWorkerRecord({
 					kind: "result",
 					id: "invalid",
 					ok: false,
 					error: toBoundaryErrorRecord(error, "session-worker-command"),
 				});
-				continue;
+				return;
 			}
 			try {
-				const value = await handleCommand(host, command);
-				await write({ kind: "result", id: command.id, ok: true, value });
+				const result = await handleCommand(host, command);
+				sendWorkerRecord({
+					kind: "result",
+					id: command.id,
+					ok: true,
+					value: result,
+				});
 			} catch (error) {
-				await write({
+				sendWorkerRecord({
 					kind: "result",
 					id: command.id,
 					ok: false,
 					error: toBoundaryErrorRecord(error, "session-worker-runtime"),
 				});
 			}
-			if (command.action === "shutdown") break;
-		}
-	} catch (error) {
-		failure = error;
+			if (command.action === "shutdown") finish();
+			return undefined;
+		});
+		commands.catch(finish);
+	};
+	const disconnected = () => finish();
+	process.on("message", onMessage);
+	process.once("disconnect", disconnected);
+	const events = (async () => {
+		for await (const event of host.runtime.events(controller.signal))
+			sendWorkerRecord({ kind: "event", event });
+	})().catch(finish);
+	try {
+		await done;
+		await commands;
 	} finally {
+		process.off("message", onMessage);
+		process.off("disconnect", disconnected);
 		await host.shutdown().catch(() => undefined);
 		controller.abort();
-		await eventPump;
-		await writes;
+		await events;
 	}
-	if (failure !== undefined) throw failure;
-	if (writeFailure !== undefined) throw writeFailure;
 };

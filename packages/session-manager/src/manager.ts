@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { PlotBoundaryError } from "@plot/common/boundary-error";
 import { EventHub } from "@plot/common/event-stream";
 import { errorMessage } from "@plot/common/primitives";
 import type {
-	InterruptAgentRunInput,
 	OperatorObservationInput,
 	RuntimeEvent,
 	SourceActionInput,
@@ -23,6 +22,13 @@ import {
 import type { SessionState, SessionSummary } from "./session.js";
 import type { SessionStore } from "./session-store.js";
 
+const LIVE_EVENT_CAPACITY = 1024;
+const COMMAND_TIMEOUT_MS = 30_000;
+const TERMINATE_SHUTDOWN_MS = 5_000;
+const KILL_SHUTDOWN_MS = 2_000;
+const DIAGNOSTIC_LIMIT_BYTES = 16 * 1024;
+const now = () => new Date().toISOString();
+
 export interface StartWorkflow {
 	readonly cwd: string;
 	readonly workflowPath?: string;
@@ -35,9 +41,6 @@ export interface StartSessionResult {
 
 export type SessionControlOperation =
 	| "tick"
-	| "pause"
-	| "resume"
-	| "interrupt"
 	| "observe"
 	| "source-action"
 	| "source-action-cancel";
@@ -92,7 +95,7 @@ export class SessionManagerShuttingDownError extends PlotBoundaryError {
 	}
 }
 
-export interface SessionManagerRuntime {
+export interface SessionManagerClient {
 	readonly start: (input: StartWorkflow) => Promise<StartSessionResult>;
 	readonly find: (workflowPath: string) => Promise<SessionSummary | undefined>;
 	readonly get: (sessionId: string) => Promise<SessionSummary | undefined>;
@@ -107,12 +110,6 @@ export interface SessionManagerRuntime {
 		signal?: AbortSignal,
 	) => AsyncIterable<RuntimeEvent>;
 	readonly tick: (sessionId: string) => Promise<void>;
-	readonly pause: (sessionId: string) => Promise<void>;
-	readonly resume: (sessionId: string) => Promise<void>;
-	readonly interrupt: (
-		sessionId: string,
-		input: InterruptAgentRunInput,
-	) => Promise<boolean>;
 	readonly startSourceAction: (
 		sessionId: string,
 		input: SourceActionInput,
@@ -125,7 +122,6 @@ export interface SessionManagerRuntime {
 		sessionId: string,
 		input: OperatorObservationInput,
 	) => Promise<boolean>;
-	readonly shutdown: () => Promise<void>;
 }
 
 export interface SessionManagerOptions {
@@ -136,32 +132,47 @@ export interface SessionManagerOptions {
 		readonly args: readonly string[];
 		readonly cwd: string;
 	}) => SessionChildProcess;
-	readonly now?: () => string;
-	readonly id?: () => string;
 	readonly readyTimeoutMs?: number;
-	readonly commandTimeoutMs?: number;
 	readonly gracefulShutdownMs?: number;
-	readonly terminateShutdownMs?: number;
-	readonly killShutdownMs?: number;
-	readonly diagnosticLimitBytes?: number;
-	readonly eventCapacity?: number;
 	readonly canonicalize?: (path: string) => Promise<string>;
 }
 
 interface LiveSession {
-	summary: SessionSummary;
+	readonly owner: WorkflowOwner;
+	readonly id: string;
+	readonly createdAt: string;
+	updatedAt: string;
+	readonly workflowName: string;
+	readonly workflowPath: string;
+	readonly projectPath: string;
+	readonly historyPath: string;
 	readonly process: SessionProcess;
 	readonly events: EventHub<RuntimeEvent>;
-	cleanup: () => void;
-	closing?: Promise<void>;
+	readonly unsubscribeRecord: () => void;
+	readonly unsubscribeExit: () => void;
+	diagnostic?: string;
 }
 
-interface WorkflowLifecycleSlot {
+type CloseReason = "stop" | "failure";
+
+type WorkflowState =
+	| { readonly state: "idle" }
+	| {
+			readonly state: "starting";
+			readonly operation: Promise<StartSessionResult>;
+	  }
+	| { readonly state: "online"; readonly session: LiveSession }
+	| {
+			readonly state: "closing";
+			readonly reason: CloseReason;
+			readonly session: LiveSession;
+			readonly operation: Promise<SessionSummary>;
+	  };
+
+interface WorkflowOwner {
 	readonly workflowKey: string;
 	readonly aliases: Set<string>;
-	tail: Promise<void>;
-	pendingStart: Promise<StartSessionResult> | undefined;
-	pendingStop: Promise<SessionSummary | undefined> | undefined;
+	state: WorkflowState;
 }
 
 const workerArgs = (input: {
@@ -180,40 +191,24 @@ const workerArgs = (input: {
 	input.workflowPath,
 ];
 
-export class SessionManager implements SessionManagerRuntime {
+export class SessionManager implements SessionManagerClient {
 	private readonly live = new Map<string, LiveSession>();
-	private readonly lifecycles = new Map<string, WorkflowLifecycleSlot>();
+	private readonly workflows = new Map<string, WorkflowOwner>();
 	private accepting = true;
-	private shutdownPromise: Promise<void> | undefined;
-	private readonly options: Required<
-		Pick<
-			SessionManagerOptions,
-			| "now"
-			| "id"
-			| "readyTimeoutMs"
-			| "commandTimeoutMs"
-			| "gracefulShutdownMs"
-			| "terminateShutdownMs"
-			| "killShutdownMs"
-			| "diagnosticLimitBytes"
-			| "eventCapacity"
-			| "canonicalize"
-		>
-	> &
-		SessionManagerOptions;
+	private shutdownOperation: Promise<void> | undefined;
+	private readonly options: SessionManagerOptions &
+		Required<
+			Pick<
+				SessionManagerOptions,
+				"readyTimeoutMs" | "gracefulShutdownMs" | "canonicalize"
+			>
+		>;
 
 	constructor(options: SessionManagerOptions) {
 		this.options = {
 			...options,
-			now: options.now ?? (() => new Date().toISOString()),
-			id: options.id ?? (() => `session-${randomUUID()}`),
 			readyTimeoutMs: options.readyTimeoutMs ?? 10_000,
-			commandTimeoutMs: options.commandTimeoutMs ?? 30_000,
 			gracefulShutdownMs: options.gracefulShutdownMs ?? 30_000,
-			terminateShutdownMs: options.terminateShutdownMs ?? 5_000,
-			killShutdownMs: options.killShutdownMs ?? 2_000,
-			diagnosticLimitBytes: options.diagnosticLimitBytes ?? 16 * 1024,
-			eventCapacity: options.eventCapacity ?? 1024,
 			canonicalize: options.canonicalize ?? realpath,
 		};
 	}
@@ -225,19 +220,70 @@ export class SessionManager implements SessionManagerRuntime {
 	private shutdownOptions(): SessionProcessShutdownOptions {
 		return {
 			gracefulMs: this.options.gracefulShutdownMs,
-			terminateMs: this.options.terminateShutdownMs,
-			killMs: this.options.killShutdownMs,
+			terminateMs: TERMINATE_SHUTDOWN_MS,
+			killMs: KILL_SHUTDOWN_MS,
 		};
+	}
+
+	private summary(live: LiveSession, state?: SessionState): SessionSummary {
+		const ownerState = live.owner.state;
+		let actualState = state ?? "starting";
+		if (state === undefined && ownerState.state === "online")
+			actualState = "online";
+		if (state === undefined && ownerState.state === "closing")
+			actualState = ownerState.reason === "stop" ? "stopping" : "error";
+		const summary: SessionSummary = {
+			id: live.id,
+			workflowKey: live.owner.workflowKey,
+			workflowName: live.workflowName,
+			workflowPath: live.workflowPath,
+			workflowAliases: [...live.owner.aliases],
+			projectPath: live.projectPath,
+			state: actualState,
+			createdAt: live.createdAt,
+			updatedAt: live.updatedAt,
+			historyPath: live.historyPath,
+		};
+		const processDiagnostic = live.process.diagnosticTail();
+		if (live.diagnostic === undefined && processDiagnostic.length === 0)
+			return summary;
+		const diagnostic =
+			live.diagnostic === undefined
+				? processDiagnostic
+				: this.appendDiagnostic(processDiagnostic, live.diagnostic);
+		return { ...summary, diagnostic };
+	}
+
+	private ownerFor(workflowKey: string, aliases: readonly string[]) {
+		const found = [workflowKey, ...aliases]
+			.map((key) => this.workflows.get(key))
+			.find((owner) => owner !== undefined);
+		const owner: WorkflowOwner = found ?? {
+			workflowKey,
+			aliases: new Set(),
+			state: { state: "idle" },
+		};
+		for (const alias of [workflowKey, ...aliases]) {
+			const conflict = this.workflows.get(alias);
+			if (conflict !== undefined && conflict !== owner)
+				throw new Error(`Conflicting Workflow lifecycle identity: ${alias}`);
+			owner.aliases.add(alias);
+			this.workflows.set(alias, owner);
+		}
+		return owner;
+	}
+
+	private release(owner: WorkflowOwner): void {
+		for (const alias of owner.aliases)
+			if (this.workflows.get(alias) === owner) this.workflows.delete(alias);
 	}
 
 	private async workflowKey(input: StartWorkflow): Promise<string> {
 		return this.options.canonicalize(resolveWorkflowPath(input));
 	}
 
-	private async workflowLookupKeys(
-		workflowPath: string,
-	): Promise<ReadonlySet<string>> {
-		const normalized = resolve(workflowPath);
+	private async workflowLookupKeys(path: string): Promise<Set<string>> {
+		const normalized = resolve(path);
 		const keys = new Set([normalized]);
 		try {
 			keys.add(await this.options.canonicalize(normalized));
@@ -247,226 +293,119 @@ export class SessionManager implements SessionManagerRuntime {
 		return keys;
 	}
 
-	private slotFor(
-		workflowKey: string,
-		aliases: readonly string[],
-	): WorkflowLifecycleSlot {
-		const found = [workflowKey, ...aliases]
-			.map((key) => this.lifecycles.get(key))
-			.find((slot) => slot !== undefined);
-		const slot =
-			found ??
-			({
-				workflowKey,
-				aliases: new Set<string>(),
-				tail: Promise.resolve(),
-				pendingStart: undefined,
-				pendingStop: undefined,
-			} satisfies WorkflowLifecycleSlot);
-		for (const alias of [workflowKey, ...aliases]) {
-			const conflict = this.lifecycles.get(alias);
-			if (conflict !== undefined && conflict !== slot)
-				throw new Error(`Conflicting Workflow lifecycle identity: ${alias}`);
-			slot.aliases.add(alias);
-			this.lifecycles.set(alias, slot);
-		}
-		return slot;
-	}
-
-	private enqueue<A>(
-		slot: WorkflowLifecycleSlot,
-		operation: () => Promise<A>,
-	): Promise<A> {
-		const next = slot.tail.then(operation, operation);
-		slot.tail = next.then(
-			() => undefined,
-			() => undefined,
-		);
-		return next;
-	}
-
-	private releaseSlotIfIdle(slot: WorkflowLifecycleSlot): void {
-		if (slot.pendingStart !== undefined || slot.pendingStop !== undefined)
-			return;
-		const active = [...this.live.values()].some(
-			(live) => live.summary.workflowKey === slot.workflowKey,
-		);
-		if (active) return;
-		for (const alias of slot.aliases)
-			if (this.lifecycles.get(alias) === slot) this.lifecycles.delete(alias);
-	}
-
-	private async rememberWorkflowAlias(
-		session: SessionSummary,
-		workflowAlias: string,
-		slot?: WorkflowLifecycleSlot,
-	): Promise<SessionSummary> {
-		slot?.aliases.add(workflowAlias);
-		if (slot !== undefined) this.lifecycles.set(workflowAlias, slot);
-		if (session.workflowAliases.includes(workflowAlias)) return session;
-		const updated = {
-			...session,
-			workflowAliases: [...session.workflowAliases, workflowAlias],
-			updatedAt: this.options.now(),
-		};
-		const live = this.live.get(session.id);
-		if (live !== undefined) live.summary = updated;
-		await this.options.store.upsert(updated);
-		return updated;
-	}
-
-	private activeForWorkflow(workflowKey: string): SessionSummary | undefined {
-		for (const live of this.live.values())
-			if (
-				live.summary.workflowKey === workflowKey ||
-				live.summary.workflowAliases.includes(workflowKey)
-			)
-				return live.summary;
-		return undefined;
-	}
-
 	async start(input: StartWorkflow): Promise<StartSessionResult> {
 		if (!this.accepting) throw new SessionManagerShuttingDownError();
-		const workflowAlias = resolve(resolveWorkflowPath(input));
-		const workflowKey = await this.workflowKey(input);
-		const slot = this.slotFor(workflowKey, [workflowAlias]);
-		const current = slot.pendingStart;
-		if (current !== undefined)
-			return this.enqueue(slot, async () => {
-				const result = await current;
-				return {
-					session: await this.rememberWorkflowAlias(
-						result.session,
-						workflowAlias,
-						slot,
-					),
-					started: false,
-				};
-			});
-		const start = this.enqueue(slot, async () => {
+		const alias = resolve(resolveWorkflowPath(input));
+		const owner = this.ownerFor(await this.workflowKey(input), [alias]);
+		for (;;) {
 			if (!this.accepting) throw new SessionManagerShuttingDownError();
-			const existing = await this.activeForWorkflow(workflowKey);
-			if (existing !== undefined)
-				return {
-					session: await this.rememberWorkflowAlias(
-						existing,
-						workflowAlias,
-						slot,
-					),
-					started: false,
-				};
-			return this.startSession(slot, resolve(input.cwd), workflowAlias);
-		});
-		slot.pendingStart = start;
-		try {
-			return await start;
-		} finally {
-			if (slot.pendingStart === start) slot.pendingStart = undefined;
-			this.releaseSlotIfIdle(slot);
+			const state = owner.state;
+			if (state.state === "idle")
+				return this.beginStart(owner, resolve(input.cwd));
+			if (state.state === "starting") {
+				const result = await state.operation;
+				return { session: result.session, started: false };
+			}
+			if (state.state === "online") {
+				state.session.updatedAt = now();
+				const session = this.summary(state.session, "online");
+				await this.options.store.upsert(session);
+				return { session, started: false };
+			}
+			await state.operation.catch(() => undefined);
 		}
+	}
+
+	private beginStart(
+		owner: WorkflowOwner,
+		projectPath: string,
+	): Promise<StartSessionResult> {
+		const operation = this.startSession(owner, projectPath).then(
+			(live) => {
+				owner.state = { state: "online", session: live };
+				return { session: this.summary(live, "online"), started: true };
+			},
+			(error: unknown) => {
+				owner.state = { state: "idle" };
+				this.release(owner);
+				throw error;
+			},
+		);
+		owner.state = { state: "starting", operation };
+		return operation;
 	}
 
 	private async startSession(
-		slot: WorkflowLifecycleSlot,
+		owner: WorkflowOwner,
 		projectPath: string,
-		workflowAlias: string,
-	): Promise<StartSessionResult> {
-		const sessionId = this.options.id();
+	): Promise<LiveSession> {
+		const id = `session-${randomUUID()}`;
 		const child = (this.options.spawnChild ?? createSessionChildProcess)({
 			command: this.options.cli.command,
 			args: workerArgs({
 				cliArgs: this.options.cli.args,
 				cwd: projectPath,
-				sessionId,
-				workflowPath: slot.workflowKey,
+				sessionId: id,
+				workflowPath: owner.workflowKey,
 			}),
 			cwd: projectPath,
 		});
 		const process = new SessionProcess(child, {
-			diagnosticLimitBytes: this.options.diagnosticLimitBytes,
-			commandTimeoutMs: this.options.commandTimeoutMs,
+			diagnosticLimitBytes: DIAGNOSTIC_LIMIT_BYTES,
+			commandTimeoutMs: COMMAND_TIMEOUT_MS,
 		});
-		const now = this.options.now();
-		const summary: SessionSummary = {
-			id: sessionId,
-			workflowKey: slot.workflowKey,
-			workflowName: basename(slot.workflowKey),
-			workflowPath: slot.workflowKey,
-			workflowAliases: [workflowAlias],
-			projectPath,
-			state: "starting",
-			createdAt: now,
-			updatedAt: now,
-			historyPath: resolve(
-				projectPath,
-				".plot",
-				"sessions",
-				`${sessionId}.jsonl`,
-			),
-			lastSequence: 0,
-		};
-		const events = new EventHub<RuntimeEvent>(this.options.eventCapacity);
-		const live: LiveSession = {
-			summary,
-			process,
-			events,
-			cleanup: () => {},
-		};
-		let committed = false;
-		const update = async (changes: Partial<SessionSummary>) => {
-			live.summary = {
-				...live.summary,
-				...changes,
-				updatedAt: this.options.now(),
-			};
-			if (committed) await this.options.store.upsert(live.summary);
-		};
-		const unsubscribes = [
-			process.onRecord((record) => {
-				if (record.kind !== "event") return;
-				events.publish(record.event);
-				void update({ lastSequence: record.event.sequence }).catch((error) =>
-					this.scheduleFailure(live, error),
-				);
-			}),
-			process.onDiagnostic((diagnostic) => {
-				void update({ diagnostic }).catch((error) =>
-					this.scheduleFailure(live, error),
-				);
-			}),
-			process.onExit((error) => {
-				if (
-					live.summary.state === "stopping" ||
-					live.summary.state === "stopped"
-				)
-					return;
-				this.scheduleFailure(live, error);
-			}),
-		];
-		live.cleanup = () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+		const events = new EventHub<RuntimeEvent>(LIVE_EVENT_CAPACITY);
+		const unsubscribeRecord = process.onRecord((record) => {
+			if (record.kind === "event") events.publish(record.event);
+		});
+		const unsubscribeExit = process.onExit((error) => {
+			const live = this.live.get(id);
+			if (live?.process === process) void this.fail(live.owner, live, error);
+		});
+		let live: LiveSession | undefined;
 		try {
 			const ready = await process.waitUntilReady(this.options.readyTimeoutMs);
-			await update({
+			const createdAt = now();
+			live = {
+				owner,
+				id,
+				createdAt,
+				updatedAt: createdAt,
 				workflowName: ready.workflowName,
 				workflowPath: ready.workflowPath,
-				workflowAliases: [...slot.aliases],
 				projectPath: ready.projectPath,
 				historyPath: ready.historyPath,
-			});
-			this.live.set(sessionId, live);
-			committed = true;
-			await this.options.store.upsert(live.summary);
+				process,
+				events,
+				unsubscribeRecord,
+				unsubscribeExit,
+			};
+			this.live.set(id, live);
+			await this.options.store.upsert(this.summary(live, "starting"));
 			await process.command("start");
-			await update({ state: "online" });
-			return { session: live.summary, started: true };
+			live.updatedAt = now();
+			await this.options.store.upsert(this.summary(live, "online"));
+			return live;
 		} catch (error) {
-			if (committed) await this.fail(live, error);
-			else {
-				await process
-					.shutdown({ ...this.shutdownOptions(), gracefulMs: 0 })
-					.catch(() => undefined);
-				live.cleanup();
+			if (live !== undefined) {
+				live.diagnostic = this.appendDiagnostic(
+					live.diagnostic,
+					errorMessage(error),
+				);
+				live.updatedAt = now();
+			}
+			await process
+				.shutdown({ ...this.shutdownOptions(), gracefulMs: 0 })
+				.catch(() => undefined);
+			if (live === undefined) {
+				unsubscribeRecord();
+				unsubscribeExit();
 				events.close();
+			} else {
+				await this.options.store
+					.upsert(this.summary(live, "error"))
+					.catch(() => undefined);
+				this.releaseLive(live);
 			}
 			throw error;
 		}
@@ -477,177 +416,144 @@ export class SessionManager implements SessionManagerRuntime {
 			current === undefined || current.endsWith("\n") ? "" : "\n";
 		return trimDiagnostic(
 			`${current ?? ""}${separator}${value}`,
-			this.options.diagnosticLimitBytes,
+			DIAGNOSTIC_LIMIT_BYTES,
 		);
 	}
 
 	private releaseLive(live: LiveSession): void {
-		live.cleanup();
+		live.unsubscribeRecord();
+		live.unsubscribeExit();
 		live.events.close();
-		this.live.delete(live.summary.id);
-		const slot = this.lifecycles.get(live.summary.workflowKey);
-		if (slot !== undefined) this.releaseSlotIfIdle(slot);
+		if (this.live.get(live.id) === live) this.live.delete(live.id);
 	}
 
-	private scheduleFailure(live: LiveSession, error: unknown): void {
-		const slot = this.lifecycles.get(live.summary.workflowKey);
-		if (slot === undefined) {
-			void this.fail(live, error);
-			return;
-		}
-		void this.enqueue(slot, () => this.fail(live, error)).catch(
-			() => undefined,
-		);
-	}
-
-	private fail(live: LiveSession, error: unknown): Promise<void> {
-		if (live.summary.state === "stopping" || live.summary.state === "stopped")
-			return Promise.resolve();
-		if (live.closing !== undefined) return live.closing;
-		if (this.live.get(live.summary.id) !== live) return Promise.resolve();
-		const closing = (async () => {
-			live.summary = {
-				...live.summary,
-				state: "error",
-				updatedAt: this.options.now(),
-				diagnostic: this.appendDiagnostic(
-					live.summary.diagnostic,
-					errorMessage(error),
-				),
-			};
-			try {
-				await this.options.store.upsert(live.summary);
-			} catch {
-				// Process ownership must still be released when persistence is unavailable.
-			}
-			try {
-				await live.process.shutdown(this.shutdownOptions());
-			} catch {
-				// The original failure owns the Session diagnostic.
-			} finally {
-				this.releaseLive(live);
-			}
-		})();
-		live.closing = closing;
-		return closing;
-	}
-
-	async find(workflowPath: string): Promise<SessionSummary | undefined> {
-		const keys = await this.workflowLookupKeys(workflowPath);
-		return [...keys]
-			.map((key) => this.activeForWorkflow(key))
-			.find((session) => session !== undefined);
-	}
-
-	async get(sessionId: string): Promise<SessionSummary | undefined> {
-		return (
-			this.live.get(sessionId)?.summary ?? this.options.store.get(sessionId)
-		);
-	}
-
-	async stop(workflowPath: string): Promise<SessionSummary | undefined> {
-		const keys = await this.workflowLookupKeys(workflowPath);
-		const slots = new Set(
-			[...keys]
-				.map((key) => this.lifecycles.get(key))
-				.filter((slot) => slot !== undefined),
-		);
-		if (slots.size > 1)
-			throw new Error(
-				`Conflicting Workflow lifecycle identity: ${workflowPath}`,
-			);
-		const slot = slots.values().next().value as
-			| WorkflowLifecycleSlot
-			| undefined;
-		if (slot !== undefined) return this.stopSlot(slot);
-		const session = [...keys]
-			.map((key) => this.activeForWorkflow(key))
-			.find((result) => result !== undefined);
-		if (session === undefined) return undefined;
-		return this.stopSession(session.id);
-	}
-
-	async stopSession(sessionId: string): Promise<SessionSummary | undefined> {
-		const live = this.live.get(sessionId);
-		if (live === undefined) return this.options.store.get(sessionId);
-		const slot = this.slotFor(live.summary.workflowKey, [
-			...live.summary.workflowAliases,
-		]);
-		return this.stopSlot(slot, sessionId);
-	}
-
-	private stopSlot(
-		slot: WorkflowLifecycleSlot,
-		sessionId?: string,
+	private fail(
+		owner: WorkflowOwner,
+		live: LiveSession,
+		error: unknown,
 	): Promise<SessionSummary | undefined> {
-		const current = slot.pendingStop;
-		if (current !== undefined) return current;
-		const stop = this.enqueue(slot, async () => {
-			const live =
-				sessionId === undefined
-					? [...this.live.values()].find(
-							(item) => item.summary.workflowKey === slot.workflowKey,
-						)
-					: this.live.get(sessionId);
-			if (live === undefined) return undefined;
-			return this.stopLiveSession(live);
-		});
-		slot.pendingStop = stop;
-		const finish = () => {
-			if (slot.pendingStop === stop) slot.pendingStop = undefined;
-			this.releaseSlotIfIdle(slot);
-		};
-		void stop.then(finish, finish);
-		return stop;
+		const state = owner.state;
+		if (state.state === "closing" && state.session === live)
+			return state.operation;
+		if (state.state !== "online" || state.session !== live)
+			return Promise.resolve(undefined);
+		return this.beginClose(owner, live, "failure", error);
 	}
 
-	private async stopLiveSession(live: LiveSession): Promise<SessionSummary> {
-		live.summary = {
-			...live.summary,
-			state: "stopping",
-			updatedAt: this.options.now(),
-		};
-		let storageFailure: unknown;
-		try {
-			await this.options.store.upsert(live.summary);
-		} catch (error) {
-			storageFailure = error;
+	async find(path: string): Promise<SessionSummary | undefined> {
+		const keys = await this.workflowLookupKeys(path);
+		for (const key of keys) {
+			const owner = this.workflows.get(key);
+			if (owner?.state.state === "online")
+				return this.summary(owner.state.session, "online");
 		}
-		let termination: Awaited<ReturnType<SessionProcess["shutdown"]>>;
+		return;
+	}
+
+	async get(id: string): Promise<SessionSummary | undefined> {
+		const live = this.live.get(id);
+		return live === undefined ? this.options.store.get(id) : this.summary(live);
+	}
+
+	async stop(path: string): Promise<SessionSummary | undefined> {
+		const keys = await this.workflowLookupKeys(path);
+		const owners = new Set(
+			[...keys]
+				.map((key) => this.workflows.get(key))
+				.filter((owner) => owner !== undefined),
+		);
+		if (owners.size > 1)
+			throw new Error(`Conflicting Workflow lifecycle identity: ${path}`);
+		const owner = owners.values().next().value as WorkflowOwner | undefined;
+		if (owner !== undefined) return this.stopOwner(owner);
+		return (await this.options.store.list()).find(
+			(session) =>
+				keys.has(session.workflowKey) ||
+				session.workflowAliases.some((alias) => keys.has(alias)),
+		);
+	}
+
+	async stopSession(id: string): Promise<SessionSummary | undefined> {
+		const live = this.live.get(id);
+		return live === undefined
+			? this.options.store.get(id)
+			: this.stopOwner(live.owner, id);
+	}
+
+	private async stopOwner(
+		owner: WorkflowOwner,
+		id?: string,
+	): Promise<SessionSummary | undefined> {
+		for (;;) {
+			const state = owner.state;
+			if (state.state === "idle") return;
+			if (state.state === "starting") {
+				try {
+					await state.operation;
+				} catch {
+					return;
+				}
+				continue;
+			}
+			if (state.state === "closing")
+				return id === undefined || state.session.id === id
+					? state.operation
+					: undefined;
+			if (id !== undefined && state.session.id !== id) return;
+			return this.beginClose(owner, state.session, "stop");
+		}
+	}
+
+	private beginClose(
+		owner: WorkflowOwner,
+		live: LiveSession,
+		reason: CloseReason,
+		failure?: unknown,
+	): Promise<SessionSummary> {
+		const operation = this.closeLive(live, reason, failure).finally(() => {
+			owner.state = { state: "idle" };
+			this.release(owner);
+		});
+		owner.state = { state: "closing", reason, session: live, operation };
+		return operation;
+	}
+
+	private async closeLive(
+		live: LiveSession,
+		reason: CloseReason,
+		failure: unknown,
+	): Promise<SessionSummary> {
+		if (reason === "failure")
+			live.diagnostic = this.appendDiagnostic(
+				live.diagnostic,
+				errorMessage(failure),
+			);
+		let shutdownFailure: unknown;
 		try {
-			termination = await live.process.shutdown(this.shutdownOptions());
+			const termination = await live.process.shutdown(this.shutdownOptions());
+			if (termination.mode !== "graceful")
+				live.diagnostic = this.appendDiagnostic(
+					live.diagnostic,
+					`Session worker shutdown mode: ${termination.mode}`,
+				);
 		} catch (error) {
-			live.summary = {
-				...live.summary,
-				state: "error",
-				updatedAt: this.options.now(),
-				diagnostic: this.appendDiagnostic(
-					live.summary.diagnostic,
-					errorMessage(error),
-				),
-			};
+			shutdownFailure = error;
+			live.diagnostic = this.appendDiagnostic(
+				live.diagnostic,
+				errorMessage(error),
+			);
+		}
+		live.updatedAt = now();
+		const failed = reason === "failure" || shutdownFailure !== undefined;
+		const summary = this.summary(live, failed ? "error" : "stopped");
+		try {
+			await this.options.store.upsert(summary);
+		} finally {
 			this.releaseLive(live);
-			await this.options.store.upsert(live.summary).catch(() => undefined);
-			throw error;
 		}
-		this.releaseLive(live);
-		const diagnostic =
-			termination.mode === "graceful"
-				? live.summary.diagnostic
-				: this.appendDiagnostic(
-						live.summary.diagnostic,
-						`Session worker shutdown mode: ${termination.mode}`,
-					);
-		live.summary = {
-			...live.summary,
-			state: "stopped",
-			updatedAt: this.options.now(),
-		};
-		if (diagnostic !== undefined)
-			live.summary = { ...live.summary, diagnostic };
-		await this.options.store.upsert(live.summary);
-		if (storageFailure !== undefined) throw storageFailure;
-		return live.summary;
+		if (reason === "stop" && shutdownFailure !== undefined)
+			throw shutdownFailure;
+		return summary;
 	}
 
 	async list(): Promise<readonly SessionSummary[]> {
@@ -655,100 +561,83 @@ export class SessionManager implements SessionManagerRuntime {
 			(await this.options.store.list()).map((session) => [session.id, session]),
 		);
 		for (const live of this.live.values())
-			sessions.set(live.summary.id, live.summary);
+			sessions.set(live.id, this.summary(live));
 		return [...sessions.values()];
 	}
 
 	events(
-		sessionId: string,
+		id: string,
 		after = 0,
 		signal?: AbortSignal,
 	): AsyncIterable<RuntimeEvent> {
-		const getSession = () => this.get(sessionId);
-		const getLive = () => this.live.get(sessionId);
+		const getSession = () => this.get(id);
+		const getLive = () => this.live.get(id);
 		return {
 			async *[Symbol.asyncIterator]() {
 				const session = await getSession();
-				if (session === undefined) throw new SessionNotFoundError(sessionId);
+				if (session === undefined) throw new SessionNotFoundError(id);
 				const live = getLive();
-				const input: {
-					historyPath: string;
-					after: number;
-					live?: AsyncIterable<RuntimeEvent>;
-				} = { historyPath: session.historyPath, after };
-				if (live !== undefined) input.live = live.events.subscribe(signal);
+				const input: Parameters<typeof sessionEvents>[0] = {
+					historyPath: session.historyPath,
+					after,
+				};
+				if (live !== undefined)
+					(input as { live?: () => AsyncIterable<RuntimeEvent> }).live = () =>
+						live.events.subscribe(signal);
 				yield* sessionEvents(input);
 			},
 		};
 	}
 
 	private async process(
-		sessionId: string,
+		id: string,
 		operation: SessionControlOperation,
 	): Promise<SessionProcess> {
-		const live = this.live.get(sessionId);
-		const session = live?.summary ?? (await this.options.store.get(sessionId));
-		if (session === undefined) throw new SessionNotFoundError(sessionId);
-		if (!this.accepting || live === undefined || session.state !== "online")
+		const live = this.live.get(id);
+		const session =
+			live === undefined
+				? await this.options.store.get(id)
+				: this.summary(live);
+		if (session === undefined) throw new SessionNotFoundError(id);
+		if (
+			!this.accepting ||
+			live === undefined ||
+			live.owner.state.state !== "online" ||
+			live.owner.state.session !== live
+		)
 			throw new SessionNotControllableError({
-				sessionId,
+				sessionId: id,
 				state: session.state,
 				operation,
 			});
 		return live.process;
 	}
 
-	async tick(sessionId: string): Promise<void> {
-		await (await this.process(sessionId, "tick")).command("tick");
-	}
-
-	async pause(sessionId: string): Promise<void> {
-		await (await this.process(sessionId, "pause")).command("pause");
-	}
-
-	async resume(sessionId: string): Promise<void> {
-		await (await this.process(sessionId, "resume")).command("resume");
-	}
-
-	async interrupt(
-		sessionId: string,
-		input: InterruptAgentRunInput,
-	): Promise<boolean> {
-		return (
-			(await (
-				await this.process(sessionId, "interrupt")
-			).command("interrupt", input)) === true
-		);
+	async tick(id: string): Promise<void> {
+		await (await this.process(id, "tick")).command("tick");
 	}
 
 	async startSourceAction(
-		sessionId: string,
+		id: string,
 		input: SourceActionInput,
 	): Promise<SourceActionStartResult> {
 		return (await (
-			await this.process(sessionId, "source-action")
+			await this.process(id, "source-action")
 		).command("source-action", input)) as SourceActionStartResult;
 	}
 
-	async cancelSourceAction(
-		sessionId: string,
-		actionRunId: string,
-	): Promise<boolean> {
+	async cancelSourceAction(id: string, actionRunId: string): Promise<boolean> {
 		return (
 			(await (
-				await this.process(sessionId, "source-action-cancel")
+				await this.process(id, "source-action-cancel")
 			).command("source-action-cancel", actionRunId)) === true
 		);
 	}
 
-	async observe(
-		sessionId: string,
-		input: OperatorObservationInput,
-	): Promise<boolean> {
+	async observe(id: string, input: OperatorObservationInput): Promise<boolean> {
 		return (
-			(await (
-				await this.process(sessionId, "observe")
-			).command("observe", input)) === true
+			(await (await this.process(id, "observe")).command("observe", input)) ===
+			true
 		);
 	}
 
@@ -758,14 +647,14 @@ export class SessionManager implements SessionManagerRuntime {
 	}
 
 	shutdown(): Promise<void> {
-		this.shutdownPromise ??= (async () => {
+		this.shutdownOperation ??= (async () => {
 			this.accepting = false;
 			await Promise.all(
-				[...new Set(this.lifecycles.values())].map((slot) =>
-					this.stopSlot(slot),
+				[...new Set(this.workflows.values())].map((owner) =>
+					this.stopOwner(owner),
 				),
 			);
 		})();
-		return this.shutdownPromise;
+		return this.shutdownOperation;
 	}
 }

@@ -1,6 +1,6 @@
 # PRD: Stellar CLI contract
 
-Status: approved for implementation before production.
+Status: implemented on 2026-07-15.
 
 ## Problem
 
@@ -81,9 +81,9 @@ The daemon receives the current Plot executable identity explicitly. There is no
 
 ### R8. Command handlers receive explicit capabilities
 
-No command obtains I/O, current directory, browser access, Session Manager access, auth state, TUI startup, or signal waiting through mutable module globals. The CLI constructs one explicit runtime and passes it to command handlers.
+No command obtains terminal I/O, current directory, browser access, Session Manager access, auth state, TUI startup, or signal waiting through mutable module globals. The CLI constructs one immutable host and passes it to command handlers.
 
-Tests can replace each capability without patching process globals.
+The process host is the one production implementation. Behavior tests pass a complete fake host rather than patching globals or feeding a `Partial` override bag into production construction.
 
 ### R9. The public CLI fits on one screen
 
@@ -101,25 +101,27 @@ Root help remains the complete public command map above. Internal worker/manager
 - `docs` accepts one known topic or `--paths`.
 - `auth` accepts `status`, `login [provider]`, or `logout [provider]`; omitted action means `status`.
 
-## CLI runtime contract
+Subcommand option tokenization uses the platform `node:util.parseArgs`. Plot owns only command selection, positional cardinality, and domain validation; it does not carry a parser framework or hand-roll flag scanning.
+
+## CLI host contract
 
 ```txt
-interface CliRuntime {
+interface CliHost {
   readonly cwd: string;
-  readonly stdin: AsyncIterable<string | Uint8Array>;
   readonly isInteractive: boolean;
-  readonly writeStdout: (text: string) => Promise<void>;
-  readonly writeStderr: (text: string) => Promise<void>;
+  readonly stdout: (text: string) => void;
+  readonly stderr: (text: string) => void;
   readonly auth: SessionAuth;
-  readonly getSessionManager: () => Promise<SessionManagerRuntime>;
+  readonly sessions: () => Promise<SessionManagerClient>;
   readonly runTui: (options: PlotTuiOptions) => Promise<void>;
+  readonly startWebGateway: (options: PlotWebGatewayOptions) => Promise<WebGateway>;
   readonly openBrowser: (url: string) => void;
   readonly prompt: PromptCapability;
   readonly waitForTermination: (stop: () => void) => Promise<void>;
 }
 ```
 
-The concrete shape may vary while preserving explicit ownership.
+Output writes are direct and small. The CLI does not own a write queue, unused stdin capability, injectable version/docs functions, or defensive async flush machinery.
 
 ## Non-goals
 
@@ -172,7 +174,7 @@ The concrete shape may vary while preserving explicit ownership.
 
 ## Delivery sequence
 
-1. Replace the mixed Citty/custom dispatch path with a typed parser and explicit CLI runtime.
+1. Replace the mixed Citty/custom dispatch path with a typed parser and explicit CLI host.
 2. Centralize one-shot error rendering and exit codes.
 3. Add shared Workflow preparation and use it from check/start.
 4. Make Session start transactional and stop independent of file existence.
