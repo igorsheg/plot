@@ -6,10 +6,15 @@ export type {
 	WorkDisplay,
 } from "@plot/sdk/work-contract";
 
-export interface Observation {
-	readonly type: string;
-	readonly subject?: string;
-	readonly data?: unknown;
+export interface OperatorObservation {
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly actionId: string;
+	readonly actionLabel: string;
+	readonly timestamp: string;
+	readonly comment?: string;
+	readonly clientId?: string;
+	readonly actor?: unknown;
 }
 
 export type SourceRequirementRecord =
@@ -30,35 +35,33 @@ export type SourceRequirementRecord =
 			readonly label: string;
 			readonly status: "unavailable";
 			readonly message: string;
-			readonly retryAfterMs?: number;
+			readonly retryAfterMs?: number | undefined;
 	  };
-
-export type SourceReadinessStatus = SourceRequirementRecord["status"];
 
 export interface SourceRecord {
 	readonly sourceId: string;
 	readonly label: string;
-	readonly readiness: SourceReadinessStatus;
-	readonly message?: string;
+	readonly readiness: SourceRequirementRecord["status"];
+	readonly message?: string | undefined;
 	readonly requirements: readonly SourceRequirementRecord[];
 }
 
 interface WorkIdentity {
 	readonly workKey: string;
 	readonly sourceId: string;
-	readonly subject?: string;
-	readonly display?: WorkDisplay;
+	readonly subject?: string | undefined;
+	readonly display?: WorkDisplay | undefined;
 }
 
 export type SourceWorkRecord =
 	| (WorkIdentity & {
 			readonly status: "pending";
-			readonly operatorActions?: readonly OperatorAction[];
+			readonly operatorActions?: readonly OperatorAction[] | undefined;
 	  })
 	| (WorkIdentity & {
 			readonly status: "waiting";
-			readonly reason?: string;
-			readonly operatorActions?: readonly OperatorAction[];
+			readonly reason?: string | undefined;
+			readonly operatorActions?: readonly OperatorAction[] | undefined;
 	  })
 	| (WorkIdentity & {
 			readonly status: "blocked";
@@ -71,25 +74,25 @@ export type WorkRecord =
 	| (WorkIdentity & {
 			readonly status: "running" | "draining";
 			readonly runId: string;
-			readonly operatorActions?: readonly OperatorAction[];
+			readonly operatorActions?: readonly OperatorAction[] | undefined;
 	  });
 
 export interface WorkItem {
 	readonly workKey: string;
-	readonly subject?: string;
+	readonly subject?: string | undefined;
 	readonly templateContext?: unknown;
 	/** Source-owned data retained with the selected item for lifecycle hooks. */
 	readonly sourceData?: unknown;
-	readonly display?: WorkDisplay;
-	readonly operatorActions?: readonly OperatorAction[];
+	readonly display?: WorkDisplay | undefined;
+	readonly operatorActions?: readonly OperatorAction[] | undefined;
 }
 
 export interface WorkRun {
 	readonly runId: string;
 	readonly sourceId: string;
 	readonly workKey: string;
-	readonly subject?: string;
-	readonly display?: WorkDisplay;
+	readonly subject?: string | undefined;
+	readonly display?: WorkDisplay | undefined;
 }
 
 export interface WorkResult {
@@ -100,7 +103,7 @@ interface CompletionIdentity {
 	readonly runId: string;
 	readonly sourceId: string;
 	readonly workKey: string;
-	readonly subject?: string;
+	readonly subject?: string | undefined;
 }
 
 export type Completion =
@@ -123,7 +126,7 @@ export type Completion =
 
 export interface Diagnostic {
 	readonly level: "info" | "warning" | "error";
-	readonly phase: "observe" | "reconcile" | "act";
+	readonly phase: "reconcile" | "act";
 	readonly message: string;
 	readonly sourceId?: string;
 	readonly runId?: string;
@@ -132,9 +135,9 @@ export interface Diagnostic {
 
 export interface WakeRequest {
 	readonly delayMs: number;
-	readonly reason?: string;
-	readonly workKey?: string;
-	readonly attempt?: number;
+	readonly reason?: string | undefined;
+	readonly workKey?: string | undefined;
+	readonly attempt?: number | undefined;
 }
 
 export interface TickResult {
@@ -155,9 +158,9 @@ export type PlotAgentEvent =
 	| {
 			readonly type: "wake_scheduled";
 			readonly delayMs: number;
-			readonly reason?: string;
-			readonly workKey?: string;
-			readonly attempt?: number;
+			readonly reason?: string | undefined;
+			readonly workKey?: string | undefined;
+			readonly attempt?: number | undefined;
 	  }
 	| { readonly type: "attempt_started"; readonly run: WorkRun }
 	| { readonly type: "attempt_completed"; readonly completion: Completion };

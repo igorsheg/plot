@@ -28,11 +28,15 @@ const ready: SourceRecord = {
 };
 
 const workSource = (): WorkSource => ({
-	id: "source",
 	initial: ready,
 	maxConcurrentRuns: 1,
-	observe: () => [],
-	reconcile: () => ({ source: ready, work: [], dispatch: [] }),
+	reconcile: () => ({
+		source: ready,
+		work: [],
+		dispatch: [],
+		cancel: [],
+		wakes: [],
+	}),
 	started: () => {},
 	finished: () => {},
 	continueWork: () => false,

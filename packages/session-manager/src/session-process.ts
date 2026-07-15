@@ -28,7 +28,6 @@ export interface SessionChildExit {
 }
 
 export interface SessionChildProcess {
-	readonly pid: number | undefined;
 	readonly protocol: AsyncIterable<string | Uint8Array>;
 	readonly stdout: AsyncIterable<string | Uint8Array>;
 	readonly stderr: AsyncIterable<string | Uint8Array>;
@@ -48,7 +47,6 @@ export interface SessionProcessShutdownResult {
 }
 
 interface PendingCommand {
-	readonly action: SessionWorkerAction;
 	readonly resolve: (value: unknown) => void;
 	readonly reject: (error: Error) => void;
 	readonly timeout: ReturnType<typeof setTimeout>;
@@ -72,12 +70,7 @@ type ProcessState =
 			readonly pending: Map<string, PendingCommand>;
 			operation: Promise<SessionProcessShutdownResult>;
 	  }
-	| {
-			readonly state: "exited";
-			readonly error: Error;
-			readonly exit?: SessionChildExit;
-			readonly expected: boolean;
-	  };
+	| { readonly state: "exited"; readonly exit?: SessionChildExit };
 
 export class WorkerCommandTimeoutError extends PlotBoundaryError {
 	override readonly name = "WorkerCommandTimeoutError";
@@ -178,7 +171,6 @@ export const createSessionChildProcess = (input: {
 	child.once("exit", () => process.off("exit", killOnParentExit));
 	child.once("error", () => process.off("exit", killOnParentExit));
 	return {
-		pid: child.pid,
 		protocol,
 		stdout: child.stdout!,
 		stderr: child.stderr!,
@@ -234,7 +226,6 @@ const workerCommand = (
 };
 
 export class SessionProcess {
-	readonly pid: number | undefined;
 	private readonly listeners = new Set<(record: SessionWorkerRecord) => void>();
 	private readonly exitListeners = new Set<(error: Error) => void>();
 	private diagnostic = "";
@@ -250,7 +241,6 @@ export class SessionProcess {
 			readonly commandTimeoutMs: number;
 		},
 	) {
-		this.pid = child.pid;
 		void this.consumeProtocol();
 		void this.consumeDiagnostic(child.stdout, "stdout");
 		void this.consumeDiagnostic(child.stderr, "stderr");
@@ -322,7 +312,7 @@ export class SessionProcess {
 				);
 			}, this.options.commandTimeoutMs);
 			timeout.unref?.();
-			pending.set(id, { action, resolve, reject, timeout });
+			pending.set(id, { resolve, reject, timeout });
 			Promise.resolve(
 				this.child.write(encodeSessionWorkerRecord(command)),
 			).catch((error: unknown) => {
@@ -503,9 +493,7 @@ export class SessionProcess {
 		}
 		pending.clear();
 		this.state =
-			exit === undefined
-				? { state: "exited", error, expected }
-				: { state: "exited", error, exit, expected };
+			exit === undefined ? { state: "exited" } : { state: "exited", exit };
 		if (!expected) for (const listener of this.exitListeners) listener(error);
 	}
 }

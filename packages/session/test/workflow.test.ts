@@ -71,13 +71,13 @@ Use the current task context.
 		).toThrow("WORKFLOW.md requires agent.provider and agent.model.");
 	});
 
-	test("runtime validation errors name nested fields", () => {
+	test("validation errors name Workflow fields", () => {
 		expect(() =>
 			parseWorkflowText(
 				`---\nagent:\n  provider: test\n  model: fake\n  maxTurns: nope\nextension:\n  source: ./extension.ts\n---\nDo it.`,
 				"WORKFLOW.md",
 			),
-		).toThrow(/runtime\.agent\.maxTurns/);
+		).toThrow(/agent\.maxTurns/);
 	});
 
 	test("loads through injected file system and resolves discovery paths", async () => {

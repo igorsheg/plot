@@ -28,9 +28,7 @@ export async function* sessionEvents(input: {
 	}
 	for (;;) {
 		const iterator = input.live()[Symbol.asyncIterator]();
-		const buffered = new AsyncQueue<RuntimeEvent>({
-			capacity: LIVE_REPLAY_CAPACITY,
-		});
+		const buffered = new AsyncQueue<RuntimeEvent>(LIVE_REPLAY_CAPACITY);
 		let overflow = false;
 		let ended = false;
 		const pump = (async () => {

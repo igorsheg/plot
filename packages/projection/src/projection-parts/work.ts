@@ -4,18 +4,20 @@ interface DisplayableWork {
 	readonly workKey: string;
 	readonly sourceId: string;
 	readonly status?: WorkStatus;
-	readonly subject?: string;
+	readonly subject?: string | undefined;
 	readonly title?: string;
-	readonly display?: {
-		readonly primary?: string;
-		readonly title?: string;
-		readonly subtitle?: string;
-		readonly url?: string;
-		readonly version?: string;
-		readonly labels?: readonly string[];
-	};
+	readonly display?:
+		| {
+				readonly primary?: string;
+				readonly title?: string;
+				readonly subtitle?: string;
+				readonly url?: string;
+				readonly version?: string;
+				readonly labels?: readonly string[];
+		  }
+		| undefined;
 	readonly blockedReason?: string;
-	readonly operatorActions?: readonly unknown[];
+	readonly operatorActions?: readonly unknown[] | undefined;
 	readonly currentRunId?: string;
 }
 

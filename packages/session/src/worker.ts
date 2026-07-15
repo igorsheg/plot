@@ -22,14 +22,6 @@ import {
 
 export const workerMaxLineBytes = 2 * 1024 * 1024;
 
-export type SessionWorkerAction =
-	| "start"
-	| "shutdown"
-	| "tick"
-	| "observe"
-	| "source-action"
-	| "source-action-cancel";
-
 interface WorkerCommandBase {
 	readonly kind: "command";
 	readonly id: string;
@@ -49,6 +41,8 @@ export type SessionWorkerCommand =
 			readonly action: "source-action-cancel";
 			readonly input: string;
 	  });
+
+export type SessionWorkerAction = SessionWorkerCommand["action"];
 
 export interface SessionWorkerReady {
 	readonly kind: "ready";

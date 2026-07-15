@@ -22,7 +22,7 @@ test("Session continuation replays history then follows live without duplicates"
 	await log.append(event(1));
 	await log.append(event(2));
 	await log.close();
-	const live = new AsyncQueue<RuntimeEvent>();
+	const live = new AsyncQueue<RuntimeEvent>(8);
 	live.offer(event(2));
 	live.offer(event(3));
 	live.close();
@@ -47,7 +47,7 @@ test("Session continuation catches up durably after live-buffer overflow", async
 	await log.close();
 	let subscriptions = 0;
 	const live = () => {
-		const queue = new AsyncQueue<RuntimeEvent>();
+		const queue = new AsyncQueue<RuntimeEvent>(512);
 		if (subscriptions++ === 0)
 			for (let sequence = 1; sequence <= 400; sequence++)
 				queue.offer(event(sequence));

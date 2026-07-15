@@ -167,7 +167,7 @@ test("projection reconstructs Source readiness and attributed diagnostics", () =
 				diagnostics: [
 					{
 						level: "error",
-						phase: "observe",
+						phase: "reconcile",
 						sourceId: "source-1",
 						message: "gateway unavailable",
 					},

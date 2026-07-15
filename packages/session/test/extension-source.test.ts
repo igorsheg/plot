@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type {
 	Completion,
-	Observation,
+	OperatorObservation,
 	WorkItem,
 	WorkRun,
 } from "@plot/agent/model";
@@ -66,20 +66,13 @@ const tick = async (
 	bundle: ReturnType<typeof bundleFor>,
 	input: {
 		activeRuns?: readonly SourceActiveRun[];
-		operatorObservations?: readonly Observation[];
+		operatorObservations?: readonly OperatorObservation[];
 	} = {},
 ) => {
 	const controller = new AbortController();
-	const observed = await bundle.source.observe({
-		sourceId: bundle.source.id,
-		tickId: 1,
-		signal: controller.signal,
-	});
 	return bundle.source.reconcile({
-		sourceId: bundle.source.id,
 		tickId: 1,
 		signal: controller.signal,
-		observed,
 		operatorObservations: input.operatorObservations ?? [],
 		activeRuns: input.activeRuns ?? [],
 	});
@@ -98,7 +91,7 @@ const selected = (
 		sourceId: "extension:test",
 		workKey: item.workKey,
 	};
-	return { run, work: item, state: "running" };
+	return { run, work: item };
 };
 
 const events = () => {

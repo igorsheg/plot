@@ -9,7 +9,7 @@ import type {
 	WorkItem,
 } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
-import type { SourceReconciliation, WorkSource } from "@plot/agent/work-source";
+import type { WorkSource } from "@plot/agent/work-source";
 import { errorMessage, isRecord } from "@plot/common/primitives";
 import {
 	DiscoveryUnavailableError,
@@ -79,14 +79,13 @@ const requirementRecord = (
 			message: state.message,
 			actions: [...state.actions],
 		};
-	const record: Extract<SourceRequirementRecord, { status: "unavailable" }> = {
+	return {
 		id: requirement.id,
 		label: requirement.label,
 		status: "unavailable",
 		message: state.message,
+		retryAfterMs: state.retryAfterMs,
 	};
-	if (state.retryAfterMs === undefined) return record;
-	return { ...record, retryAfterMs: state.retryAfterMs };
 };
 
 const sourceRecord = (
@@ -98,15 +97,13 @@ const sourceRecord = (
 		(item) =>
 			item.status === "action-required" || item.status === "unavailable",
 	);
-	const readiness = blocked?.status ?? "ready";
-	const record: SourceRecord = {
+	return {
 		sourceId,
 		label,
-		readiness,
+		readiness: blocked?.status ?? "ready",
+		message: blocked?.message,
 		requirements,
 	};
-	if (blocked === undefined) return record;
-	return { ...record, message: blocked.message };
 };
 
 export const extensionRequirements = (
@@ -132,21 +129,15 @@ export const checkRequirements = async (input: {
 	readonly signal: AbortSignal;
 }): Promise<SourceRecord> => {
 	const records = await Promise.all(
-		input.requirements.map(async (requirement) => {
-			const state = await requirement.check({
-				signal: input.signal,
-				credentials: input.credentials,
-			});
-			if (
-				state.status !== "ready" &&
-				state.status !== "action-required" &&
-				state.status !== "unavailable"
-			)
-				throw new Error(
-					`requirement ${requirement.id} returned an invalid status`,
-				);
-			return requirementRecord(requirement, state);
-		}),
+		input.requirements.map(async (requirement) =>
+			requirementRecord(
+				requirement,
+				await requirement.check({
+					signal: input.signal,
+					credentials: input.credentials,
+				}),
+			),
+		),
 	);
 	return sourceRecord(input.sourceId, input.label, records);
 };
@@ -203,17 +194,12 @@ const workRecord = (
 	sourceId: string,
 	work: PlotExtensionWork,
 ): SourceWorkRecord => {
-	const identity: {
-		workKey: string;
-		sourceId: string;
-		subject: string;
-		display?: NonNullable<PlotExtensionWork["display"]>;
-	} = {
+	const identity = {
 		workKey: workKeyForExtensionWork(extension, work),
 		sourceId,
 		subject: work.subject ?? work.id,
+		display: work.display,
 	};
-	if (work.display !== undefined) identity.display = work.display;
 	if (work.status === "blocked")
 		return {
 			...identity,
@@ -222,12 +208,17 @@ const workRecord = (
 			operatorActions: work.operatorActions ?? [],
 		};
 	if (work.status === "waiting")
-		return work.blockedReason === undefined
-			? { ...identity, status: "waiting" }
-			: { ...identity, status: "waiting", reason: work.blockedReason };
-	return work.operatorActions === undefined
-		? { ...identity, status: "pending" }
-		: { ...identity, status: "pending", operatorActions: work.operatorActions };
+		return {
+			...identity,
+			status: "waiting",
+			reason: work.blockedReason,
+			operatorActions: work.operatorActions,
+		};
+	return {
+		...identity,
+		status: "pending",
+		operatorActions: work.operatorActions,
+	};
 };
 
 const workItem = (
@@ -235,32 +226,30 @@ const workItem = (
 	workflow: WorkflowDefinition,
 	work: PlotExtensionWork,
 ): WorkItem => {
-	const item: WorkItem = {
+	return {
 		workKey: workKeyForExtensionWork(extension, work),
 		subject: work.subject ?? work.id,
 		templateContext: templateContextForWork(workflow, work),
 		sourceData: work,
+		display: work.display,
+		operatorActions: work.operatorActions,
 	};
-	if (work.display !== undefined) return { ...item, display: work.display };
-	if (work.operatorActions !== undefined)
-		return { ...item, operatorActions: work.operatorActions };
-	return item;
 };
 
 export interface SourceActionEvents {
-	readonly started: (actionRunId: string) => Promise<void>;
-	readonly progress: (actionRunId: string, message: string) => Promise<void>;
+	readonly started: (actionRunId: string) => Promise<unknown>;
+	readonly progress: (actionRunId: string, message: string) => Promise<unknown>;
 	readonly openUrl: (
 		actionRunId: string,
 		url: string,
 		fallbackText?: string,
-	) => Promise<void>;
+	) => Promise<unknown>;
 	readonly completed: (
 		actionRunId: string,
 		source: SourceRecord,
-	) => Promise<void>;
-	readonly failed: (actionRunId: string, message: string) => Promise<void>;
-	readonly cancelled: (actionRunId: string) => Promise<void>;
+	) => Promise<unknown>;
+	readonly failed: (actionRunId: string, message: string) => Promise<unknown>;
+	readonly cancelled: (actionRunId: string) => Promise<unknown>;
 }
 
 export type SourceActionStartResult =
@@ -294,7 +283,7 @@ export const makePlotExtensionSourceBundle = (options: {
 	readonly workflow: WorkflowDefinition;
 	readonly paths: SessionPaths;
 	readonly config: unknown;
-	readonly maxConcurrentRuns?: number;
+	readonly maxConcurrentRuns: number;
 }): PlotExtensionSourceBundle => {
 	const sourceId = sourceIdForExtension(options.extension);
 	const label = options.extension.label ?? options.extension.id;
@@ -324,26 +313,26 @@ export const makePlotExtensionSourceBundle = (options: {
 	const actions = new Map<string, ActiveAction>();
 
 	const withForcedAction = (record: SourceRecord): SourceRecord => {
-		if (forcedAction === undefined) return record;
-		const target = record.requirements.find(
-			(requirement) => requirement.id === forcedAction?.requirementId,
+		const forced = forcedAction;
+		if (forced === undefined) return record;
+		return sourceRecord(
+			sourceId,
+			label,
+			record.requirements.map((requirement) =>
+				requirement.id === forced.requirementId
+					? {
+							id: requirement.id,
+							label: requirement.label,
+							status: "action-required",
+							message: forced.message,
+							actions:
+								requirement.status === "action-required"
+									? requirement.actions
+									: [],
+						}
+					: requirement,
+			),
 		);
-		if (target === undefined) return record;
-		const nextRequirements = record.requirements.map((requirement) =>
-			requirement.id === forcedAction?.requirementId
-				? {
-						id: requirement.id,
-						label: requirement.label,
-						status: "action-required" as const,
-						message: forcedAction.message,
-						actions:
-							requirement.status === "action-required"
-								? requirement.actions
-								: [],
-					}
-				: requirement,
-		);
-		return sourceRecord(sourceId, label, nextRequirements);
 	};
 	const check = async (signal: AbortSignal) => {
 		currentSource = withForcedAction(
@@ -358,106 +347,55 @@ export const makePlotExtensionSourceBundle = (options: {
 		return currentSource;
 	};
 	const source: WorkSource = {
-		id: sourceId,
 		initial: currentSource,
-		maxConcurrentRuns: options.maxConcurrentRuns ?? 1,
-		observe: async ({ signal }) => {
-			if (actions.size > 0)
-				return [{ type: "plot.extension.readiness", data: currentSource }];
-			const readiness = await check(signal);
-			if (readiness.readiness !== "ready")
-				return [{ type: "plot.extension.readiness", data: readiness }];
-			try {
-				return [
-					{ type: "plot.extension.readiness", data: readiness },
-					{
-						type: "plot.extension.discovered",
-						data: await discover({
+		maxConcurrentRuns: options.maxConcurrentRuns,
+		reconcile: async ({ signal, operatorObservations, activeRuns }) => {
+			let found: readonly PlotExtensionWork[] | undefined;
+			if (actions.size === 0) {
+				const readiness = await check(signal);
+				if (readiness.readiness === "ready") {
+					try {
+						found = await discover({
 							extension: options.extension,
 							runtime: options.runtime,
 							signal,
-						}),
-					},
-				];
-			} catch (error) {
-				if (error instanceof ExtensionActionRequiredError) {
-					forcedAction = {
-						requirementId: error.requirementId,
-						message: error.message,
-					};
-					return [
-						{
-							type: "plot.extension.readiness",
-							data: withForcedAction(readiness),
-						},
-					];
+						});
+					} catch (error) {
+						if (error instanceof ExtensionActionRequiredError) {
+							forcedAction = {
+								requirementId: error.requirementId,
+								message: error.message,
+							};
+							currentSource = withForcedAction(readiness);
+						} else if (error instanceof DiscoveryUnavailableError) {
+							currentSource = sourceRecord(sourceId, label, [
+								...readiness.requirements,
+								{
+									id: DISCOVERY_REQUIREMENT_ID,
+									label: "Discovery",
+									status: "unavailable",
+									message: error.message,
+								},
+							]);
+						} else throw error;
+					}
 				}
-				if (!(error instanceof DiscoveryUnavailableError)) throw error;
-				const unavailable: SourceRequirementRecord = {
-					id: DISCOVERY_REQUIREMENT_ID,
-					label: "Discovery",
-					status: "unavailable",
-					message: error.message,
-				};
-				return [
-					{
-						type: "plot.extension.readiness",
-						data: sourceRecord(sourceId, label, [
-							...readiness.requirements,
-							unavailable,
-						]),
-					},
-				];
 			}
-		},
-		reconcile: async ({ observed, operatorObservations, activeRuns }) => {
-			const readiness = observed.findLast(
-				(observation) => observation.type === "plot.extension.readiness",
-			)?.data;
-			if (isRecord(readiness))
-				currentSource = readiness as unknown as SourceRecord;
 			for (const observation of operatorObservations) {
-				if (observation.type !== "operator_observation") continue;
-				if (!isRecord(observation.data)) continue;
-				if (observation.data["sourceId"] !== sourceId) continue;
-				const key = observation.data["workKey"];
-				if (typeof key !== "string") continue;
-				const work = discovered.get(key);
+				if (observation.sourceId !== sourceId) continue;
+				const work = discovered.get(observation.workKey);
 				if (work === undefined) continue;
-				const actionId = observation.data["actionId"];
-				const actionLabel = observation.data["actionLabel"];
-				const timestamp = observation.data["timestamp"];
-				if (
-					typeof actionId !== "string" ||
-					typeof actionLabel !== "string" ||
-					typeof timestamp !== "string"
-				)
-					continue;
-				await options.runtime.operatorAction?.({
-					work,
-					actionId,
-					actionLabel,
-					timestamp,
-					comment:
-						typeof observation.data["comment"] === "string"
-							? observation.data["comment"]
-							: undefined,
-					actor: observation.data["actor"],
-					clientId:
-						typeof observation.data["clientId"] === "string"
-							? observation.data["clientId"]
-							: undefined,
-				} as Parameters<
-					NonNullable<PlotExtensionRuntime["operatorAction"]>
-				>[0]);
+				const {
+					sourceId: _sourceId,
+					workKey: _workKey,
+					...action
+				} = observation;
+				await options.runtime.operatorAction?.({ work, ...action });
 			}
-			const found = observed.findLast(
-				(observation) => observation.type === "plot.extension.discovered",
-			)?.data;
 			const cancelledIds = new Set<string>();
-			if (Array.isArray(found)) {
+			if (found !== undefined) {
 				const next = new Map<string, PlotExtensionWork>();
-				for (const work of found as readonly PlotExtensionWork[]) {
+				for (const work of found) {
 					const key = workKeyForExtensionWork(options.extension, work);
 					if (completedSinceReconcile.has(key)) continue;
 					if (work.status === "cancelled") {
@@ -500,23 +438,15 @@ export const makePlotExtensionSourceBundle = (options: {
 								return [];
 							return [workItem(options.extension, options.workflow, work)];
 						});
-			const wakes = pendingWakes.splice(0);
-			const result: {
-				source: SourceRecord;
-				work: readonly SourceWorkRecord[];
-				dispatch: readonly WorkItem[];
-				cancel?: NonNullable<SourceReconciliation["cancel"]>;
-				wakes?: NonNullable<SourceReconciliation["wakes"]>;
-			} = {
+			return {
 				source: currentSource,
 				work: [...discovered.values()].map((work) =>
 					workRecord(options.extension, sourceId, work),
 				),
 				dispatch,
+				cancel,
+				wakes: pendingWakes.splice(0),
 			};
-			if (cancel.length > 0) result.cancel = cancel;
-			if (wakes.length > 0) result.wakes = wakes;
-			return result;
 		},
 		started: async ({ run, work: item }) => {
 			const work = extensionWork(item);
@@ -565,16 +495,16 @@ export const makePlotExtensionSourceBundle = (options: {
 			)
 		)
 			return { accepted: false };
-		const requirement = requirements.find(
+		const action = requirements.find(
 			(candidate) => candidate.id === input.requirementId,
-		);
+		)?.action;
 		const state = currentSource.requirements.find(
 			(candidate) => candidate.id === input.requirementId,
 		);
 		if (
-			requirement?.action === undefined ||
+			action === undefined ||
 			state?.status !== "action-required" ||
-			!state.actions.some((action) => action.id === input.actionId)
+			!state.actions.some((candidate) => candidate.id === input.actionId)
 		)
 			return { accepted: false };
 		const actionRunId = `source-action-${randomUUID()}`;
@@ -582,18 +512,21 @@ export const makePlotExtensionSourceBundle = (options: {
 		const controller = new AbortController();
 		const callbacks = new Set<{ readonly cancel: () => void }>();
 		const interaction: ExtensionInteraction = {
-			openUrl: (url, fallbackText) =>
-				input.events.openUrl(actionRunId, url, fallbackText),
+			openUrl: async (url, fallbackText) => {
+				await input.events.openUrl(actionRunId, url, fallbackText);
+			},
 			createOAuthCallback: async (timeoutMs) => {
 				const callback = await createLoopbackOAuthCallback(timeoutMs);
 				callbacks.add(callback);
 				return callback;
 			},
-			reportProgress: (message) => input.events.progress(actionRunId, message),
+			reportProgress: async (message) => {
+				await input.events.progress(actionRunId, message);
+			},
 		};
 		const promise = (async () => {
 			try {
-				await requirement.action?.({
+				await action({
 					actionId: input.actionId,
 					signal: controller.signal,
 					credentials,
@@ -654,10 +587,7 @@ export const makePlotExtensionSourceBundle = (options: {
 						},
 					})
 				: [];
-			const result: PiAgentSessionRunOptions = { customTools };
-			if (work.workspace !== undefined)
-				return { ...result, cwd: work.workspace };
-			return result;
+			return { customTools, cwd: work.workspace };
 		},
 		shutdown: () => {
 			shutdownPromise ??= (async () => {

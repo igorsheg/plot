@@ -1,15 +1,7 @@
 import { EventHub } from "@plot/common/event-stream";
 import { isRecord } from "@plot/common/primitives";
 import { makePlotAgent, type PlotAgent } from "@plot/agent/agent";
-import type {
-	Completion,
-	Diagnostic,
-	PlotAgentEvent,
-	SourceRecord,
-	TickResult,
-	WorkRecord,
-	WorkRun,
-} from "@plot/agent/model";
+import type { PlotAgentEvent, SourceRecord } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
 import type {
 	PlotExtensionSourceBundle,
@@ -20,21 +12,10 @@ import { createSessionEventLogWriter } from "./history.js";
 
 const LIVE_EVENT_CAPACITY = 256;
 
-export interface TickSummary {
-	readonly tickId: number;
-	readonly selected: number;
-	readonly started: number;
-	readonly running: number;
-	readonly completions: number;
-	readonly diagnostics: readonly Diagnostic[];
-}
-
 export type SessionEvent =
+	| PlotAgentEvent
 	| { readonly type: "session_started" }
 	| { readonly type: "session_shutdown" }
-	| { readonly type: "tick_started"; readonly tickId: number }
-	| { readonly type: "tick_completed"; readonly result: TickSummary }
-	| { readonly type: "source_observed"; readonly source: SourceRecord }
 	| {
 			readonly type: "source_action_started";
 			readonly actionRunId: string;
@@ -68,18 +49,7 @@ export type SessionEvent =
 			readonly type: "source_action_cancelled";
 			readonly actionRunId: string;
 			readonly sourceId: string;
-	  }
-	| { readonly type: "work_observed"; readonly work: WorkRecord }
-	| { readonly type: "work_removed"; readonly workKey: string }
-	| {
-			readonly type: "wake_scheduled";
-			readonly delayMs: number;
-			readonly reason?: string;
-			readonly workKey?: string;
-			readonly attempt?: number;
-	  }
-	| { readonly type: "attempt_started"; readonly run: WorkRun }
-	| { readonly type: "attempt_completed"; readonly completion: Completion };
+	  };
 
 export interface SessionEventRecord {
 	readonly kind: "session_event";
@@ -103,12 +73,10 @@ export interface AgentEventRecord {
 export type RuntimeEvent = SessionEventRecord | AgentEventRecord;
 type UnsequencedRuntimeEvent = Omit<RuntimeEvent, "sequence">;
 
-export interface AgentEventInput {
-	readonly sourceId: string;
-	readonly runId: string;
-	readonly workKey: string;
-	readonly event: unknown;
-}
+export type AgentEventInput = Omit<
+	AgentEventRecord,
+	"kind" | "sessionId" | "sequence" | "timestamp"
+>;
 
 export interface SourceActionInput {
 	readonly sourceId: string;
@@ -172,9 +140,6 @@ export const makeSessionEventOwner = (input: {
 				...event,
 			}),
 		events: (signal?: AbortSignal) => live.subscribe(signal),
-		flush: async () => {
-			await appends;
-		},
 		close: async () => {
 			if (lifecycle.state === "closed") return;
 			if (lifecycle.state === "closing") return lifecycle.done;
@@ -200,68 +165,45 @@ export type SessionSource = Pick<
 export interface SessionRuntime {
 	readonly id: string;
 	readonly start: () => Promise<void>;
-	readonly tickOnce: () => Promise<TickSummary>;
+	readonly tickOnce: PlotAgent["tickOnce"];
 	readonly recordOperatorObservation: (
 		input: OperatorObservationInput,
-	) => Promise<boolean>;
+	) => boolean;
 	readonly startSourceAction: (
 		input: SourceActionInput,
 	) => Promise<SourceActionStartResult>;
-	readonly cancelSourceAction: (actionRunId: string) => Promise<boolean>;
+	readonly cancelSourceAction: (actionRunId: string) => boolean;
 	readonly events: (signal?: AbortSignal) => AsyncIterable<RuntimeEvent>;
-	readonly shutdown: () => Promise<boolean>;
+	readonly shutdown: () => Promise<void>;
 }
 
 export interface SessionRuntimeOptions {
 	readonly events: SessionEventOwner;
 	readonly source: SessionSource;
 	readonly runner: WorkRunner;
-	readonly tickIntervalMs?: number;
-	readonly maxRunDurationMs?: number;
-	readonly stallTimeoutMs?: number;
+	readonly tickIntervalMs?: number | undefined;
+	readonly maxRunDurationMs?: number | undefined;
+	readonly stallTimeoutMs?: number | undefined;
 }
-
-const tickSummary = (result: TickResult): TickSummary => ({
-	tickId: result.tickId,
-	selected: result.selected,
-	started: result.started,
-	running: result.running,
-	completions: result.completions,
-	diagnostics: result.diagnostics,
-});
-
-const sessionEvent = (event: PlotAgentEvent): SessionEvent =>
-	event.type === "tick_completed"
-		? { type: "tick_completed", result: tickSummary(event.result) }
-		: event;
 
 type RuntimeLifecycle =
 	| { readonly state: "new" }
 	| { readonly state: "running" }
-	| { readonly state: "closing"; readonly done: Promise<boolean> }
+	| { readonly state: "closing"; readonly done: Promise<void> }
 	| { readonly state: "closed" };
 
 export const makeSessionRuntime = (
 	options: SessionRuntimeOptions,
 ): SessionRuntime => {
 	let lifecycle: RuntimeLifecycle = { state: "new" };
-	const agentOptions: Parameters<typeof makePlotAgent>[0] = {
+	const agent: PlotAgent = makePlotAgent({
 		source: options.source.source,
 		runner: options.runner,
-		event: async (event) => {
-			await options.events.appendSessionEvent(sessionEvent(event));
-		},
-	};
-	if (options.tickIntervalMs !== undefined)
-		(agentOptions as { tickIntervalMs?: number }).tickIntervalMs =
-			options.tickIntervalMs;
-	if (options.maxRunDurationMs !== undefined)
-		(agentOptions as { maxRunDurationMs?: number }).maxRunDurationMs =
-			options.maxRunDurationMs;
-	if (options.stallTimeoutMs !== undefined)
-		(agentOptions as { stallTimeoutMs?: number }).stallTimeoutMs =
-			options.stallTimeoutMs;
-	const agent: PlotAgent = makePlotAgent(agentOptions);
+		event: options.events.appendSessionEvent,
+		tickIntervalMs: options.tickIntervalMs,
+		maxRunDurationMs: options.maxRunDurationMs,
+		stallTimeoutMs: options.stallTimeoutMs,
+	});
 	const assertRunning = (operation: string) => {
 		if (lifecycle.state !== "running")
 			throw new Error(`cannot ${operation}: Session is ${lifecycle.state}`);
@@ -269,38 +211,31 @@ export const makeSessionRuntime = (
 	const sourceActionEvents = (
 		input: SourceActionInput,
 	): SourceActionEvents => ({
-		started: async (actionRunId) => {
-			await options.events.appendSessionEvent({
+		started: (actionRunId) =>
+			options.events.appendSessionEvent({
 				type: "source_action_started",
 				actionRunId,
 				sourceId: input.sourceId,
 				requirementId: input.requirementId,
 				actionId: input.actionId,
-			});
-		},
-		progress: async (actionRunId, message) => {
-			await options.events.appendSessionEvent({
+			}),
+		progress: (actionRunId, message) =>
+			options.events.appendSessionEvent({
 				type: "source_action_progress",
 				actionRunId,
 				message,
-			});
-		},
-		openUrl: async (actionRunId, url, fallbackText) => {
-			if (fallbackText === undefined) {
-				await options.events.appendSessionEvent({
-					type: "source_interaction_open_url",
-					actionRunId,
-					url,
-				});
-				return;
-			}
-			await options.events.appendSessionEvent({
-				type: "source_interaction_open_url",
-				actionRunId,
-				url,
-				fallbackText,
-			});
-		},
+			}),
+		openUrl: (actionRunId, url, fallbackText) =>
+			options.events.appendSessionEvent(
+				fallbackText === undefined
+					? { type: "source_interaction_open_url", actionRunId, url }
+					: {
+							type: "source_interaction_open_url",
+							actionRunId,
+							url,
+							fallbackText,
+						},
+			),
 		completed: async (actionRunId, source) => {
 			await options.events.appendSessionEvent({
 				type: "source_action_completed",
@@ -311,23 +246,21 @@ export const makeSessionRuntime = (
 				type: "source_observed",
 				source,
 			});
-			await agent.wakeAfter(1, "Source setup completed");
+			agent.wake();
 		},
-		failed: async (actionRunId, message) => {
-			await options.events.appendSessionEvent({
+		failed: (actionRunId, message) =>
+			options.events.appendSessionEvent({
 				type: "source_action_failed",
 				actionRunId,
 				sourceId: input.sourceId,
 				message,
-			});
-		},
-		cancelled: async (actionRunId) => {
-			await options.events.appendSessionEvent({
+			}),
+		cancelled: (actionRunId) =>
+			options.events.appendSessionEvent({
 				type: "source_action_cancelled",
 				actionRunId,
 				sourceId: input.sourceId,
-			});
-		},
+			}),
 	});
 	return {
 		id: options.events.id,
@@ -341,20 +274,18 @@ export const makeSessionRuntime = (
 		},
 		tickOnce: async () => {
 			assertRunning("tick");
-			const result = await agent.tickOnce();
-			await options.events.flush();
-			return tickSummary(result);
+			return agent.tickOnce();
 		},
-		recordOperatorObservation: async (input) => {
+		recordOperatorObservation: (input) => {
 			assertRunning("record an operator observation");
-			return agent.offerObservation({
-				type: "operator_observation",
-				data: { ...input, timestamp: new Date().toISOString() },
+			return agent.offerOperatorObservation({
+				...input,
+				timestamp: new Date().toISOString(),
 			});
 		},
 		startSourceAction: async (input) => {
 			assertRunning("start a Source action");
-			if (options.source.source.id !== input.sourceId)
+			if (options.source.source.initial.sourceId !== input.sourceId)
 				return { accepted: false };
 			return options.source.startAction({
 				requirementId: input.requirementId,
@@ -362,21 +293,19 @@ export const makeSessionRuntime = (
 				events: sourceActionEvents(input),
 			});
 		},
-		cancelSourceAction: async (actionRunId) => {
+		cancelSourceAction: (actionRunId) => {
 			assertRunning("cancel a Source action");
 			return options.source.cancelAction(actionRunId);
 		},
 		events: options.events.events,
 		shutdown: async () => {
-			if (lifecycle.state === "closed") return true;
+			if (lifecycle.state === "closed") return;
 			if (lifecycle.state === "closing") return lifecycle.done;
 			const done = (async () => {
 				try {
 					await agent.shutdown();
 					await options.source.shutdown();
 					await options.events.appendSessionEvent({ type: "session_shutdown" });
-					await options.events.flush();
-					return true;
 				} finally {
 					await options.events.close();
 					lifecycle = { state: "closed" };

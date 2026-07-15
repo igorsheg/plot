@@ -50,13 +50,8 @@ const source = (input: {
 	log?: string[];
 	finished?: (completion: Completion) => void;
 }): WorkSource => ({
-	id: "source",
 	initial: ready,
 	maxConcurrentRuns: 2,
-	observe: () => {
-		input.log?.push("observe");
-		return [];
-	},
 	reconcile: () => {
 		input.log?.push("reconcile");
 		const work = input.work();
@@ -65,6 +60,7 @@ const source = (input: {
 			work: work.map((candidate) => record(candidate.workKey)),
 			dispatch: work,
 			cancel: input.cancel?.() ?? [],
+			wakes: [],
 		};
 	},
 	started: () => {
@@ -85,25 +81,20 @@ const agentFor = (input: {
 	maxRunDurationMs?: number;
 	stallTimeoutMs?: number;
 }) => {
-	const options: Parameters<typeof makePlotAgent>[0] = {
+	return makePlotAgent({
 		source: input.source,
 		runner: input.runner,
 		event: (event) => {
 			input.events?.push(event);
 		},
 		tickIntervalMs: 60_000,
-	};
-	if (input.maxRunDurationMs !== undefined)
-		(options as { maxRunDurationMs?: number }).maxRunDurationMs =
-			input.maxRunDurationMs;
-	if (input.stallTimeoutMs !== undefined)
-		(options as { stallTimeoutMs?: number }).stallTimeoutMs =
-			input.stallTimeoutMs;
-	return makePlotAgent(options);
+		maxRunDurationMs: input.maxRunDurationMs,
+		stallTimeoutMs: input.stallTimeoutMs,
+	});
 };
 
 describe("Plot Agent owner", () => {
-	test("observes, reconciles, records, then launches without awaiting the run", async () => {
+	test("reconciles, records, then launches without awaiting the run", async () => {
 		const log: string[] = [];
 		const blocked = deferred<WorkResult>();
 		const agent = agentFor({
@@ -118,7 +109,7 @@ describe("Plot Agent owner", () => {
 		await agent.start();
 		const tick = await agent.tickOnce();
 		expect(tick.started).toBe(1);
-		expect(log.slice(0, 4)).toEqual(["observe", "reconcile", "started", "run"]);
+		expect(log.slice(0, 3)).toEqual(["reconcile", "started", "run"]);
 		await agent.shutdown();
 	});
 
@@ -202,14 +193,20 @@ describe("Plot Agent owner", () => {
 		await agent.shutdown();
 	});
 
-	test("bounds externally admitted observations", async () => {
+	test("bounds externally admitted Operator Observations", async () => {
 		const agent = agentFor({
 			source: source({ work: () => [] }),
 			runner: { run: async () => ({}) },
 		});
 		await agent.start();
 		const admitted = Array.from({ length: 65 }, (_, index) =>
-			agent.offerObservation({ type: "test", data: index }),
+			agent.offerOperatorObservation({
+				sourceId: "source",
+				workKey: `work-${index}`,
+				actionId: "act",
+				actionLabel: "Act",
+				timestamp: "2026-01-01T00:00:00.000Z",
+			}),
 		);
 		expect(admitted.filter(Boolean)).toHaveLength(64);
 		expect(admitted.at(-1)).toBe(false);

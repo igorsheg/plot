@@ -16,7 +16,7 @@ export class EventHub<T> {
 	}
 
 	subscribe(signal?: AbortSignal): AsyncIterable<T> {
-		const subscriber = new AsyncQueue<T>({ capacity: this.capacity });
+		const subscriber = new AsyncQueue<T>(this.capacity);
 		const abort = () => {
 			subscriber.close();
 			this.subscribers.delete(subscriber);

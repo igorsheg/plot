@@ -41,9 +41,9 @@ const fakeWorker = (input: {
 	readonly ready?: boolean;
 	readonly exitOnShutdown?: boolean;
 }): FakeWorker => {
-	const protocol = new AsyncQueue<string>();
-	const stdout = new AsyncQueue<string>();
-	const stderr = new AsyncQueue<string>();
+	const protocol = new AsyncQueue<string>(1024);
+	const stdout = new AsyncQueue<string>(1024);
+	const stderr = new AsyncQueue<string>(1024);
 	const signals: NodeJS.Signals[] = [];
 	let resolveExited!: (exit: SessionChildExit) => void;
 	let didExit = false;
@@ -59,7 +59,7 @@ const fakeWorker = (input: {
 		resolveExited(result);
 	};
 	const respond = (record: SessionWorkerRecord) =>
-		protocol.offer(encodeSessionWorkerRecord(record), { force: true });
+		protocol.offer(encodeSessionWorkerRecord(record));
 	const ready = () =>
 		respond({
 			kind: "ready",
@@ -74,7 +74,6 @@ const fakeWorker = (input: {
 		});
 	if (input.ready !== false) ready();
 	return {
-		pid: 42,
 		protocol,
 		stdout,
 		stderr,
@@ -111,10 +110,6 @@ const manager = (input?: {
 		store: createMemorySessionStore(),
 		cli: { command: "plot", args: [] },
 		canonicalize: input?.canonicalize ?? (async (path) => path),
-		id: (() => {
-			let id = 0;
-			return () => `session-${++id}`;
-		})(),
 		spawnChild:
 			input?.spawnChild ??
 			(({ args }) => {
@@ -126,8 +121,6 @@ const manager = (input?: {
 			}),
 		readyTimeoutMs: input?.readyTimeoutMs ?? 10_000,
 		gracefulShutdownMs: input?.gracefulShutdownMs ?? 10,
-		terminateShutdownMs: 10,
-		killShutdownMs: 10,
 	});
 
 const waitFor = async (predicate: () => Promise<boolean>): Promise<void> => {

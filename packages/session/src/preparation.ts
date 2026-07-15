@@ -73,7 +73,6 @@ const inspect = async (
 		});
 		return { ...prepared, source };
 	} finally {
-		controller.abort();
 		await loaded.runtime.shutdown?.({ signal: controller.signal });
 	}
 };

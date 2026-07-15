@@ -29,9 +29,9 @@ const makeFakeChild = (input?: {
 	) => void;
 	readonly onSignal?: (signal: NodeJS.Signals, child: FakeChild) => void;
 }): FakeChild => {
-	const protocolQueue = new AsyncQueue<string>();
-	const stdoutQueue = new AsyncQueue<string>();
-	const stderrQueue = new AsyncQueue<string>();
+	const protocolQueue = new AsyncQueue<string>(1024);
+	const stdoutQueue = new AsyncQueue<string>(1024);
+	const stderrQueue = new AsyncQueue<string>(1024);
 	const signals: NodeJS.Signals[] = [];
 	let exited = false;
 	let resolveExited!: (result: SessionChildExit) => void;
@@ -48,10 +48,9 @@ const makeFakeChild = (input?: {
 		resolveExited(value);
 	};
 	const respond = (record: SessionWorkerRecord) => {
-		protocolQueue.offer(encodeSessionWorkerRecord(record), { force: true });
+		protocolQueue.offer(encodeSessionWorkerRecord(record));
 	};
 	result = {
-		pid: 42,
 		protocol: protocolQueue,
 		stdout: stdoutQueue,
 		stderr: stderrQueue,
@@ -93,8 +92,8 @@ const ready = (fake: FakeChild) => {
 test("stdout and stderr are diagnostics, never protocol", async () => {
 	const fake = makeFakeChild();
 	const process = processFor(fake);
-	fake.stdoutQueue.offer('{"not":"protocol"}\n', { force: true });
-	fake.stderrQueue.offer("warning\u0000\n", { force: true });
+	fake.stdoutQueue.offer('{"not":"protocol"}\n');
+	fake.stderrQueue.offer("warning\u0000\n");
 	ready(fake);
 
 	expect((await process.waitUntilReady(50)).sessionId).toBe("session-1");
@@ -108,7 +107,7 @@ test("stdout and stderr are diagnostics, never protocol", async () => {
 test("diagnostic tails are byte-bounded without broken UTF-8", async () => {
 	const fake = makeFakeChild();
 	const process = processFor(fake);
-	fake.stdoutQueue.offer(`${"🙂".repeat(100)}\n`, { force: true });
+	fake.stdoutQueue.offer(`${"🙂".repeat(100)}\n`);
 	ready(fake);
 	await process.waitUntilReady(50);
 	await Bun.sleep(1);
@@ -140,7 +139,7 @@ test("worker startup errors recover their owner type", async () => {
 test("malformed protocol is fatal and tagged", async () => {
 	const fake = makeFakeChild();
 	const process = processFor(fake);
-	fake.protocolQueue.offer('{"kind":"wat"}\n', { force: true });
+	fake.protocolQueue.offer('{"kind":"wat"}\n');
 	await expect(process.waitUntilReady(50)).rejects.toMatchObject({
 		code: "worker_protocol_error",
 		context: { phase: "record" },

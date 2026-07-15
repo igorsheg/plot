@@ -68,7 +68,7 @@ export interface WorkflowDiscoveryOptions {
 export const DEFAULT_WORKFLOW_PATH = "WORKFLOW.md";
 
 const frontMatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-const runtimeKeys = [
+const workflowKeys = [
 	"name",
 	"plot",
 	"agent",
@@ -173,12 +173,12 @@ const decodePlot = (value: unknown): WorkflowPlotConfig => {
 		"maxRunDurationMs",
 		"stallTimeoutMs",
 	] as const;
-	const record = fields(value, "runtime.plot", keys);
+	const record = fields(value, "plot", keys);
 	return Object.fromEntries(
 		keys.flatMap((key) =>
 			record[key] === undefined
 				? []
-				: [[key, positiveInteger(record[key], `runtime.plot.${key}`)]],
+				: [[key, positiveInteger(record[key], `plot.${key}`)]],
 		),
 	);
 };
@@ -193,7 +193,7 @@ const thinkingLevels = new Set<WorkflowThinkingLevel>([
 ]);
 
 const decodeAgent = (value: unknown): WorkflowAgentConfig => {
-	const record = fields(value, "runtime.agent", [
+	const record = fields(value, "agent", [
 		"provider",
 		"model",
 		"thinking",
@@ -213,43 +213,37 @@ const decodeAgent = (value: unknown): WorkflowAgentConfig => {
 		allowProjectConfig?: boolean;
 		maxTurns?: number;
 	} = {
-		provider: string(record["provider"], "runtime.agent.provider"),
-		model: string(record["model"], "runtime.agent.model"),
+		provider: string(record["provider"], "agent.provider"),
+		model: string(record["model"], "agent.model"),
 	};
 	if (record["thinking"] !== undefined) {
-		const thinking = string(record["thinking"], "runtime.agent.thinking");
+		const thinking = string(record["thinking"], "agent.thinking");
 		if (!thinkingLevels.has(thinking as WorkflowThinkingLevel))
-			throw new Error(`runtime.agent.thinking is not recognized`);
+			throw new Error(`agent.thinking is not recognized`);
 		config.thinking = thinking as WorkflowThinkingLevel;
 	}
 	if (record["tools"] !== undefined)
-		config.tools = strings(record["tools"], "runtime.agent.tools");
+		config.tools = strings(record["tools"], "agent.tools");
 	if (record["excludeTools"] !== undefined)
-		config.excludeTools = strings(
-			record["excludeTools"],
-			"runtime.agent.excludeTools",
-		);
+		config.excludeTools = strings(record["excludeTools"], "agent.excludeTools");
 	if (record["noTools"] !== undefined) {
 		const mode = record["noTools"];
 		if (mode !== true && mode !== false && mode !== "all" && mode !== "builtin")
-			throw new Error(`runtime.agent.noTools is not recognized`);
+			throw new Error(`agent.noTools is not recognized`);
 		config.noTools = mode;
 	}
 	if (record["allowProjectConfig"] !== undefined)
 		config.allowProjectConfig = boolean(
 			record["allowProjectConfig"],
-			"runtime.agent.allowProjectConfig",
+			"agent.allowProjectConfig",
 		);
 	if (record["maxTurns"] !== undefined)
-		config.maxTurns = positiveInteger(
-			record["maxTurns"],
-			"runtime.agent.maxTurns",
-		);
+		config.maxTurns = positiveInteger(record["maxTurns"], "agent.maxTurns");
 	return config;
 };
 
 const decodeResources = (value: unknown): WorkflowResourcesConfig => {
-	const record = fields(value, "runtime.resources", [
+	const record = fields(value, "resources", [
 		"skills",
 		"prompts",
 		"contextFiles",
@@ -264,30 +258,30 @@ const decodeResources = (value: unknown): WorkflowResourcesConfig => {
 		appendSystemPrompt?: readonly string[];
 	} = {};
 	if (record["skills"] !== undefined)
-		config.skills = strings(record["skills"], "runtime.resources.skills");
+		config.skills = strings(record["skills"], "resources.skills");
 	if (record["prompts"] !== undefined)
-		config.prompts = strings(record["prompts"], "runtime.resources.prompts");
+		config.prompts = strings(record["prompts"], "resources.prompts");
 	if (record["contextFiles"] !== undefined)
 		config.contextFiles = boolean(
 			record["contextFiles"],
-			"runtime.resources.contextFiles",
+			"resources.contextFiles",
 		);
 	if (record["systemPrompt"] !== undefined)
 		config.systemPrompt = string(
 			record["systemPrompt"],
-			"runtime.resources.systemPrompt",
+			"resources.systemPrompt",
 			true,
 		);
 	if (record["appendSystemPrompt"] !== undefined)
 		config.appendSystemPrompt = strings(
 			record["appendSystemPrompt"],
-			"runtime.resources.appendSystemPrompt",
+			"resources.appendSystemPrompt",
 		);
 	return config;
 };
 
 const decodeExtension = (value: unknown): WorkflowExtensionConfig => {
-	const record = fields(value, "runtime.extension", [
+	const record = fields(value, "extension", [
 		"source",
 		"maxConcurrentRuns",
 		"config",
@@ -297,12 +291,12 @@ const decodeExtension = (value: unknown): WorkflowExtensionConfig => {
 		maxConcurrentRuns?: number;
 		config?: unknown;
 	} = {
-		source: string(record["source"], "runtime.extension.source"),
+		source: string(record["source"], "extension.source"),
 	};
 	if (record["maxConcurrentRuns"] !== undefined)
 		config.maxConcurrentRuns = positiveInteger(
 			record["maxConcurrentRuns"],
-			"runtime.extension.maxConcurrentRuns",
+			"extension.maxConcurrentRuns",
 		);
 	if (record["config"] !== undefined) config.config = record["config"];
 	return config;
@@ -311,7 +305,7 @@ const decodeExtension = (value: unknown): WorkflowExtensionConfig => {
 export const decodeWorkflowRuntimeConfig = (
 	value: Record<string, unknown>,
 ): WorkflowRuntimeConfig => {
-	const record = fields(value, "runtime", runtimeKeys);
+	const record = fields(value, "WORKFLOW", workflowKeys);
 	let config: {
 		name?: string;
 		plot?: WorkflowPlotConfig;
@@ -330,7 +324,7 @@ export const decodeWorkflowRuntimeConfig = (
 		extension: decodeExtension(record["extension"]),
 	};
 	if (record["name"] !== undefined)
-		config.name = string(record["name"], "runtime.name");
+		config.name = string(record["name"], "name");
 	if (record["plot"] !== undefined) config.plot = decodePlot(record["plot"]);
 	if (record["resources"] !== undefined)
 		config.resources = decodeResources(record["resources"]);
@@ -383,7 +377,7 @@ export const parseWorkflowText = (
 	let runtime: WorkflowRuntimeConfig;
 	try {
 		const runtimeConfig = Object.fromEntries(
-			runtimeKeys.flatMap((key) =>
+			workflowKeys.flatMap((key) =>
 				config[key] === undefined ? [] : [[key, config[key]]],
 			),
 		);

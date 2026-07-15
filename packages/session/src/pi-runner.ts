@@ -40,7 +40,7 @@ export interface PiWorkRunnerConfig {
 	readonly onEvent: (input: {
 		readonly context: WorkRunnerContext;
 		readonly event: AgentSessionEvent;
-	}) => Promise<void> | void;
+	}) => unknown | Promise<unknown>;
 }
 
 const eta = new Eta({
@@ -78,7 +78,7 @@ async function* promptSession(input: {
 	readonly maxTurns: number;
 	readonly shouldContinue: WorkRunnerContext["shouldContinue"];
 }): AsyncIterable<AgentSessionEvent> {
-	const queue = new AsyncQueue<AgentSessionEvent>({ capacity: 256 });
+	const queue = new AsyncQueue<AgentSessionEvent>(256);
 	let session: PiAgentSessionPort | undefined;
 	let unsubscribe: (() => void) | undefined;
 	let disposed = false;

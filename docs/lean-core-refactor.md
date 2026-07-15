@@ -225,17 +225,16 @@ The selected WorkItem remains attached to the ActiveRun so Source transition hoo
 
 The implementation has one visible control path:
 
-1. drain bounded pending observations and completions;
+1. drain bounded pending Operator Observations and completions;
 2. apply timeout, interruption, cancellation, and shutdown transitions;
-3. observe the Source through a bounded, abortable effect;
-4. reconcile the observation and newly completed runs;
-5. commit reconciled Source facts and Work Items;
-6. derive interruption and draining decisions;
-7. select dispatch candidates;
-8. admit eligible runs against the current state and concurrency bound;
-9. record each ActiveRun before starting its effect;
-10. launch runner effects;
-11. publish the completed tick transition.
+3. ask the Source to observe and reconcile through one bounded, abortable operation;
+4. commit reconciled Source facts and Work Items;
+5. derive interruption and draining decisions;
+6. select dispatch candidates;
+7. admit eligible runs against the current state and concurrency bound;
+8. record each ActiveRun before starting its effect;
+9. launch runner effects;
+10. publish the completed tick transition.
 
 Reconciliation always completes before dispatch.
 
@@ -368,7 +367,7 @@ Agent owns active runs. SessionRuntime owns Session lifecycle and RuntimeEvents.
 
 ### Discovery and reconciliation
 
-The Source observes Extension data once per tick, validates it at the Extension boundary, and reconciles it against its owned previous discovery.
+The Source observes Extension data during its one reconciliation call, validates it at the Extension boundary, and reconciles it against its owned previous discovery.
 
 The reconciliation result directly describes:
 
@@ -489,7 +488,7 @@ Agent transitions and Pi AgentSession events report directly to this owner.
 For every event:
 
 1. allocate the next sequence;
-2. append the event to durable history when retained;
+2. append the event to durable history;
 3. publish it to live subscribers;
 4. resolve the operation durability fence.
 
@@ -802,7 +801,7 @@ Tests prove product contracts and owner transitions, not implementation scaffold
 
 ### Keep and strengthen
 
-- tick observes, reconciles, then dispatches;
+- tick reconciles before dispatch;
 - a run starts without making the tick await its completion;
 - completion is admitted exactly once;
 - stale completion after timeout or cancellation is ignored;
@@ -876,6 +875,7 @@ Exit condition: active work cannot exist without one ActiveRun owner, accepted a
 
 - Replace mailbox plus tick-chain serialization with one mechanism.
 - Establish one ActiveRun map and one tick path.
+- Let the one concrete Source observe inside reconciliation rather than round-tripping tagged observations through Agent.
 - Remove mirrored work/run state and generic Agent policy/facts scaffolding.
 - Send transitions directly to the Session event sink.
 - Merge or delete `runtime.ts` and `state.ts` as earned by the final owner boundary.

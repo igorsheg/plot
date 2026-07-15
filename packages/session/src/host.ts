@@ -9,7 +9,6 @@ import {
 	makeSessionEventOwner,
 	makeSessionRuntime,
 	type SessionRuntime,
-	type SessionRuntimeOptions,
 } from "./runtime.js";
 import type { WorkflowDefinition } from "./workflow.js";
 
@@ -38,79 +37,62 @@ export interface CreateSessionHostOptions {
 	readonly agentDir?: string;
 	readonly sessionDir?: string;
 	readonly createAgentSession?: CreatePiAgentSession;
-	readonly tickIntervalMs?: number;
-	readonly maxRunDurationMs?: number;
-	readonly stallTimeoutMs?: number;
 }
 
 export const createSessionHost = async (
 	options: CreateSessionHostOptions,
 ): Promise<SessionHost> => {
-	const prepared = await loadWorkflowForSession({
+	const { paths, workflow } = await loadWorkflowForSession({
 		...options,
 		skipAgentReadiness: options.createAgentSession !== undefined,
 	});
-	const { paths, workflow } = prepared;
-	const loaded = await loadPlotExtensionRuntimeFromWorkflow(prepared);
-	let owned = false;
-	try {
-		const bundleOptions: Parameters<typeof makePlotExtensionSourceBundle>[0] = {
-			extension: loaded.extension,
-			runtime: loaded.runtime,
-			credentials: loaded.credentials,
-			workflow,
-			paths,
-			config: loaded.config,
-		};
-		const maxConcurrentRuns = workflow.runtime.extension.maxConcurrentRuns;
-		if (maxConcurrentRuns !== undefined)
-			(bundleOptions as { maxConcurrentRuns?: number }).maxConcurrentRuns =
-				maxConcurrentRuns;
-		const bundle = makePlotExtensionSourceBundle(bundleOptions);
-		owned = true;
-		const sessionId = options.sessionId ?? crypto.randomUUID();
-		const historyPath = sessionEventLogPath(paths.sessionDir, sessionId);
-		const events = makeSessionEventOwner({
-			id: sessionId,
-			sessionFile: historyPath,
-		});
-		const createAgentSession =
+	const loaded = await loadPlotExtensionRuntimeFromWorkflow({
+		workflow,
+		paths,
+	});
+	const bundle = makePlotExtensionSourceBundle({
+		extension: loaded.extension,
+		runtime: loaded.runtime,
+		credentials: loaded.credentials,
+		workflow,
+		paths,
+		config: loaded.config,
+		maxConcurrentRuns: workflow.runtime.extension.maxConcurrentRuns ?? 1,
+	});
+	const sessionId = options.sessionId ?? crypto.randomUUID();
+	const historyPath = sessionEventLogPath(paths.sessionDir, sessionId);
+	const events = makeSessionEventOwner({
+		id: sessionId,
+		sessionFile: historyPath,
+	});
+	const runner = makePiWorkRunner({
+		createAgentSession:
 			options.createAgentSession ??
-			makeCreatePiAgentSession({ workflow, paths });
-		const runner = makePiWorkRunner({
-			createAgentSession,
-			prompt: workflow.prompt,
-			create: (context) => bundle.createOptions(context),
-			maxTurns: workflow.runtime.agent.maxTurns ?? 20,
-			onEvent: async ({ context, event }) => {
-				await events.appendAgentEvent({
-					sourceId: context.sourceId,
-					runId: context.run.runId,
-					workKey: context.work.workKey,
-					event,
-				});
-			},
-		});
-		const runtimeOptions: SessionRuntimeOptions = {
-			events,
-			source: bundle,
-			runner,
-		};
-		const plot = workflow.runtime.plot;
-		const tickIntervalMs = options.tickIntervalMs ?? plot?.tickIntervalMs;
-		const maxRunDurationMs = options.maxRunDurationMs ?? plot?.maxRunDurationMs;
-		const stallTimeoutMs = options.stallTimeoutMs ?? plot?.stallTimeoutMs;
-		if (tickIntervalMs !== undefined)
-			(runtimeOptions as { tickIntervalMs?: number }).tickIntervalMs =
-				tickIntervalMs;
-		if (maxRunDurationMs !== undefined)
-			(runtimeOptions as { maxRunDurationMs?: number }).maxRunDurationMs =
-				maxRunDurationMs;
-		if (stallTimeoutMs !== undefined)
-			(runtimeOptions as { stallTimeoutMs?: number }).stallTimeoutMs =
-				stallTimeoutMs;
-		const runtime = makeSessionRuntime(runtimeOptions);
-		const metadata: SessionHostMetadata = {
+			makeCreatePiAgentSession({ workflow, paths }),
+		prompt: workflow.prompt,
+		create: bundle.createOptions,
+		maxTurns: workflow.runtime.agent.maxTurns ?? 20,
+		onEvent: ({ context, event }) =>
+			events.appendAgentEvent({
+				sourceId: context.sourceId,
+				runId: context.run.runId,
+				workKey: context.work.workKey,
+				event,
+			}),
+	});
+	const runtime = makeSessionRuntime({
+		events,
+		source: bundle,
+		runner,
+		tickIntervalMs: workflow.runtime.plot?.tickIntervalMs,
+		maxRunDurationMs: workflow.runtime.plot?.maxRunDurationMs,
+		stallTimeoutMs: workflow.runtime.plot?.stallTimeoutMs,
+	});
+	return {
+		runtime,
+		paths,
+		workflow,
+		metadata: {
 			workflowName:
 				workflow.runtime.name ??
 				(workflow.path ? basename(workflow.path) : "workflow"),
@@ -119,24 +101,7 @@ export const createSessionHost = async (
 			cwdName: basename(paths.cwd),
 			sessionDir: paths.sessionDir,
 			historyPath,
-		};
-		return {
-			runtime,
-			paths,
-			workflow,
-			metadata,
-			shutdown: async () => {
-				await runtime.shutdown();
-			},
-		};
-	} catch (error) {
-		if (!owned) {
-			const controller = new AbortController();
-			controller.abort();
-			await Promise.resolve(
-				loaded.runtime.shutdown?.({ signal: controller.signal }),
-			).catch(() => undefined);
-		}
-		throw error;
-	}
+		},
+		shutdown: runtime.shutdown,
+	};
 };

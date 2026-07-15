@@ -3,7 +3,7 @@ import { errorMessage } from "@plot/common/primitives";
 import type {
 	Completion,
 	Diagnostic,
-	Observation,
+	OperatorObservation,
 	PlotAgentEvent,
 	WakeRequest,
 	SourceWorkRecord,
@@ -15,7 +15,7 @@ import type {
 import type { WorkRunner } from "./work-runner.js";
 import type { SourceActiveRun, WorkSource } from "./work-source.js";
 
-const OBSERVATION_CAPACITY = 64;
+const OPERATOR_OBSERVATION_CAPACITY = 64;
 const WAKE_CAPACITY = 256;
 
 interface ActiveRun {
@@ -26,7 +26,6 @@ interface ActiveRun {
 	lastActivityAt: number;
 	durationTimer?: ReturnType<typeof setTimeout>;
 	stallTimer?: ReturnType<typeof setTimeout>;
-	promise: Promise<void>;
 }
 
 interface ActiveTick {
@@ -48,20 +47,22 @@ type AgentLifecycle =
 export interface PlotAgent {
 	readonly start: () => Promise<void>;
 	readonly tickOnce: () => Promise<TickResult>;
-	readonly offerObservation: (observation: Observation) => boolean;
-	readonly wakeAfter: (delayMs: number, reason?: string) => Promise<void>;
-	readonly shutdown: () => Promise<boolean>;
+	readonly offerOperatorObservation: (
+		observation: OperatorObservation,
+	) => boolean;
+	readonly wake: () => void;
+	readonly shutdown: () => Promise<void>;
 }
 
 export interface PlotAgentOptions {
 	readonly source: WorkSource;
 	readonly runner: WorkRunner;
-	readonly event: (event: PlotAgentEvent) => void | Promise<void>;
+	readonly event: (event: PlotAgentEvent) => unknown | Promise<unknown>;
 	/** Scheduler poll cadence. Default: 30s. */
-	readonly tickIntervalMs?: number;
-	readonly maxRunDurationMs?: number;
+	readonly tickIntervalMs?: number | undefined;
+	readonly maxRunDurationMs?: number | undefined;
 	/** Interrupt a run after this much time with no reported activity. */
-	readonly stallTimeoutMs?: number;
+	readonly stallTimeoutMs?: number | undefined;
 }
 
 const positive = (
@@ -75,20 +76,12 @@ const positive = (
 	return actual;
 };
 
-const identity = (run: WorkRun) => {
-	const value: {
-		runId: string;
-		sourceId: string;
-		workKey: string;
-		subject?: string;
-	} = {
-		runId: run.runId,
-		sourceId: run.sourceId,
-		workKey: run.workKey,
-	};
-	if (run.subject !== undefined) value.subject = run.subject;
-	return value;
-};
+const identity = (run: WorkRun) => ({
+	runId: run.runId,
+	sourceId: run.sourceId,
+	workKey: run.workKey,
+	subject: run.subject,
+});
 
 const succeeded = (run: WorkRun, output: unknown): Completion =>
 	output === undefined
@@ -153,8 +146,7 @@ const abortable = async <A>(
 
 export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 	const source = options.source;
-	if (source.initial.sourceId !== source.id)
-		throw new Error("Work Source initial record has the wrong source id");
+	const sourceId = source.initial.sourceId;
 	const maxConcurrentRuns = positive(
 		source.maxConcurrentRuns,
 		1,
@@ -185,7 +177,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 	const runPrefix = `run-${randomUUID()}`;
 	const active = new Map<string, ActiveRun>();
 	const pendingCompletions = new Map<string, Completion>();
-	const pendingObservations: Observation[] = [];
+	const pendingObservations: OperatorObservation[] = [];
 	const pendingDiagnostics: Diagnostic[] = [];
 	const wakeTimers = new Set<ReturnType<typeof setTimeout>>();
 	const emit = (event: PlotAgentEvent) => Promise.resolve(options.event(event));
@@ -239,23 +231,15 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 		for (const record of active.values()) {
 			const current = sourceWork.get(record.run.workKey);
 			const item = current ?? record.work;
-			const activeView: WorkRecord = {
+			work.set(record.run.workKey, {
 				workKey: record.run.workKey,
 				sourceId: record.run.sourceId,
 				status: record.state,
 				runId: record.run.runId,
-			};
-			const subject = item.subject ?? record.run.subject;
-			const display = item.display ?? record.run.display;
-			if (subject !== undefined)
-				(activeView as { subject?: string }).subject = subject;
-			if (display !== undefined)
-				(activeView as { display?: typeof display }).display = display;
-			if (item.operatorActions !== undefined)
-				(
-					activeView as { operatorActions?: typeof item.operatorActions }
-				).operatorActions = item.operatorActions;
-			work.set(record.run.workKey, activeView);
+				subject: item.subject ?? record.run.subject,
+				display: item.display ?? record.run.display,
+				operatorActions: item.operatorActions,
+			});
 		}
 		return work;
 	};
@@ -273,7 +257,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 			pendingDiagnostics.push({
 				level: "error",
 				phase: "reconcile",
-				sourceId: source.id,
+				sourceId,
 				runId: record.run.runId,
 				workKey: record.run.workKey,
 				message: errorMessage(error),
@@ -293,24 +277,14 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 		}, wake.delayMs);
 		timer.unref?.();
 		wakeTimers.add(timer);
-		const event: Extract<PlotAgentEvent, { type: "wake_scheduled" }> = {
-			type: "wake_scheduled",
-			delayMs: wake.delayMs,
-		};
-		if (wake.reason !== undefined)
-			(event as { reason?: string }).reason = wake.reason;
-		if (wake.workKey !== undefined)
-			(event as { workKey?: string }).workKey = wake.workKey;
-		if (wake.attempt !== undefined)
-			(event as { attempt?: number }).attempt = wake.attempt;
-		await emit(event);
+		await emit({ type: "wake_scheduled", ...wake });
 	};
 	const execute = (record: ActiveRun, startedTick: number) => {
-		record.promise = (async () => {
+		void (async () => {
 			try {
 				await source.started({ run: record.run, work: record.work });
 				const result = await options.runner.run({
-					sourceId: source.id,
+					sourceId,
 					tickId: startedTick,
 					run: record.run,
 					work: record.work,
@@ -357,35 +331,18 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 		}
 		pendingCompletions.clear();
 		const operatorObservations = pendingObservations.splice(0);
-		let observed: readonly Observation[] = [];
 		const tickDiagnostics = pendingDiagnostics.splice(0);
-		try {
-			observed =
-				(await abortable(signal, () =>
-					source.observe({ sourceId: source.id, tickId: currentTick, signal }),
-				)) ?? [];
-		} catch (error) {
-			tickDiagnostics.push({
-				level: "error",
-				phase: "observe",
-				sourceId: source.id,
-				message: errorMessage(error),
-			});
-		}
 		let reconciled;
 		try {
 			reconciled = await abortable(signal, () =>
 				source.reconcile({
-					sourceId: source.id,
 					tickId: currentTick,
 					signal,
-					observed,
 					operatorObservations,
 					activeRuns: [...active.values()].map(
 						(record): SourceActiveRun => ({
 							run: record.run,
 							work: record.work,
-							state: record.state,
 						}),
 					),
 				}),
@@ -394,7 +351,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 			tickDiagnostics.push({
 				level: "error",
 				phase: "reconcile",
-				sourceId: source.id,
+				sourceId,
 				message: errorMessage(error),
 			});
 		}
@@ -402,12 +359,8 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 		let selected: readonly WorkItem[] = [];
 		const interruptedThisTick = new Set<string>();
 		if (reconciled !== undefined && !signal.aborted) {
-			if (reconciled.source.sourceId !== source.id)
-				throw new Error("Work Source reconciled the wrong source id");
 			const nextWork = new Map<string, SourceWorkRecord>();
 			for (const work of reconciled.work) {
-				if (work.sourceId !== source.id)
-					throw new Error(`work ${work.workKey} has the wrong source id`);
 				if (nextWork.has(work.workKey))
 					throw new Error(`duplicate reconciled work: ${work.workKey}`);
 				nextWork.set(work.workKey, work);
@@ -418,7 +371,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 				record.state = sourceWork.has(record.run.workKey)
 					? "running"
 					: "draining";
-			for (const cancellation of reconciled.cancel ?? []) {
+			for (const cancellation of reconciled.cancel) {
 				const record = active.get(cancellation.workKey);
 				if (record === undefined) continue;
 				interruptedThisTick.add(cancellation.workKey);
@@ -434,7 +387,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 				if (!currentView.has(key))
 					await emit({ type: "work_removed", workKey: key });
 			emittedWork = currentView;
-			for (const wake of reconciled.wakes ?? []) await scheduleWake(wake);
+			for (const wake of reconciled.wakes) await scheduleWake(wake);
 			selected = reconciled.dispatch;
 			const seen = new Set<string>();
 			for (const work of selected.toSorted((a, b) =>
@@ -450,20 +403,17 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 					continue;
 				const run: WorkRun = {
 					runId: `${runPrefix}-${nextRun++}`,
-					sourceId: source.id,
+					sourceId,
 					workKey: work.workKey,
+					subject: work.subject,
+					display: work.display,
 				};
-				if (work.subject !== undefined)
-					(run as { subject?: string }).subject = work.subject;
-				if (work.display !== undefined)
-					(run as { display?: typeof work.display }).display = work.display;
 				const record: ActiveRun = {
 					run,
 					work,
 					controller: new AbortController(),
 					state: "running",
 					lastActivityAt: Date.now(),
-					promise: Promise.resolve(),
 				};
 				active.set(work.workKey, record);
 				if (maxRunDurationMs !== undefined) {
@@ -551,30 +501,21 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 			requestTick();
 		},
 		tickOnce,
-		offerObservation: (observation) => {
+		offerOperatorObservation: (observation) => {
 			if (lifecycle.state !== "running") return false;
-			if (pendingObservations.length >= OBSERVATION_CAPACITY) return false;
+			if (pendingObservations.length >= OPERATOR_OBSERVATION_CAPACITY)
+				return false;
 			pendingObservations.push(observation);
 			requestTick();
 			return true;
 		},
-		wakeAfter: async (delayMs, reason) => {
-			if (lifecycle.state !== "running") return;
-			const wake: WakeRequest = {
-				delayMs: positive(delayMs, 1, "delayMs"),
-			};
-			if (reason !== undefined) (wake as { reason?: string }).reason = reason;
-			await scheduleWake(wake);
-		},
+		wake: requestTick,
 		shutdown: async () => {
-			if (lifecycle.state === "stopped") return true;
-			if (lifecycle.state === "stopping") {
-				await lifecycle.done;
-				return true;
-			}
+			if (lifecycle.state === "stopped") return;
+			if (lifecycle.state === "stopping") return lifecycle.done;
 			if (lifecycle.state === "new") {
 				lifecycle = { state: "stopped" };
-				return true;
+				return;
 			}
 			const running = lifecycle;
 			const done = (async () => {
@@ -598,7 +539,6 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 			})();
 			lifecycle = { state: "stopping", done };
 			await done;
-			return true;
 		},
 	};
 	return api;
