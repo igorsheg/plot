@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { SessionSummary } from "@plot/session-manager/session";
 import {
 	activeSessions,
+	boardSessionFrom,
 	pastSessions,
 	selectedSessionFrom,
 	workflowTabSessions,
@@ -117,11 +118,13 @@ test("board tabs represent Workflows rather than layouts or Session history", ()
 		review,
 		release,
 	]);
+	expect(boardSessionFrom([review, release], oldReview)).toBe(review);
 	expect(workflowTabSessions([review, release], archived)).toEqual([
 		review,
 		release,
 		archived,
 	]);
+	expect(boardSessionFrom([review, release], archived)).toBe(archived);
 });
 
 test("layout preference is a separate river/board toggle", () => {

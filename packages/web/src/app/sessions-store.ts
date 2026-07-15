@@ -32,6 +32,14 @@ export const pastSessions = (
 		)
 		.toSorted((a, b) => updatedMs(b) - updatedMs(a));
 
+/** The board always shows the active Session for a selected Workflow. */
+export const boardSessionFrom = (
+	active: readonly SessionSummary[],
+	selected: SessionSummary,
+): SessionSummary =>
+	active.find((session) => session.workflowKey === selected.workflowKey) ??
+	selected;
+
 /** One board tab per active Workflow, plus a selected historical-only Workflow. */
 export const workflowTabSessions = (
 	active: readonly SessionSummary[],
@@ -74,4 +82,11 @@ export const selectWorkflow = (workflowKey: string): void => {
 		.get()
 		.find((item) => item.workflowKey === workflowKey);
 	if (session !== undefined) selectSession(session.id);
+};
+
+export const selectBoardSession = (): void => {
+	const selected = $selectedSession.get();
+	if (selected === undefined) return;
+	const boardSession = boardSessionFrom($activeSessions.get(), selected);
+	if (boardSession.id !== selected.id) selectSession(boardSession.id);
 };

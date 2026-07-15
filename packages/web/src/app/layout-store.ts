@@ -1,4 +1,9 @@
 import { atom, onMount } from "nanostores";
+import {
+	$activeSessions,
+	$selectedSession,
+	selectBoardSession,
+} from "./sessions-store.js";
 
 export type LayoutMode = "river" | "board";
 
@@ -28,12 +33,24 @@ const saveLayout = (mode: LayoutMode) => {
 export const $layoutMode = atom<LayoutMode>("river");
 
 onMount($layoutMode, () => {
-	const unlisten = $layoutMode.listen(saveLayout);
-	$layoutMode.set(storedLayout());
-	return unlisten;
+	const reconcileBoardSession = () => {
+		if ($layoutMode.get() === "board") selectBoardSession();
+	};
+	const unlistenLayout = $layoutMode.listen(saveLayout);
+	const unlistenActive = $activeSessions.listen(reconcileBoardSession);
+	const unlistenSelected = $selectedSession.listen(reconcileBoardSession);
+	const mode = storedLayout();
+	if (mode === "board") selectBoardSession();
+	$layoutMode.set(mode);
+	return () => {
+		unlistenLayout();
+		unlistenActive();
+		unlistenSelected();
+	};
 });
 
 export const setLayoutMode = (mode: LayoutMode): void => {
+	if (mode === "board") selectBoardSession();
 	$layoutMode.set(mode);
 };
 
