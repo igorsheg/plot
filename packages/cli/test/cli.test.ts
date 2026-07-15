@@ -5,12 +5,10 @@ import { describe, expect, test } from "bun:test";
 import type { SessionAuth } from "@plot/session/auth";
 import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
+import type { CliHost } from "../src/cli-host.js";
 import { runPlotCli } from "../src/cli.js";
-import { selectOptionId } from "../src/commands.js";
 import { docNames } from "../src/docs.js";
 import { VERSION } from "../src/package.js";
-
-async function* emptyInput() {}
 
 const session: SessionSummary = {
 	id: "session-1",
@@ -60,38 +58,43 @@ const fakeAuth: SessionAuth = {
 	logout: async () => {},
 };
 
-const invoke = async (
-	args: readonly string[],
-	manager: SessionManagerClient = fakeManager(),
-	cwd = "/repo",
-) => {
+interface InvokeOptions {
+	readonly manager?: SessionManagerClient;
+	readonly cwd?: string;
+	readonly auth?: SessionAuth;
+	readonly prompts?: readonly string[];
+	readonly isInteractive?: boolean;
+}
+
+const invoke = async (args: readonly string[], options: InvokeOptions = {}) => {
 	const stdout: string[] = [];
 	const stderr: string[] = [];
 	const tui: unknown[] = [];
 	let managerCalls = 0;
-	const code = await runPlotCli(args, {
-		cwd,
-		stdin: emptyInput(),
-		isInteractive: true,
-		auth: fakeAuth,
-		writeStdout: (text) => {
+	let promptIndex = 0;
+	const host: CliHost = {
+		cwd: options.cwd ?? "/repo",
+		isInteractive: options.isInteractive ?? true,
+		auth: options.auth ?? fakeAuth,
+		stdout: (text) => {
 			stdout.push(text);
 		},
-		writeStderr: (text) => {
+		stderr: (text) => {
 			stderr.push(text);
 		},
-		prompt: async () => "",
+		prompt: async () => options.prompts?.[promptIndex++] ?? "",
 		openBrowser: () => {},
-		getSessionManager: async () => {
+		sessions: async () => {
 			managerCalls += 1;
-			return manager;
+			return options.manager ?? fakeManager();
 		},
-		runTui: (options) => {
-			tui.push(options);
+		runTui: (input) => {
+			tui.push(input);
 		},
 		startWebGateway: async () => ({ url: "http://plot/", stop: () => {} }),
 		waitForTermination: async (stop) => stop(),
-	});
+	};
+	const code = await runPlotCli(args, host);
 	return {
 		code,
 		stdout: stdout.join(""),
@@ -188,10 +191,9 @@ describe("plot CLI", () => {
 		] as const) {
 			const calls: unknown[] = [];
 			// eslint-disable-next-line no-await-in-loop -- prove both Workflow entrypoints.
-			const result = await invoke(
-				args,
-				fakeManager({ onStart: (input) => calls.push(input) }),
-			);
+			const result = await invoke(args, {
+				manager: fakeManager({ onStart: (input) => calls.push(input) }),
+			});
 			expect(result.code).toBe(0);
 			expect(calls).toEqual([{ cwd: "/repo", workflowPath: "review" }]);
 		}
@@ -199,23 +201,30 @@ describe("plot CLI", () => {
 
 	test("start reports whether it created the Session", async () => {
 		expect(
-			(await invoke(["start"], fakeManager({ started: true }))).stdout,
+			(
+				await invoke(["start"], {
+					manager: fakeManager({ started: true }),
+				})
+			).stdout,
 		).toBe("Started review-acme\n");
 		expect(
-			(await invoke(["start"], fakeManager({ started: false }))).stdout,
+			(
+				await invoke(["start"], {
+					manager: fakeManager({ started: false }),
+				})
+			).stdout,
 		).toBe("Already running review-acme\n");
 	});
 
 	test("stop is idempotent by Workflow", async () => {
 		expect(
 			(
-				await invoke(
-					["stop", "/repo/WORKFLOW.md"],
-					fakeManager({ stopped: session }),
-				)
+				await invoke(["stop", "/repo/WORKFLOW.md"], {
+					manager: fakeManager({ stopped: session }),
+				})
 			).stdout,
 		).toBe("Stopped review-acme\n");
-		expect((await invoke(["stop"], fakeManager())).stdout).toBe(
+		expect((await invoke(["stop"], { manager: fakeManager() })).stdout).toBe(
 			"/repo/WORKFLOW.md is not running\n",
 		);
 	});
@@ -238,10 +247,9 @@ describe("plot CLI", () => {
 	});
 
 	test("operational errors are rendered once", async () => {
-		const result = await invoke(
-			["start"],
-			fakeManager({ failure: new Error("worker failed") }),
-		);
+		const result = await invoke(["start"], {
+			manager: fakeManager({ failure: new Error("worker failed") }),
+		});
 		expect(result.code).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toBe("Error: worker failed\n");
@@ -251,7 +259,7 @@ describe("plot CLI", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "plot-check-"));
 		await writeFile(join(cwd, "WORKFLOW.md"), "Do it.\n");
 		try {
-			const result = await invoke(["check"], fakeManager(), cwd);
+			const result = await invoke(["check"], { cwd });
 			expect(result.code).toBe(1);
 			expect(result.stderr).toContain(
 				"WORKFLOW.md requires an extension with at least one Source.",
@@ -262,17 +270,35 @@ describe("plot CLI", () => {
 		}
 	});
 
-	test("auth selection accepts ids, labels, numbers, and default", () => {
-		const prompt = {
-			message: "Choose",
-			options: [
-				{ id: "anthropic", label: "Anthropic" },
-				{ id: "openai", label: "OpenAI (configured)" },
+	test("auth login selects a provider through the command", async () => {
+		const logins: string[] = [];
+		const auth: SessionAuth = {
+			...fakeAuth,
+			providers: async () => [
+				{
+					id: "anthropic",
+					name: "Anthropic",
+					usesCallbackServer: true,
+					configured: false,
+				},
+				{
+					id: "openai",
+					name: "OpenAI",
+					usesCallbackServer: true,
+					configured: true,
+				},
 			],
+			login: async ({ provider }) => {
+				logins.push(provider);
+			},
 		};
-		expect(selectOptionId(prompt, "")).toBe("anthropic");
-		expect(selectOptionId(prompt, "2")).toBe("openai");
-		expect(selectOptionId(prompt, "openai")).toBe("openai");
-		expect(selectOptionId(prompt, "OpenAI")).toBe("openai");
+		const result = await invoke(["auth", "login"], {
+			auth,
+			prompts: ["2"],
+		});
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("Logged in to openai.\n");
+		expect(result.stderr).toContain("2. openai - OpenAI (configured)");
+		expect(logins).toEqual(["openai"]);
 	});
 });

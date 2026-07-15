@@ -434,14 +434,14 @@ The installed-package smoke suite asserts:
 
 ## Ownership map
 
-| Concern                                            | Owning module                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Hidden worker entrypoint                           | `packages/cli/src/main.ts` and `packages/cli/src/internal-session-worker.ts` |
-| Worker message decoding and command loop           | `packages/session/src/worker.ts`                                             |
-| Child transport, diagnostics, timeout, escalation  | `packages/session-manager/src/session-process.ts`                            |
-| Per-Workflow lifecycle serialization and admission | `packages/session-manager/src/manager.ts`                                    |
-| Manager transport error preservation               | `packages/session-manager/src/ipc.ts`                                        |
-| Public release payload                             | `scripts/release/build.ts` and `scripts/release/smoke.ts`                    |
+| Concern                                            | Owning module                                             |
+| -------------------------------------------------- | --------------------------------------------------------- |
+| Hidden worker entrypoint                           | `packages/cli/src/main.ts`                                |
+| Worker message decoding and command loop           | `packages/session/src/worker.ts`                          |
+| Child transport, diagnostics, timeout, escalation  | `packages/session-manager/src/session-process.ts`         |
+| Per-Workflow lifecycle serialization and admission | `packages/session-manager/src/manager.ts`                 |
+| Manager transport error preservation               | `packages/session-manager/src/ipc.ts`                     |
+| Public release payload                             | `scripts/release/build.ts` and `scripts/release/smoke.ts` |
 
 `@plot/session` remains unaware of provider SDK details beyond its existing seam. `@plot/agent` remains unaware of worker transport. TUI and Web consume Session Manager concepts and never inspect protocol envelopes.
 

@@ -12,10 +12,10 @@ const formatTokenCount = (count: number): string => {
 	return `${text}${unit}`;
 };
 
-export const pad = (value: string, width: number): string =>
+const pad = (value: string, width: number): string =>
 	value.length >= width ? value : value + " ".repeat(width - value.length);
 
-export const table = (rows: readonly (readonly string[])[]): string => {
+const table = (rows: readonly (readonly string[])[]): string => {
 	const widths = rows[0]?.map((_, column) =>
 		Math.max(...rows.map((row) => (row[column] ?? "").length)),
 	);
