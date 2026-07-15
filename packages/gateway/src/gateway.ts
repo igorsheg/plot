@@ -187,6 +187,8 @@ export const startPlotWebGateway = async (
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",
 		port: options.port ?? 0,
+		// SSE closes through request cancellation, not idle time.
+		idleTimeout: 0,
 		routes: {
 			"/api/health": {
 				GET: () => Response.json({ ok: true }),
@@ -219,11 +221,10 @@ export const startPlotWebGateway = async (
 					),
 			},
 			"/api/sessions/:sessionId/events": {
-				GET: (request, bun) => {
+				GET: (request) => {
 					const after = parseAfter(request);
 					if (after === undefined)
 						return errorResponse("invalid after sequence", 400);
-					bun.timeout(request, 0);
 					return withSession(manager, request.params.sessionId, () =>
 						eventsResponse({
 							request,
