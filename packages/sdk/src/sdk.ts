@@ -43,14 +43,19 @@ export interface ExtensionCredentials {
 
 export interface ExtensionOAuthCallback {
 	readonly redirectUri: string;
-	readonly wait: (signal?: AbortSignal) => Promise<string>;
+	readonly wait: (options?: {
+		readonly signal?: AbortSignal;
+	}) => Promise<string>;
 }
 
 export interface ExtensionInteraction {
-	readonly openUrl: (url: string, fallbackText?: string) => MaybePromise<void>;
-	readonly createOAuthCallback: (
-		timeoutMs?: number,
-	) => Promise<ExtensionOAuthCallback>;
+	readonly openUrl: (
+		url: string,
+		options?: { readonly fallbackText?: string },
+	) => MaybePromise<void>;
+	readonly createOAuthCallback: (options?: {
+		readonly timeoutMs?: number;
+	}) => Promise<ExtensionOAuthCallback>;
 	readonly reportProgress: (message: string) => MaybePromise<void>;
 }
 
@@ -337,14 +342,14 @@ export class ExtensionActionRequiredError extends Error {
  * are bookkeeping around that Plot-owned lifecycle — do not launch agents or
  * implement a second scheduler from them.
  */
-export interface PlotExtensionRuntime {
+export interface PlotExtensionRuntime<Config = unknown> {
 	/**
 	 * Source prerequisites. Plot checks all of them before every discovery
 	 * tick and preserves last-known Work Items while any is non-ready.
 	 */
 	readonly requirements?: readonly ExtensionRequirement[];
 	/** Tools and per-run tool factories exposed by this Source. */
-	readonly tools?: readonly PlotExtensionTool[];
+	readonly tools?: readonly PlotExtensionTool<Config>[];
 	/**
 	 * Observe the domain and return every currently-relevant Work Item.
 	 *
@@ -401,7 +406,7 @@ export interface PlotExtension<Config = unknown> {
 	 */
 	readonly create: (
 		context: PlotExtensionSetupContext<Config>,
-	) => MaybePromise<PlotExtensionRuntime>;
+	) => MaybePromise<PlotExtensionRuntime<Config>>;
 }
 
 export const definePlotExtension = <Config>(

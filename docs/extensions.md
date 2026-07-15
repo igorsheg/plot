@@ -161,7 +161,7 @@ export default definePlotExtension({
 							callback.redirectUri,
 						);
 						await interaction.openUrl(authorization.url);
-						const code = await callback.wait(signal);
+						const code = await callback.wait({ signal });
 						await credentials.set("tokens", await authorization.exchange(code));
 					},
 				},

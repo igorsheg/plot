@@ -512,11 +512,17 @@ export const makePlotExtensionSourceBundle = (options: {
 		const controller = new AbortController();
 		const callbacks = new Set<{ readonly cancel: () => void }>();
 		const interaction: ExtensionInteraction = {
-			openUrl: async (url, fallbackText) => {
-				await input.events.openUrl(actionRunId, url, fallbackText);
+			openUrl: async (url, interactionOptions) => {
+				await input.events.openUrl(
+					actionRunId,
+					url,
+					interactionOptions?.fallbackText,
+				);
 			},
-			createOAuthCallback: async (timeoutMs) => {
-				const callback = await createLoopbackOAuthCallback(timeoutMs);
+			createOAuthCallback: async (interactionOptions) => {
+				const callback = await createLoopbackOAuthCallback(
+					interactionOptions?.timeoutMs,
+				);
 				callbacks.add(callback);
 				return callback;
 			},

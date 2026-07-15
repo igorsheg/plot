@@ -103,8 +103,8 @@ const events = () => {
 		progress: async (_id, message) => {
 			values.push(`progress:${message}`);
 		},
-		openUrl: async (_id, url) => {
-			values.push(`url:${url}`);
+		openUrl: async (_id, url, fallbackText) => {
+			values.push(`url:${url}:${fallbackText ?? ""}`);
 		},
 		completed: async () => {
 			values.push("completed");
@@ -259,8 +259,17 @@ describe("Extension Source", () => {
 					id: "auth",
 					label: "Auth",
 					check: () => state,
-					action: async ({ interaction }) => {
+					action: async ({ interaction, signal }) => {
 						await interaction.reportProgress("connecting");
+						await interaction.openUrl("https://example.com/connect", {
+							fallbackText: "Open manually",
+						});
+						const callback = await interaction.createOAuthCallback({
+							timeoutMs: 1_000,
+						});
+						const code = callback.wait({ signal });
+						await fetch(`${callback.redirectUri}?code=authorized`);
+						expect(await code).toBe("authorized");
 						state = { status: "ready" };
 					},
 				},
@@ -277,6 +286,9 @@ describe("Extension Source", () => {
 		expect(accepted.accepted).toBe(true);
 		await waitFor(() => observed.values.includes("completed"));
 		expect(observed.values).toContain("progress:connecting");
+		expect(observed.values).toContain(
+			"url:https://example.com/connect:Open manually",
+		);
 		expect((await tick(bundle)).source.readiness).toBe("ready");
 		await bundle.shutdown();
 	});
