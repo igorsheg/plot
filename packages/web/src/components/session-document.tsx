@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { motion } from "motion/react";
 import { $selectedSession } from "../app/sessions-store.js";
 import {
+	sessionBoardMainClass,
 	sessionDetailClass,
 	sessionDetailInnerClass,
 	sessionDocumentClass,
@@ -13,6 +14,7 @@ import {
 	StoreSessionHeaderProvider,
 } from "./session-header/session-header.js";
 import { useWorkDetail } from "./session-work/detail-context.js";
+import { SessionBoard } from "./session-work/session-board.js";
 import {
 	SessionWork,
 	StoreSessionWorkProvider,
@@ -51,14 +53,30 @@ function EmptySelection() {
 }
 
 /**
- * The session body: the document (header + river) beside the work detail. The
- * detail is a flowed sibling — opening it animates the column's width so the
- * whole document is pushed left, rather than floating over it. Consumes only the
- * detail open state; the document and the panel own their own contexts.
+ * Shared flowed detail sibling. Opening it animates the column width so either
+ * work surface is pushed left rather than covered by a floating sheet.
  */
-function SessionSplit() {
+function DetailColumn() {
 	const { state } = useWorkDetail();
-	const open = state.open;
+	return (
+		<motion.div
+			animate={{ width: state.open ? DETAIL_WIDTH : 0 }}
+			className={sessionDetailClass()}
+			initial={false}
+			transition={{ duration: 0.5, ease: DETAIL_EASE }}
+		>
+			<div
+				className={sessionDetailInnerClass()}
+				style={{ width: DETAIL_WIDTH }}
+			>
+				<WorkDetail />
+			</div>
+		</motion.div>
+	);
+}
+
+/** Production river: the existing document header and work stream. */
+function SessionSplit() {
 	return (
 		<div className={sessionSplitClass()}>
 			<VStack as="main" className={sessionMainClass()}>
@@ -73,19 +91,23 @@ function SessionSplit() {
 					</div>
 				</ScrollArea>
 			</VStack>
-			<motion.div
-				animate={{ width: open ? DETAIL_WIDTH : 0 }}
-				className={sessionDetailClass()}
-				initial={false}
-				transition={{ duration: 0.5, ease: DETAIL_EASE }}
-			>
-				<div
-					className={sessionDetailInnerClass()}
-					style={{ width: DETAIL_WIDTH }}
-				>
-					<WorkDetail />
-				</div>
-			</motion.div>
+			<DetailColumn />
+		</div>
+	);
+}
+
+/** Board body only; the app shell composes SessionNav above it. */
+function SessionBoardSplit() {
+	return (
+		<div className={sessionSplitClass()}>
+			<VStack as="main" className={sessionBoardMainClass()}>
+				<ScrollArea scrollFade scrollbarGutter>
+					<div className="min-h-full px-[var(--plot-space-6)] pt-[var(--plot-space-6)] pb-[var(--plot-page-bottom)]">
+						<SessionBoard />
+					</div>
+				</ScrollArea>
+			</VStack>
+			<DetailColumn />
 		</div>
 	);
 }
@@ -94,6 +116,14 @@ function SessionDocument() {
 	return (
 		<StoreSessionWorkProvider>
 			<SessionSplit />
+		</StoreSessionWorkProvider>
+	);
+}
+
+export function SessionBoardMain() {
+	return (
+		<StoreSessionWorkProvider>
+			<SessionBoardSplit />
 		</StoreSessionWorkProvider>
 	);
 }

@@ -28,7 +28,7 @@ const preview: Preview = {
 		layout: "fullscreen",
 		controls: { expanded: true },
 		options: {
-			storySort: { order: ["Foundations", "Work", "Session"] },
+			storySort: { order: ["Foundations", "Components", "Screens"] },
 		},
 	},
 	decorators: [
@@ -46,7 +46,6 @@ const preview: Preview = {
 						minHeight: "100dvh",
 						background: "var(--background)",
 						color: "var(--foreground)",
-						padding: 32,
 						fontFamily: "var(--font-sans)",
 					}}
 				>

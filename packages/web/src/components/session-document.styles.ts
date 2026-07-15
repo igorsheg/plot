@@ -9,6 +9,10 @@ export const sessionMainClass = cva({
 	base: "min-w-0 flex-1 overflow-hidden pl-[calc(var(--plot-rhythm)*20)]",
 });
 
+export const sessionBoardMainClass = cva({
+	base: "min-w-0 flex-1 overflow-hidden",
+});
+
 export const sessionDocumentClass = cva({
 	base: "mx-auto w-full max-w-[calc(var(--plot-rhythm)*208)]",
 	variants: {

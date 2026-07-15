@@ -21,14 +21,20 @@ const heightForGlyph = (glyph: string): number => {
 	return minBucketHeight + ratio * (maxBucketHeight - minBucketHeight);
 };
 
-export function ThroughputSparkline({ graph }: { readonly graph: string }) {
+export function ThroughputSparkline({
+	graph,
+	height = "default",
+}: {
+	readonly graph: string;
+	readonly height?: "default" | "control-sm";
+}) {
 	const reducedMotion = useReducedMotion();
 	return (
 		<span
 			className={sparklineRootClass()}
 			title="token throughput over the last 60 seconds"
 		>
-			<span aria-hidden="true" className={sparklineClass()}>
+			<span aria-hidden="true" className={sparklineClass({ height })}>
 				{Array.from(graph).map((glyph, index) => (
 					<motion.span
 						key={index}

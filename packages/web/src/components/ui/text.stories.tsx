@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Text } from "./text.js";
 
 const meta = {
-	title: "Foundations/Text",
+	title: "Foundations/Typography",
 	parameters: { layout: "padded" },
 } satisfies Meta;
 

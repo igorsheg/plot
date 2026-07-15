@@ -32,6 +32,23 @@ export const pastSessions = (
 		)
 		.toSorted((a, b) => updatedMs(b) - updatedMs(a));
 
+/** The board always shows the active Session for a selected Workflow. */
+export const boardSessionFrom = (
+	active: readonly SessionSummary[],
+	selected: SessionSummary,
+): SessionSummary =>
+	active.find((session) => session.workflowKey === selected.workflowKey) ??
+	selected;
+
+/** One board tab per active Workflow, plus a selected historical-only Workflow. */
+export const workflowTabSessions = (
+	active: readonly SessionSummary[],
+	selected: SessionSummary,
+): readonly SessionSummary[] =>
+	active.some((session) => session.workflowKey === selected.workflowKey)
+		? active
+		: [...active, selected];
+
 export const $selectedSessionId = atom<string | undefined>(undefined);
 
 export const $sessionsQuery = createFetcherStore<readonly SessionSummary[]>(
@@ -50,6 +67,26 @@ export const $selectedSession = computed(
 	selectedSessionFrom,
 );
 
+export const $workflowTabSessions = computed(
+	[$activeSessions, $selectedSession],
+	(active, selected) =>
+		selected === undefined ? [] : workflowTabSessions(active, selected),
+);
+
 export const selectSession = (id: string): void => {
 	$selectedSessionId.set(id);
+};
+
+export const selectWorkflow = (workflowKey: string): void => {
+	const session = $workflowTabSessions
+		.get()
+		.find((item) => item.workflowKey === workflowKey);
+	if (session !== undefined) selectSession(session.id);
+};
+
+export const selectBoardSession = (): void => {
+	const selected = $selectedSession.get();
+	if (selected === undefined) return;
+	const boardSession = boardSessionFrom($activeSessions.get(), selected);
+	if (boardSession.id !== selected.id) selectSession(boardSession.id);
 };

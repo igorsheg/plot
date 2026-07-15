@@ -9,7 +9,16 @@ export const sparklineRootClass = cva({
 });
 
 export const sparklineClass = cva({
-	base: "inline-flex h-10 items-end gap-px align-middle",
+	base: "inline-flex items-end gap-px align-middle",
+	variants: {
+		height: {
+			default: "h-10",
+			"control-sm": "h-8 sm:h-7",
+		},
+	},
+	defaultVariants: {
+		height: "default",
+	},
 });
 
 export const sparklineBucketClass = cva({
