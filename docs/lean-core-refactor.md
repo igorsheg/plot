@@ -575,11 +575,11 @@ Use a discriminated union whose payload is tied to its action. Commands with no 
 
 Delete generic `objectInput<A>()` casts. RuntimeEvent envelopes are parsed by one Session-owned decoder before they cross worker or manager boundaries.
 
-### Writes and shutdown
+### Messages and shutdown
 
-Protocol writes remain bounded and serialized because events and command results may be produced concurrently. The worker owns one write chain and one failure. Protocol EOF triggers bounded host shutdown.
+Worker commands and records use Bun child IPC directly. `process.send()` preserves send order for events and command results; there is no write chain, line framing, or protocol stream. Parent disconnect triggers bounded host shutdown.
 
-Do not build a generic protocol server abstraction.
+Do not build a generic message-bus abstraction.
 
 ## 8. `@plot/session-manager`
 
@@ -665,17 +665,13 @@ Pending commands belong to the online or shutting-down owner. Child exit transit
 
 Replace `failed`, `didExit`, optional `exit`, optional `shutdownPromise`, optional `readyRecord`, and deferred fields with the union. Expected exit during shutdown is represented as a shutdown transition rather than an error that the manager later ignores based on another state.
 
-The existing dedicated fd 3 protocol channel, bounded diagnostic capture, command timeout, and graceful/TERM/KILL escalation remain.
+Bun child IPC carries worker commands and records. Bounded diagnostic capture, command timeout, and graceful/TERM/KILL escalation remain.
 
 ### IPC
 
-Identity is verified on the same connection as the requested operation. Do not open a separate `hello` connection before every command.
+The Session Manager serves a concrete `Bun.serve({ unix, routes })` table. Clients use `fetch(..., { unix })`; protocol/build identity travels in headers on every request.
 
-One socket carries one request. The request includes protocol/build identity and a concrete command. The server validates identity and command, executes it, writes one result or error, and closes. Event requests validate identity and then stream events until cancellation.
-
-Delete the unused `events-ready` response. A successful event request begins with the first event; a rejected request begins with a structured error.
-
-Request and response decoding remain direct switches. Do not replace them with method-name registries, generic payload maps, or RPC code generation.
+Native HTTP methods and path parameters select operations. JSON bodies are decoded by the Session or Manager owner. Event requests return a pull-driven NDJSON body until cancellation. There is no socket request envelope, JSONL command dispatcher, middleware stack, or compatibility protocol.
 
 Known boundary errors are reconstructed once through owner-provided decoding. Unknown errors remain bounded `PlotBoundaryError` records.
 
@@ -704,7 +700,7 @@ Tests must create enough events during replay to exceed the live buffer and prov
 - Move observability into `@plot/agent`; it has one production owner.
 - Delete `Mutable<T>` by constructing exact domain values.
 - Replace broad `primitives.ts` imports with owner-local parsing or direct language constructs.
-- Retain JSONL and boundary-error mechanics only while they have concrete consumers in both Session and Session Manager.
+- Retain JSONL only for durable history and streamed HTTP events; worker commands use Bun child IPC.
 - Remove EventHub from Agent. Re-evaluate whether the remaining Session and Manager uses warrant one shared implementation after ownership is simplified.
 - Remove AsyncQueue from Agent if coalesced ticking and bounded pending arrays replace the mailbox.
 
@@ -984,7 +980,7 @@ Before completion, perform one review that ignores tests and asks only whether t
 - Can a reader follow Agent tick execution top to bottom in one module?
 - Can a reader follow Session startup from manager admission to worker ready without a generic dispatcher?
 - Can a reader follow explicit stop through graceful shutdown and escalation without reconciling independent flags?
-- Can a reader identify exactly where external YAML, Extension output, worker JSONL, manager IPC, persisted summaries, credentials, and provider events are validated?
+- Can a reader identify exactly where external YAML, Extension output, worker IPC messages, manager HTTP, persisted summaries, credentials, and provider events are validated?
 - Can any status or current-run value disagree with another mutable representation?
 - Does every retained abstraction have at least two concrete consumers or remove more complexity than it adds?
 - Would deleting any interface or helper make the code easier to follow without duplicating a real invariant?

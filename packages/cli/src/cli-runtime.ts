@@ -115,13 +115,7 @@ export const createProcessCliRuntime = (
 		get auth() {
 			return overrides.auth ?? (auth ??= createSessionAuth({ cwd }));
 		},
-		prepareWorkflow:
-			overrides.prepareWorkflow ??
-			((options) =>
-				prepareWorkflow({
-					...options,
-					diagnostic: ({ stream, text }) => writeStderr(`[${stream}] ${text}`),
-				})),
+		prepareWorkflow: overrides.prepareWorkflow ?? prepareWorkflow,
 		readDoc: overrides.readDoc ?? readPlotDoc,
 		readSdkReference: overrides.readSdkReference ?? readSdkReference,
 		renderDocsPaths: overrides.renderDocsPaths ?? renderDocsPaths,

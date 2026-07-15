@@ -1,18 +1,14 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import {
 	boundaryErrorFromRecord,
 	PlotBoundaryError,
 } from "@plot/common/boundary-error";
-import { jsonlLines, parseJsonl } from "@plot/common/jsonl";
 import type {
 	OperatorObservationInput,
 	SourceActionInput,
 } from "@plot/session/runtime";
 import {
 	decodeSessionWorkerRecord,
-	encodeSessionWorkerRecord,
 	SessionWorkerProtocolError,
-	workerMaxLineBytes,
 	type SessionWorkerAction,
 	type SessionWorkerCommand,
 	type SessionWorkerReady,
@@ -28,10 +24,10 @@ export interface SessionChildExit {
 }
 
 export interface SessionChildProcess {
-	readonly protocol: AsyncIterable<string | Uint8Array>;
 	readonly stdout: AsyncIterable<string | Uint8Array>;
 	readonly stderr: AsyncIterable<string | Uint8Array>;
-	readonly write: (line: string) => Promise<void> | void;
+	readonly send: (command: SessionWorkerCommand) => void;
+	readonly onMessage: (listener: (message: unknown) => void) => () => void;
 	readonly kill: (signal: NodeJS.Signals) => void;
 	readonly exited: Promise<SessionChildExit>;
 }
@@ -52,14 +48,11 @@ interface PendingCommand {
 	readonly timeout: ReturnType<typeof setTimeout>;
 }
 
-interface ReadyDeferred {
-	readonly promise: Promise<SessionWorkerReady>;
-	readonly resolve: (ready: SessionWorkerReady) => void;
-	readonly reject: (error: Error) => void;
-}
-
 type ProcessState =
-	| { readonly state: "waiting"; readonly ready: ReadyDeferred }
+	| {
+			readonly state: "waiting";
+			readonly ready: PromiseWithResolvers<SessionWorkerReady>;
+	  }
 	| {
 			readonly state: "online";
 			readonly ready: SessionWorkerReady;
@@ -70,7 +63,11 @@ type ProcessState =
 			readonly pending: Map<string, PendingCommand>;
 			operation: Promise<SessionProcessShutdownResult>;
 	  }
-	| { readonly state: "exited"; readonly exit?: SessionChildExit };
+	| {
+			readonly state: "exited";
+			readonly error: Error;
+			readonly exit?: SessionChildExit;
+	  };
 
 export class WorkerCommandTimeoutError extends PlotBoundaryError {
 	override readonly name = "WorkerCommandTimeoutError";
@@ -89,7 +86,7 @@ export class WorkerExitedError extends PlotBoundaryError {
 	override readonly name = "WorkerExitedError";
 
 	constructor(input: {
-		readonly phase: "protocol" | "process" | "shutdown";
+		readonly phase: "process" | "shutdown";
 		readonly diagnostic?: string;
 		readonly exit?: SessionChildExit;
 		readonly message?: string;
@@ -154,51 +151,41 @@ export const createSessionChildProcess = (input: {
 	readonly args: readonly string[];
 	readonly cwd: string;
 }): SessionChildProcess => {
-	const child: ChildProcess = spawn(input.command, [...input.args], {
+	let listener: ((message: unknown) => void) | undefined;
+	const earlyMessages: unknown[] = [];
+	const child = Bun.spawn([input.command, ...input.args], {
 		cwd: input.cwd,
-		stdio: ["pipe", "pipe", "pipe", "pipe"],
+		stdin: "ignore",
+		stdout: "pipe",
+		stderr: "pipe",
+		serialization: "json",
+		ipc: (message) => {
+			if (listener === undefined) earlyMessages.push(message);
+			else listener(message);
+		},
 	});
-	const protocol = child.stdio[3];
-	if (
-		protocol === null ||
-		protocol === undefined ||
-		typeof protocol === "number" ||
-		!(Symbol.asyncIterator in protocol)
-	)
-		throw new Error("Session worker protocol pipe was not created");
 	const killOnParentExit = () => child.kill("SIGKILL");
 	process.once("exit", killOnParentExit);
-	child.once("exit", () => process.off("exit", killOnParentExit));
-	child.once("error", () => process.off("exit", killOnParentExit));
-	return {
-		protocol,
-		stdout: child.stdout!,
-		stderr: child.stderr!,
-		write: (line) =>
-			new Promise<void>((resolve, reject) => {
-				child.stdin!.write(line, (error) => {
-					if (error == null) resolve();
-					else reject(error);
-				});
-			}),
-		kill: (signal) => {
-			child.kill(signal);
-		},
-		exited: new Promise((resolve) => {
-			child.once("exit", (code, signal) => resolve({ code, signal }));
-			child.once("error", () => resolve({}));
-		}),
-	};
-};
-
-const readyDeferred = (): ReadyDeferred => {
-	let resolve!: (ready: SessionWorkerReady) => void;
-	let reject!: (error: Error) => void;
-	const promise = new Promise<SessionWorkerReady>((yes, no) => {
-		resolve = yes;
-		reject = no;
+	const exited = child.exited.then((code) => {
+		process.off("exit", killOnParentExit);
+		const signal = child.signalCode as NodeJS.Signals | null;
+		return { code, signal };
 	});
-	return { promise, resolve, reject };
+	return {
+		stdout: child.stdout,
+		stderr: child.stderr,
+		send: (command) => child.send(command),
+		onMessage: (receive) => {
+			listener = receive;
+			const queued = earlyMessages.splice(0);
+			queueMicrotask(() => queued.forEach(receive));
+			return () => {
+				listener = undefined;
+			};
+		},
+		kill: (signal) => child.kill(signal),
+		exited,
+	};
 };
 
 const workerCommand = (
@@ -229,9 +216,10 @@ export class SessionProcess {
 	private readonly listeners = new Set<(record: SessionWorkerRecord) => void>();
 	private readonly exitListeners = new Set<(error: Error) => void>();
 	private diagnostic = "";
+	private stopMessages = () => {};
 	private state: ProcessState = {
 		state: "waiting",
-		ready: readyDeferred(),
+		ready: Promise.withResolvers<SessionWorkerReady>(),
 	};
 
 	constructor(
@@ -241,7 +229,7 @@ export class SessionProcess {
 			readonly commandTimeoutMs: number;
 		},
 	) {
-		void this.consumeProtocol();
+		this.stopMessages = child.onMessage((message) => this.receive(message));
 		void this.consumeDiagnostic(child.stdout, "stdout");
 		void this.consumeDiagnostic(child.stderr, "stderr");
 		void child.exited.then((exit) => {
@@ -313,13 +301,13 @@ export class SessionProcess {
 			}, this.options.commandTimeoutMs);
 			timeout.unref?.();
 			pending.set(id, { resolve, reject, timeout });
-			Promise.resolve(
-				this.child.write(encodeSessionWorkerRecord(command)),
-			).catch((error: unknown) => {
+			try {
+				this.child.send(command);
+			} catch (error) {
 				clearTimeout(timeout);
 				pending.delete(id);
 				reject(asError(error));
-			});
+			}
 		});
 	}
 
@@ -349,20 +337,13 @@ export class SessionProcess {
 		if (this.state.state !== "exited") this.child.kill("SIGKILL");
 	}
 
-	private notRunning(): WorkerExitedError {
-		const input: {
-			phase: "process";
-			diagnostic: string;
-			message: string;
-			exit?: SessionChildExit;
-		} = {
+	private notRunning(): Error {
+		if (this.state.state === "exited") return this.state.error;
+		return new WorkerExitedError({
 			phase: "process",
 			diagnostic: this.diagnostic,
 			message: "Session worker is not running.",
-		};
-		if (this.state.state === "exited" && this.state.exit !== undefined)
-			input.exit = this.state.exit;
-		return new WorkerExitedError(input);
+		});
 	}
 
 	private async runShutdown(
@@ -398,22 +379,9 @@ export class SessionProcess {
 		}
 	}
 
-	private async consumeProtocol(): Promise<void> {
+	private receive(message: unknown): void {
 		try {
-			for await (const line of jsonlLines(this.child.protocol, {
-				maxLineBytes: workerMaxLineBytes,
-			})) {
-				if (line.trim() === "") continue;
-				this.handleRecord(decodeSessionWorkerRecord(parseJsonl(line)));
-			}
-			if (this.state.state !== "exited")
-				this.transitionToExited(
-					new WorkerExitedError({
-						phase: "protocol",
-						diagnostic: this.diagnostic,
-						message: "Session worker protocol closed.",
-					}),
-				);
+			this.handleRecord(decodeSessionWorkerRecord(message));
 		} catch (error) {
 			this.transitionToExited(asError(error));
 			this.child.kill("SIGTERM");
@@ -480,6 +448,7 @@ export class SessionProcess {
 
 	private transitionToExited(error: Error, exit?: SessionChildExit): void {
 		if (this.state.state === "exited") return;
+		this.stopMessages();
 		const previous = this.state;
 		const expected = previous.state === "shutting_down";
 		if (previous.state === "waiting") previous.ready.reject(error);
@@ -493,7 +462,9 @@ export class SessionProcess {
 		}
 		pending.clear();
 		this.state =
-			exit === undefined ? { state: "exited" } : { state: "exited", exit };
+			exit === undefined
+				? { state: "exited", error }
+				: { state: "exited", error, exit };
 		if (!expected) for (const listener of this.exitListeners) listener(error);
 	}
 }

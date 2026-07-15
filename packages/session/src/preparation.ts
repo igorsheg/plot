@@ -13,7 +13,6 @@ import {
 	type SessionPaths,
 } from "./paths.js";
 import { assertWorkflowAgentReady } from "./pi-session.js";
-import { type ConsoleDiagnostic, withScopedConsole } from "./scoped-console.js";
 import {
 	loadWorkflow,
 	resolveWorkflowPath,
@@ -24,7 +23,6 @@ import {
 export interface PrepareWorkflowOptions extends SessionPathOptions {
 	readonly workflowPath?: string;
 	readonly skipAgentReadiness?: boolean;
-	readonly diagnostic?: (diagnostic: ConsoleDiagnostic) => Promise<void> | void;
 }
 
 export interface PreparedWorkflow {
@@ -57,34 +55,25 @@ export const loadWorkflowForSession = async (
 	return { workflow, paths };
 };
 
-const inspect = async (
-	options: PrepareWorkflowOptions,
-): Promise<PreparedWorkflow> => {
-	const prepared = await loadWorkflowForSession(options);
-	const loaded = await loadPlotExtensionRuntimeFromWorkflow(prepared);
-	const controller = new AbortController();
-	try {
-		const source = await checkRequirements({
-			sourceId: sourceIdForExtension(loaded.extension),
-			label: loaded.extension.label ?? loaded.extension.id,
-			requirements: extensionRequirements(loaded.runtime),
-			credentials: loaded.credentials,
-			signal: controller.signal,
-		});
-		return { ...prepared, source };
-	} finally {
-		await loaded.runtime.shutdown?.({ signal: controller.signal });
-	}
-};
-
 export const prepareWorkflow = async (
 	options: PrepareWorkflowOptions,
 ): Promise<PreparedWorkflow> => {
-	const run = () => inspect(options);
 	try {
-		return await (options.diagnostic === undefined
-			? run()
-			: withScopedConsole(options.diagnostic, run));
+		const prepared = await loadWorkflowForSession(options);
+		const loaded = await loadPlotExtensionRuntimeFromWorkflow(prepared);
+		const controller = new AbortController();
+		try {
+			const source = await checkRequirements({
+				sourceId: sourceIdForExtension(loaded.extension),
+				label: loaded.extension.label ?? loaded.extension.id,
+				requirements: extensionRequirements(loaded.runtime),
+				credentials: loaded.credentials,
+				signal: controller.signal,
+			});
+			return { ...prepared, source };
+		} finally {
+			await loaded.runtime.shutdown?.({ signal: controller.signal });
+		}
 	} catch (error) {
 		if (error instanceof WorkflowBoundaryError) throw error;
 		throw new WorkflowBoundaryError({

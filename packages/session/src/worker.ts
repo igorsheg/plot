@@ -4,7 +4,6 @@ import {
 	toBoundaryErrorRecord,
 	type BoundaryErrorRecord,
 } from "@plot/common/boundary-error";
-import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
 import { isRecord } from "@plot/common/primitives";
 import {
 	createSessionHost,
@@ -19,8 +18,6 @@ import {
 	type RuntimeEvent,
 	type SourceActionInput,
 } from "./runtime.js";
-
-export const workerMaxLineBytes = 2 * 1024 * 1024;
 
 interface WorkerCommandBase {
 	readonly kind: "command";
@@ -181,10 +178,6 @@ export const decodeSessionWorkerRecord = (
 	return invalidRecord("worker result ok must be boolean");
 };
 
-export const encodeSessionWorkerRecord = (
-	record: SessionWorkerRecord | SessionWorkerCommand,
-): string => stringifyJsonl(record, { maxLineBytes: workerMaxLineBytes });
-
 const handleCommand = async (
 	host: SessionHost,
 	command: SessionWorkerCommand,
@@ -207,46 +200,26 @@ const handleCommand = async (
 	}
 };
 
-export interface ServeSessionWorkerOptions extends CreateSessionHostOptions {
-	readonly stdin: AsyncIterable<string | Uint8Array>;
-	readonly writeLine: (line: string) => Promise<void> | void;
-}
+const sendWorkerRecord = (record: SessionWorkerRecord): void => {
+	if (process.send === undefined)
+		throw new Error("Session worker requires parent IPC");
+	process.send(record);
+};
 
 export const serveSessionWorker = async (
-	options: ServeSessionWorkerOptions,
+	options: CreateSessionHostOptions,
 ): Promise<void> => {
-	let writes = Promise.resolve();
-	let writeFailure: unknown;
-	let abortEvents: (() => void) | undefined;
-	const failedWrite = (error: unknown) => {
-		writeFailure ??= error;
-		abortEvents?.();
-		return error;
-	};
-	const write = (record: SessionWorkerRecord): Promise<void> => {
-		if (writeFailure !== undefined) return Promise.reject(writeFailure);
-		const operation = writes
-			.then(() => options.writeLine(encodeSessionWorkerRecord(record)))
-			.catch((error: unknown) => {
-				throw failedWrite(error);
-			});
-		writes = operation.then(
-			() => undefined,
-			() => undefined,
-		);
-		return operation;
-	};
 	let host: SessionHost;
 	try {
 		host = await createSessionHost(options);
 	} catch (error) {
-		await write({
+		sendWorkerRecord({
 			kind: "failure",
 			error: toBoundaryErrorRecord(error, "session-worker-startup"),
 		});
 		return;
 	}
-	await write({
+	sendWorkerRecord({
 		kind: "ready",
 		sessionId: host.runtime.id,
 		workflowName: host.metadata.workflowName,
@@ -255,50 +228,61 @@ export const serveSessionWorker = async (
 		historyPath: host.metadata.historyPath,
 	});
 	const controller = new AbortController();
-	abortEvents = () => controller.abort();
-	const eventPump = (async () => {
-		for await (const event of host.runtime.events(controller.signal))
-			await write({ kind: "event", event });
-	})().catch(failedWrite);
-	let failure: unknown;
-	try {
-		for await (const line of jsonlLines(options.stdin, {
-			maxLineBytes: workerMaxLineBytes,
-		})) {
-			if (line.trim() === "") continue;
+	let finish!: (error?: unknown) => void;
+	const done = new Promise<void>((resolve, reject) => {
+		finish = (error) => (error === undefined ? resolve() : reject(error));
+	});
+	let commands = Promise.resolve();
+	const onMessage = (value: unknown) => {
+		commands = commands.then(async () => {
 			let command: SessionWorkerCommand;
 			try {
-				command = decodeSessionWorkerCommand(parseJsonl(line));
+				command = decodeSessionWorkerCommand(value);
 			} catch (error) {
-				await write({
+				sendWorkerRecord({
 					kind: "result",
 					id: "invalid",
 					ok: false,
 					error: toBoundaryErrorRecord(error, "session-worker-command"),
 				});
-				continue;
+				return;
 			}
 			try {
-				const value = await handleCommand(host, command);
-				await write({ kind: "result", id: command.id, ok: true, value });
+				const result = await handleCommand(host, command);
+				sendWorkerRecord({
+					kind: "result",
+					id: command.id,
+					ok: true,
+					value: result,
+				});
 			} catch (error) {
-				await write({
+				sendWorkerRecord({
 					kind: "result",
 					id: command.id,
 					ok: false,
 					error: toBoundaryErrorRecord(error, "session-worker-runtime"),
 				});
 			}
-			if (command.action === "shutdown") break;
-		}
-	} catch (error) {
-		failure = error;
+			if (command.action === "shutdown") finish();
+			return undefined;
+		});
+		commands.catch(finish);
+	};
+	const disconnected = () => finish();
+	process.on("message", onMessage);
+	process.once("disconnect", disconnected);
+	const events = (async () => {
+		for await (const event of host.runtime.events(controller.signal))
+			sendWorkerRecord({ kind: "event", event });
+	})().catch(finish);
+	try {
+		await done;
+		await commands;
 	} finally {
+		process.off("message", onMessage);
+		process.off("disconnect", disconnected);
 		await host.shutdown().catch(() => undefined);
 		controller.abort();
-		await eventPump;
-		await writes;
+		await events;
 	}
-	if (failure !== undefined) throw failure;
-	if (writeFailure !== undefined) throw writeFailure;
 };

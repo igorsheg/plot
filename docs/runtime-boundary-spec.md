@@ -20,11 +20,11 @@ The design is informed by lifecycle, activity-gate, scoped-output, structured-er
 
 ## Problem
 
-### Worker protocol and authored output share stdout
+### Worker control and authored output need separate channels
 
-The Session worker currently writes JSONL protocol records to stdout. The same process imports and runs trusted Extension code. A normal `console.log()` or direct stdout write during module import, Extension creation, requirements, discovery, hooks, or tools can therefore place a non-JSON line into the protocol stream. The Session Manager treats that line as a protocol failure even though the authored code may otherwise be correct.
+The Session worker imports and runs trusted Extension code, so normal stdout and stderr belong to authored diagnostics. Worker commands, readiness, results, and RuntimeEvents must travel on a separate control channel that authored output cannot corrupt.
 
-`plot check` also loads Extension code in the CLI process. Incidental console output can contaminate the command's human or machine-readable stdout.
+`plot check` loads trusted Extension code in the CLI process, where authored console output follows normal process streams.
 
 ### Lifecycle operations are coordinated by separate maps
 
@@ -52,8 +52,7 @@ The release build recursively copies documentation and examples with a small den
 
 ## Goals
 
-- Authored stdout and stderr can never corrupt Session worker protocol framing.
-- `plot check` keeps stdout deterministic when Extension code uses `console.*`.
+- Authored stdout and stderr can never corrupt Session worker IPC.
 - Exactly one ordered lifecycle operation mutates a Workflow's active-session claim at a time.
 - Start/start and stop/stop coalesce; start/stop races have explicit outcomes.
 - Once stopping begins, new mutable controls are rejected before worker dispatch.
@@ -66,7 +65,7 @@ The release build recursively copies documentation and examples with a small den
 ## Non-goals
 
 - No public worker or Session Manager protocol.
-- No compatibility adapters for the current private JSONL shape.
+- No compatibility adapters for private worker or manager transports.
 - No new CLI commands or invocation-time runtime flags.
 - No hot reload of an Active Plot Session.
 - No automatic continuation of an Agent Run after process loss.
@@ -78,13 +77,13 @@ The release build recursively copies documentation and examples with a small den
 
 ## Invariants
 
-### Protocol invariants
+### Worker IPC invariants
 
-1. Authored code cannot write bytes to the worker protocol channel through normal stdout or stderr APIs.
-2. Only Plot-owned code writes protocol records.
-3. Every protocol record is one bounded JSONL line.
-4. A malformed protocol record is a fatal worker-boundary failure; authored diagnostics are not parsed as protocol.
-5. Protocol writes remain serialized in event/result order.
+1. Authored stdout and stderr never enter the worker control channel.
+2. Only Plot-owned code sends worker records.
+3. Every incoming message is decoded once before dispatch.
+4. A malformed message is a fatal worker-boundary failure; authored diagnostics are not parsed as messages.
+5. `process.send()` call order defines event/result order.
 6. Diagnostic capture is bounded by bytes.
 
 ### Workflow lifecycle invariants
@@ -133,24 +132,21 @@ The release build recursively copies documentation and examples with a small den
 
 ## Design
 
-## 1. Dedicated worker protocol channel
+## 1. Native worker IPC
 
-### Process descriptors
+### Process channels
 
-The Session Manager spawns a worker with four explicit channels:
+The Session Manager starts the worker with `Bun.spawn()`:
 
 ```txt
-fd 0  manager -> worker command JSONL
-fd 1  authored/runtime stdout diagnostics
-fd 2  authored/runtime stderr diagnostics
-fd 3  worker -> manager record JSONL
+Bun child IPC  manager <-> worker commands and records
+stdout         authored/runtime diagnostics
+stderr         authored/runtime diagnostics
 ```
 
-`createSessionChildProcess` uses `stdio: ["pipe", "pipe", "pipe", "pipe"]`. `SessionChildProcess` exposes the fourth stream as `protocol`, separate from `stdout` and `stderr`.
+`createSessionChildProcess` sends commands with `Subprocess.send()` and receives records through Bun's `ipc` callback. The hidden worker uses `process.on("message")` and `process.send()`. JSONL framing, fd 3, stdin writes, and protocol-stream readers do not exist.
 
-The hidden worker entrypoint creates a writable stream for fd 3 and passes that stream to `serveSessionWorker.writeLine`. No protocol record is written through `process.stdout`.
-
-The exact fd is private. Tests inject streams through the existing worker seam and do not depend on operating-system descriptors.
+Both sides decode the concrete discriminated union at their boundary. The manager briefly buffers messages that can arrive before `SessionProcess` installs its listener; thereafter `SessionProcess` is the sole message owner.
 
 ### Diagnostics
 
@@ -167,24 +163,14 @@ Control characters that can corrupt terminal output are normalized before presen
 
 ### `plot check` output
 
-`plot check` still prepares the Workflow in the CLI process. During Extension import, creation, and requirement checks, Plot temporarily captures `console.log`, `console.info`, `console.debug`, `console.warn`, and `console.error` for that asynchronous preparation scope and sends formatted lines to the CLI diagnostic sink on stderr.
-
-The capture must:
-
-- use `AsyncLocalStorage` or an equivalent scoped mechanism;
-- restore every console method in `finally`;
-- pass calls outside the active preparation scope through unchanged;
-- preserve stderr/stdout classification in the diagnostic sink;
-- never convert authored logs into successful command output.
-
-Direct `process.stdout.write()` during `plot check` remains unsupported trusted-code behavior. The SDK documentation should direct Extensions toward a future Plot logger capability or `console.*`, not direct process streams. Worker execution remains safe even for direct stdout writes because protocol uses fd 3.
+`plot check` prepares trusted Extension code in the CLI process. Plot leaves `console` and process streams untouched: authored output uses normal stdout/stderr semantics, while Plot writes its own result or error once. Managed workers remain safe because stdout and stderr are not IPC.
 
 ### Failure semantics
 
-- Protocol EOF before `ready`: transactional start failure; no Session summary.
-- Protocol EOF after `ready`: unexpected worker loss; Session becomes `error` unless explicit stop owns shutdown.
-- Malformed protocol record: `worker_protocol_error` and worker termination.
-- Diagnostic stream failure: retained as a diagnostic if possible; does not reinterpret diagnostic bytes as protocol.
+- Process exit before `ready`: transactional start failure; no Session summary.
+- Process exit after `ready`: Session becomes `error` unless explicit stop owns shutdown.
+- Malformed IPC record: `worker_protocol_error` and worker termination.
+- Diagnostic stream failure: retained as a diagnostic if possible; diagnostic bytes are never interpreted as IPC.
 
 ## 2. Per-Workflow lifecycle serialization
 
@@ -407,8 +393,8 @@ Do not add adapter abstractions beyond the existing interface until a third real
 
 Use a narrow fake child plus one real hidden-worker integration case to prove:
 
-- stdout/stderr cannot become protocol records;
-- malformed fd-3 JSON fails the process;
+- stdout/stderr cannot become IPC records;
+- a malformed IPC message fails the process;
 - command timeout settles exactly once;
 - graceful exit avoids signals;
 - hung shutdown escalates through TERM and KILL;
@@ -444,25 +430,24 @@ The installed-package smoke suite asserts:
 - no forbidden path or symlink exists in the tarball;
 - public docs listed by the manifest are present;
 - `plot --help`, `plot --version`, docs, and usage exit semantics still pass;
-- a production-shaped worker whose Extension logs to stdout and stderr reaches `ready` and shuts down without protocol corruption.
+- a production-shaped compiled worker whose Extension logs to stdout and stderr reaches `ready` and shuts down over Bun IPC.
 
 ## Ownership map
 
-| Concern                                            | Owning module                                                                 |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Hidden process descriptor wiring                   | `packages/cli/src/main.ts` and `packages/cli/src/plot-command.ts`             |
-| Worker record codec and command loop               | `packages/session/src/worker.ts`                                              |
-| Child transport, diagnostics, timeout, escalation  | `packages/session-manager/src/session-process.ts`                             |
-| Per-Workflow lifecycle serialization and admission | `packages/session-manager/src/manager.ts`                                     |
-| Manager transport error preservation               | `packages/session-manager/src/ipc.ts`                                         |
-| Shared Workflow preparation output capture         | `packages/session/src/preparation.ts` with CLI-provided diagnostic capability |
-| Public release payload                             | `scripts/release/build.ts` and `scripts/release/smoke.ts`                     |
+| Concern                                            | Owning module                                                                |
+| -------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Hidden worker entrypoint                           | `packages/cli/src/main.ts` and `packages/cli/src/internal-session-worker.ts` |
+| Worker message decoding and command loop           | `packages/session/src/worker.ts`                                             |
+| Child transport, diagnostics, timeout, escalation  | `packages/session-manager/src/session-process.ts`                            |
+| Per-Workflow lifecycle serialization and admission | `packages/session-manager/src/manager.ts`                                    |
+| Manager transport error preservation               | `packages/session-manager/src/ipc.ts`                                        |
+| Public release payload                             | `scripts/release/build.ts` and `scripts/release/smoke.ts`                    |
 
 `@plot/session` remains unaware of provider SDK details beyond its existing seam. `@plot/agent` remains unaware of worker transport. TUI and Web consume Session Manager concepts and never inspect protocol envelopes.
 
 ## Security and privacy
 
-- The dedicated protocol fd prevents accidental corruption; it is not a sandbox against malicious trusted code in the same process.
+- Bun child IPC prevents accidental corruption by authored output; it is not a sandbox against malicious trusted code in the same process.
 - Diagnostic tails are bounded and must not be treated as a safe place for credentials.
 - Structured errors contain allowlisted scalar context only.
 - Raw causes remain local to the process that owns them unless explicitly converted to safe context.
@@ -481,12 +466,12 @@ Do not add protocol records or diagnostics to Session History merely for debuggi
 
 ## Rollout sequence
 
-### Phase 1: protocol isolation
+### Phase 1: worker isolation
 
-- Add fd-3 protocol stream to child and hidden worker entrypoint.
+- Use Bun child IPC for worker commands and records.
 - Consume stdout and stderr only as diagnostics.
 - Add Extension logging behavior tests.
-- Add scoped `console.*` capture for `plot check`.
+- Leave trusted `plot check` console output on normal process streams.
 
 ### Phase 2: ordered lifecycle and admission
 
@@ -532,7 +517,7 @@ The spec is complete when all of the following are proven by behavior tests:
 
 ```txt
 Extension console output cannot corrupt worker IPC.
-Worker protocol bytes travel only through the dedicated protocol channel.
+Worker commands and records travel only through Bun child IPC.
 One Workflow lifecycle slot orders every start and stop.
 Start during stop creates a fresh Session after stop completes.
 Mutable controls never dispatch to a stopping Session.

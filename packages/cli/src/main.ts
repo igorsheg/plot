@@ -1,10 +1,7 @@
 #!/usr/bin/env bun
 import { runPlotCli } from "./cli.js";
 import { runSessionManagerDaemon } from "@plot/session-manager/ipc";
-import {
-	isBrokenPipeError,
-	runInternalSessionWorker,
-} from "./internal-session-worker.js";
+import { runInternalSessionWorker } from "./internal-session-worker.js";
 import { plotProcessIdentity, resolvePlotCommand } from "./plot-command.js";
 
 const args = process.argv.slice(2);
@@ -49,7 +46,6 @@ if (internal === undefined) {
 } else {
 	void internal.catch((error) => {
 		if (error === null || error === undefined) return;
-		if (isBrokenPipeError(error)) return;
 		process.stderr.write(
 			`${error instanceof Error ? error.message : String(error)}\n`,
 		);

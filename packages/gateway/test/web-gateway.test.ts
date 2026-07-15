@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
+import type { RuntimeEvent } from "@plot/session/runtime";
 import { startPlotWebGateway } from "../src/gateway.js";
 
 const session: SessionSummary = {
@@ -20,6 +21,8 @@ const fakeManager = () => {
 	const shutdowns = 0;
 	let stops = 0;
 	const sourceActions: unknown[] = [];
+	const eventRequests: { sessionId: string; after: number }[] = [];
+	const events: RuntimeEvent[] = [];
 	const manager: SessionManagerClient = {
 		start: async () => ({ session, started: false }),
 		find: async () => session,
@@ -31,7 +34,10 @@ const fakeManager = () => {
 			return { ...session, state: "stopped" };
 		},
 		list: async () => [session],
-		events: async function* () {},
+		events: async function* (sessionId, after = 0) {
+			eventRequests.push({ sessionId, after });
+			yield* events;
+		},
 		tick: async () => {},
 		startSourceAction: async (_sessionId, input) => {
 			sourceActions.push(input);
@@ -45,6 +51,8 @@ const fakeManager = () => {
 		shutdowns: () => shutdowns,
 		stops: () => stops,
 		sourceActions,
+		eventRequests,
+		events,
 	};
 };
 
@@ -55,6 +63,9 @@ test("Web Console lists and explicitly stops Sessions", async () => {
 		const listed = await fetch(new URL("/api/sessions", gateway.url));
 		expect(listed.status).toBe(200);
 		expect(await listed.json()).toEqual({ sessions: [session] });
+		expect(
+			await fetch(new URL("/api/sessions", gateway.url), { method: "PUT" }),
+		).toMatchObject({ status: 404 });
 
 		const stopped = await fetch(
 			new URL(`/api/sessions/${session.id}`, gateway.url),
@@ -87,6 +98,31 @@ test("Web Console lists and explicitly stops Sessions", async () => {
 				actionId: "connect",
 			},
 		]);
+	} finally {
+		gateway.stop();
+	}
+});
+
+test("SSE pulls ordered Session events from the requested frontier", async () => {
+	const fake = fakeManager();
+	fake.events.push({
+		kind: "session_event",
+		sessionId: session.id,
+		sequence: 5,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		event: { type: "tick_started", tickId: 1 },
+	});
+	const gateway = await startPlotWebGateway({ manager: fake.manager });
+	try {
+		const response = await fetch(
+			new URL(`/api/sessions/${session.id}/events?after=4`, gateway.url),
+			{ headers: { "last-event-id": "3" } },
+		);
+		expect(response.status).toBe(200);
+		const body = await response.text();
+		expect(body).toStartWith(": connected\n\n");
+		expect(body).toContain("id: 5\nevent: plot\n");
+		expect(fake.eventRequests).toEqual([{ sessionId: session.id, after: 4 }]);
 	} finally {
 		gateway.stop();
 	}

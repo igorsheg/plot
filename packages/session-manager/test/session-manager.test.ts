@@ -2,18 +2,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { AsyncQueue } from "@plot/common/async-queue";
 import { PlotBoundaryError } from "@plot/common/boundary-error";
 import { createSessionEventLogWriter } from "@plot/session/history";
 import type { RuntimeEvent } from "@plot/session/runtime";
-import type {
-	SessionWorkerCommand,
-	SessionWorkerRecord,
-} from "@plot/session/worker";
-import { encodeSessionWorkerRecord } from "@plot/session/worker";
+import type { SessionWorkerRecord } from "@plot/session/worker";
 import {
 	createSessionManagerClient,
 	SessionManagerIdentityError,
+	sessionManagerProtocolVersion,
 	startSessionManagerServer,
 } from "../src/ipc.js";
 import {
@@ -41,10 +37,11 @@ const fakeWorker = (input: {
 	readonly ready?: boolean;
 	readonly exitOnShutdown?: boolean;
 }): FakeWorker => {
-	const protocol = new AsyncQueue<string>(1024);
-	const stdout = new AsyncQueue<string>(1024);
-	const stderr = new AsyncQueue<string>(1024);
+	const stdout = new ReadableStream({ start() {} });
+	const stderr = new ReadableStream({ start() {} });
 	const signals: NodeJS.Signals[] = [];
+	const messages: SessionWorkerRecord[] = [];
+	let receive: ((message: unknown) => void) | undefined;
 	let resolveExited!: (exit: SessionChildExit) => void;
 	let didExit = false;
 	const exited = new Promise<SessionChildExit>((resolve) => {
@@ -53,13 +50,12 @@ const fakeWorker = (input: {
 	const exit = (result: SessionChildExit = { code: 0, signal: null }) => {
 		if (didExit) return;
 		didExit = true;
-		protocol.close();
-		stdout.close();
-		stderr.close();
 		resolveExited(result);
 	};
-	const respond = (record: SessionWorkerRecord) =>
-		protocol.offer(encodeSessionWorkerRecord(record));
+	const respond = (record: SessionWorkerRecord) => {
+		if (receive === undefined) messages.push(record);
+		else receive(record);
+	};
 	const ready = () =>
 		respond({
 			kind: "ready",
@@ -74,18 +70,24 @@ const fakeWorker = (input: {
 		});
 	if (input.ready !== false) ready();
 	return {
-		protocol,
 		stdout,
 		stderr,
 		signals,
 		ready,
 		exit,
 		emit: (event) => respond({ kind: "event", event }),
-		write: (line) => {
-			const command = JSON.parse(line) as SessionWorkerCommand;
+		send: (command) => {
 			respond({ kind: "result", id: command.id, ok: true, value: true });
 			if (command.action === "shutdown" && input.exitOnShutdown !== false)
 				queueMicrotask(exit);
+		},
+		onMessage: (listener) => {
+			receive = listener;
+			for (const message of messages) receive(message);
+			messages.length = 0;
+			return () => {
+				receive = undefined;
+			};
 		},
 		kill: (signal) => {
 			signals.push(signal);
@@ -536,7 +538,7 @@ test("a client rejects a Session Manager from another Plot build", async () => {
 			SessionManagerIdentityError,
 		);
 		await expect(client.list()).rejects.toThrow(
-			"client 3/client-build, daemon 3/daemon-build",
+			`client ${sessionManagerProtocolVersion}/client-build, daemon ${sessionManagerProtocolVersion}/daemon-build`,
 		);
 	} finally {
 		await server.close();
