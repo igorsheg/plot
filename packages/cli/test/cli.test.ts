@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { SessionAuth } from "@plot/session/auth";
-import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import { runPlotCli } from "../src/cli.js";
 import { selectOptionId } from "../src/commands.js";
@@ -23,7 +23,6 @@ const session: SessionSummary = {
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	historyPath: "/repo/.plot/sessions/session-1.jsonl",
-	lastSequence: 0,
 };
 
 const fakeManager = (input?: {
@@ -31,7 +30,7 @@ const fakeManager = (input?: {
 	stopped?: SessionSummary;
 	failure?: Error;
 	onStart?: (value: { cwd: string; workflowPath?: string }) => void;
-}): SessionManagerRuntime =>
+}): SessionManagerClient =>
 	({
 		start: async (value) => {
 			input?.onStart?.(value);
@@ -45,14 +44,13 @@ const fakeManager = (input?: {
 		list: async () => [session],
 		events: async function* () {},
 		tick: async () => {},
-		pause: async () => {},
-		resume: async () => {},
-		interrupt: async () => true,
-		startSourceAction: async () => ({ accepted: true }),
+		startSourceAction: async () => ({
+			accepted: true,
+			actionRunId: "action-1",
+		}),
 		cancelSourceAction: async () => true,
 		observe: async () => true,
-		shutdown: async () => {},
-	}) satisfies SessionManagerRuntime;
+	}) satisfies SessionManagerClient;
 
 const fakeAuth: SessionAuth = {
 	providers: async () => [],
@@ -64,7 +62,7 @@ const fakeAuth: SessionAuth = {
 
 const invoke = async (
 	args: readonly string[],
-	manager: SessionManagerRuntime = fakeManager(),
+	manager: SessionManagerClient = fakeManager(),
 	cwd = "/repo",
 ) => {
 	const stdout: string[] = [];

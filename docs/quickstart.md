@@ -23,28 +23,29 @@ const directory = join(process.cwd(), "todos");
 
 export default definePlotExtension({
 	id: "todo-files",
-	create({ work, registerTool }) {
-		registerTool(({ work: current }) =>
-			defineTool({
-				name: "mark_done",
-				label: "Mark done",
-				description: "Delete the selected todo after completing it.",
-				parameters: { type: "object", properties: {} },
-				execute: async () => {
-					await unlink(join(directory, current.id));
-					return {
-						content: [{ type: "text", text: "done" }],
-						terminate: true,
-					};
-				},
-			}),
-		);
+	create() {
 		return {
+			tools: [
+				({ work }) =>
+					defineTool({
+						name: "mark_done",
+						label: "Mark done",
+						description: "Delete the selected todo after completing it.",
+						parameters: { type: "object", properties: {} },
+						execute: async () => {
+							await unlink(join(directory, work.id));
+							return {
+								content: [{ type: "text", text: "done" }],
+								terminate: true,
+							};
+						},
+					}),
+			],
 			async discover() {
 				const names = await readdir(directory);
 				return names
 					.filter((name) => name.endsWith(".todo"))
-					.map((name) => work({ id: name, title: `Complete ${name}` }));
+					.map((name) => ({ id: name, title: `Complete ${name}` }));
 			},
 		};
 	},

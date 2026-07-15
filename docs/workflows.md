@@ -82,8 +82,6 @@ Extension tools are registered separately and bound to each Work Item where appr
 | `tickIntervalMs`   | positive integer | Scheduled Source reconciliation cadence. |
 | `maxRunDurationMs` | positive integer | Wall-clock timeout for one Agent Run.    |
 | `stallTimeoutMs`   | positive integer | Interrupt an Agent Run after inactivity. |
-| `queueCapacity`    | positive integer | Bounded runtime control queue capacity.  |
-| `eventCapacity`    | positive integer | Bounded in-memory RuntimeEvent capacity. |
 
 ### `resources`
 

@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import { isRecord } from "@plot/common/primitives";
 import {
@@ -24,7 +24,7 @@ export interface PlotWebGatewayOptions {
 	readonly port?: number;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
 	readonly openUrl?: (url: string) => Promise<void> | void;
-	readonly manager: SessionManagerRuntime;
+	readonly manager: SessionManagerClient;
 }
 
 const json = (body: unknown, init: ResponseInit = {}) =>
@@ -142,7 +142,7 @@ const replayProjection = async (
 };
 
 const withSession = async (
-	manager: SessionManagerRuntime,
+	manager: SessionManagerClient,
 	id: string,
 	handle: (session: SessionSummary) => Promise<Response> | Response,
 ): Promise<Response> => {
@@ -215,7 +215,7 @@ export const sessionTranscriptResponse = async (
 
 const gatewayResponse = async (
 	request: Request,
-	manager: SessionManagerRuntime,
+	manager: SessionManagerClient,
 ): Promise<Response> => {
 	const url = new URL(request.url);
 	if (url.pathname === "/api/sessions" && request.method === "POST") {

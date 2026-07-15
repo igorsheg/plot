@@ -5,10 +5,7 @@ export const sessionsUrl = "/api/sessions";
 export const sessionProjectionUrl = (session: SessionSummary): string =>
 	`/api/sessions/${encodeURIComponent(session.id)}/projection`;
 
-export const sessionEventsUrl = (
-	session: SessionSummary,
-	after = session.lastSequence,
-): string =>
+export const sessionEventsUrl = (session: SessionSummary, after = 0): string =>
 	`/api/sessions/${encodeURIComponent(session.id)}/events?after=${after}`;
 
 export const sessionTranscriptUrl = (input: {

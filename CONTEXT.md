@@ -9,11 +9,11 @@ A durable, configured use of an Extension: what work to find, which integration 
 _Avoid_: Plot run, workflow run, session, Extension instance
 
 **Plot Session**:
-A durable execution of a Workflow that operators can watch, pause, stop, or inspect. A Workflow may have many historical Plot Sessions but at most one Active Plot Session.
+A durable execution of a Workflow that operators can watch, stop, or inspect. A Workflow may have many historical Plot Sessions but at most one Active Plot Session.
 _Avoid_: Workflow, run, job
 
 **Active Plot Session**:
-A Plot Session that is starting, operating, paused, or stopping and therefore owns its Workflow's single active-session claim. Stopped and errored Plot Sessions are historical.
+A Plot Session that is starting, online, or stopping and therefore owns its Workflow's single active-session claim. Stopped and errored Plot Sessions are historical.
 _Avoid_: Live run, active run, process
 
 **Work Item**:
@@ -49,7 +49,7 @@ A human decision recorded so Sources can reconcile with it.
 _Avoid_: Click, approval state, command result
 
 **Session State**:
-The current lifecycle position of a Plot Session: watching, reconciling, acting, idle, paused, stopping, stopped, or error.
+The durable lifecycle of a Plot Session: starting, online, stopping, stopped, or error. Dashboards derive transient activity from Session History.
 _Avoid_: Mode, outcome, needs-you
 
 **Agent Transcript**:

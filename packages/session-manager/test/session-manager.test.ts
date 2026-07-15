@@ -20,7 +20,7 @@ import {
 	SessionManager,
 	SessionNotControllableError,
 	SessionNotFoundError,
-	type SessionManagerRuntime,
+	type SessionManagerClient,
 } from "../src/manager.js";
 import type {
 	SessionChildExit,
@@ -141,7 +141,7 @@ const waitFor = async (predicate: () => Promise<boolean>): Promise<void> => {
 };
 
 interface ManagerContractHarness {
-	readonly manager: SessionManagerRuntime;
+	readonly manager: SessionManagerClient;
 	readonly cleanup: () => Promise<void>;
 }
 
@@ -543,7 +543,7 @@ test("a client rejects a Session Manager from another Plot build", async () => {
 			SessionManagerIdentityError,
 		);
 		await expect(client.list()).rejects.toThrow(
-			"client 2/client-build, daemon 2/daemon-build",
+			"client 3/client-build, daemon 3/daemon-build",
 		);
 	} finally {
 		await server.close();

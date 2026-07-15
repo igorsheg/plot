@@ -14,14 +14,8 @@ export interface SessionStore {
 	readonly recoverAfterRestart: () => Promise<void>;
 }
 
-const stripTrailingNuls = (text: string): string => {
-	let end = text.length;
-	while (end > 0 && text.charCodeAt(end - 1) === 0) end--;
-	return text.slice(0, end);
-};
-
 const parseStore = (text: string): readonly SessionSummary[] =>
-	parseSessionSummaries(JSON.parse(stripTrailingNuls(text)) as unknown);
+	parseSessionSummaries(JSON.parse(text) as unknown);
 
 const readSessions = async (
 	path: string,
@@ -33,13 +27,7 @@ const readSessions = async (
 		if (hasErrnoCode(error, "ENOENT")) return [];
 		throw error;
 	}
-	try {
-		return parseStore(text);
-	} catch (error) {
-		const lastComplete = stripTrailingNuls(text).lastIndexOf("\n  }");
-		if (lastComplete === -1) throw error;
-		return parseStore(`${text.slice(0, lastComplete + 4)}\n]\n`);
-	}
+	return parseStore(text);
 };
 
 export const createFileSessionStore = (path: string): SessionStore => {

@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { PlotBoundaryError } from "@plot/common/boundary-error";
+import {
+	PlotBoundaryError,
+	type BoundaryErrorRecord,
+} from "@plot/common/boundary-error";
 import { errorMessage } from "@plot/common/primitives";
 
 export class WorkflowBoundaryError extends PlotBoundaryError {
@@ -26,6 +29,25 @@ export class WorkflowBoundaryError extends PlotBoundaryError {
 		this.path = input.path;
 	}
 }
+
+export const workflowBoundaryErrorFromRecord = (
+	record: BoundaryErrorRecord,
+): WorkflowBoundaryError | undefined => {
+	const phase = record.context?.["phase"];
+	if (
+		record.code !== "workflow_invalid" ||
+		(phase !== "read" && phase !== "parse" && phase !== "prepare")
+	)
+		return;
+	const path = record.context?.["path"];
+	const input: {
+		phase: "read" | "parse" | "prepare";
+		message: string;
+		path?: string;
+	} = { phase, message: record.message };
+	if (typeof path === "string") input.path = path;
+	return new WorkflowBoundaryError(input);
+};
 
 export interface WorkflowDefinition {
 	readonly config: Record<string, unknown>;
@@ -79,8 +101,6 @@ export interface WorkflowPlotConfig {
 	readonly tickIntervalMs?: number;
 	readonly maxRunDurationMs?: number;
 	readonly stallTimeoutMs?: number;
-	readonly queueCapacity?: number;
-	readonly eventCapacity?: number;
 }
 
 export interface WorkflowResourcesConfig {
@@ -152,8 +172,6 @@ const decodePlot = (value: unknown): WorkflowPlotConfig => {
 		"tickIntervalMs",
 		"maxRunDurationMs",
 		"stallTimeoutMs",
-		"queueCapacity",
-		"eventCapacity",
 	] as const;
 	const record = fields(value, "runtime.plot", keys);
 	return Object.fromEntries(
@@ -294,28 +312,29 @@ export const decodeWorkflowRuntimeConfig = (
 	value: Record<string, unknown>,
 ): WorkflowRuntimeConfig => {
 	const record = fields(value, "runtime", runtimeKeys);
-	const config: {
+	let config: {
 		name?: string;
 		plot?: WorkflowPlotConfig;
-		agent?: WorkflowAgentConfig;
+		agent: WorkflowAgentConfig;
 		resources?: WorkflowResourcesConfig;
-		extension?: WorkflowExtensionConfig;
-	} = {};
-	if (record["name"] !== undefined)
-		config.name = string(record["name"], "runtime.name");
-	if (record["plot"] !== undefined) config.plot = decodePlot(record["plot"]);
-	if (record["agent"] !== undefined)
-		config.agent = decodeAgent(record["agent"]);
-	if (record["resources"] !== undefined)
-		config.resources = decodeResources(record["resources"]);
+		extension: WorkflowExtensionConfig;
+	};
 	if (record["extension"] === undefined)
 		throw new Error(
 			"WORKFLOW.md requires an extension with at least one Source.",
 		);
-	config.extension = decodeExtension(record["extension"]);
-	if (config.agent === undefined)
+	if (record["agent"] === undefined)
 		throw new Error("WORKFLOW.md requires agent.provider and agent.model.");
-	return config as WorkflowRuntimeConfig;
+	config = {
+		agent: decodeAgent(record["agent"]),
+		extension: decodeExtension(record["extension"]),
+	};
+	if (record["name"] !== undefined)
+		config.name = string(record["name"], "runtime.name");
+	if (record["plot"] !== undefined) config.plot = decodePlot(record["plot"]);
+	if (record["resources"] !== undefined)
+		config.resources = decodeResources(record["resources"]);
+	return config;
 };
 
 const nodeFileSystem: WorkflowFileSystem = {
@@ -355,16 +374,6 @@ const parseFrontMatter = (
 	return parsed as Record<string, unknown>;
 };
 
-const runtimeInput = (config: Record<string, unknown>) => {
-	if (config["runtime"] !== undefined)
-		return mapping(config["runtime"], "runtime");
-	return Object.fromEntries(
-		runtimeKeys.flatMap((key) =>
-			config[key] === undefined ? [] : [[key, config[key]]],
-		),
-	);
-};
-
 export const parseWorkflowText = (
 	text: string,
 	path?: string,
@@ -373,7 +382,12 @@ export const parseWorkflowText = (
 	const config = parseFrontMatter(match?.[1] ?? "", path);
 	let runtime: WorkflowRuntimeConfig;
 	try {
-		runtime = decodeWorkflowRuntimeConfig(runtimeInput(config));
+		const runtimeConfig = Object.fromEntries(
+			runtimeKeys.flatMap((key) =>
+				config[key] === undefined ? [] : [[key, config[key]]],
+			),
+		);
+		runtime = decodeWorkflowRuntimeConfig(runtimeConfig);
 	} catch (error) {
 		throw new WorkflowBoundaryError({
 			phase: "parse",
@@ -401,9 +415,3 @@ export const loadWorkflow = async (
 	fileSystem: WorkflowFileSystem = nodeFileSystem,
 ): Promise<WorkflowDefinition> =>
 	parseWorkflowText(await fileSystem.readFileString(path), path);
-
-export const loadDiscoveredWorkflow = (
-	options: WorkflowDiscoveryOptions,
-	fileSystem: WorkflowFileSystem = nodeFileSystem,
-): Promise<WorkflowDefinition> =>
-	loadWorkflow(resolveWorkflowPath(options), fileSystem);

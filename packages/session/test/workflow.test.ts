@@ -74,7 +74,7 @@ Use the current task context.
 	test("runtime validation errors name nested fields", () => {
 		expect(() =>
 			parseWorkflowText(
-				`---\nruntime:\n  agent:\n    provider: test\n    model: fake\n    maxTurns: nope\n  extension:\n    source: ./extension.ts\n---\nDo it.`,
+				`---\nagent:\n  provider: test\n  model: fake\n  maxTurns: nope\nextension:\n  source: ./extension.ts\n---\nDo it.`,
 				"WORKFLOW.md",
 			),
 		).toThrow(/runtime\.agent\.maxTurns/);
@@ -83,7 +83,7 @@ Use the current task context.
 	test("loads through injected file system and resolves discovery paths", async () => {
 		const workflow = await loadWorkflow("custom/WORKFLOW.md", {
 			readFileString: async (path) =>
-				`---\nruntime:\n  name: ${path}\n  agent:\n    provider: test\n    model: fake\n  extension:\n    source: ./extension.ts\n---\n\nDo it.`,
+				`---\nname: ${path}\nagent:\n  provider: test\n  model: fake\nextension:\n  source: ./extension.ts\n---\n\nDo it.`,
 		});
 
 		expect(workflow.runtime).toEqual({

@@ -8,14 +8,15 @@ export class EventHub<T> {
 
 	publish(event: T): void {
 		if (this.closed) return;
-		for (const subscriber of this.subscribers) subscriber.offer(event);
+		for (const subscriber of this.subscribers)
+			if (!subscriber.offer(event)) {
+				subscriber.fail(new Error("event subscriber buffer overflow"));
+				this.subscribers.delete(subscriber);
+			}
 	}
 
 	subscribe(signal?: AbortSignal): AsyncIterable<T> {
-		const subscriber = new AsyncQueue<T>({
-			capacity: this.capacity,
-			overflow: "drop-oldest",
-		});
+		const subscriber = new AsyncQueue<T>({ capacity: this.capacity });
 		const abort = () => {
 			subscriber.close();
 			this.subscribers.delete(subscriber);

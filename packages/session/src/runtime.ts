@@ -1,26 +1,24 @@
-import { randomUUID } from "node:crypto";
 import { EventHub } from "@plot/common/event-stream";
-import {
-	makePlotAgent,
-	type PlotAgent,
-	type PlotAgentOptions,
-} from "@plot/agent/agent";
+import { isRecord } from "@plot/common/primitives";
+import { makePlotAgent, type PlotAgent } from "@plot/agent/agent";
 import type {
 	Completion,
 	Diagnostic,
 	PlotAgentEvent,
-	ScheduledWake,
 	SourceRecord,
 	TickResult,
 	WorkRecord,
 	WorkRun,
 } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
-import type { WorkSource } from "@plot/agent/work-source";
-import { errorMessage } from "@plot/common/primitives";
-import type { ExtensionInteraction } from "@plot/sdk";
+import type {
+	PlotExtensionSourceBundle,
+	SourceActionEvents,
+	SourceActionStartResult,
+} from "./extension-source.js";
 import { createSessionEventLogWriter } from "./history.js";
-import { createLoopbackOAuthCallback } from "./interaction.js";
+
+const LIVE_EVENT_CAPACITY = 256;
 
 export interface TickSummary {
 	readonly tickId: number;
@@ -112,73 +110,97 @@ export interface AgentEventInput {
 	readonly event: unknown;
 }
 
-export interface InterruptAgentRunInput {
-	readonly runId: string;
-	readonly workKey?: string;
-}
-
 export interface SourceActionInput {
 	readonly sourceId: string;
 	readonly requirementId: string;
 	readonly actionId: string;
 }
 
-export interface SourceActionStartResult {
-	readonly accepted: boolean;
-	readonly actionRunId?: string;
-}
-
-export interface SourceActionHandler {
-	readonly sourceId: string;
-	readonly runAction: (input: {
-		readonly requirementId: string;
-		readonly actionId: string;
-		readonly interaction: ExtensionInteraction;
-		readonly signal: AbortSignal;
-	}) => Promise<SourceRecord>;
-}
+export type { SourceActionStartResult } from "./extension-source.js";
 
 export interface OperatorObservationInput {
 	readonly sourceId: string;
 	readonly workKey: string;
 	readonly actionId: string;
 	readonly actionLabel: string;
-	readonly comment?: string | undefined;
-	readonly clientId?: string | undefined;
-	readonly actor?: string | undefined;
+	readonly comment?: string;
+	readonly clientId?: string;
+	readonly actor?: string;
 }
 
-export interface SessionRuntimeState {
-	readonly sessionId: string;
-	readonly workflowName?: string | undefined;
-	readonly workflowPath?: string | undefined;
-	readonly cwd?: string | undefined;
-	readonly cwdName?: string | undefined;
-	readonly sessionDir?: string | undefined;
-	readonly sessionFile?: string | undefined;
-	readonly lastSequence?: number | undefined;
-}
+type EventOwnerLifecycle =
+	| { readonly state: "open" }
+	| { readonly state: "closing"; readonly done: Promise<void> }
+	| { readonly state: "closed" };
 
-export interface SchedulerSnapshotState {
-	readonly tickId: number;
-	readonly sources: readonly SourceRecord[];
-	readonly work: readonly WorkRecord[];
-	readonly running: readonly WorkRun[];
-	readonly scheduledWakes: readonly ScheduledWake[];
-	readonly diagnostics: readonly Diagnostic[];
-}
+export const makeSessionEventOwner = (input: {
+	readonly id: string;
+	readonly sessionFile: string;
+}) => {
+	const live = new EventHub<RuntimeEvent>(LIVE_EVENT_CAPACITY);
+	const history = createSessionEventLogWriter(input.sessionFile);
+	let sequence = 0;
+	let appends: Promise<unknown> = Promise.resolve();
+	let lifecycle: EventOwnerLifecycle = { state: "open" };
+	const append = (record: UnsequencedRuntimeEvent): Promise<RuntimeEvent> => {
+		if (lifecycle.state !== "open")
+			return Promise.reject(new Error("Session event owner is closed"));
+		const operation = appends.then(async () => {
+			const event = { ...record, sequence: ++sequence } as RuntimeEvent;
+			await history.append(event);
+			live.publish(event);
+			return event;
+		});
+		appends = operation;
+		return operation;
+	};
+	return {
+		id: input.id,
+		sessionFile: input.sessionFile,
+		appendSessionEvent: (event: SessionEvent) =>
+			append({
+				kind: "session_event",
+				sessionId: input.id,
+				timestamp: new Date().toISOString(),
+				event,
+			}),
+		appendAgentEvent: (event: AgentEventInput) =>
+			append({
+				kind: "agent_event",
+				sessionId: input.id,
+				timestamp: new Date().toISOString(),
+				...event,
+			}),
+		events: (signal?: AbortSignal) => live.subscribe(signal),
+		flush: async () => {
+			await appends;
+		},
+		close: async () => {
+			if (lifecycle.state === "closed") return;
+			if (lifecycle.state === "closing") return lifecycle.done;
+			const done = (async () => {
+				await appends;
+				await history.close();
+				live.close();
+				lifecycle = { state: "closed" };
+			})();
+			lifecycle = { state: "closing", done };
+			return done;
+		},
+	};
+};
+
+export type SessionEventOwner = ReturnType<typeof makeSessionEventOwner>;
+
+export type SessionSource = Pick<
+	PlotExtensionSourceBundle,
+	"source" | "startAction" | "cancelAction" | "shutdown"
+>;
 
 export interface SessionRuntime {
 	readonly id: string;
 	readonly start: () => Promise<void>;
 	readonly tickOnce: () => Promise<TickSummary>;
-	readonly state: () => Promise<SessionRuntimeState>;
-	readonly schedulerSnapshot: () => Promise<SchedulerSnapshotState>;
-	readonly pauseDispatch: () => Promise<void>;
-	readonly resumeDispatch: () => Promise<void>;
-	readonly interruptAgentRun: (
-		input: InterruptAgentRunInput,
-	) => Promise<boolean>;
 	readonly recordOperatorObservation: (
 		input: OperatorObservationInput,
 	) => Promise<boolean>;
@@ -187,337 +209,281 @@ export interface SessionRuntime {
 	) => Promise<SourceActionStartResult>;
 	readonly cancelSourceAction: (actionRunId: string) => Promise<boolean>;
 	readonly events: (signal?: AbortSignal) => AsyncIterable<RuntimeEvent>;
-	readonly appendAgentEvent: (input: AgentEventInput) => Promise<RuntimeEvent>;
-	readonly lastEventSequence: () => Promise<number>;
 	readonly shutdown: () => Promise<boolean>;
 }
 
-export const createSessionId = (): string => `session-${randomUUID()}`;
-
 export interface SessionRuntimeOptions {
-	readonly id: string;
-	readonly sources: readonly WorkSource[];
+	readonly events: SessionEventOwner;
+	readonly source: SessionSource;
 	readonly runner: WorkRunner;
-	readonly sourceAction?: SourceActionHandler;
-	readonly state?: Omit<SessionRuntimeState, "sessionId" | "lastSequence">;
-	readonly sessionFile?: string;
-	readonly agent?: Omit<PlotAgentOptions, "sources" | "runner">;
-	readonly eventCapacity?: number;
+	readonly tickIntervalMs?: number;
+	readonly maxRunDurationMs?: number;
+	readonly stallTimeoutMs?: number;
 }
 
-const toTickSummary = (result: TickResult): TickSummary => ({
+const tickSummary = (result: TickResult): TickSummary => ({
 	tickId: result.tickId,
-	selected: result.selected.length,
-	started: result.started.length,
-	running: result.snapshot.running.size,
-	completions: result.completions.length,
+	selected: result.selected,
+	started: result.started,
+	running: result.running,
+	completions: result.completions,
 	diagnostics: result.diagnostics,
 });
 
-const toSessionEvent = (event: PlotAgentEvent): SessionEvent =>
+const sessionEvent = (event: PlotAgentEvent): SessionEvent =>
 	event.type === "tick_completed"
-		? { type: "tick_completed", result: toTickSummary(event.result) }
+		? { type: "tick_completed", result: tickSummary(event.result) }
 		: event;
 
-interface Deferred {
-	readonly resolve: () => void;
-	readonly reject: (error: unknown) => void;
-}
+type RuntimeLifecycle =
+	| { readonly state: "new" }
+	| { readonly state: "running" }
+	| { readonly state: "closing"; readonly done: Promise<boolean> }
+	| { readonly state: "closed" };
 
 export const makeSessionRuntime = (
 	options: SessionRuntimeOptions,
 ): SessionRuntime => {
-	const events = new EventHub<RuntimeEvent>(options.eventCapacity ?? 256);
-	const agent: PlotAgent = makePlotAgent({
-		...options.agent,
-		sources: [...options.sources],
+	let lifecycle: RuntimeLifecycle = { state: "new" };
+	const agentOptions: Parameters<typeof makePlotAgent>[0] = {
+		source: options.source.source,
 		runner: options.runner,
-	});
-	const eventLog = options.sessionFile
-		? createSessionEventLogWriter(options.sessionFile)
-		: undefined;
-	let sequence = 0;
-	let publishChain: Promise<unknown> = Promise.resolve();
-	let lifecycle: "open" | "closing" | "closed" = "open";
-	let sessionStarted: Promise<void> | undefined;
-	let shutdownPromise: Promise<boolean> | undefined;
-	let publishedTick = 0;
-	let agentEventFailure: unknown;
-	const tickWaiters = new Map<number, Deferred[]>();
-	const sourceActions = new Map<
-		string,
-		{
-			readonly sourceId: string;
-			readonly requirementId: string;
-			readonly controller: AbortController;
-		}
-	>();
-
-	const assertOpen = (operation: string): void => {
-		if (lifecycle !== "open")
-			throw new Error(`cannot ${operation}: session runtime is closed`);
+		event: async (event) => {
+			await options.events.appendSessionEvent(sessionEvent(event));
+		},
 	};
-	const rejectWaiters = (error: unknown): void => {
-		for (const waiters of tickWaiters.values())
-			for (const waiter of waiters) waiter.reject(error);
-		tickWaiters.clear();
+	if (options.tickIntervalMs !== undefined)
+		(agentOptions as { tickIntervalMs?: number }).tickIntervalMs =
+			options.tickIntervalMs;
+	if (options.maxRunDurationMs !== undefined)
+		(agentOptions as { maxRunDurationMs?: number }).maxRunDurationMs =
+			options.maxRunDurationMs;
+	if (options.stallTimeoutMs !== undefined)
+		(agentOptions as { stallTimeoutMs?: number }).stallTimeoutMs =
+			options.stallTimeoutMs;
+	const agent: PlotAgent = makePlotAgent(agentOptions);
+	const assertRunning = (operation: string) => {
+		if (lifecycle.state !== "running")
+			throw new Error(`cannot ${operation}: Session is ${lifecycle.state}`);
 	};
-
-	const publish = (record: UnsequencedRuntimeEvent): Promise<RuntimeEvent> => {
-		const next = publishChain.then(async () => {
-			const event = { ...record, sequence: ++sequence } as RuntimeEvent;
-			await eventLog?.append(event);
-			events.publish(event);
-			return event;
-		});
-		publishChain = next;
-		return next;
-	};
-	const publishSessionEvent = (event: SessionEvent) =>
-		publish({
-			kind: "session_event",
-			sessionId: options.id,
-			timestamp: new Date().toISOString(),
-			event,
-		});
-	const publishAgentEvent = (input: AgentEventInput) =>
-		publish({
-			kind: "agent_event",
-			sessionId: options.id,
-			timestamp: new Date().toISOString(),
-			...input,
-		});
-	const resolveTick = (
-		event: Extract<PlotAgentEvent, { type: "tick_completed" }>,
-	): void => {
-		publishedTick = Math.max(publishedTick, event.result.tickId);
-		for (const [target, waiters] of tickWaiters) {
-			if (target > publishedTick) continue;
-			for (const waiter of waiters) waiter.resolve();
-			tickWaiters.delete(target);
-		}
-	};
-
-	const agentEvents = (async () => {
-		try {
-			for await (const event of agent.events()) {
-				await publishSessionEvent(toSessionEvent(event));
-				if (event.type === "tick_completed") resolveTick(event);
-			}
-		} catch (error) {
-			agentEventFailure = error;
-			rejectWaiters(error);
-			throw error;
-		}
-	})();
-	const wait = <K>(waiters: Map<K, Deferred[]>, key: K): Promise<void> =>
-		new Promise<void>((resolve, reject) => {
-			if (agentEventFailure !== undefined) {
-				reject(agentEventFailure);
-				return;
-			}
-			const list = waiters.get(key) ?? [];
-			list.push({ resolve, reject });
-			waiters.set(key, list);
-		});
-	const waitForPublishedTick = (tickId: number): Promise<void> =>
-		publishedTick >= tickId ? Promise.resolve() : wait(tickWaiters, tickId);
-	const startSession = (): Promise<void> => {
-		sessionStarted ??= publishSessionEvent({ type: "session_started" }).then(
-			() => undefined,
-		);
-		return sessionStarted;
-	};
-	const tickAgent = async (): Promise<TickResult> => {
-		const result = await agent.tickOnce();
-		await waitForPublishedTick(result.tickId);
-		return result;
-	};
-
-	return {
-		id: options.id,
-		start: async () => {
-			assertOpen("start");
-			await startSession();
-			await agent.start();
-		},
-		tickOnce: async () => {
-			assertOpen("tick");
-			return toTickSummary(await tickAgent());
-		},
-		state: async () => {
-			await publishChain;
-			return {
-				sessionId: options.id,
-				...options.state,
-				sessionFile: options.sessionFile,
-				lastSequence: sequence,
-			};
-		},
-		schedulerSnapshot: async () => {
-			const snapshot = await agent.snapshot();
-			return {
-				tickId: snapshot.tickId,
-				sources: [...snapshot.sources.values()],
-				work: [...snapshot.work.values()],
-				running: [...snapshot.running.values()],
-				scheduledWakes: snapshot.scheduledWakes ?? [],
-				diagnostics: snapshot.diagnostics,
-			};
-		},
-		pauseDispatch: () => {
-			assertOpen("pause dispatch");
-			return agent.pauseDispatch();
-		},
-		resumeDispatch: () => {
-			assertOpen("resume dispatch");
-			return agent.resumeDispatch();
-		},
-		interruptAgentRun: (input) => {
-			assertOpen("interrupt an agent run");
-			return agent.interruptAgentRun(input);
-		},
-		recordOperatorObservation: async (input) => {
-			assertOpen("record an operator observation");
-			const accepted = await agent.offer({
-				type: "observation",
-				observation: {
-					type: "operator_observation",
-					data: { ...input, timestamp: new Date().toISOString() },
-				},
-			});
-			if (accepted) await agent.wakeAfter(1, "operator observation");
-			return accepted;
-		},
-		startSourceAction: async (input) => {
-			assertOpen("start a Source action");
-			const handler = options.sourceAction;
-			if (handler === undefined || handler.sourceId !== input.sourceId)
-				return { accepted: false };
-			if (
-				[...sourceActions.values()].some(
-					(action) => action.requirementId === input.requirementId,
-				)
-			)
-				return { accepted: false };
-			const actionRunId = `source-action-${randomUUID()}`;
-			const controller = new AbortController();
-			sourceActions.set(actionRunId, {
-				sourceId: input.sourceId,
-				requirementId: input.requirementId,
-				controller,
-			});
-			await publishSessionEvent({
+	const sourceActionEvents = (
+		input: SourceActionInput,
+	): SourceActionEvents => ({
+		started: async (actionRunId) => {
+			await options.events.appendSessionEvent({
 				type: "source_action_started",
 				actionRunId,
 				sourceId: input.sourceId,
 				requirementId: input.requirementId,
 				actionId: input.actionId,
 			});
-			void (async () => {
-				const callbacks = new Set<{ readonly cancel: () => void }>();
-				const interaction: ExtensionInteraction = {
-					openUrl: async (url, interactionOptions) => {
-						const fallbackText = interactionOptions?.fallbackText;
-						if (fallbackText === undefined) {
-							await publishSessionEvent({
-								type: "source_interaction_open_url",
-								actionRunId,
-								url,
-							});
-						} else {
-							await publishSessionEvent({
-								type: "source_interaction_open_url",
-								actionRunId,
-								url,
-								fallbackText,
-							});
-						}
-					},
-					createOAuthCallback: async (callbackOptions) => {
-						const callback = await createLoopbackOAuthCallback(
-							callbackOptions?.timeoutMs,
-						);
-						callbacks.add(callback);
-						return callback;
-					},
-					reportProgress: async (message) => {
-						await publishSessionEvent({
-							type: "source_action_progress",
-							actionRunId,
-							message,
-						});
-					},
-				};
-				try {
-					const source = await handler.runAction({
-						requirementId: input.requirementId,
-						actionId: input.actionId,
-						interaction,
-						signal: controller.signal,
-					});
-					await publishSessionEvent({
-						type: "source_action_completed",
-						actionRunId,
-						source,
-					});
-					await publishSessionEvent({ type: "source_observed", source });
-					await agent.wakeAfter(1, "Source setup completed");
-				} catch (error) {
-					if (controller.signal.aborted)
-						await publishSessionEvent({
-							type: "source_action_cancelled",
-							actionRunId,
-							sourceId: input.sourceId,
-						});
-					else
-						await publishSessionEvent({
-							type: "source_action_failed",
-							actionRunId,
-							sourceId: input.sourceId,
-							message: errorMessage(error),
-						});
-				} finally {
-					for (const callback of callbacks) callback.cancel();
-					sourceActions.delete(actionRunId);
-				}
-			})();
-			return { accepted: true, actionRunId };
+		},
+		progress: async (actionRunId, message) => {
+			await options.events.appendSessionEvent({
+				type: "source_action_progress",
+				actionRunId,
+				message,
+			});
+		},
+		openUrl: async (actionRunId, url, fallbackText) => {
+			if (fallbackText === undefined) {
+				await options.events.appendSessionEvent({
+					type: "source_interaction_open_url",
+					actionRunId,
+					url,
+				});
+				return;
+			}
+			await options.events.appendSessionEvent({
+				type: "source_interaction_open_url",
+				actionRunId,
+				url,
+				fallbackText,
+			});
+		},
+		completed: async (actionRunId, source) => {
+			await options.events.appendSessionEvent({
+				type: "source_action_completed",
+				actionRunId,
+				source,
+			});
+			await options.events.appendSessionEvent({
+				type: "source_observed",
+				source,
+			});
+			await agent.wakeAfter(1, "Source setup completed");
+		},
+		failed: async (actionRunId, message) => {
+			await options.events.appendSessionEvent({
+				type: "source_action_failed",
+				actionRunId,
+				sourceId: input.sourceId,
+				message,
+			});
+		},
+		cancelled: async (actionRunId) => {
+			await options.events.appendSessionEvent({
+				type: "source_action_cancelled",
+				actionRunId,
+				sourceId: input.sourceId,
+			});
+		},
+	});
+	return {
+		id: options.events.id,
+		start: async () => {
+			if (lifecycle.state === "running") return;
+			if (lifecycle.state !== "new")
+				throw new Error(`cannot start Session while ${lifecycle.state}`);
+			await options.events.appendSessionEvent({ type: "session_started" });
+			await agent.start();
+			lifecycle = { state: "running" };
+		},
+		tickOnce: async () => {
+			assertRunning("tick");
+			const result = await agent.tickOnce();
+			await options.events.flush();
+			return tickSummary(result);
+		},
+		recordOperatorObservation: async (input) => {
+			assertRunning("record an operator observation");
+			return agent.offerObservation({
+				type: "operator_observation",
+				data: { ...input, timestamp: new Date().toISOString() },
+			});
+		},
+		startSourceAction: async (input) => {
+			assertRunning("start a Source action");
+			if (options.source.source.id !== input.sourceId)
+				return { accepted: false };
+			return options.source.startAction({
+				requirementId: input.requirementId,
+				actionId: input.actionId,
+				events: sourceActionEvents(input),
+			});
 		},
 		cancelSourceAction: async (actionRunId) => {
-			assertOpen("cancel a Source action");
-			const action = sourceActions.get(actionRunId);
-			if (action === undefined) return false;
-			action.controller.abort();
-			return true;
+			assertRunning("cancel a Source action");
+			return options.source.cancelAction(actionRunId);
 		},
-		events: (signal) => events.subscribe(signal),
-		appendAgentEvent: async (input) => {
-			assertOpen("append an agent event");
-			return publishAgentEvent(input);
-		},
-		lastEventSequence: async () => {
-			await publishChain;
-			return sequence;
-		},
-		shutdown: () => {
-			if (shutdownPromise !== undefined) return shutdownPromise;
-			lifecycle = "closing";
-			for (const action of sourceActions.values()) action.controller.abort();
-			shutdownPromise = (async () => {
+		events: options.events.events,
+		shutdown: async () => {
+			if (lifecycle.state === "closed") return true;
+			if (lifecycle.state === "closing") return lifecycle.done;
+			const done = (async () => {
 				try {
-					const accepted = await agent.shutdown();
-					await agentEvents;
-					await publishSessionEvent({ type: "session_shutdown" });
-					return accepted;
+					await agent.shutdown();
+					await options.source.shutdown();
+					await options.events.appendSessionEvent({ type: "session_shutdown" });
+					await options.events.flush();
+					return true;
 				} finally {
-					lifecycle = "closed";
-					events.close();
-					rejectWaiters(new Error("session runtime is closed"));
-					await eventLog?.close();
+					await options.events.close();
+					lifecycle = { state: "closed" };
 				}
 			})();
-			return shutdownPromise;
+			lifecycle = { state: "closing", done };
+			return done;
 		},
+	};
+};
+
+const text = (value: unknown, name: string): string => {
+	if (typeof value === "string" && value.length > 0) return value;
+	throw new Error(`${name} must be a non-empty string`);
+};
+
+const sequence = (value: unknown): number => {
+	if (typeof value === "number" && Number.isInteger(value) && value > 0)
+		return value;
+	throw new Error("RuntimeEvent sequence must be a positive integer");
+};
+
+const sessionEventTypes = new Set<SessionEvent["type"]>([
+	"session_started",
+	"session_shutdown",
+	"tick_started",
+	"tick_completed",
+	"source_observed",
+	"source_action_started",
+	"source_action_progress",
+	"source_interaction_open_url",
+	"source_action_completed",
+	"source_action_failed",
+	"source_action_cancelled",
+	"work_observed",
+	"work_removed",
+	"wake_scheduled",
+	"attempt_started",
+	"attempt_completed",
+]);
+
+export const decodeOperatorObservation = (
+	value: unknown,
+): OperatorObservationInput => {
+	if (!isRecord(value))
+		throw new Error("Operator Observation must be an object");
+	const result: {
+		sourceId: string;
+		workKey: string;
+		actionId: string;
+		actionLabel: string;
+		comment?: string;
+		clientId?: string;
+		actor?: string;
+	} = {
+		sourceId: text(value["sourceId"], "sourceId"),
+		workKey: text(value["workKey"], "workKey"),
+		actionId: text(value["actionId"], "actionId"),
+		actionLabel: text(value["actionLabel"], "actionLabel"),
+	};
+	for (const key of ["comment", "clientId", "actor"] as const) {
+		const field = value[key];
+		if (field !== undefined && typeof field !== "string")
+			throw new Error(`${key} must be a string`);
+		if (field !== undefined) result[key] = field;
+	}
+	return result;
+};
+
+export const decodeSourceActionInput = (value: unknown): SourceActionInput => {
+	if (!isRecord(value)) throw new Error("Source action must be an object");
+	return {
+		sourceId: text(value["sourceId"], "sourceId"),
+		requirementId: text(value["requirementId"], "requirementId"),
+		actionId: text(value["actionId"], "actionId"),
+	};
+};
+
+/** Validate a RuntimeEvent once when it crosses a process boundary. */
+export const decodeRuntimeEvent = (value: unknown): RuntimeEvent => {
+	if (!isRecord(value)) throw new Error("RuntimeEvent must be an object");
+	const base = {
+		sessionId: text(value["sessionId"], "RuntimeEvent sessionId"),
+		sequence: sequence(value["sequence"]),
+		timestamp: text(value["timestamp"], "RuntimeEvent timestamp"),
+	};
+	if (value["kind"] === "agent_event") {
+		return {
+			kind: "agent_event",
+			...base,
+			sourceId: text(value["sourceId"], "Agent event sourceId"),
+			runId: text(value["runId"], "Agent event runId"),
+			workKey: text(value["workKey"], "Agent event workKey"),
+			event: value["event"],
+		};
+	}
+	if (value["kind"] !== "session_event" || !isRecord(value["event"]))
+		throw new Error("invalid RuntimeEvent kind");
+	const type = value["event"]["type"];
+	if (
+		typeof type !== "string" ||
+		!sessionEventTypes.has(type as SessionEvent["type"])
+	)
+		throw new Error("invalid Session event type");
+	return {
+		kind: "session_event",
+		...base,
+		event: value["event"] as unknown as SessionEvent,
 	};
 };

@@ -24,9 +24,9 @@ const renderReadiness = (
 		if (requirement.status === "ready") continue;
 		const prefix =
 			requirement.status === "action-required" ? "NEEDS YOU" : "WAIT";
-		lines.push(
-			`${prefix} ${requirement.label}: ${requirement.message ?? requirement.status}`,
-		);
+		const message =
+			"message" in requirement ? requirement.message : requirement.status;
+		lines.push(`${prefix} ${requirement.label}: ${message}`);
 	}
 	return `${lines.join("\n")}\n`;
 };
@@ -38,11 +38,7 @@ const checkWorkflow = async (
 	const prepared = await runtime.prepareWorkflow(
 		workflowInput(runtime, workflowPath),
 	);
-	try {
-		return renderReadiness(prepared.workflow.path!, prepared.source);
-	} finally {
-		await prepared.close();
-	}
+	return renderReadiness(prepared.workflow.path!, prepared.source);
 };
 
 interface SelectPrompt {

@@ -4,6 +4,7 @@ import {
 	DiscoveryUnavailableError,
 	definePlotExtension,
 	defineTool,
+	type PlotExtensionTool,
 	type PlotExtensionWork,
 } from "plot-ai/sdk";
 
@@ -186,8 +187,9 @@ const scenarioContext = (input: {
 export default definePlotExtension<DebugConfig>({
 	id: "plot-debug-lab",
 	parseConfig,
-	create({ config, paths, work: makeWork, registerTool }) {
+	create({ config, paths }) {
 		const bootMs = Date.now();
+		const tools: PlotExtensionTool<DebugConfig>[] = [];
 		const completedKeys = new Set<string>();
 		const log: DebugLogEntry[] = [];
 		let discoverCount = 0;
@@ -213,11 +215,10 @@ export default definePlotExtension<DebugConfig>({
 			items: PlotExtensionWork[],
 			candidate: PlotExtensionWork,
 		) => {
-			if (!completedKeys.has(stableKey(candidate)))
-				items.push(makeWork(candidate));
+			if (!completedKeys.has(stableKey(candidate))) items.push(candidate);
 		};
 
-		registerTool(({ work, runId }) =>
+		tools.push(({ work, runId }) =>
 			defineTool({
 				name: "debug_progress",
 				label: "Debug progress",
@@ -261,7 +262,7 @@ export default definePlotExtension<DebugConfig>({
 			}),
 		);
 
-		registerTool(({ work, runId }) =>
+		tools.push(({ work, runId }) =>
 			defineTool({
 				name: "debug_wait",
 				label: "Debug wait",
@@ -313,7 +314,7 @@ export default definePlotExtension<DebugConfig>({
 			}),
 		);
 
-		registerTool(({ work, runId }) =>
+		tools.push(({ work, runId }) =>
 			defineTool({
 				name: "debug_write_artifact",
 				label: "Debug write artifact",
@@ -353,7 +354,7 @@ export default definePlotExtension<DebugConfig>({
 			}),
 		);
 
-		registerTool(({ work }) =>
+		tools.push(({ work }) =>
 			defineTool({
 				name: "debug_finish",
 				label: "Debug finish",
@@ -383,6 +384,7 @@ export default definePlotExtension<DebugConfig>({
 		);
 
 		return {
+			tools,
 			async discover() {
 				discoverCount += 1;
 				if (
@@ -432,42 +434,19 @@ export default definePlotExtension<DebugConfig>({
 					runId: event.runId,
 				});
 			},
-			async completed(event) {
-				completedKeys.add(stableKey(event.work));
+			async finished(event) {
+				if (event.completion.status === "succeeded")
+					completedKeys.add(stableKey(event.work));
 				await appendLog({
 					at: new Date().toISOString(),
-					kind: "hook:completed",
+					kind: `hook:${event.completion.status}`,
 					workId: event.work.id,
 					version: event.work.version,
 					runId: event.runId,
-				});
-			},
-			async failed(event) {
-				await appendLog({
-					at: new Date().toISOString(),
-					kind: "hook:failed",
-					workId: event.work.id,
-					version: event.work.version,
-					runId: event.runId,
-					message: String(event.error),
-				});
-			},
-			async interrupted(event) {
-				await appendLog({
-					at: new Date().toISOString(),
-					kind: "hook:interrupted",
-					workId: event.work.id,
-					version: event.work.version,
-					runId: event.runId,
-				});
-			},
-			async timedOut(event) {
-				await appendLog({
-					at: new Date().toISOString(),
-					kind: "hook:timed_out",
-					workId: event.work.id,
-					version: event.work.version,
-					runId: event.runId,
+					message:
+						event.completion.status === "failed"
+							? String(event.completion.error)
+							: undefined,
 				});
 			},
 			async shutdown() {

@@ -111,7 +111,7 @@ interface CliRuntime {
   readonly writeStdout: (text: string) => Promise<void>;
   readonly writeStderr: (text: string) => Promise<void>;
   readonly auth: SessionAuth;
-  readonly getSessionManager: () => Promise<SessionManagerRuntime>;
+  readonly getSessionManager: () => Promise<SessionManagerClient>;
   readonly runTui: (options: PlotTuiOptions) => Promise<void>;
   readonly openBrowser: (url: string) => void;
   readonly prompt: PromptCapability;

@@ -46,28 +46,27 @@ export default definePlotExtension<{ dir: string }>({
 		return input as { dir: string };
 	},
 
-	create({ config, work, registerTool }) {
-		registerTool(({ work: current }) =>
-			defineTool({
-				name: "mark_done",
-				label: "Mark done",
-				description:
-					"Delete the selected .todo file once its task is complete.",
-				parameters: { type: "object", properties: {} },
-				execute: async () => {
-					// Idempotent: deleting an already-deleted file is a no-op.
-					await unlink(join(config.dir, current.id)).catch(() => {});
-					return {
-						content: [{ type: "text", text: `${current.id} done` }],
-						terminate: true,
-					};
-				},
-			}),
-		);
-
+	create({ config }) {
 		return {
+			tools: [
+				({ work }) =>
+					defineTool({
+						name: "mark_done",
+						label: "Mark done",
+						description:
+							"Delete the selected .todo file once its task is complete.",
+						parameters: { type: "object", properties: {} },
+						execute: async () => {
+							await unlink(join(config.dir, work.id)).catch(() => {});
+							return {
+								content: [{ type: "text", text: `${work.id} done` }],
+								terminate: true,
+							};
+						},
+					}),
+			],
 			async discover(context) {
-				context?.signal.throwIfAborted();
+				context.signal.throwIfAborted();
 				let names: string[];
 				try {
 					names = await readdir(config.dir);
@@ -79,13 +78,11 @@ export default definePlotExtension<{ dir: string }>({
 				}
 				return names
 					.filter((name) => name.endsWith(".todo"))
-					.map((name) =>
-						work({
-							id: name,
-							title: `Complete ${name}`,
-							context: { file: join(config.dir, name) },
-						}),
-					);
+					.map((name) => ({
+						id: name,
+						title: `Complete ${name}`,
+						context: { file: join(config.dir, name) },
+					}));
 			},
 		};
 	},
@@ -142,7 +139,7 @@ const readJiraWork = async () => ({ id: "jira:1", version: "v1" });
 export default definePlotExtension({
 	id: "wix-jira",
 	label: "Wix Jira",
-	create({ credentials, work }) {
+	create({ credentials }) {
 		return {
 			requirements: [
 				{
@@ -164,13 +161,13 @@ export default definePlotExtension({
 							callback.redirectUri,
 						);
 						await interaction.openUrl(authorization.url);
-						const code = await callback.wait({ signal });
+						const code = await callback.wait(signal);
 						await credentials.set("tokens", await authorization.exchange(code));
 					},
 				},
 			],
 			async discover() {
-				return [work(await readJiraWork())];
+				return [await readJiraWork()];
 			},
 		};
 	},
@@ -222,11 +219,11 @@ import { definePlotExtension } from "plot-ai/sdk";
 
 export default definePlotExtension({
 	id: "release",
-	create({ work }) {
+	create() {
 		return {
 			async discover() {
 				return [
-					work({
+					{
 						id: "release:v1",
 						version: "candidate-3",
 						title: "Release v1",
@@ -243,7 +240,7 @@ export default definePlotExtension({
 								},
 							},
 						],
-					}),
+					},
 				];
 			},
 			async operatorAction(event) {
@@ -261,7 +258,7 @@ Plot records the choice as an Operator Observation and calls the optional `opera
 
 ## Lifecycle hooks
 
-The runtime may implement `started`, `completed`, `failed`, `interrupted`, `timedOut`, `operatorAction`, and `shutdown` — signatures and timing are in the SDK declarations. They exist for bookkeeping around Plot-owned execution: logging, metrics, stamping domain state. Cleanup and active-run bookkeeping are protected even when hooks fail.
+The runtime may implement `started`, exhaustive `finished`, `operatorAction`, and `shutdown` — signatures and timing are in the SDK declarations. They exist for bookkeeping around Plot-owned execution: logging, metrics, stamping domain state. Cleanup and active-run bookkeeping are protected even when hooks fail.
 
 Do not use hooks to launch nested agents, re-dispatch work, or replace discovery with hidden state transitions.
 

@@ -26,7 +26,7 @@ async function* commands(values: readonly SessionWorkerCommand[]) {
 	for (const value of values) yield encodeSessionWorkerRecord(value);
 }
 
-test("private Session worker starts, reports state, and shuts down", async () => {
+test("private Session worker starts and shuts down", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "plot-worker-"));
 	await writeFile(
 		join(dir, "extension.ts"),
@@ -54,7 +54,6 @@ Prompt
 		createAgentSession: async () => ({ session: new FakeSession() }),
 		stdin: commands([
 			{ kind: "command", id: "start", action: "start" },
-			{ kind: "command", id: "state", action: "state" },
 			{ kind: "command", id: "stop", action: "shutdown" },
 		]),
 		writeLine: (line) => {
@@ -72,9 +71,6 @@ Prompt
 	});
 	expect(records).toContainEqual(
 		expect.objectContaining({ kind: "result", id: "start", ok: true }),
-	);
-	expect(records).toContainEqual(
-		expect.objectContaining({ kind: "result", id: "state", ok: true }),
 	);
 	expect(records).toContainEqual(
 		expect.objectContaining({ kind: "result", id: "stop", ok: true }),

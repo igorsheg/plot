@@ -148,6 +148,7 @@ test("projection reconstructs Source readiness and attributed diagnostics", () =
 						label: "Wix MCP",
 						status: "action-required",
 						message: "Connect Wix MCP",
+						actions: [],
 					},
 				],
 			},

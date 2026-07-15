@@ -7,7 +7,7 @@ import {
 	type PreparedWorkflow,
 } from "@plot/session/preparation";
 import { openSessionManager } from "@plot/session-manager/ipc";
-import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { PlotTuiOptions } from "@plot/tui/plot-tui";
 import {
 	readPlotDoc,
@@ -34,10 +34,10 @@ export interface CliRuntime {
 	readonly writeStderr: (text: string) => Promise<void> | void;
 	readonly prompt: (message: string) => Promise<string>;
 	readonly openBrowser: (url: string) => void;
-	readonly getSessionManager: () => Promise<SessionManagerRuntime>;
+	readonly getSessionManager: () => Promise<SessionManagerClient>;
 	readonly runTui: (options: PlotTuiOptions) => Promise<void> | void;
 	readonly startWebGateway: (options: {
-		readonly manager: SessionManagerRuntime;
+		readonly manager: SessionManagerClient;
 		readonly host?: string;
 		readonly port?: number;
 		readonly openUrl: (url: string) => void;

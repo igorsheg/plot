@@ -3,8 +3,6 @@ name: plot-debug-lab
 description: Three realistic long-running synthetic work streams for debugging Plot TUI and web behavior without stress-testing every edge state.
 version: 2.0.0
 plot:
-  queueCapacity: 32
-  eventCapacity: 512
   tickIntervalMs: 5000
   maxRunDurationMs: 600000
   stallTimeoutMs: 120000

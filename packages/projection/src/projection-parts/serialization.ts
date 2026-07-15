@@ -1,4 +1,4 @@
-import { isRecord, type Mutable } from "@plot/common/primitives";
+import { isRecord } from "@plot/common/primitives";
 import type {
 	ActiveTool,
 	ActivityEntry,
@@ -157,10 +157,9 @@ const serializeAttempt = (
 	attempt: AgentAttemptProjection,
 ): SerializedAgentAttemptProjection => {
 	const { activeTools, ...rest } = attempt;
-	const serialized: Mutable<SerializedAgentAttemptProjection> = rest;
-	if (activeTools !== undefined)
-		serialized.activeTools = [...activeTools.entries()];
-	return serialized;
+	return activeTools === undefined
+		? rest
+		: { ...rest, activeTools: [...activeTools.entries()] };
 };
 
 const isActiveToolEntry = (value: unknown): value is [string, ActiveTool] =>
@@ -183,10 +182,8 @@ const hydrateAttempt = (
 	attempt: SerializedAgentAttemptProjection,
 ): AgentAttemptProjection => {
 	const { activeTools, ...rest } = attempt;
-	const hydrated: Mutable<AgentAttemptProjection> = rest;
 	const tools = hydrateActiveTools(activeTools);
-	if (tools !== undefined) hydrated.activeTools = tools;
-	return hydrated;
+	return tools === undefined ? rest : { ...rest, activeTools: tools };
 };
 
 export const serializeDashboardProjection = (

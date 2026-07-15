@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import { startPlotWebGateway } from "../src/gateway.js";
 
@@ -14,14 +14,13 @@ const session: SessionSummary = {
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	historyPath: "/repo/.plot/sessions/session-1.jsonl",
-	lastSequence: 0,
 };
 
 const fakeManager = () => {
-	let shutdowns = 0;
+	const shutdowns = 0;
 	let stops = 0;
 	const sourceActions: unknown[] = [];
-	const manager: SessionManagerRuntime = {
+	const manager: SessionManagerClient = {
 		start: async () => ({ session, started: false }),
 		find: async () => session,
 		get: async (id) => (id === session.id ? session : undefined),
@@ -34,18 +33,12 @@ const fakeManager = () => {
 		list: async () => [session],
 		events: async function* () {},
 		tick: async () => {},
-		pause: async () => {},
-		resume: async () => {},
-		interrupt: async () => true,
 		startSourceAction: async (_sessionId, input) => {
 			sourceActions.push(input);
 			return { accepted: true, actionRunId: "action-1" };
 		},
 		cancelSourceAction: async () => true,
 		observe: async () => true,
-		shutdown: async () => {
-			shutdowns += 1;
-		},
 	};
 	return {
 		manager,

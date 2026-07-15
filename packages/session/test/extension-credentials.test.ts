@@ -41,7 +41,7 @@ test("extension credentials are workflow-scoped and permission-restricted", asyn
 	});
 
 	await first.set("tokens", { accessToken: "secret" });
-	expect(await first.get<{ accessToken: string }>("tokens")).toEqual({
+	expect(await first.get("tokens")).toEqual({
 		accessToken: "secret",
 	});
 	expect(await second.get("tokens")).toBeUndefined();

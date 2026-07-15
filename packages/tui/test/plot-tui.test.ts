@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { expect, test } from "bun:test";
-import type { SessionManagerRuntime } from "@plot/session-manager/manager";
+import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import { runPlotTui } from "../src/plot-tui.js";
 import { ProcessTerminal } from "../src/terminal-ui.js";
@@ -16,13 +16,12 @@ const session: SessionSummary = {
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	historyPath: "/repo/.plot/sessions/session-1.jsonl",
-	lastSequence: 0,
 };
 
 const harness = () => {
 	let stops = 0;
 	let eventStreamAborted = false;
-	const manager: SessionManagerRuntime = {
+	const manager: SessionManagerClient = {
 		start: async () => ({ session, started: false }),
 		find: async () => session,
 		get: async () => session,
@@ -52,13 +51,12 @@ const harness = () => {
 			},
 		}),
 		tick: async () => {},
-		pause: async () => {},
-		resume: async () => {},
-		interrupt: async () => true,
-		startSourceAction: async () => ({ accepted: true }),
+		startSourceAction: async () => ({
+			accepted: true,
+			actionRunId: "action-1",
+		}),
 		cancelSourceAction: async () => true,
 		observe: async () => true,
-		shutdown: async () => {},
 	};
 	const input = new PassThrough();
 	const output = new PassThrough();

@@ -36,7 +36,6 @@ const session = (
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	historyPath: `/tmp/${id}/.plot/sessions/${id}.jsonl`,
-	lastSequence: 0,
 	...extra,
 });
 
@@ -135,12 +134,12 @@ test("layout preference is a separate river/board toggle", () => {
 });
 
 test("projection fetch key is stable and event stream resumes after a projection frontier", () => {
-	const selected = { ...session("one/two", "online"), lastSequence: 7 };
+	const selected = session("one/two", "online");
 	expect(sessionProjectionUrl(selected)).toBe(
 		"/api/sessions/one%2Ftwo/projection",
 	);
 	expect(sessionEventsUrl(selected)).toBe(
-		"/api/sessions/one%2Ftwo/events?after=7",
+		"/api/sessions/one%2Ftwo/events?after=0",
 	);
 	expect(sessionEventsUrl(selected, 11)).toBe(
 		"/api/sessions/one%2Ftwo/events?after=11",

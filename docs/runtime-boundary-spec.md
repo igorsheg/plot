@@ -32,7 +32,7 @@ The Session Manager currently tracks pending starts and stops separately. The cu
 
 ### Stopping does not close control admission
 
-A stopping Session remains in the live-process map. Commands such as tick, resume, Source action, or Operator Observation can race with shutdown and reach a worker that is draining.
+A stopping Session remains in the live-process map. Commands such as tick, Source action, or Operator Observation can race with shutdown and reach a worker that is draining.
 
 ### Shutdown has no complete escalation contract
 
@@ -246,8 +246,6 @@ The Session Manager validates Session state before dispatching every control.
 | get/list/events            |      yes |    yes |      yes |           yes |
 | stop                       |      yes |    yes |      yes |    idempotent |
 | tick                       |       no |    yes |       no |            no |
-| pause/resume               |       no |    yes |       no |            no |
-| interrupt Agent Run        |       no |    yes |       no |            no |
 | start/cancel Source action |       no |    yes |       no |            no |
 | Operator Observation       |       no |    yes |       no |            no |
 
@@ -367,7 +365,7 @@ Tests assert error class, code, and context. Tests do not pin full prose unless 
 Create one behavior suite parameterized by a factory:
 
 ```txt
-create(): Promise<SessionManagerRuntime>
+create(): Promise<SessionManagerClient>
 cleanup(): Promise<void>
 ```
 

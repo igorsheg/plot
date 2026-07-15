@@ -20,7 +20,6 @@ export type {
 
 export type MaybePromise<A> = A | Promise<A>;
 
-/** A Source-level setup action, rendered by Plot rather than extension UI. */
 export type ExtensionAction = OperatorAction;
 
 export type ExtensionRequirementState =
@@ -37,26 +36,21 @@ export type ExtensionRequirementState =
 	  };
 
 export interface ExtensionCredentials {
-	readonly get: <T = unknown>(key: string) => Promise<T | undefined>;
+	readonly get: (key: string) => Promise<unknown | undefined>;
 	readonly set: (key: string, value: unknown) => Promise<void>;
 	readonly delete: (key: string) => Promise<void>;
 }
 
 export interface ExtensionOAuthCallback {
 	readonly redirectUri: string;
-	readonly wait: (options?: {
-		readonly signal?: AbortSignal;
-	}) => Promise<string>;
+	readonly wait: (signal?: AbortSignal) => Promise<string>;
 }
 
 export interface ExtensionInteraction {
-	readonly openUrl: (
-		url: string,
-		options?: { readonly fallbackText?: string },
-	) => MaybePromise<void>;
-	readonly createOAuthCallback: (options?: {
-		readonly timeoutMs?: number;
-	}) => Promise<ExtensionOAuthCallback>;
+	readonly openUrl: (url: string, fallbackText?: string) => MaybePromise<void>;
+	readonly createOAuthCallback: (
+		timeoutMs?: number,
+	) => Promise<ExtensionOAuthCallback>;
 	readonly reportProgress: (message: string) => MaybePromise<void>;
 }
 
@@ -88,16 +82,13 @@ export interface ExtensionRequirement {
 	) => MaybePromise<void>;
 }
 
-/** One operator-visible text block in a tool result. */
 export interface PlotToolTextContent {
 	readonly type: "text";
 	readonly text: string;
 }
 
 export interface PlotToolResult<Details = unknown> {
-	/** Text returned to the agent and shown on operator surfaces. */
 	readonly content: readonly PlotToolTextContent[];
-	/** Optional structured payload recorded alongside the text content. */
 	readonly details?: Details;
 	/**
 	 * When true, asks the Agent Session to stop after this call. Use for
@@ -160,25 +151,18 @@ export interface PlotToolDefinition<
 	 * unique within one extension; duplicates fail at load time.
 	 */
 	readonly name: string;
-	/** Short human-readable activity label for dashboards. */
 	readonly label: string;
-	/** What the tool does and when the agent should use it. */
 	readonly description: string;
-	/** Optional concise tool-specific text added to the agent prompt. */
 	readonly promptSnippet?: string;
-	/** Optional additional usage rules added to the agent prompt. */
 	readonly promptGuidelines?: readonly string[];
-	/** Parameter schema; see {@link PlotJsonSchema} for normalization rules. */
 	readonly parameters: PlotJsonSchema;
 	readonly executionMode?: PlotToolExecutionMode;
-	/** Implementation. Receives normalized params and an abort signal. */
 	readonly execute: (
 		params: Params,
 		context: PlotToolExecutionContext,
 	) => MaybePromise<PlotToolResult<Details>>;
 }
 
-/** Identity helper that preserves the tool's inferred type. */
 export const defineTool = <T extends PlotToolDefinition>(tool: T): T => tool;
 
 /**
@@ -221,9 +205,7 @@ export interface PlotExtensionWork {
 	 * dispatched fresh. Omit only when identity alone is sufficient.
 	 */
 	readonly version?: string;
-	/** Human-readable title for logs, UIs, and handoff surfaces. */
 	readonly title?: string;
-	/** Optional external URL for the source item. */
 	readonly url?: string;
 	/**
 	 * Optional grouping key that ties versions of the same domain item
@@ -240,9 +222,7 @@ export interface PlotExtensionWork {
 	 * file-mutating work isolated workspaces.
 	 */
 	readonly workspace?: string;
-	/** Presentation hints only; no scheduling semantics. */
 	readonly display?: WorkDisplay;
-	/** Choices a human operator may take on this item; see {@link OperatorAction}. */
 	readonly operatorActions?: readonly OperatorAction[];
 	/**
 	 * Compact domain facts for the Workflow prompt template. An object is
@@ -259,7 +239,6 @@ export interface PlotExtensionWork {
 export interface PlotToolContext<Config = unknown> {
 	/** Parsed Workflow definition. */
 	readonly workflow: unknown;
-	/** Resolved project and session directories. */
 	readonly paths: {
 		readonly cwd: string;
 		readonly plotDir: string;
@@ -271,10 +250,8 @@ export interface PlotToolContext<Config = unknown> {
 	};
 	/** Extension config after `parseConfig`. */
 	readonly config: Config;
-	/** The Work Item selected for this Agent Run. */
 	readonly work: PlotExtensionWork;
-	/** The Agent Run id, when the tool is bound to a run. */
-	readonly runId?: string;
+	readonly runId: string;
 }
 
 /**
@@ -287,40 +264,32 @@ export type PlotExtensionTool<Config = unknown> =
 	| PlotToolDefinition
 	| ((context: PlotToolContext<Config>) => MaybePromise<PlotToolDefinition>);
 
-/** Context passed to {@link PlotExtension.create}, once per Plot Session. */
 export interface PlotExtensionSetupContext<Config = unknown> {
 	/** Parsed Workflow definition. */
 	readonly workflow: unknown;
 	readonly paths: PlotToolContext<Config>["paths"];
 	/** Extension config after `parseConfig`. */
 	readonly config: Config;
-	/** Extension/workflow-scoped secret storage. Never place values in work. */
 	readonly credentials: ExtensionCredentials;
-	/** Typed identity helper for building Work Items. */
-	readonly work: (input: PlotExtensionWork) => PlotExtensionWork;
-	/** Register a tool or per-run tool factory; see {@link PlotExtensionTool}. */
-	readonly registerTool: (tool: PlotExtensionTool<Config>) => void;
 }
 
 export interface PlotExtensionWorkEvent {
 	readonly work: PlotExtensionWork;
-	readonly runId?: string;
+	readonly runId: string;
 }
 
-export interface PlotExtensionCompletedEvent extends PlotExtensionWorkEvent {
-	/** Final agent output, when the provider reports one. */
-	readonly output?: unknown;
-}
-
-export interface PlotExtensionFailedEvent extends PlotExtensionWorkEvent {
-	readonly error: unknown;
-}
+export type ExtensionRunCompletion =
+	| { readonly status: "succeeded"; readonly output?: unknown }
+	| { readonly status: "failed"; readonly error: unknown }
+	| { readonly status: "interrupted"; readonly reason?: string }
+	| { readonly status: "timed_out"; readonly reason?: string };
 
 /**
  * A recorded human decision on a Work Item. The hook is bookkeeping — a later
  * `discover` remains the authority on what the decision means for the work.
  */
-export interface PlotExtensionOperatorActionEvent extends PlotExtensionWorkEvent {
+export interface PlotExtensionOperatorActionEvent {
+	readonly work: PlotExtensionWork;
 	readonly actionId: string;
 	readonly actionLabel: string;
 	readonly timestamp: string;
@@ -374,6 +343,8 @@ export interface PlotExtensionRuntime {
 	 * tick and preserves last-known Work Items while any is non-ready.
 	 */
 	readonly requirements?: readonly ExtensionRequirement[];
+	/** Tools and per-run tool factories exposed by this Source. */
+	readonly tools?: readonly PlotExtensionTool[];
 	/**
 	 * Observe the domain and return every currently-relevant Work Item.
 	 *
@@ -384,30 +355,26 @@ export interface PlotExtensionRuntime {
 	 * in one result are rejected.
 	 */
 	readonly discover: (
-		context?: PlotExtensionRuntimeContext,
+		context: PlotExtensionRuntimeContext,
 	) => MaybePromise<readonly PlotExtensionWork[]>;
 	/** Called after Plot claims work, before the Agent Run starts. */
 	readonly started?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
-	/** Called after an Agent Run finishes successfully. */
-	readonly completed?: (
-		event: PlotExtensionCompletedEvent,
-	) => MaybePromise<void>;
-	/** Called after an Agent Run fails. */
-	readonly failed?: (event: PlotExtensionFailedEvent) => MaybePromise<void>;
-	/** Called after Plot interrupts an Agent Run. */
-	readonly interrupted?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
+	/** Called exactly once after an admitted Agent Run completion. */
+	readonly finished?: (event: {
+		readonly work: PlotExtensionWork;
+		readonly runId: string;
+		readonly completion: ExtensionRunCompletion;
+	}) => MaybePromise<void>;
 	/** Called after a human takes an Operator Action on this Source's work. */
 	readonly operatorAction?: (
 		event: PlotExtensionOperatorActionEvent,
 	) => MaybePromise<void>;
-	/** Called after Plot times out an Agent Run. */
-	readonly timedOut?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
 	/**
 	 * Runs once at session end, after active runs receive interruption
 	 * bookkeeping. Cleanup is protected even when other hooks fail.
 	 */
 	readonly shutdown?: (
-		context?: PlotExtensionRuntimeContext,
+		context: PlotExtensionRuntimeContext,
 	) => MaybePromise<void>;
 }
 
@@ -421,7 +388,6 @@ export interface PlotExtension<Config = unknown> {
 	 * sessions and versions of the extension.
 	 */
 	readonly id: string;
-	/** Human-readable Source label. Defaults to `id`. */
 	readonly label?: string;
 	/**
 	 * Optional boundary validator for the Workflow's `extension.config`
@@ -430,15 +396,14 @@ export interface PlotExtension<Config = unknown> {
 	 */
 	readonly parseConfig?: (input: unknown) => MaybePromise<Config>;
 	/**
-	 * Setup, run once per Plot Session. Register tools, build clients, then
-	 * return the runtime. Do not start Agent Sessions or schedulers here.
+	 * Setup, run once per Plot Session. Build clients and return the runtime,
+	 * including any tools. Do not start Agent Sessions or schedulers here.
 	 */
 	readonly create: (
 		context: PlotExtensionSetupContext<Config>,
 	) => MaybePromise<PlotExtensionRuntime>;
 }
 
-/** Identity helper that preserves the extension's config type. */
 export const definePlotExtension = <Config>(
 	extension: PlotExtension<Config>,
 ): PlotExtension<Config> => extension;

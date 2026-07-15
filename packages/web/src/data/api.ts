@@ -58,12 +58,11 @@ export const startSourceAction = async (
 			},
 		),
 	);
-	const result: { accepted: boolean; actionRunId?: string } = {
-		accepted: data?.["accepted"] === true,
-	};
-	const actionRunId = asString(data?.["actionRunId"]);
-	if (actionRunId !== undefined) result.actionRunId = actionRunId;
-	return result;
+	if (data?.["accepted"] !== true) return { accepted: false };
+	const actionRunId = asString(data["actionRunId"]);
+	return actionRunId === undefined
+		? { accepted: false }
+		: { accepted: true, actionRunId };
 };
 
 export const cancelSourceAction = async (

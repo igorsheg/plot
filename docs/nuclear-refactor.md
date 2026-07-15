@@ -304,7 +304,6 @@ interface SessionSummary {
 	readonly createdAt: string;
 	readonly updatedAt: string;
 	readonly historyPath: string;
-	readonly lastSequence: number;
 	readonly diagnostic?: string;
 }
 ```

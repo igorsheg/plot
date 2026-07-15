@@ -92,34 +92,30 @@ const ready = (fake: FakeChild) => {
 
 test("stdout and stderr are diagnostics, never protocol", async () => {
 	const fake = makeFakeChild();
-	const diagnostics: string[] = [];
 	const process = processFor(fake);
-	process.onDiagnostic((tail) => diagnostics.push(tail));
 	fake.stdoutQueue.offer('{"not":"protocol"}\n', { force: true });
 	fake.stderrQueue.offer("warning\u0000\n", { force: true });
 	ready(fake);
 
 	expect((await process.waitUntilReady(50)).sessionId).toBe("session-1");
 	await Bun.sleep(1);
-	expect(diagnostics.at(-1)).toContain('[stdout] {"not":"protocol"}');
-	expect(diagnostics.at(-1)).toContain("[stderr] warning\n");
-	expect(diagnostics.at(-1)).not.toContain("\u0000");
+	expect(process.diagnosticTail()).toContain('[stdout] {"not":"protocol"}');
+	expect(process.diagnosticTail()).toContain("[stderr] warning\n");
+	expect(process.diagnosticTail()).not.toContain("\u0000");
 	fake.exit();
 });
 
 test("diagnostic tails are byte-bounded without broken UTF-8", async () => {
 	const fake = makeFakeChild();
-	let diagnostic = "";
 	const process = processFor(fake);
-	process.onDiagnostic((tail) => {
-		diagnostic = tail;
-	});
 	fake.stdoutQueue.offer(`${"🙂".repeat(100)}\n`, { force: true });
 	ready(fake);
 	await process.waitUntilReady(50);
 	await Bun.sleep(1);
-	expect(new TextEncoder().encode(diagnostic).length).toBeLessThanOrEqual(128);
-	expect(diagnostic).not.toContain("�");
+	expect(
+		new TextEncoder().encode(process.diagnosticTail()).length,
+	).toBeLessThanOrEqual(128);
+	expect(process.diagnosticTail()).not.toContain("�");
 	fake.exit();
 });
 
@@ -225,8 +221,7 @@ process.stdin.on("data", (chunk) => {
 		cwd: process.cwd(),
 	});
 	const sessionProcess = processFor(spawned, 100);
-	const diagnostics: string[] = [];
-	sessionProcess.onDiagnostic((tail) => diagnostics.push(tail));
+
 	expect((await sessionProcess.waitUntilReady(1_000)).sessionId).toBe(
 		"real-child",
 	);
@@ -237,8 +232,8 @@ process.stdin.on("data", (chunk) => {
 			killMs: 100,
 		}),
 	).toEqual({ mode: "graceful" });
-	expect(diagnostics.at(-1)).toContain("[stdout] authored stdout");
-	expect(diagnostics.at(-1)).toContain("[stderr] authored stderr");
+	expect(sessionProcess.diagnosticTail()).toContain("[stdout] authored stdout");
+	expect(sessionProcess.diagnosticTail()).toContain("[stderr] authored stderr");
 });
 
 test("command timeout and worker result errors retain tags", async () => {
