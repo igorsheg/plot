@@ -1,7 +1,10 @@
 import { createInterface } from "node:readline/promises";
 import type { GatewayHandle, GatewayOptions } from "@plot/gateway";
 import { createSessionAuth, type SessionAuth } from "@plot/session/auth";
-import { openSessionManager } from "@plot/session-manager/ipc";
+import {
+	connectSessionManager,
+	openSessionManager,
+} from "@plot/session-manager/ipc";
 import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { TuiOptions } from "@plot/tui/tui";
 import { processIdentity, resolveCommand } from "./command.js";
@@ -15,6 +18,7 @@ export interface CliHost {
 	readonly prompt: (message: string) => Promise<string>;
 	readonly openBrowser: (url: string) => void;
 	readonly sessions: () => Promise<SessionManagerClient>;
+	readonly existingSessions: () => Promise<SessionManagerClient | undefined>;
 	readonly runTui: (options: TuiOptions) => Promise<void> | void;
 	readonly startWebGateway: (options: GatewayOptions) => Promise<GatewayHandle>;
 	readonly waitForTermination: (stop: () => void) => Promise<void>;
@@ -84,6 +88,13 @@ export const createProcessCliHost = (): CliHost => {
 		sessions: () => {
 			const cli = resolveCommand();
 			return openSessionManager({
+				cli,
+				identity: processIdentity(cli),
+			});
+		},
+		existingSessions: () => {
+			const cli = resolveCommand();
+			return connectSessionManager({
 				cli,
 				identity: processIdentity(cli),
 			});

@@ -1,4 +1,5 @@
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { BoundaryError } from "@plot/common/boundary-error";
 import type { AgentConfig } from "@plot/sdk";
 
 export const resolveNoTools = (
@@ -15,6 +16,11 @@ export const configuredModel = (
 ) => {
 	const model = registry.find(agent.provider, agent.model);
 	if (model === undefined)
-		throw new Error(`Model not found: ${agent.provider}/${agent.model}`);
+		throw new BoundaryError({
+			code: "model_not_found",
+			message: `Model not found: ${agent.provider}/${agent.model}`,
+			retryable: false,
+			context: { provider: agent.provider, model: agent.model },
+		});
 	return model;
 };

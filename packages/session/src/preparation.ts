@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import type { SourceRecord } from "@plot/agent/model";
+import { BoundaryError } from "@plot/common/boundary-error";
 import { errorMessage, isRecord } from "@plot/common/primitives";
 import type { Extension } from "@plot/sdk";
 import * as sdk from "@plot/sdk";
@@ -72,6 +73,8 @@ export interface PrepareWorkflowOptions extends SessionPathOptions {
 
 export interface CheckedWorkflow {
 	readonly workflowPath: string;
+	readonly workflowName: string;
+	readonly agent: { readonly provider: string; readonly model: string };
 	readonly source: SourceRecord;
 }
 
@@ -147,12 +150,20 @@ export const prepareWorkflow = async (
 				credentials: prepared.credentials,
 				signal: controller.signal,
 			});
-			return { workflowPath: prepared.identity as string, source };
+			return {
+				workflowPath: prepared.identity as string,
+				workflowName: prepared.plan.name,
+				agent: {
+					provider: prepared.plan.agent.provider,
+					model: prepared.plan.agent.model,
+				},
+				source,
+			};
 		} finally {
 			await runtime.shutdown?.({ signal: controller.signal });
 		}
 	} catch (error) {
-		if (error instanceof WorkflowBoundaryError) throw error;
+		if (error instanceof BoundaryError) throw error;
 		throw new WorkflowBoundaryError({
 			phase: "prepare",
 			path: resolveWorkflowPath(options),

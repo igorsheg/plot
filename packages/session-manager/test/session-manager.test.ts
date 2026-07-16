@@ -7,6 +7,7 @@ import { createSessionEventLogWriter } from "@plot/session/history";
 import type { RuntimeEvent } from "@plot/session/runtime";
 import type { SessionWorkerRecord } from "@plot/session/worker";
 import {
+	connectSessionManager,
 	createSessionManagerClient,
 	SessionManagerIdentityError,
 	sessionManagerProtocolVersion,
@@ -23,6 +24,17 @@ import type {
 	SessionChildProcess,
 } from "../src/session-process.js";
 import { createMemorySessionStore } from "../src/session-store.js";
+
+test("connecting to a missing Session Manager has no side effects", async () => {
+	const managerDir = await mkdtemp(join(tmpdir(), "plot-manager-missing-"));
+	try {
+		expect(
+			await connectSessionManager({ managerDir, identity: "client-build" }),
+		).toBeUndefined();
+	} finally {
+		await rm(managerDir, { recursive: true, force: true });
+	}
+});
 
 interface FakeWorker extends SessionChildProcess {
 	readonly signals: NodeJS.Signals[];

@@ -88,6 +88,12 @@ try {
 		throw new Error(
 			`plot --version printed ${JSON.stringify(printedVersion.stdout)}`,
 		);
+	const status = runPlot(plot, ["status", "--all"]);
+	if (
+		status.stdout !==
+		"No active Workflows.\nStart one: plot start WORKFLOW.md\n"
+	)
+		throw new Error(`plot status printed ${JSON.stringify(status.stdout)}`);
 	if (existsSync(join(homeDir, ".plot", "session-manager")))
 		throw new Error("pure CLI commands created Session Manager state");
 	assertUsageFailure(plot, ["wat"], "Unknown command: wat");
@@ -333,7 +339,7 @@ function assertUsageFailure(
 		throw new Error(`${args.join(" ")} exited ${result.exitCode}, expected 2`);
 	if (result.stdout !== "")
 		throw new Error(`${args.join(" ")} unexpectedly wrote stdout`);
-	if (result.stderr !== `Error: ${message}\n`)
+	if (result.stderr !== `Error: ${message}\nRun: plot --help\n`)
 		throw new Error(
 			`${args.join(" ")} wrote unexpected stderr: ${JSON.stringify(result.stderr)}`,
 		);

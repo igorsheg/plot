@@ -2,7 +2,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { BoundaryError } from "@plot/common/boundary-error";
 import type { SessionAuth } from "@plot/session/auth";
+import type { RuntimeEvent, SessionEvent } from "@plot/session/runtime";
 import type {
 	SessionManagerClient,
 	StartWorkflow,
@@ -12,6 +14,7 @@ import type { CliHost } from "../src/cli-host.js";
 import { runCli } from "../src/cli.js";
 import { docNames } from "../src/docs.js";
 import { VERSION } from "../src/package.js";
+import { renderReadiness } from "../src/render.js";
 
 const session: SessionSummary = {
 	id: "session-1",
@@ -30,19 +33,24 @@ const fakeManager = (input?: {
 	started?: boolean;
 	stopped?: SessionSummary;
 	failure?: Error;
+	session?: SessionSummary;
+	found?: SessionSummary | null;
+	sessions?: readonly SessionSummary[];
 	onStart?: (value: StartWorkflow) => void;
-}): SessionManagerClient =>
-	({
+}): SessionManagerClient => {
+	const current = input?.session ?? session;
+	return {
 		start: async (value) => {
 			input?.onStart?.(value);
 			if (input?.failure !== undefined) throw input.failure;
-			return { session, started: input?.started ?? true };
+			return { session: current, started: input?.started ?? true };
 		},
-		find: async () => session,
-		get: async () => session,
+		find: async () =>
+			input?.found === null ? undefined : (input?.found ?? current),
+		get: async () => current,
 		stop: async () => input?.stopped,
 		stopSession: async () => input?.stopped,
-		list: async () => [session],
+		list: async () => input?.sessions ?? [current],
 		events: async function* () {},
 		tick: async () => {},
 		startSourceAction: async () => ({
@@ -51,7 +59,8 @@ const fakeManager = (input?: {
 		}),
 		cancelSourceAction: async () => true,
 		observe: async () => true,
-	}) satisfies SessionManagerClient;
+	} satisfies SessionManagerClient;
+};
 
 const fakeAuth: SessionAuth = {
 	providers: async () => [],
@@ -67,7 +76,20 @@ interface InvokeOptions {
 	readonly auth?: SessionAuth;
 	readonly prompts?: readonly string[];
 	readonly isInteractive?: boolean;
+	readonly managerAvailable?: boolean;
 }
+
+const runtimeEvent = (
+	sequence: number,
+	event: SessionEvent,
+	timestamp = "2026-07-16T12:00:00.000Z",
+): RuntimeEvent => ({
+	kind: "session_event",
+	sessionId: session.id,
+	sequence,
+	timestamp,
+	event,
+});
 
 const invoke = async (args: readonly string[], options: InvokeOptions = {}) => {
 	const stdout: string[] = [];
@@ -90,6 +112,12 @@ const invoke = async (args: readonly string[], options: InvokeOptions = {}) => {
 		sessions: async () => {
 			managerCalls += 1;
 			return options.manager ?? fakeManager();
+		},
+		existingSessions: async () => {
+			managerCalls += 1;
+			return options.managerAvailable === false
+				? undefined
+				: (options.manager ?? fakeManager());
 		},
 		runTui: (input) => {
 			tui.push(input);
@@ -131,6 +159,7 @@ describe("plot CLI", () => {
 			"plot [workflow]",
 			"plot start [workflow]",
 			"plot stop [workflow]",
+			"plot status [workflow]",
 			"plot web",
 			"plot check [workflow]",
 			"plot docs [topic]",
@@ -176,7 +205,9 @@ describe("plot CLI", () => {
 		const unknown = await invoke(["help", "wat"]);
 		expect(unknown.code).toBe(2);
 		expect(unknown.stdout).toBe("");
-		expect(unknown.stderr).toBe("Error: Unknown help target: wat\n");
+		expect(unknown.stderr).toBe(
+			"Error: Unknown help target: wat\nRun: plot --help\n",
+		);
 		expect(unknown.managerCalls).toBe(0);
 	});
 
@@ -202,21 +233,150 @@ describe("plot CLI", () => {
 		}
 	});
 
-	test("start reports whether it created the Session", async () => {
-		expect(
-			(
-				await invoke(["start"], {
-					manager: fakeManager({ started: true }),
-				})
-			).stdout,
-		).toBe("Started review-acme\n");
-		expect(
-			(
-				await invoke(["start"], {
-					manager: fakeManager({ started: false }),
-				})
-			).stdout,
-		).toBe("Already running review-acme\n");
+	test("start reports lifecycle commands", async () => {
+		for (const [started, heading] of [
+			[true, "Started review-acme in the background."],
+			[false, "Already running review-acme in the background."],
+		] as const) {
+			// eslint-disable-next-line no-await-in-loop -- prove both start outcomes.
+			const result = await invoke(["start"], {
+				manager: fakeManager({ started }),
+			});
+			expect(result.stdout).toContain(heading);
+			expect(result.stdout).toContain("Attach: plot ");
+			expect(result.stdout).toContain("Stop:   plot stop ");
+			expect(result.stdout).toContain("Fleet:  plot web");
+		}
+	});
+
+	test("status summarizes current work without opening a dashboard", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "cli-status-"));
+		const historyPath = join(cwd, "session.jsonl");
+		const events = [
+			runtimeEvent(1, { type: "session_started" }),
+			runtimeEvent(2, {
+				type: "source_observed",
+				source: {
+					sourceId: "github",
+					label: "GitHub",
+					readiness: "action-required",
+					requirements: [
+						{
+							id: "auth",
+							label: "GitHub auth",
+							status: "action-required",
+							message: "Connect GitHub",
+							actions: [],
+						},
+					],
+				},
+			}),
+			runtimeEvent(3, {
+				type: "work_observed",
+				work: {
+					workKey: "blocked",
+					sourceId: "github",
+					status: "blocked",
+					reason: "Approval required",
+					operatorActions: [],
+				},
+			}),
+			runtimeEvent(4, {
+				type: "work_observed",
+				work: {
+					workKey: "waiting",
+					sourceId: "github",
+					status: "waiting",
+				},
+			}),
+			runtimeEvent(5, {
+				type: "work_observed",
+				work: {
+					workKey: "pending",
+					sourceId: "github",
+					status: "pending",
+				},
+			}),
+			runtimeEvent(6, {
+				type: "attempt_started",
+				run: {
+					runId: "run-1",
+					workKey: "active",
+					sourceId: "github",
+				},
+			}),
+			runtimeEvent(7, {
+				type: "tick_completed",
+				result: {
+					tickId: 1,
+					selected: 1,
+					started: 1,
+					completions: 0,
+					running: 1,
+					diagnostics: [],
+				},
+			}),
+		];
+		await writeFile(
+			historyPath,
+			`${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
+		);
+		const statusSession = { ...session, historyPath };
+		try {
+			const current = await invoke(["status"], {
+				manager: fakeManager({ session: statusSession }),
+			});
+			expect(current.code).toBe(0);
+			expect(current.stdout).toContain("review-acme  ONLINE · NEEDS YOU");
+			expect(current.stdout).toContain(
+				"1 active · 1 waiting · 1 pending · last tick",
+			);
+			expect(current.stdout).toContain("Attach: plot ");
+
+			const all = await invoke(["status", "--all"], {
+				manager: fakeManager({ session: statusSession }),
+			});
+			expect(all.code).toBe(0);
+			expect(all.stdout).toContain("needs you (2)");
+			expect(all.stdout).toContain(statusSession.workflowPath);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("status gives the start command when the Workflow is inactive", async () => {
+		const result = await invoke(["status"], {
+			managerAvailable: false,
+		});
+		expect(result.stdout).toContain("/repo/WORKFLOW.md is not running.");
+		expect(result.stdout).toContain("Start: plot start ");
+	});
+
+	test("check output identifies the runtime and next command", () => {
+		const output = renderReadiness({
+			workflowPath: "/repo/WORKFLOW.md",
+			workflowName: "review-acme",
+			agent: { provider: "openai-codex", model: "gpt-5.5" },
+			source: {
+				sourceId: "github",
+				label: "GitHub PRs",
+				readiness: "action-required",
+				requirements: [
+					{
+						id: "auth",
+						label: "GitHub auth",
+						status: "action-required",
+						message: "Connect GitHub",
+						actions: [],
+					},
+				],
+			},
+		});
+		expect(output).toContain("OK Workflow review-acme");
+		expect(output).toContain("OK Extension GitHub PRs");
+		expect(output).toContain("OK Agent openai-codex/gpt-5.5");
+		expect(output).toContain("Ready; setup continues in the dashboard.");
+		expect(output).toContain("Run: plot ");
 	});
 
 	test("stop is idempotent by Workflow", async () => {
@@ -232,19 +392,23 @@ describe("plot CLI", () => {
 		);
 	});
 
-	test("invalid invocations fail with one stderr diagnostic", async () => {
+	test("invalid invocations fail with one actionable diagnostic", async () => {
 		for (const [args, message] of [
 			[["wat"], "Unknown command: wat"],
 			[["docs", "wat"], "Unknown docs topic: wat"],
 			[["web", "--port", "wat"], "Invalid Web port: wat"],
 			[["start", "one", "two"], "start accepts at most one argument"],
+			[
+				["status", "WORKFLOW.md", "--all"],
+				"status accepts either a Workflow path or --all, not both",
+			],
 			[["--wat"], "Unknown option: --wat"],
 		] as const) {
 			// eslint-disable-next-line no-await-in-loop -- assert each public failure independently.
 			const result = await invoke(args);
 			expect(result.code).toBe(2);
 			expect(result.stdout).toBe("");
-			expect(result.stderr).toBe(`Error: ${message}\n`);
+			expect(result.stderr).toBe(`Error: ${message}\nRun: plot --help\n`);
 			expect(result.managerCalls).toBe(0);
 		}
 	});
@@ -256,6 +420,21 @@ describe("plot CLI", () => {
 		expect(result.code).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toBe("Error: worker failed\n");
+	});
+
+	test("structured errors include a repair command", async () => {
+		const result = await invoke(["start"], {
+			manager: fakeManager({
+				failure: new BoundaryError({
+					code: "provider_not_authenticated",
+					message: "Provider anthropic is not authenticated.",
+					retryable: false,
+					context: { provider: "anthropic" },
+				}),
+			}),
+		});
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("Try: plot auth login 'anthropic'");
 	});
 
 	test("check failure does not touch the Session Manager", async () => {

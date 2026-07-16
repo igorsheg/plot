@@ -34,6 +34,7 @@
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/gateway": "workspace:*",
+        "@plot/projection": "workspace:*",
         "@plot/session": "workspace:*",
         "@plot/session-manager": "workspace:*",
         "@plot/tui": "workspace:*",

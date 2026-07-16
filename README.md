@@ -31,6 +31,7 @@ plot WORKFLOW.md
 
 ```bash
 plot start WORKFLOW.md    # start without attaching
+plot status WORKFLOW.md   # inspect without attaching
 plot stop WORKFLOW.md     # explicit shutdown
 plot web                  # Fleet Web Console
 ```

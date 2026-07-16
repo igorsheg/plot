@@ -1,15 +1,22 @@
 import { resolve } from "node:path";
 import type { AuthProviderInfo } from "@plot/session/auth";
-import {
-	prepareWorkflow,
-	type CheckedWorkflow,
-} from "@plot/session/preparation";
+import { prepareWorkflow } from "@plot/session/preparation";
+import { isActiveSession } from "@plot/session-manager/session";
 import type { CliHost } from "./cli-host.js";
 import type { CliInvocation } from "./cli-parser.js";
 import { readDoc, readSdkReference, renderDocsPaths } from "./docs.js";
 import { renderHelp } from "./help.js";
 import { VERSION } from "./package.js";
-import { renderAuthStatus, renderModels } from "./render.js";
+import {
+	renderAuthStatus,
+	renderInactiveStatus,
+	renderModels,
+	renderReadiness,
+	renderSessionStatus,
+	renderSessionStatuses,
+	renderStartResult,
+} from "./render.js";
+import { loadSessionStatus } from "./status.js";
 
 const workflowInput = (
 	host: CliHost,
@@ -18,22 +25,6 @@ const workflowInput = (
 	const input: { cwd: string; workflowPath?: string } = { cwd: host.cwd };
 	if (workflowPath !== undefined) input.workflowPath = workflowPath;
 	return input;
-};
-
-const renderReadiness = (
-	workflowPath: string,
-	source: CheckedWorkflow["source"],
-): string => {
-	const lines = [`OK Workflow ${workflowPath}`, `OK Extension ${source.label}`];
-	for (const requirement of source.requirements) {
-		if (requirement.status === "ready") continue;
-		const prefix =
-			requirement.status === "action-required" ? "NEEDS YOU" : "WAIT";
-		const message =
-			"message" in requirement ? requirement.message : requirement.status;
-		lines.push(`${prefix} ${requirement.label}: ${message}`);
-	}
-	return `${lines.join("\n")}\n`;
 };
 
 interface SelectPrompt {
@@ -181,9 +172,7 @@ export const executeCliInvocation = async (
 			const result = await (
 				await host.sessions()
 			).start(workflowInput(host, invocation.workflowPath));
-			host.stdout(
-				`${result.started ? "Started" : "Already running"} ${result.session.workflowName}\n`,
-			);
+			host.stdout(renderStartResult(result));
 			return;
 		}
 		case "stop": {
@@ -196,11 +185,37 @@ export const executeCliInvocation = async (
 			);
 			return;
 		}
+		case "status": {
+			const manager = await host.existingSessions();
+			if (invocation.all) {
+				if (manager === undefined) {
+					host.stdout(renderSessionStatuses([]));
+					return;
+				}
+				const sessions = (await manager.list())
+					.filter(isActiveSession)
+					.toSorted((a, b) => a.workflowName.localeCompare(b.workflowName));
+				host.stdout(
+					renderSessionStatuses(
+						await Promise.all(sessions.map(loadSessionStatus)),
+					),
+				);
+				return;
+			}
+			const path = resolve(host.cwd, invocation.workflowPath ?? "WORKFLOW.md");
+			const session = await manager?.find(path);
+			host.stdout(
+				session === undefined
+					? renderInactiveStatus(path)
+					: renderSessionStatus(await loadSessionStatus(session)),
+			);
+			return;
+		}
 		case "check": {
 			const prepared = await prepareWorkflow(
 				workflowInput(host, invocation.workflowPath),
 			);
-			host.stdout(renderReadiness(prepared.workflowPath, prepared.source));
+			host.stdout(renderReadiness(prepared));
 			return;
 		}
 		case "web": {

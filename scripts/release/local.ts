@@ -132,7 +132,7 @@ async function createIsolatedInstall(
 		if (
 			result.exitCode !== 2 ||
 			result.stdout !== "" ||
-			result.stderr !== `Error: ${message}\n`
+			result.stderr !== `Error: ${message}\nRun: plot --help\n`
 		)
 			throw new Error(
 				`${manager} install violated CLI failure contract for ${args.join(" ")}`,

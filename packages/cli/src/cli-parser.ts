@@ -12,6 +12,11 @@ export type CliInvocation =
 	| { readonly kind: "attach"; readonly workflowPath?: string }
 	| { readonly kind: "start"; readonly workflowPath?: string }
 	| { readonly kind: "stop"; readonly workflowPath?: string }
+	| {
+			readonly kind: "status";
+			readonly workflowPath?: string;
+			readonly all: boolean;
+	  }
 	| { readonly kind: "check"; readonly workflowPath?: string }
 	| {
 			readonly kind: "web";
@@ -77,6 +82,25 @@ const parseHelp = (args: readonly string[]): CliInvocation | undefined => {
 	if (flag !== args.length - 1)
 		return fail("help flag must be the final argument");
 	return helpInvocation(args.slice(0, -1));
+};
+
+const parseStatus = (args: readonly string[]): CliInvocation => {
+	const { values, positionals } = parsed(() =>
+		parseArgs({
+			args,
+			options: { all: { type: "boolean" } },
+			strict: true,
+			allowPositionals: true,
+		}),
+	);
+	if (positionals.length > 1)
+		return fail("status accepts at most one Workflow path");
+	if (values.all === true && positionals.length > 0)
+		return fail("status accepts either a Workflow path or --all, not both");
+	const workflowPath = positionals[0];
+	return workflowPath === undefined
+		? { kind: "status", all: values.all === true }
+		: { kind: "status", workflowPath, all: false };
 };
 
 const parseWeb = (args: readonly string[]): CliInvocation => {
@@ -162,6 +186,7 @@ export const parseCliInvocation = (args: readonly string[]): CliInvocation => {
 			? { kind: first }
 			: { kind: first, workflowPath };
 	}
+	if (first === "status") return parseStatus(rest);
 	if (first === "web") return parseWeb(rest);
 	if (first === "docs") return parseDocs(rest);
 	if (first === "auth") return parseAuth(rest);

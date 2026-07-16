@@ -9,7 +9,7 @@ plot check WORKFLOW.md
 plot WORKFLOW.md
 ```
 
-`plot WORKFLOW.md` starts or attaches to the Workflow's Active Session. `q` or Ctrl-C confirms before stopping; `d` explicitly detaches. Use `plot stop WORKFLOW.md` from another shell and `plot web` for the Fleet Web Console.
+`plot WORKFLOW.md` starts or attaches to the Workflow's Active Session. `q` or Ctrl-C confirms before stopping; `d` explicitly detaches. Use `plot status WORKFLOW.md` for a quick shell summary, `plot stop WORKFLOW.md` from another shell, and `plot web` for the Fleet Web Console.
 
 Application code can also own a value-only, in-process runtime:
 

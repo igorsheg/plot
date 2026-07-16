@@ -86,6 +86,7 @@ Press `q` or Ctrl-C and confirm to stop the Session. Press `d` when you delibera
 
 ```bash
 plot WORKFLOW.md         # reconstruct and reattach
+plot status WORKFLOW.md  # inspect without attaching
 plot web                 # inspect the local fleet
 plot stop WORKFLOW.md    # explicit shutdown
 ```

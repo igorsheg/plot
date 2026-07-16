@@ -4,7 +4,7 @@ Status: implemented on 2026-07-15.
 
 ## Problem
 
-Plot now has the right public concepts, but its CLI and Session Manager boundaries do not yet make those concepts exact. Help and version can accidentally execute a Workflow, invalid invocations can succeed, errors can be rendered twice, failed starts can leave durable Session records, stopping can depend on a file that no longer exists, validation can drift between `check` and `start`, and a persistent Session Manager can silently keep using another Plot build.
+Plot now has the right public concepts, but its CLI and Session Manager boundaries do not yet make those concepts exact. Help and version can accidentally execute a Workflow, invalid invocations can succeed, errors can be rendered twice, failed starts can leave durable Session records, stopping can depend on a file that no longer exists, validation can drift between `check` and `start`, a background Session cannot be inspected without opening a dashboard, and a persistent Session Manager can silently keep using another Plot build.
 
 Plot is not in production. This work intentionally breaks internal APIs and deletes obsolete seams. It does not add aliases, compatibility adapters, migration warnings, or public daemon controls.
 
@@ -16,6 +16,7 @@ Make the complete public CLI small, pure at its informational edges, determinist
 plot [workflow]          Start or attach, then open the terminal dashboard
 plot start [workflow]    Start a Session without attaching
 plot stop [workflow]     Stop the Workflow's active Session
+plot status [workflow]   Inspect without attaching; use --all for the fleet
 plot web                 Open the Fleet Web Console
 plot check [workflow]    Validate Workflow and readiness
 plot docs [topic]        Read bundled documentation
@@ -87,7 +88,11 @@ The process host is the one production implementation. Behavior tests pass a com
 
 ### R9. The public CLI fits on one screen
 
-Root help remains the complete public command map above. Internal worker/manager entrypoints never enter the public parser or help. Runtime capacities, paths, raw events, process registries, protocol methods, and caller-selected Session IDs remain absent.
+Root help remains the complete public command map above. Internal worker/manager entrypoints never enter the public parser or help. Runtime capacities, raw events, process registries, protocol methods, and caller-selected Session IDs remain absent.
+
+### R10. Status stays semantic
+
+`plot status [workflow]` reconstructs the Active Session projection and reports Session state, Needs You, active Agent Runs, pending work, and the last tick. `plot status --all` renders the same summary for every Active Session. Status never starts a Session Manager merely to report that nothing is active, and never exposes process ids, sockets, internal Session ids, or RuntimeEvents.
 
 ## CLI grammar
 
@@ -97,6 +102,7 @@ Root help remains the complete public command map above. Internal worker/manager
 - A bare unknown word is an unknown command, not an implicit Workflow.
 - `-- <workflow>` explicitly selects an unusual Workflow path.
 - Only one Workflow positional argument is accepted.
+- `status` accepts one Workflow path or `--all`, never both.
 - `web` accepts `--host <host>` and `--port <1-65535>`.
 - `docs` accepts one known topic or `--paths`.
 - `auth` accepts `status`, `login [provider]`, or `logout [provider]`; omitted action means `status`.
@@ -113,6 +119,7 @@ interface CliHost {
   readonly stderr: (text: string) => void;
   readonly auth: SessionAuth;
   readonly sessions: () => Promise<SessionManagerClient>;
+  readonly existingSessions: () => Promise<SessionManagerClient | undefined>;
   readonly runTui: (options: TuiOptions) => Promise<void>;
   readonly startWebGateway: (options: GatewayOptions) => Promise<WebGateway>;
   readonly openBrowser: (url: string) => void;
@@ -169,6 +176,7 @@ Output writes are direct and small. The CLI does not own a write queue, unused s
 ### Public surface
 
 - Root help contains every public command exactly once.
+- `status` summarizes one Workflow or every Active Session without opening a dashboard.
 - Removed command families and internal entrypoints are absent.
 - Public docs and parser command inventory agree.
 
@@ -192,5 +200,6 @@ Stop is idempotent even when the file disappeared.
 Check and start cannot drift.
 No daemon silently runs another Plot version.
 All command handlers receive explicit capabilities.
+Status reports semantic Workflow state without exposing internals.
 The complete public CLI fits on one screen.
 ```

@@ -7,6 +7,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { BoundaryError } from "@plot/common/boundary-error";
 import type {
 	CreateAgentSession,
 	AgentSessionRunOptions,
@@ -75,9 +76,12 @@ export const assertWorkflowAgentReady = (
 	);
 	const model = configuredModel(modelRegistry, agent);
 	if (!modelRegistry.hasConfiguredAuth(model))
-		throw new Error(
-			`Provider ${model.provider} is not authenticated; run plot auth login ${model.provider}`,
-		);
+		throw new BoundaryError({
+			code: "provider_not_authenticated",
+			message: `Provider ${model.provider} is not authenticated.`,
+			retryable: false,
+			context: { provider: model.provider },
+		});
 };
 
 export const makeCreateAgentSession = (

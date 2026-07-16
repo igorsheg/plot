@@ -8,6 +8,7 @@ The npm package is `plot-ai`; its binary is `plot`.
 plot [workflow]          start or attach, then open the terminal dashboard
 plot start [workflow]    start without attaching
 plot stop [workflow]     stop the Workflow's Active Session
+plot status [workflow]   inspect without attaching; use --all for the fleet
 plot web                 open the Fleet Web Console
 plot check [workflow]    validate Workflow and readiness
 plot docs [topic]        print bundled documentation
@@ -39,6 +40,17 @@ Already running review-acme
 ### `plot stop [workflow]`
 
 Stop by Workflow, not by an internal process or Session identifier. Stopping an inactive Workflow succeeds with an informational message. Stop does not require the Workflow file to still exist, so its active Session remains stoppable after the original file is removed.
+
+### `plot status [workflow]`
+
+Show the Workflow's Session state, operator attention, active Agent Runs, pending work, and last reconciliation tick without opening a dashboard. The Workflow defaults to `WORKFLOW.md`.
+
+```bash
+plot status WORKFLOW.md
+plot status --all
+```
+
+`--all` shows every Active Session as a compact fleet table. Status uses Workflow paths and names; it does not expose process registries, internal Session identifiers, or raw RuntimeEvents.
 
 ### `plot web`
 
@@ -105,6 +117,6 @@ plot help <command>
 plot <command> --help
 ```
 
-Help and version are pure: they do not inspect a Workflow or connect to the Session Manager. Success exits `0`, an invalid invocation exits `2`, and an operational failure exits `1`. Diagnostics are written once to stderr.
+Help and version are pure: they do not inspect a Workflow or connect to the Session Manager. Success exits `0`, an invalid invocation exits `2`, and an operational failure exits `1`. Diagnostics are written once to stderr. When Plot knows the repair, the same diagnostic includes one `Run:`, `Try:`, or `Read:` next step.
 
 Known command names select commands. Other path-like first arguments select a Workflow. Use `plot -- <workflow>` to explicitly select an unusual bare Workflow path.

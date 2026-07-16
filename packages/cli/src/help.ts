@@ -6,6 +6,7 @@ USAGE
   plot [workflow]          Start or attach, then open the terminal dashboard
   plot start [workflow]    Start a Session without attaching
   plot stop [workflow]     Stop the Workflow's active Session
+  plot status [workflow]   Show Workflow status; use --all for the fleet
   plot web                 Open the Fleet Web Console
 
 AUTHORING
@@ -36,6 +37,14 @@ USAGE
 
 The Workflow defaults to WORKFLOW.md. Stopping is idempotent, including after
 the Workflow file has been removed.
+`,
+	status: `Show current Workflow status without opening a dashboard.
+
+USAGE
+  plot status [workflow]
+  plot status --all
+
+The Workflow defaults to WORKFLOW.md. --all shows every Active Session.
 `,
 	web: `Open the Fleet Web Console.
 

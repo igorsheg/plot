@@ -571,6 +571,14 @@ const startManagerDaemon = async (
 	}
 };
 
+export const connectSessionManager = async (
+	options: SessionManagerIpcOptions,
+): Promise<SessionManagerClient | undefined> => {
+	if (!existsSync(resolveSessionManagerSocket(options))) return;
+	await requestJson(options, "/health");
+	return createSessionManagerClient(options);
+};
+
 export const openSessionManager = async (
 	options: SessionManagerIpcOptions,
 ): Promise<SessionManagerClient> => {
