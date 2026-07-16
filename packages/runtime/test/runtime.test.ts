@@ -109,7 +109,7 @@ describe("programmatic Plot", () => {
 		await mkdir(join(cwd, ".plot"));
 		await writeFile(join(cwd, "WORKFLOW.md"), "not a Workflow");
 		await writeFile(join(cwd, ".plot", "settings.json"), "not json");
-		const before = await readdir(cwd, { recursive: true });
+		const before = (await readdir(cwd, { recursive: true })).toSorted();
 		const plot = await makePlot(cwd);
 		const session = await plot.start(workflow());
 
@@ -120,7 +120,9 @@ describe("programmatic Plot", () => {
 			workflowName: "programmatic-test",
 			status: "idle",
 		});
-		expect(await readdir(cwd, { recursive: true })).toEqual(before);
+		expect((await readdir(cwd, { recursive: true })).toSorted()).toEqual(
+			before,
+		);
 	});
 
 	test("coalesces starts by exact Workflow value and restarts after stop", async () => {
