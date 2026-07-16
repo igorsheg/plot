@@ -9,8 +9,8 @@ export interface BoundaryErrorRecord {
 	readonly context?: Readonly<Record<string, BoundaryErrorContextValue>>;
 }
 
-export class PlotBoundaryError extends Error {
-	override readonly name: string = "PlotBoundaryError";
+export class BoundaryError extends Error {
+	override readonly name: string = "BoundaryError";
 	readonly code: string;
 	readonly retryable: boolean;
 	readonly context: Readonly<Record<string, BoundaryErrorContextValue>>;
@@ -81,7 +81,7 @@ export const toBoundaryErrorRecord = (
 	error: unknown,
 	boundary: string,
 ): BoundaryErrorRecord => {
-	if (error instanceof PlotBoundaryError) {
+	if (error instanceof BoundaryError) {
 		const record: {
 			code: string;
 			message: string;
@@ -97,7 +97,7 @@ export const toBoundaryErrorRecord = (
 	}
 	return {
 		code: "internal_error",
-		message: `Internal Plot error at ${boundary}`,
+		message: `Internal error at ${boundary}`,
 		retryable: false,
 		context: { boundary },
 	};
@@ -105,4 +105,4 @@ export const toBoundaryErrorRecord = (
 
 export const boundaryErrorFromRecord = (
 	record: BoundaryErrorRecord,
-): PlotBoundaryError => new PlotBoundaryError(record);
+): BoundaryError => new BoundaryError(record);

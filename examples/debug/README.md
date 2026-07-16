@@ -1,6 +1,6 @@
 # Plot debug lab extension
 
-A realistic, long-running Plot extension for debugging the live TUI and web dashboard.
+A realistic, long-running extension for debugging the live TUI and web dashboard.
 
 It creates exactly three concurrent synthetic Work Items:
 

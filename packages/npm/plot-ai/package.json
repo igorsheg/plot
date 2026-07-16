@@ -2,7 +2,7 @@
 	"name": "plot-ai",
 	"version": "0.0.0",
 	"private": true,
-	"description": "Plot agent session CLI",
+	"description": "Workflow agent runtime and CLI",
 	"keywords": [
 		"agents",
 		"ai",
@@ -31,9 +31,13 @@
 	],
 	"type": "module",
 	"exports": {
+		".": {
+			"types": "./lib/index.d.ts",
+			"import": "./lib/index.js"
+		},
 		"./sdk": {
 			"types": "./lib/sdk.d.ts",
-			"default": "./lib/sdk.js"
+			"import": "./lib/sdk.js"
 		}
 	},
 	"publishConfig": {
@@ -42,7 +46,10 @@
 	"scripts": {
 		"postinstall": "node ./postinstall.mjs"
 	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "0.80.6"
+	},
 	"engines": {
-		"node": ">=18"
+		"node": ">=22.19.0"
 	}
 }

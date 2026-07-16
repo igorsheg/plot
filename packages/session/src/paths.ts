@@ -1,15 +1,8 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { ExtensionPaths } from "@plot/sdk";
 
-export interface SessionPaths {
-	readonly cwd: string;
-	readonly plotDir: string;
-	readonly agentDir: string;
-	readonly sessionDir: string;
-	readonly skillsDir: string;
-	readonly extensionsDir: string;
-	readonly promptsDir: string;
-}
+export type SessionPaths = ExtensionPaths;
 
 export interface SessionPathOptions {
 	readonly cwd: string;

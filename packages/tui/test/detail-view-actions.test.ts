@@ -12,8 +12,7 @@ const work: WorkItemProjection = {
 	blockedReason: "needs approval",
 	operatorActions: [
 		{ id: "approve", label: "Approve" },
-		{ id: "skip" },
-		"garbage",
+		{ id: "skip", label: "Skip" },
 	],
 };
 
@@ -33,7 +32,7 @@ test("attention section lists Source-declared operator actions", () => {
 		.map((line) => JSON.stringify(line))
 		.join("\n");
 	expect(text).toContain("needs approval");
-	expect(text).toContain("actions: Approve · skip");
+	expect(text).toContain("actions: Approve · Skip");
 });
 
 test("waiting work does not render as attention", () => {

@@ -16,7 +16,7 @@ const event = (sequence: number): RuntimeEvent => ({
 });
 
 test("Session continuation replays history then follows live without duplicates", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-events-"));
+	const dir = await mkdtemp(join(tmpdir(), "session-events-"));
 	const path = join(dir, "session.jsonl");
 	const log = createSessionEventLogWriter(path);
 	await log.append(event(1));
@@ -39,7 +39,7 @@ test("Session continuation replays history then follows live without duplicates"
 });
 
 test("Session continuation catches up durably after live-buffer overflow", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-events-overflow-"));
+	const dir = await mkdtemp(join(tmpdir(), "session-events-overflow-"));
 	const path = join(dir, "session.jsonl");
 	const log = createSessionEventLogWriter(path);
 	for (let sequence = 1; sequence <= 400; sequence++)

@@ -7,5 +7,5 @@
 		"rootDir": "src",
 		"noEmit": false
 	},
-	"include": ["src/sdk.ts"]
+	"include": ["src/sdk.ts", "src/runtime-contract.ts"]
 }

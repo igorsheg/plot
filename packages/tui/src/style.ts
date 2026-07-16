@@ -1,7 +1,7 @@
 type ColorMode = "truecolor" | "256color";
 type ColorValue = string | number;
 
-type PlotColor =
+type ColorName =
 	| "accent"
 	| "border"
 	| "success"
@@ -32,7 +32,7 @@ const palette = {
 	dim: "#666666",
 	text: "#d4d4d4",
 	selectedBg: "#3a3a4a",
-} satisfies Record<PlotColor, ColorValue>;
+} satisfies Record<ColorName, ColorValue>;
 
 const ansi = {
 	reset: "\x1b[0m",
@@ -110,11 +110,11 @@ const bgAnsi = (color: ColorValue, mode: ColorMode): string => {
 	return `\x1b[48;5;${rgbTo256(r, g, b)}m`;
 };
 
-const fg = (color: PlotColor) => (value: string) =>
+const fg = (color: ColorName) => (value: string) =>
 	colorEnabled
 		? `${fgAnsi(palette[color], colorMode())}${value}\x1b[39m`
 		: value;
-const bg = (color: PlotColor) => (value: string) =>
+const bg = (color: ColorName) => (value: string) =>
 	colorEnabled
 		? `${bgAnsi(palette[color], colorMode())}${value}\x1b[49m`
 		: value;

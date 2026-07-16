@@ -12,14 +12,14 @@ Make Plot's public model match its domain model:
 
 ```txt
 Extension  1 ──► many Workflows
-Workflow   1 ──► at most one active Plot Session
+Workflow   1 ──► at most one active Session
 Session    1 ──► many Work Items
 Work Item  1 ──► many sequential Agent Runs
 ```
 
 An Extension is reusable trusted TypeScript. A Workflow configures that Extension for one use: integration configuration, prompt, agent policy, and scheduling. For example, the same PR-review Extension can back separate Workflows for different repositories, prompts, and model policies.
 
-A Plot Session is always durable and managed. Dashboards attach to it. Leaving a dashboard does not stop it. Only an explicit stop does.
+A Session is always durable and managed. Dashboards attach to it. Leaving a dashboard does not stop it. Only an explicit stop does.
 
 Success means fewer concepts, fewer public interfaces, and materially less code—not the same implementation hidden behind renamed commands.
 
@@ -48,7 +48,7 @@ Moving a Workflow file creates a different Workflow identity. Editing it does no
 
 ### Session cardinality
 
-At most one active Plot Session may own a Workflow key.
+At most one active Session may own a Workflow key.
 
 `start` is atomic at the Session Manager. Concurrent attempts to start the same Workflow either receive the same active Session or one starts it and the others attach to the result. This invariant must not be implemented as a CLI-side list-then-start race.
 
@@ -161,7 +161,7 @@ Start or connect to the local Fleet Web Console and open it in the browser. The 
 
 `plot web` is not scoped to one Workflow. It does not silently create a Session. Host and port overrides may exist under `plot web --help` for local development and supervised deployments; they do not appear in root help.
 
-The Web Console process is infrastructure for the UI, not a Plot Session. Closing its launcher must not stop Sessions.
+The Web Console process is infrastructure for the UI, not a Session. Closing its launcher must not stop Sessions.
 
 ### `plot check [workflow]`
 
@@ -359,7 +359,7 @@ The TUI receives a Session Manager connection and Session summary, obtains a sna
 
 Delete:
 
-- spawning from `runPlotTui`;
+- spawning from `runTui`;
 - stopping in its `finally` block;
 - the unused `oneshot` mode;
 - comments and tests asserting live-only behavior;
@@ -468,7 +468,7 @@ Delete:
 
 - `.plot/settings.json` provider/model fallback;
 - global `~/.plot/settings.json` provider/model fallback;
-- settings parsing in `pi-session.ts`;
+- settings parsing in `agent-session.ts`;
 - settings tests and docs;
 - generic config key/value CLI code.
 
@@ -514,7 +514,7 @@ Exit condition: there is exactly one Session execution mode: continuous Source r
 4. Rename registry-owned code, storage, diagnostics, and tests to Session language.
 5. Migrate persisted development state by deletion; no old store reader is required.
 
-Exit condition: runtime code outside the Agent Run domain does not use bare `run` to mean a Plot Session or process.
+Exit condition: runtime code outside the Agent Run domain does not use bare `run` to mean a Session or process.
 
 ### Slice 3: change dashboard ownership
 

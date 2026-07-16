@@ -1,9 +1,9 @@
 import { isRecord } from "@plot/common/primitives";
 import {
 	appendStreamDelta,
-	piEventDisplay,
-	type PiUsageDelta,
-} from "../pi-event-display.js";
+	agentEventDisplay,
+	type UsageDelta,
+} from "../agent-event-display.js";
 import { at, str } from "./helpers.js";
 import type {
 	ActiveTool,
@@ -53,7 +53,7 @@ const lifecycleActivity = (
 
 const addUsage = (
 	previous: AgentAttemptProjection["tokens"],
-	usage: PiUsageDelta,
+	usage: UsageDelta,
 ): NonNullable<AgentAttemptProjection["tokens"]> => ({
 	input: (previous?.input ?? 0) + (usage.input ?? 0),
 	output: (previous?.output ?? 0) + (usage.output ?? 0),
@@ -62,8 +62,8 @@ const addUsage = (
 });
 const freshUsage = (
 	previous: AgentAttemptProjection,
-	usage: PiUsageDelta | undefined,
-): PiUsageDelta | undefined => {
+	usage: UsageDelta | undefined,
+): UsageDelta | undefined => {
 	if (usage?.key === undefined) return usage;
 	return previous.usageKeys?.includes(usage.key) ? undefined : usage;
 };
@@ -77,7 +77,7 @@ export const reduceAgentEvent = (
 	const prev = p.attempts.get(runId);
 	if (prev === undefined) return p;
 	// Plot's own synthetic event: the Agent Transcript reference.
-	if (rawEvent["type"] === "plot_transcript") {
+	if (rawEvent["type"] === "agent_transcript") {
 		const path = str(rawEvent["sessionFile"]);
 		if (path === undefined) return p;
 		const transcript = {
@@ -92,10 +92,10 @@ export const reduceAgentEvent = (
 			),
 		};
 	}
-	const activity = piEventDisplay(rawEvent);
+	const activity = agentEventDisplay(rawEvent);
 	if (activity === undefined) return p;
 	const when = at(e);
-	let appliedUsage: PiUsageDelta | undefined;
+	let appliedUsage: UsageDelta | undefined;
 	const handlers = {
 		turn_start: () => {
 			if (activity.type !== "turn_start") return prev;

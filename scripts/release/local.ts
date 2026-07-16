@@ -140,9 +140,16 @@ async function createIsolatedInstall(
 	}
 	const docs = runPlot(["docs", "quickstart"]);
 	if (docs.exitCode !== 0) throw new Error(docs.stderr);
-	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
+	await $`node --input-type=module -e ${"import { defineExtension } from 'plot-ai/sdk'; if (typeof defineExtension !== 'function') process.exit(1);"}`.cwd(
 		installDir,
 	);
+	await $`node --input-type=module -e ${`import { createPlot } from "plot-ai";
+import { defineExtension, defineWorkflow } from "plot-ai/sdk";
+const extension = defineExtension({ id: "local-release", create: () => ({ discover: () => [] }) });
+const workflow = defineWorkflow({ name: "local-release", agent: { provider: "anthropic", model: "claude-sonnet-4-6" }, extension: { use: extension }, prompt: "No work" });
+const plot = await createPlot({ credentials: { anthropic: { type: "api-key", apiKey: "release-test" } } });
+await plot.start(workflow);
+await plot.dispose();`}`.cwd(installDir);
 }
 
 function findReleaseTarballs(artifactsDir: string) {

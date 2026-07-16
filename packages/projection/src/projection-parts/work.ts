@@ -1,3 +1,4 @@
+import type { OperatorAction, WorkDisplay } from "@plot/sdk/work-contract";
 import type { WorkItemProjection, WorkStatus } from "./types.js";
 
 interface DisplayableWork {
@@ -6,18 +7,9 @@ interface DisplayableWork {
 	readonly status?: WorkStatus;
 	readonly subject?: string | undefined;
 	readonly title?: string;
-	readonly display?:
-		| {
-				readonly primary?: string;
-				readonly title?: string;
-				readonly subtitle?: string;
-				readonly url?: string;
-				readonly version?: string;
-				readonly labels?: readonly string[];
-		  }
-		| undefined;
+	readonly display?: WorkDisplay | undefined;
 	readonly blockedReason?: string;
-	readonly operatorActions?: readonly unknown[] | undefined;
+	readonly operatorActions?: readonly OperatorAction[] | undefined;
 	readonly currentRunId?: string;
 }
 

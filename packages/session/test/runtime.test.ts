@@ -5,13 +5,17 @@ import { tmpdir } from "node:os";
 import type { SourceRecord } from "@plot/agent/model";
 import type { WorkSource } from "@plot/agent/work-source";
 import {
+	decodeOperatorObservation,
 	decodeRuntimeEvent,
 	makeSessionEventOwner,
 	makeSessionRuntime,
 	type SessionSource,
 	type SourceActionStartResult,
 } from "../src/runtime.js";
-import { readSessionEvents } from "../src/history.js";
+import {
+	createJsonlSessionEventStore,
+	readSessionEvents,
+} from "../src/history.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -43,16 +47,18 @@ const workSource = (): WorkSource => ({
 });
 
 const harness = async (overrides: Partial<SessionSource> = {}) => {
-	const root = await mkdtemp(join(tmpdir(), "plot-runtime-"));
+	const root = await mkdtemp(join(tmpdir(), "session-runtime-"));
 	roots.push(root);
+	const historyPath = join(root, "events.jsonl");
 	const events = makeSessionEventOwner({
 		id: "session-1",
-		sessionFile: join(root, "events.jsonl"),
+		store: createJsonlSessionEventStore(historyPath),
 	});
 	const source: SessionSource = {
 		source: workSource(),
 		startAction: async () => ({ accepted: false }),
 		cancelAction: () => false,
+		resolveOperatorAction: () => undefined,
 		shutdown: async () => {},
 		...overrides,
 	};
@@ -62,7 +68,7 @@ const harness = async (overrides: Partial<SessionSource> = {}) => {
 		runner: { run: async () => ({}) },
 		tickIntervalMs: 60_000,
 	});
-	return { root, events, source, runtime };
+	return { root, historyPath, events, source, runtime };
 };
 
 const collect = async <A>(iterable: AsyncIterable<A>, count: number) => {
@@ -76,7 +82,7 @@ const collect = async <A>(iterable: AsyncIterable<A>, count: number) => {
 
 describe("Session runtime ownership", () => {
 	test("durably appends before publishing and allocates one sequence", async () => {
-		const { events } = await harness();
+		const { events, historyPath } = await harness();
 		const controller = new AbortController();
 		const live = collect(events.events(controller.signal), 1);
 		const appended = await events.appendAgentEvent({
@@ -87,7 +93,7 @@ describe("Session runtime ownership", () => {
 		});
 		expect((await live)[0]).toEqual(appended);
 		const history = [];
-		for await (const event of readSessionEvents(events.sessionFile))
+		for await (const event of readSessionEvents(historyPath))
 			history.push(event);
 		expect(history).toEqual([appended]);
 		controller.abort();
@@ -95,12 +101,12 @@ describe("Session runtime ownership", () => {
 	});
 
 	test("start and tick resolve after their Session events are durable", async () => {
-		const { events, runtime } = await harness();
+		const { historyPath, runtime } = await harness();
 		await runtime.start();
 		const summary = await runtime.tickOnce();
 		expect(summary.tickId).toBeGreaterThan(0);
 		const history = [];
-		for await (const event of readSessionEvents(events.sessionFile))
+		for await (const event of readSessionEvents(historyPath))
 			history.push(event);
 		expect(
 			history.some(
@@ -109,6 +115,43 @@ describe("Session runtime ownership", () => {
 					record.event.type === "tick_completed",
 			),
 		).toBe(true);
+		await runtime.shutdown();
+	});
+
+	test("resolves Operator action metadata from the authoritative Source", async () => {
+		let observed:
+			| Parameters<WorkSource["reconcile"]>[0]["operatorObservations"][number]
+			| undefined;
+		const source = workSource();
+		const { runtime } = await harness({
+			source: {
+				...source,
+				reconcile: (input) => {
+					observed = input.operatorObservations[0] ?? observed;
+					return source.reconcile(input);
+				},
+			},
+			resolveOperatorAction: (input) => ({
+				...input,
+				actionLabel: "Authoritative label",
+			}),
+		});
+		await runtime.start();
+		expect(
+			runtime.recordOperatorObservation({
+				sourceId: "source",
+				workKey: "work-1",
+				actionId: "approve",
+				comment: "ship it",
+			}),
+		).toBe(true);
+		await runtime.tickOnce();
+		expect(observed).toMatchObject({
+			actionId: "approve",
+			actionLabel: "Authoritative label",
+			comment: "ship it",
+		});
+		expect(Date.parse(observed?.timestamp ?? "")).not.toBeNaN();
 		await runtime.shutdown();
 	});
 
@@ -162,6 +205,21 @@ describe("Session runtime ownership", () => {
 		await expect(
 			events.appendSessionEvent({ type: "session_started" }),
 		).rejects.toThrow("closed");
+	});
+
+	test("decodes Operator action identity without client-owned metadata", () => {
+		expect(
+			decodeOperatorObservation({
+				sourceId: "source",
+				workKey: "work",
+				actionId: "approve",
+				actionLabel: "spoofed",
+			}),
+		).toEqual({
+			sourceId: "source",
+			workKey: "work",
+			actionId: "approve",
+		});
 	});
 
 	test("decodes RuntimeEvent envelopes at process boundaries", () => {

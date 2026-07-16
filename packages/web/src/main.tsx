@@ -1,7 +1,7 @@
 import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { PlotApp } from "./app/app.js";
-import { PlotErrorToaster } from "./app/plot-error-toaster.js";
+import { App } from "./app/app.js";
+import { RuntimeErrorToaster } from "./app/error-toaster.js";
 import { ThemeProvider } from "./theme/theme.js";
 import { ToastProvider } from "./components/ui/toast.js";
 // oxlint-disable-next-line import/no-unassigned-import
@@ -14,7 +14,7 @@ const render = (children: ReactNode): void => {
 		<StrictMode>
 			<ThemeProvider>
 				<ToastProvider>
-					<PlotErrorToaster />
+					<RuntimeErrorToaster />
 					{children}
 				</ToastProvider>
 			</ThemeProvider>
@@ -22,4 +22,4 @@ const render = (children: ReactNode): void => {
 	);
 };
 
-render(<PlotApp />);
+render(<App />);

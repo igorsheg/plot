@@ -1,10 +1,10 @@
 import { createInterface } from "node:readline/promises";
-import type { PlotWebGatewayOptions } from "@plot/gateway";
+import type { GatewayHandle, GatewayOptions } from "@plot/gateway";
 import { createSessionAuth, type SessionAuth } from "@plot/session/auth";
 import { openSessionManager } from "@plot/session-manager/ipc";
 import type { SessionManagerClient } from "@plot/session-manager/manager";
-import type { PlotTuiOptions } from "@plot/tui/plot-tui";
-import { plotProcessIdentity, resolvePlotCommand } from "./plot-command.js";
+import type { TuiOptions } from "@plot/tui/tui";
+import { processIdentity, resolveCommand } from "./command.js";
 
 export interface CliHost {
 	readonly cwd: string;
@@ -15,10 +15,8 @@ export interface CliHost {
 	readonly prompt: (message: string) => Promise<string>;
 	readonly openBrowser: (url: string) => void;
 	readonly sessions: () => Promise<SessionManagerClient>;
-	readonly runTui: (options: PlotTuiOptions) => Promise<void> | void;
-	readonly startWebGateway: (
-		options: PlotWebGatewayOptions,
-	) => Promise<{ readonly url: string; readonly stop: () => void }>;
+	readonly runTui: (options: TuiOptions) => Promise<void> | void;
+	readonly startWebGateway: (options: GatewayOptions) => Promise<GatewayHandle>;
 	readonly waitForTermination: (stop: () => void) => Promise<void>;
 }
 
@@ -84,19 +82,19 @@ export const createProcessCliHost = (): CliHost => {
 		prompt,
 		openBrowser,
 		sessions: () => {
-			const cli = resolvePlotCommand();
+			const cli = resolveCommand();
 			return openSessionManager({
 				cli,
-				identity: plotProcessIdentity(cli),
+				identity: processIdentity(cli),
 			});
 		},
 		runTui: async (options) => {
-			const { runPlotTui } = await import("@plot/tui/plot-tui");
-			await runPlotTui(options);
+			const { runTui } = await import("@plot/tui/tui");
+			await runTui(options);
 		},
 		startWebGateway: async (options) => {
-			const { startPlotWebGateway } = await import("@plot/gateway");
-			return startPlotWebGateway(options);
+			const { startWebGateway } = await import("@plot/gateway");
+			return startWebGateway(options);
 		},
 		waitForTermination,
 	};

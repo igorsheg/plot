@@ -2,11 +2,11 @@ import { resolve } from "node:path";
 import type { AuthProviderInfo } from "@plot/session/auth";
 import {
 	prepareWorkflow,
-	type PreparedWorkflow,
+	type CheckedWorkflow,
 } from "@plot/session/preparation";
 import type { CliHost } from "./cli-host.js";
 import type { CliInvocation } from "./cli-parser.js";
-import { readPlotDoc, readSdkReference, renderDocsPaths } from "./docs.js";
+import { readDoc, readSdkReference, renderDocsPaths } from "./docs.js";
 import { renderHelp } from "./help.js";
 import { VERSION } from "./package.js";
 import { renderAuthStatus, renderModels } from "./render.js";
@@ -22,7 +22,7 @@ const workflowInput = (
 
 const renderReadiness = (
 	workflowPath: string,
-	source: PreparedWorkflow["source"],
+	source: CheckedWorkflow["source"],
 ): string => {
 	const lines = [`OK Workflow ${workflowPath}`, `OK Extension ${source.label}`];
 	for (const requirement of source.requirements) {
@@ -200,7 +200,7 @@ export const executeCliInvocation = async (
 			const prepared = await prepareWorkflow(
 				workflowInput(host, invocation.workflowPath),
 			);
-			host.stdout(renderReadiness(prepared.workflow.path!, prepared.source));
+			host.stdout(renderReadiness(prepared.workflowPath, prepared.source));
 			return;
 		}
 		case "web": {
@@ -226,7 +226,7 @@ export const executeCliInvocation = async (
 					? renderDocsPaths()
 					: await (invocation.topic === "sdk"
 							? readSdkReference()
-							: readPlotDoc(invocation.topic ?? "index")),
+							: readDoc(invocation.topic ?? "index")),
 			);
 			return;
 		case "auth":

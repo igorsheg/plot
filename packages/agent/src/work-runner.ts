@@ -1,10 +1,9 @@
-import type { WorkItem, WorkResult, WorkRun } from "./model.js";
+import type { WorkResult } from "./model.js";
+import type { SourceRunContext } from "./work-source.js";
 
-export interface WorkRunnerContext {
+export interface WorkRunnerContext extends SourceRunContext {
 	readonly sourceId: string;
 	readonly tickId: number;
-	readonly run: WorkRun;
-	readonly work: WorkItem;
 	readonly signal: AbortSignal;
 	readonly reportActivity: () => void;
 	readonly shouldContinue: (turnNumber: number) => boolean | Promise<boolean>;

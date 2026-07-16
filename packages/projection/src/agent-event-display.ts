@@ -5,7 +5,7 @@ import type {
 	WorkCheck,
 } from "./projection-parts/types.js";
 
-export interface PiUsageDelta {
+export interface UsageDelta {
 	readonly key?: string | undefined;
 	readonly input?: number | undefined;
 	readonly output?: number | undefined;
@@ -13,12 +13,12 @@ export interface PiUsageDelta {
 	readonly cost?: number | undefined;
 }
 
-export type PiDisplayEvent =
+export type DisplayEvent =
 	| { readonly type: "turn_start"; readonly summary: string }
 	| {
 			readonly type: "turn_end";
 			readonly summary: string;
-			readonly usage?: PiUsageDelta | undefined;
+			readonly usage?: UsageDelta | undefined;
 	  }
 	| {
 			readonly type: "thinking";
@@ -32,7 +32,7 @@ export type PiDisplayEvent =
 	  }
 	| {
 			readonly type: "tool_start" | "tool_update";
-			readonly tool: PiToolDisplay;
+			readonly tool: ToolDisplay;
 	  }
 	| {
 			readonly type: "tool_end";
@@ -40,7 +40,7 @@ export type PiDisplayEvent =
 			readonly failed: boolean;
 	  };
 
-export interface PiToolDisplay {
+export interface ToolDisplay {
 	readonly kind: ActivityKind;
 	readonly stage: AttemptStage;
 	readonly text: string;
@@ -60,9 +60,7 @@ const numberAt = (
 	}
 	return undefined;
 };
-const usageDelta = (
-	event: Record<string, unknown>,
-): PiUsageDelta | undefined => {
+const usageDelta = (event: Record<string, unknown>): UsageDelta | undefined => {
 	const message = isRecord(event["message"]) ? event["message"] : undefined;
 	const usage = isRecord(message?.["usage"])
 		? message["usage"]
@@ -145,7 +143,7 @@ const toolActivity = (
 	name: string | undefined,
 	args: Record<string, unknown>,
 	toolCallId?: string | undefined,
-): PiToolDisplay => {
+): ToolDisplay => {
 	if (name === "read")
 		return {
 			kind: "read",
@@ -210,9 +208,9 @@ const toolActivity = (
 	};
 };
 
-export const piEventDisplay = (
+export const agentEventDisplay = (
 	event: Record<string, unknown>,
-): PiDisplayEvent | undefined => {
+): DisplayEvent | undefined => {
 	const update = isRecord(event["assistantMessageEvent"])
 		? event["assistantMessageEvent"]
 		: undefined;

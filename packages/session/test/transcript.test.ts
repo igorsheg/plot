@@ -6,13 +6,13 @@ import { readAgentTranscript } from "../src/transcript.js";
 
 const line = (value: unknown) => JSON.stringify(value);
 
-test("transcript reader flattens pi message blocks into display entries", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-transcript-"));
+test("transcript reader flattens agent message blocks into display entries", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "agent-transcript-"));
 	const path = join(dir, "transcript.jsonl");
 	await writeFile(
 		path,
 		[
-			line({ type: "session", version: 3, id: "pi-1" }),
+			line({ type: "session", version: 3, id: "agent-1" }),
 			line({ type: "model_change", modelId: "gpt" }),
 			line({
 				type: "message",

@@ -2,10 +2,10 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	DiscoveryUnavailableError,
-	definePlotExtension,
+	defineExtension,
 	defineTool,
-	type PlotExtensionTool,
-	type PlotExtensionWork,
+	type ExtensionTool,
+	type ExtensionWork,
 } from "plot-ai/sdk";
 
 interface DebugConfig {
@@ -132,7 +132,7 @@ const parseConfig = (input: unknown): DebugConfig => {
 	return config;
 };
 
-const stableKey = (work: Pick<PlotExtensionWork, "id" | "version">) =>
+const stableKey = (work: Pick<ExtensionWork, "id" | "version">) =>
 	`${work.id}@${work.version ?? "unversioned"}`;
 
 const safePathSegment = (value: string) =>
@@ -184,12 +184,12 @@ const scenarioContext = (input: {
 		2,
 	);
 
-export default definePlotExtension<DebugConfig>({
+export default defineExtension<DebugConfig>({
 	id: "plot-debug-lab",
 	parseConfig,
 	create({ config, paths }) {
 		const bootMs = Date.now();
-		const tools: PlotExtensionTool<DebugConfig>[] = [];
+		const tools: ExtensionTool<DebugConfig>[] = [];
 		const completedKeys = new Set<string>();
 		const log: DebugLogEntry[] = [];
 		let discoverCount = 0;
@@ -211,10 +211,7 @@ export default definePlotExtension<DebugConfig>({
 		const workspaceFor = (id: string) =>
 			join(workspaceRoot, safePathSegment(id));
 
-		const addWork = (
-			items: PlotExtensionWork[],
-			candidate: PlotExtensionWork,
-		) => {
+		const addWork = (items: ExtensionWork[], candidate: ExtensionWork) => {
 			if (!completedKeys.has(stableKey(candidate))) items.push(candidate);
 		};
 
@@ -398,7 +395,7 @@ export default definePlotExtension<DebugConfig>({
 
 				const cycle = Math.floor((Date.now() - bootMs) / config.cycleMs);
 				const version = `cycle-${cycle}`;
-				const items: PlotExtensionWork[] = [];
+				const items: ExtensionWork[] = [];
 				for (const scenario of SCENARIOS) {
 					addWork(items, {
 						id: `debug:${scenario.id}`,

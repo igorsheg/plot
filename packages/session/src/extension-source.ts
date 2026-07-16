@@ -3,9 +3,11 @@ import { mkdir } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type {
 	Completion,
+	OperatorObservation,
 	SourceRecord,
 	SourceRequirementRecord,
 	SourceWorkRecord,
+	WakeRequest,
 	WorkItem,
 } from "@plot/agent/model";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
@@ -21,14 +23,15 @@ import type {
 	ExtensionRequirement,
 	ExtensionRequirementState,
 	ExtensionRunCompletion,
-	PlotExtension,
-	PlotExtensionRuntime,
-	PlotExtensionWork,
+	Extension,
+	ExtensionRuntime,
+	ExtensionWork,
 } from "@plot/sdk";
+import type { OperatorObservationInput } from "@plot/sdk/work-contract";
+import type { SourceActionStartResult } from "@plot/sdk/runtime-contract";
 import type { SessionPaths } from "./paths.js";
-import type { PiAgentSessionRunOptions } from "./pi-runner.js";
-import type { WorkflowDefinition } from "./workflow.js";
-import { resolveToolDefinitions } from "./extension-loader.js";
+import type { AgentSessionRunOptions } from "./agent-runner.js";
+import { resolveToolDefinitions } from "./extension-tools.js";
 import { createLoopbackOAuthCallback } from "./interaction.js";
 
 const RETRY_BASE_DELAY_MS = 10_000;
@@ -37,18 +40,18 @@ const SOURCE_SHUTDOWN_MS = 5_000;
 const DISCOVERED_WORK_CAPACITY = 1024;
 const DISCOVERY_REQUIREMENT_ID = "plot:discovery";
 
-export const sourceIdForExtension = (extension: PlotExtension): string =>
+export const sourceIdForExtension = (extension: Extension): string =>
 	`extension:${encodeURIComponent(extension.id)}`;
 
 export const workKeyForExtensionWork = (
-	extension: PlotExtension,
-	work: PlotExtensionWork,
+	extension: Extension,
+	work: ExtensionWork,
 ): string =>
 	`extension:${JSON.stringify([extension.id, work.id, work.version ?? null])}`;
 
 export const templateContextForWork = (
-	workflow: WorkflowDefinition,
-	work: PlotExtensionWork,
+	workflow: unknown,
+	work: ExtensionWork,
 ) => {
 	const {
 		context,
@@ -56,7 +59,10 @@ export const templateContextForWork = (
 		blockedReason: _reason,
 		...metadata
 	} = work;
-	const base = { workflow: workflow.config, work: metadata };
+	const definition = isRecord(workflow)
+		? (workflow["config"] ?? workflow)
+		: workflow;
+	const base = { workflow: definition, work: metadata };
 	if (context === undefined) return base;
 	if (isRecord(context)) return { ...base, ...context };
 	return { ...base, value: context };
@@ -107,7 +113,7 @@ const sourceRecord = (
 };
 
 export const extensionRequirements = (
-	runtime: PlotExtensionRuntime,
+	runtime: ExtensionRuntime,
 ): readonly ExtensionRequirement[] => {
 	const requirements = runtime.requirements ?? [];
 	const ids = new Set<string>();
@@ -143,10 +149,10 @@ export const checkRequirements = async (input: {
 };
 
 const discover = async (input: {
-	readonly extension: PlotExtension;
-	readonly runtime: PlotExtensionRuntime;
+	readonly extension: Extension;
+	readonly runtime: ExtensionRuntime;
 	readonly signal: AbortSignal;
-}): Promise<readonly PlotExtensionWork[]> => {
+}): Promise<readonly ExtensionWork[]> => {
 	const value = await input.runtime.discover({ signal: input.signal });
 	if (!Array.isArray(value)) throw new Error("discover must return an array");
 	if (value.length > DISCOVERED_WORK_CAPACITY)
@@ -174,8 +180,8 @@ const discover = async (input: {
 	return value;
 };
 
-const extensionWork = (item: WorkItem): PlotExtensionWork =>
-	item.sourceData as PlotExtensionWork;
+const extensionWork = (item: WorkItem): ExtensionWork =>
+	item.sourceData as ExtensionWork;
 
 const runCompletion = (completion: Completion): ExtensionRunCompletion => {
 	if (completion.status === "succeeded") {
@@ -190,9 +196,9 @@ const runCompletion = (completion: Completion): ExtensionRunCompletion => {
 };
 
 const workRecord = (
-	extension: PlotExtension,
+	extension: Extension,
 	sourceId: string,
-	work: PlotExtensionWork,
+	work: ExtensionWork,
 ): SourceWorkRecord => {
 	const identity = {
 		workKey: workKeyForExtensionWork(extension, work),
@@ -222,9 +228,9 @@ const workRecord = (
 };
 
 const workItem = (
-	extension: PlotExtension,
-	workflow: WorkflowDefinition,
-	work: PlotExtensionWork,
+	extension: Extension,
+	workflow: unknown,
+	work: ExtensionWork,
 ): WorkItem => {
 	return {
 		workKey: workKeyForExtensionWork(extension, work),
@@ -252,11 +258,7 @@ export interface SourceActionEvents {
 	readonly cancelled: (actionRunId: string) => Promise<unknown>;
 }
 
-export type SourceActionStartResult =
-	| { readonly accepted: false }
-	| { readonly accepted: true; readonly actionRunId: string };
-
-export interface PlotExtensionSourceBundle {
+export interface ExtensionSource {
 	readonly source: WorkSource;
 	readonly startAction: (input: {
 		readonly requirementId: string;
@@ -264,9 +266,12 @@ export interface PlotExtensionSourceBundle {
 		readonly events: SourceActionEvents;
 	}) => Promise<SourceActionStartResult>;
 	readonly cancelAction: (actionRunId: string) => boolean;
+	readonly resolveOperatorAction: (
+		input: OperatorObservationInput,
+	) => Omit<OperatorObservation, "timestamp"> | undefined;
 	readonly createOptions: (
 		context: WorkRunnerContext,
-	) => Promise<PiAgentSessionRunOptions>;
+	) => Promise<AgentSessionRunOptions>;
 	readonly shutdown: () => Promise<void>;
 }
 
@@ -276,15 +281,15 @@ interface ActiveAction {
 	readonly promise: Promise<void>;
 }
 
-export const makePlotExtensionSourceBundle = (options: {
-	readonly extension: PlotExtension;
-	readonly runtime: PlotExtensionRuntime;
+export const makeExtensionSource = (options: {
+	readonly extension: Extension;
+	readonly runtime: ExtensionRuntime;
 	readonly credentials: ExtensionCredentials;
-	readonly workflow: WorkflowDefinition;
+	readonly workflow: unknown;
 	readonly paths: SessionPaths;
 	readonly config: unknown;
 	readonly maxConcurrentRuns: number;
-}): PlotExtensionSourceBundle => {
+}): ExtensionSource => {
 	const sourceId = sourceIdForExtension(options.extension);
 	const label = options.extension.label ?? options.extension.id;
 	const requirements = extensionRequirements(options.runtime);
@@ -301,16 +306,45 @@ export const makePlotExtensionSourceBundle = (options: {
 	let forcedAction:
 		| { readonly requirementId: string; readonly message: string }
 		| undefined;
-	let discovered = new Map<string, PlotExtensionWork>();
+	let discovered = new Map<string, ExtensionWork>();
 	const retries = new Map<string, { attempt: number; dueAtMs: number }>();
 	const completedSinceReconcile = new Set<string>();
-	const pendingWakes: {
-		delayMs: number;
-		reason: string;
-		workKey: string;
-		attempt: number;
-	}[] = [];
+	const pendingWakes: WakeRequest[] = [];
 	const actions = new Map<string, ActiveAction>();
+
+	const resolveOperatorAction = (
+		input: OperatorObservationInput,
+	): Omit<OperatorObservation, "timestamp"> | undefined => {
+		if (input.sourceId !== sourceId) return;
+		const work = discovered.get(input.workKey);
+		const action = work?.operatorActions?.find(
+			(candidate) => candidate.id === input.actionId,
+		);
+		if (action === undefined || action.disabledReason !== undefined) return;
+		if (
+			action.requiresComment &&
+			(input.comment === undefined || input.comment.trim().length === 0)
+		)
+			return;
+		const observation: {
+			sourceId: string;
+			workKey: string;
+			actionId: string;
+			actionLabel: string;
+			comment?: string;
+			clientId?: string;
+			actor?: unknown;
+		} = {
+			sourceId,
+			workKey: input.workKey,
+			actionId: action.id,
+			actionLabel: action.label,
+		};
+		if (input.comment !== undefined) observation.comment = input.comment;
+		if (input.clientId !== undefined) observation.clientId = input.clientId;
+		if (input.actor !== undefined) observation.actor = input.actor;
+		return observation;
+	};
 
 	const withForcedAction = (record: SourceRecord): SourceRecord => {
 		const forced = forcedAction;
@@ -350,7 +384,7 @@ export const makePlotExtensionSourceBundle = (options: {
 		initial: currentSource,
 		maxConcurrentRuns: options.maxConcurrentRuns,
 		reconcile: async ({ signal, operatorObservations, activeRuns }) => {
-			let found: readonly PlotExtensionWork[] | undefined;
+			let found: readonly ExtensionWork[] | undefined;
 			if (actions.size === 0) {
 				const readiness = await check(signal);
 				if (readiness.readiness === "ready") {
@@ -381,20 +415,28 @@ export const makePlotExtensionSourceBundle = (options: {
 					}
 				}
 			}
+			let handledOperatorAction = false;
 			for (const observation of operatorObservations) {
-				if (observation.sourceId !== sourceId) continue;
-				const work = discovered.get(observation.workKey);
+				const resolved = resolveOperatorAction(observation);
+				if (resolved === undefined) continue;
+				const work = discovered.get(resolved.workKey);
 				if (work === undefined) continue;
-				const {
-					sourceId: _sourceId,
-					workKey: _workKey,
-					...action
-				} = observation;
-				await options.runtime.operatorAction?.({ work, ...action });
+				const { sourceId: _sourceId, workKey: _workKey, ...action } = resolved;
+				await options.runtime.operatorAction?.({
+					work,
+					...action,
+					timestamp: observation.timestamp,
+				});
+				handledOperatorAction = true;
 			}
+			if (handledOperatorAction)
+				pendingWakes.push({
+					delayMs: 0,
+					reason: "reconcile after Operator action",
+				});
 			const cancelledIds = new Set<string>();
 			if (found !== undefined) {
-				const next = new Map<string, PlotExtensionWork>();
+				const next = new Map<string, ExtensionWork>();
 				for (const work of found) {
 					const key = workKeyForExtensionWork(options.extension, work);
 					if (completedSinceReconcile.has(key)) continue;
@@ -486,9 +528,7 @@ export const makePlotExtensionSourceBundle = (options: {
 		},
 	};
 
-	const startAction: PlotExtensionSourceBundle["startAction"] = async (
-		input,
-	) => {
+	const startAction: ExtensionSource["startAction"] = async (input) => {
 		if (
 			[...actions.values()].some(
 				(action) => action.requirementId === input.requirementId,
@@ -501,10 +541,14 @@ export const makePlotExtensionSourceBundle = (options: {
 		const state = currentSource.requirements.find(
 			(candidate) => candidate.id === input.requirementId,
 		);
+		const selected =
+			state?.status === "action-required"
+				? state.actions.find((candidate) => candidate.id === input.actionId)
+				: undefined;
 		if (
 			action === undefined ||
-			state?.status !== "action-required" ||
-			!state.actions.some((candidate) => candidate.id === input.actionId)
+			selected === undefined ||
+			selected.disabledReason !== undefined
 		)
 			return { accepted: false };
 		const actionRunId = `source-action-${randomUUID()}`;
@@ -574,6 +618,7 @@ export const makePlotExtensionSourceBundle = (options: {
 			action.controller.abort();
 			return true;
 		},
+		resolveOperatorAction,
 		createOptions: async (context) => {
 			const work = extensionWork(context.work);
 			const customTools = options.runtime.tools?.length

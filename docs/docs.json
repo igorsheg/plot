@@ -8,6 +8,7 @@
 				{ "title": "Agent guide", "path": "guide.md" },
 				{ "title": "Workflows", "path": "workflows.md" },
 				{ "title": "Extensions", "path": "extensions.md" },
+				{ "title": "Programmatic Plot", "path": "programmatic.md" },
 				{ "title": "CLI", "path": "cli.md" },
 				{ "title": "TUI", "path": "tui.md" },
 				{ "title": "Fleet Web Console", "path": "web.md" }

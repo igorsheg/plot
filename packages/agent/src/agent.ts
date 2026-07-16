@@ -4,7 +4,7 @@ import type {
 	Completion,
 	Diagnostic,
 	OperatorObservation,
-	PlotAgentEvent,
+	AgentEvent,
 	WakeRequest,
 	SourceWorkRecord,
 	TickResult,
@@ -12,6 +12,7 @@ import type {
 	WorkRecord,
 	WorkRun,
 } from "./model.js";
+import type { WorkflowConfig } from "@plot/sdk";
 import type { WorkRunner } from "./work-runner.js";
 import type { SourceActiveRun, WorkSource } from "./work-source.js";
 
@@ -44,7 +45,7 @@ type AgentLifecycle =
 	| { readonly state: "stopping"; readonly done: Promise<void> }
 	| { readonly state: "stopped" };
 
-export interface PlotAgent {
+export interface Agent {
 	readonly start: () => Promise<void>;
 	readonly tickOnce: () => Promise<TickResult>;
 	readonly offerOperatorObservation: (
@@ -54,15 +55,10 @@ export interface PlotAgent {
 	readonly shutdown: () => Promise<void>;
 }
 
-export interface PlotAgentOptions {
+export interface AgentOptions extends WorkflowConfig {
 	readonly source: WorkSource;
 	readonly runner: WorkRunner;
-	readonly event: (event: PlotAgentEvent) => unknown | Promise<unknown>;
-	/** Scheduler poll cadence. Default: 30s. */
-	readonly tickIntervalMs?: number | undefined;
-	readonly maxRunDurationMs?: number | undefined;
-	/** Interrupt a run after this much time with no reported activity. */
-	readonly stallTimeoutMs?: number | undefined;
+	readonly event: (event: AgentEvent) => unknown | Promise<unknown>;
 }
 
 const positive = (
@@ -144,7 +140,7 @@ const abortable = async <A>(
 	}
 };
 
-export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
+export const createAgent = (options: AgentOptions): Agent => {
 	const source = options.source;
 	const sourceId = source.initial.sourceId;
 	const maxConcurrentRuns = positive(
@@ -180,7 +176,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 	const pendingObservations: OperatorObservation[] = [];
 	const pendingDiagnostics: Diagnostic[] = [];
 	const wakeTimers = new Set<ReturnType<typeof setTimeout>>();
-	const emit = (event: PlotAgentEvent) => Promise.resolve(options.event(event));
+	const emit = (event: AgentEvent) => Promise.resolve(options.event(event));
 	const requestTick = () => {
 		if (lifecycle.state !== "running") return;
 		tickRequested = true;
@@ -483,7 +479,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 		}
 	};
 
-	const api: PlotAgent = {
+	const api: Agent = {
 		start: async () => {
 			if (lifecycle.state === "running") return;
 			if (lifecycle.state !== "new")
@@ -529,10 +525,7 @@ export const makePlotAgent = (options: PlotAgentOptions): PlotAgent => {
 					record.controller.abort();
 					await finish(
 						record,
-						interrupted(
-							record.run,
-							"work run interrupted by plot agent shutdown",
-						),
+						interrupted(record.run, "work run interrupted by agent shutdown"),
 					);
 				}
 				lifecycle = { state: "stopped" };

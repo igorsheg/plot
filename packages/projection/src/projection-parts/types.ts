@@ -1,3 +1,16 @@
+import type { WorkflowConfig, WorkflowExtensionOptions } from "@plot/sdk";
+import type { OperatorAction } from "@plot/sdk/work-contract";
+import type {
+	AgentRunStage,
+	AgentRunState,
+	CompletedWorkState,
+	ObservedWorkItemState,
+	ObservedWorkStatus,
+	SourceActionState,
+	SourceRequirementState,
+	SourceState,
+	UsageTotals as RuntimeUsageTotals,
+} from "@plot/sdk/runtime-contract";
 import type { RuntimeEvent } from "@plot/session/runtime";
 
 export type ProjectableEvent = RuntimeEvent;
@@ -15,18 +28,8 @@ export type DashboardStatus =
 	| "paused"
 	| "stopped"
 	| "error";
-export type WorkStatus =
-	| "pending"
-	| "waiting"
-	| "running"
-	| "blocked"
-	| "draining";
-export type AttemptStage =
-	| "starting"
-	| "working"
-	| "verifying"
-	| "finishing"
-	| "failed";
+export type WorkStatus = ObservedWorkStatus;
+export type AttemptStage = AgentRunStage;
 export type ActivityKind =
 	| "think"
 	| "read"
@@ -40,7 +43,10 @@ export type ActivityKind =
 export type ActivityTone = "ok" | "bad" | "info";
 export type WorkCheck = "not-run" | "running" | "passed" | "failed";
 
-export interface RuntimeIdentityProjection {
+export interface RuntimeIdentityProjection
+	extends
+		Pick<WorkflowConfig, "tickIntervalMs" | "maxRunDurationMs">,
+		Pick<WorkflowExtensionOptions, "maxConcurrentRuns"> {
 	readonly cwdName: string;
 	readonly cwd: string;
 	readonly workflowPath?: string | undefined;
@@ -49,9 +55,6 @@ export interface RuntimeIdentityProjection {
 	readonly thinking?: string | undefined;
 	readonly skills: readonly string[];
 	readonly skillPaths: readonly string[];
-	readonly tickIntervalMs?: number | undefined;
-	readonly maxConcurrentRuns?: number | undefined;
-	readonly maxRunDurationMs?: number | undefined;
 }
 export interface PhaseEntry {
 	readonly kind: ActivityKind;
@@ -89,66 +92,27 @@ export interface AgentTranscriptReference {
 	readonly id?: string | undefined;
 	readonly path?: string;
 }
-export type SourceReadiness =
-	| "checking"
-	| "ready"
-	| "action-required"
-	| "unavailable";
-export interface SourceRequirementProjection {
-	readonly id: string;
-	readonly label: string;
-	readonly status: SourceReadiness;
-	readonly message?: string | undefined;
-	readonly retryAfterMs?: number | undefined;
-	readonly actions?: readonly unknown[] | undefined;
-}
-export interface SourceActionProjection {
-	readonly actionRunId: string;
-	readonly requirementId: string;
-	readonly actionId: string;
-	readonly status: "running" | "failed" | "cancelled";
-	readonly progress?: string | undefined;
-}
-export interface SourceProjection {
-	readonly sourceId: string;
-	readonly label: string;
-	readonly readiness: SourceReadiness;
-	readonly message?: string | undefined;
-	readonly requirements: readonly SourceRequirementProjection[];
+export type { SourceReadiness } from "@plot/sdk/runtime-contract";
+export type SourceRequirementProjection = SourceRequirementState;
+export type SourceActionProjection = SourceActionState;
+export interface SourceProjection extends SourceState {
 	readonly diagnostics: readonly string[];
-	readonly action?: SourceActionProjection | undefined;
 }
-export interface WorkItemProjection {
-	readonly workKey: string;
-	readonly sourceId: string;
-	readonly subject?: string | undefined;
+export interface WorkItemProjection extends ObservedWorkItemState {
 	readonly primary?: string | undefined;
-	readonly title: string;
-	readonly subtitle?: string | undefined;
-	readonly url?: string | undefined;
-	readonly version?: string | undefined;
-	readonly labels: readonly string[];
-	readonly status: WorkStatus;
-	readonly blockedReason?: string | undefined;
-	readonly operatorActions?: readonly unknown[] | undefined;
+	readonly operatorActions?: readonly OperatorAction[] | undefined;
 	readonly currentRunId?: string | undefined;
 }
-export interface AgentAttemptProjection {
+export interface AgentAttemptProjection extends AgentRunState {
 	readonly runId: string;
-	readonly workKey: string;
-	readonly sourceId: string;
 	readonly subject?: string | undefined;
-	readonly stage: AttemptStage;
 	readonly startedAtSeq: number;
 	readonly lastEventSeq: number;
 	readonly startedAtMs?: number;
 	readonly lastEventAtMs?: number;
-	readonly turnCount: number;
-	readonly eventCount: number;
 	readonly meaningfulCount: number;
 	readonly toolUpdateCount: number;
 	readonly messageCount: number;
-	readonly activity: string;
 	readonly activityKind: ActivityKind;
 	readonly streaming: boolean;
 	readonly lastDisplay: string;
@@ -165,15 +129,9 @@ export interface AgentAttemptProjection {
 	readonly usageKeys?: readonly string[] | undefined;
 	readonly transcript?: AgentTranscriptReference | undefined;
 }
-export interface CompletedWorkProjection {
-	readonly workKey: string;
+export interface CompletedWorkProjection extends CompletedWorkState {
 	readonly runId?: string | undefined;
-	readonly label: string;
-	readonly status: string;
-	readonly message: string;
 	readonly atMs: number;
-	readonly durationMs?: number | undefined;
-	readonly url?: string | undefined;
 	readonly labels?: readonly string[] | undefined;
 	readonly tokens?: TokenUsageProjection | undefined;
 }
@@ -195,10 +153,7 @@ export interface LoopPulse {
 	readonly found: number;
 	readonly started: number;
 }
-export interface UsageTotals {
-	readonly tokens: number;
-	readonly cost?: number | undefined;
-}
+export type UsageTotals = RuntimeUsageTotals;
 export interface TokenSample {
 	readonly atMs: number;
 	readonly tokens: number;

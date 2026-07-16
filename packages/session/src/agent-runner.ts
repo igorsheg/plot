@@ -9,7 +9,7 @@ import type { WorkResult } from "@plot/agent/model";
 import type { WorkRunner, WorkRunnerContext } from "@plot/agent/work-runner";
 import { Eta } from "eta";
 
-export interface PiAgentSessionPort {
+export interface AgentSession {
 	readonly subscribe: (
 		listener: (event: AgentSessionEvent) => void,
 	) => () => void;
@@ -19,23 +19,23 @@ export interface PiAgentSessionPort {
 	readonly sessionId?: string | undefined;
 }
 
-export const transcriptEventType = "plot_transcript";
+export const transcriptEventType = "agent_transcript";
 
-export interface PiAgentSessionRunOptions {
+export interface AgentSessionRunOptions {
 	readonly cwd?: string | undefined;
 	readonly customTools?: ToolDefinition[] | undefined;
 }
 
-export type CreatePiAgentSession = (
-	perRun: PiAgentSessionRunOptions,
-) => Promise<{ readonly session: PiAgentSessionPort }>;
+export type CreateAgentSession = (
+	perRun: AgentSessionRunOptions,
+) => Promise<{ readonly session: AgentSession }>;
 
-export interface PiWorkRunnerConfig {
-	readonly createAgentSession: CreatePiAgentSession;
+export interface RunnerConfig {
+	readonly createAgentSession: CreateAgentSession;
 	readonly prompt: string;
 	readonly create: (
 		context: WorkRunnerContext,
-	) => Promise<PiAgentSessionRunOptions>;
+	) => Promise<AgentSessionRunOptions>;
 	readonly maxTurns: number;
 	readonly onEvent: (input: {
 		readonly context: WorkRunnerContext;
@@ -71,15 +71,15 @@ Continuation guidance:
 `;
 
 async function* promptSession(input: {
-	readonly createAgentSession: CreatePiAgentSession;
-	readonly create: PiAgentSessionRunOptions;
+	readonly createAgentSession: CreateAgentSession;
+	readonly create: AgentSessionRunOptions;
 	readonly prompt: string;
 	readonly signal: AbortSignal;
 	readonly maxTurns: number;
 	readonly shouldContinue: WorkRunnerContext["shouldContinue"];
 }): AsyncIterable<AgentSessionEvent> {
 	const queue = new AsyncQueue<AgentSessionEvent>(256);
-	let session: PiAgentSessionPort | undefined;
+	let session: AgentSession | undefined;
 	let unsubscribe: (() => void) | undefined;
 	let disposed = false;
 	const abort = () => queue.fail(new Error("agent session interrupted"));
@@ -131,7 +131,7 @@ async function* promptSession(input: {
 	}
 }
 
-export const makePiWorkRunner = (config: PiWorkRunnerConfig): WorkRunner => ({
+export const createAgentRunner = (config: RunnerConfig): WorkRunner => ({
 	run: async (context): Promise<WorkResult> => {
 		const prompt = eta.renderString(config.prompt, promptData(context));
 		for await (const event of promptSession({

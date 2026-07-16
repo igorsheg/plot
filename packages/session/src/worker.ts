@@ -1,15 +1,15 @@
 import {
 	parseBoundaryErrorRecord,
-	PlotBoundaryError,
+	BoundaryError,
 	toBoundaryErrorRecord,
 	type BoundaryErrorRecord,
 } from "@plot/common/boundary-error";
 import { isRecord } from "@plot/common/primitives";
+import type { SessionHost, SessionHostMetadata } from "./host.js";
 import {
-	createSessionHost,
-	type CreateSessionHostOptions,
-	type SessionHost,
-} from "./host.js";
+	createSessionHostFromFile,
+	type CreateFileSessionHostOptions,
+} from "./host-file.js";
 import {
 	decodeOperatorObservation,
 	decodeRuntimeEvent,
@@ -41,13 +41,13 @@ export type SessionWorkerCommand =
 
 export type SessionWorkerAction = SessionWorkerCommand["action"];
 
-export interface SessionWorkerReady {
+export interface SessionWorkerReady extends Pick<
+	SessionHostMetadata,
+	"workflowName" | "workflowPath" | "historyPath"
+> {
 	readonly kind: "ready";
 	readonly sessionId: string;
-	readonly workflowName: string;
-	readonly workflowPath: string;
 	readonly projectPath: string;
-	readonly historyPath: string;
 }
 
 export interface SessionWorkerEvent {
@@ -80,7 +80,7 @@ export type SessionWorkerRecord =
 	| SessionWorkerFailure
 	| SessionWorkerResult;
 
-export class SessionWorkerProtocolError extends PlotBoundaryError {
+export class SessionWorkerProtocolError extends BoundaryError {
 	override readonly name = "SessionWorkerProtocolError";
 
 	constructor(message: string, phase: "command" | "record") {
@@ -207,11 +207,11 @@ const sendWorkerRecord = (record: SessionWorkerRecord): void => {
 };
 
 export const serveSessionWorker = async (
-	options: CreateSessionHostOptions,
+	options: CreateFileSessionHostOptions,
 ): Promise<void> => {
 	let host: SessionHost;
 	try {
-		host = await createSessionHost(options);
+		host = await createSessionHostFromFile(options);
 	} catch (error) {
 		sendWorkerRecord({
 			kind: "failure",
@@ -263,7 +263,10 @@ export const serveSessionWorker = async (
 					error: toBoundaryErrorRecord(error, "session-worker-runtime"),
 				});
 			}
-			if (command.action === "shutdown") finish();
+			if (command.action === "shutdown") {
+				await new Promise<void>((resolve) => setImmediate(resolve));
+				finish();
+			}
 			return undefined;
 		});
 		commands.catch(finish);

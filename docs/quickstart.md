@@ -17,11 +17,11 @@ Plot begins with a real Source. This minimal Extension turns `.todo` files into 
 ```ts
 import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { definePlotExtension, defineTool } from "plot-ai/sdk";
+import { defineExtension, defineTool } from "plot-ai/sdk";
 
 const directory = join(process.cwd(), "todos");
 
-export default definePlotExtension({
+export default defineExtension({
 	id: "todo-files",
 	create() {
 		return {
@@ -94,7 +94,7 @@ plot stop WORKFLOW.md    # explicit shutdown
 
 ## Reuse one Extension
 
-Create another Workflow with the same `extension.source` but a different Extension `config`, prompt, model, or runtime policy. Plot treats it as a separate Workflow, so both may have an Active Plot Session concurrently.
+Create another Workflow with the same `extension.source` but a different Extension `config`, prompt, model, or runtime policy. Plot treats it as a separate Workflow, so both may have an Active Session concurrently.
 
 ## State
 

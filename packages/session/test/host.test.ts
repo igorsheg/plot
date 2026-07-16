@@ -6,11 +6,11 @@ import type {
 	AgentSessionEvent,
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import { createSessionHost } from "../src/host.js";
+import { createSessionHostFromFile as createSessionHost } from "../src/host-file.js";
 import { sessionEventLogPath } from "../src/paths.js";
-import type { PiAgentSessionPort } from "../src/pi-runner.js";
+import type { AgentSession } from "../src/agent-runner.js";
 
-class FakePiSession implements PiAgentSessionPort {
+class FakeAgentSession implements AgentSession {
 	readonly listeners = new Set<(event: AgentSessionEvent) => void>();
 	readonly prompts: string[] = [];
 	disposed = false;
@@ -46,7 +46,7 @@ extension:
 `;
 
 const makeWorkflow = async (input?: { shutdownMarker?: string }) => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-host-"));
+	const dir = await mkdtemp(join(tmpdir(), "session-host-"));
 	tempDirs.push(dir);
 	await writeFile(
 		join(dir, "extension.ts"),
@@ -102,7 +102,7 @@ describe("host composition", () => {
 
 	test("wires a Source-driven Workflow into continuous execution", async () => {
 		const cwd = await makeWorkflow();
-		const session = new FakePiSession();
+		const session = new FakeAgentSession();
 		const host = await createSessionHost({
 			cwd,
 			sessionId: "host-test",
@@ -126,7 +126,7 @@ describe("host composition", () => {
 	});
 
 	test("one Extension serves differently configured Workflows concurrently", async () => {
-		const cwd = await mkdtemp(join(tmpdir(), "plot-host-shared-"));
+		const cwd = await mkdtemp(join(tmpdir(), "session-host-shared-"));
 		tempDirs.push(cwd);
 		await writeFile(
 			join(cwd, "extension.ts"),
@@ -140,11 +140,11 @@ describe("host composition", () => {
 		);
 		await Promise.all([
 			writeFile(join(cwd, "acme.md"), sharedWorkflow("acme", "acme:1", "acme")),
-			writeFile(join(cwd, "plot.md"), sharedWorkflow("plot", "plot:1", "plot")),
+			writeFile(join(cwd, "beta.md"), sharedWorkflow("beta", "beta:1", "beta")),
 		]);
-		const acmeSession = new FakePiSession();
-		const plotSession = new FakePiSession();
-		const [acme, plot] = await Promise.all([
+		const acmeSession = new FakeAgentSession();
+		const betaSession = new FakeAgentSession();
+		const [acme, beta] = await Promise.all([
 			createSessionHost({
 				cwd,
 				workflowPath: "acme.md",
@@ -153,25 +153,25 @@ describe("host composition", () => {
 			}),
 			createSessionHost({
 				cwd,
-				workflowPath: "plot.md",
-				sessionId: "plot",
-				createAgentSession: async () => ({ session: plotSession }),
+				workflowPath: "beta.md",
+				sessionId: "beta",
+				createAgentSession: async () => ({ session: betaSession }),
 			}),
 		]);
 
-		await Promise.all([acme.runtime.start(), plot.runtime.start()]);
-		await Promise.all([acme.runtime.tickOnce(), plot.runtime.tickOnce()]);
+		await Promise.all([acme.runtime.start(), beta.runtime.start()]);
+		await Promise.all([acme.runtime.tickOnce(), beta.runtime.tickOnce()]);
 		await Bun.sleep(0);
 
 		expect(acmeSession.prompts).toEqual(["acme"]);
-		expect(plotSession.prompts).toEqual(["plot"]);
-		await Promise.all([acme.shutdown(), plot.shutdown()]);
+		expect(betaSession.prompts).toEqual(["beta"]);
+		await Promise.all([acme.shutdown(), beta.shutdown()]);
 	});
 
 	test("a running Session keeps its loaded Workflow until restart", async () => {
 		const cwd = await makeWorkflow();
 		const workflowPath = join(cwd, "WORKFLOW.md");
-		const firstSession = new FakePiSession();
+		const firstSession = new FakeAgentSession();
 		const first = await createSessionHost({
 			cwd,
 			sessionId: "before-edit",
@@ -198,7 +198,7 @@ Edited {{ message }}
 		expect(firstSession.prompts).toEqual(["hello"]);
 		await first.shutdown();
 
-		const secondSession = new FakePiSession();
+		const secondSession = new FakeAgentSession();
 		const second = await createSessionHost({
 			cwd,
 			sessionId: "after-edit",
@@ -212,12 +212,12 @@ Edited {{ message }}
 	});
 
 	test("shutdown closes the loaded Extension", async () => {
-		const marker = join(tmpdir(), `plot-host-marker-${crypto.randomUUID()}`);
+		const marker = join(tmpdir(), `session-host-marker-${crypto.randomUUID()}`);
 		const cwd = await makeWorkflow({ shutdownMarker: marker });
 		const host = await createSessionHost({
 			cwd,
 			sessionId: "shutdown",
-			createAgentSession: async () => ({ session: new FakePiSession() }),
+			createAgentSession: async () => ({ session: new FakeAgentSession() }),
 		});
 		await host.runtime.start();
 		await host.shutdown();

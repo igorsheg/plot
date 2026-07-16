@@ -1,0 +1,29 @@
+{
+	"name": "@plot/runtime",
+	"private": true,
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"import": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "oxlint . --tsconfig tsconfig.json",
+		"test": "bun test test",
+		"build:runtime": "rm -rf dist && bun build src/index.ts --target=node --format=esm --external @earendil-works/pi-coding-agent --external @plot/sdk --outfile=dist/index.js && tsc -p tsconfig.runtime.json && perl -pi -e 's|\"\\@plot/sdk/runtime-contract\"|\"./runtime-contract.js\"|g; s|\"\\@plot/sdk\"|\"./sdk.js\"|g' dist/index.js dist/index.d.ts dist/observation.d.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "0.80.6",
+		"@plot/agent": "workspace:*",
+		"@plot/common": "workspace:*",
+		"@plot/projection": "workspace:*",
+		"@plot/sdk": "workspace:*",
+		"@plot/session": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/tsconfig": "workspace:*"
+	}
+}

@@ -2,8 +2,8 @@
 import { errorMessage } from "@plot/common/primitives";
 import { serveSessionWorker } from "@plot/session/worker";
 import { runSessionManagerDaemon } from "@plot/session-manager/ipc";
-import { runPlotCli } from "./cli.js";
-import { plotProcessIdentity, resolvePlotCommand } from "./plot-command.js";
+import { runCli } from "./cli.js";
+import { processIdentity, resolveCommand } from "./command.js";
 
 const args = process.argv.slice(2);
 
@@ -29,8 +29,8 @@ const runInternal = (): Promise<void> | undefined => {
 	}
 	if (args[0] !== "__internal-session-manager") return;
 	const managerDir = valueAfter("--manager-dir");
-	const cli = resolvePlotCommand();
-	const identity = plotProcessIdentity(cli);
+	const cli = resolveCommand();
+	const identity = processIdentity(cli);
 	if (managerDir === undefined)
 		return runSessionManagerDaemon({ cli, identity });
 	return runSessionManagerDaemon({ cli, identity, managerDir });
@@ -39,7 +39,7 @@ const runInternal = (): Promise<void> | undefined => {
 const main = async (): Promise<void> => {
 	const internal = runInternal();
 	if (internal !== undefined) await internal;
-	else process.exitCode = await runPlotCli(args);
+	else process.exitCode = await runCli(args);
 };
 
 void main().catch((error) => {

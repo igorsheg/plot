@@ -103,7 +103,7 @@ defineStoreContract("memory", async () => ({
 }));
 
 defineStoreContract("file", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-session-store-"));
+	const dir = await mkdtemp(join(tmpdir(), "session-store-"));
 	return {
 		store: createFileSessionStore(join(dir, "sessions.json")),
 		cleanup: () => rm(dir, { recursive: true, force: true }),
@@ -111,7 +111,7 @@ defineStoreContract("file", async () => {
 });
 
 test("file store rejects content with no complete summary", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-session-store-invalid-"));
+	const dir = await mkdtemp(join(tmpdir(), "session-store-invalid-"));
 	const path = join(dir, "sessions.json");
 	try {
 		await writeFile(path, '[{"id":"broken"');

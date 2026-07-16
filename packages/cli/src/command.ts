@@ -1,17 +1,15 @@
 import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
 import { basename } from "node:path";
+import type { ProcessCommand } from "@plot/session-manager/session-process";
 import { VERSION } from "./package.js";
 
-export interface PlotCommand {
-	readonly command: string;
-	readonly args: readonly string[];
-}
+export type Command = ProcessCommand;
 
 const sourceEntry = (value: string | undefined): string | undefined =>
 	value !== undefined && /\.[cm]?[jt]sx?$/.test(value) ? value : undefined;
 
-export const resolvePlotCommand = (): PlotCommand => {
+export const resolveCommand = (): Command => {
 	const script = sourceEntry(process.argv[1]);
 	const isBun = basename(process.execPath) === "bun";
 	return {
@@ -20,7 +18,7 @@ export const resolvePlotCommand = (): PlotCommand => {
 	};
 };
 
-export const plotProcessIdentity = (command: PlotCommand): string => {
+export const processIdentity = (command: Command): string => {
 	const files = [command.command, ...command.args].map((path) => {
 		try {
 			const stat = statSync(path);

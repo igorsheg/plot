@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { createExtensionCredentials } from "../src/extension-credentials.js";
 import type { SessionPaths } from "../src/paths.js";
-import type { WorkflowDefinition } from "../src/workflow.js";
+import type { LoadedWorkflow } from "../src/workflow.js";
 
 const pathsFor = (root: string): SessionPaths => ({
 	cwd: root,
@@ -16,7 +16,7 @@ const pathsFor = (root: string): SessionPaths => ({
 	promptsDir: join(root, ".plot", "prompts"),
 });
 
-const workflow = (path: string): WorkflowDefinition => ({
+const workflow = (path: string): LoadedWorkflow => ({
 	path,
 	config: {},
 	runtime: {
@@ -27,7 +27,7 @@ const workflow = (path: string): WorkflowDefinition => ({
 });
 
 test("extension credentials are workflow-scoped and permission-restricted", async () => {
-	const root = await mkdtemp(join(tmpdir(), "plot-credentials-"));
+	const root = await mkdtemp(join(tmpdir(), "extension-credentials-"));
 	const paths = pathsFor(root);
 	const first = createExtensionCredentials({
 		extensionId: "jira",

@@ -113,8 +113,8 @@ interface CliHost {
   readonly stderr: (text: string) => void;
   readonly auth: SessionAuth;
   readonly sessions: () => Promise<SessionManagerClient>;
-  readonly runTui: (options: PlotTuiOptions) => Promise<void>;
-  readonly startWebGateway: (options: PlotWebGatewayOptions) => Promise<WebGateway>;
+  readonly runTui: (options: TuiOptions) => Promise<void>;
+  readonly startWebGateway: (options: GatewayOptions) => Promise<WebGateway>;
   readonly openBrowser: (url: string) => void;
   readonly prompt: PromptCapability;
   readonly waitForTermination: (stop: () => void) => Promise<void>;

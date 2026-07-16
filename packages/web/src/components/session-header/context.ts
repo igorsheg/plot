@@ -4,27 +4,28 @@
  * Fixtures and the store adapter both flow through the same interface.
  */
 
+import type { RuntimeIdentityProjection, UsageTotals } from "@plot/projection";
 import type { SessionState } from "@plot/session-manager/session";
 import { createRequiredContext } from "../../lib/required-context.js";
 
-/** Cumulative usage for the Plot Session — the ledger's tally. */
-export interface SessionUsage {
-	readonly tokens: number;
-	readonly cost: number | undefined;
-}
+/** Cumulative usage for the Session — the ledger's tally. */
+export type SessionUsage = Required<UsageTotals>;
 
 /** Static Session configuration, disclosed from the kicker popover. */
-export interface SessionConfig {
-	readonly model: string | undefined;
-	readonly provider: string | undefined;
-	readonly workflow: string;
-	readonly workflowPath: string | undefined;
-	readonly cwd: string;
-	readonly skills: readonly string[];
-	readonly tickIntervalMs: number | undefined;
-	readonly maxConcurrentRuns: number | undefined;
-	readonly maxRunDurationMs: number | undefined;
-}
+export type SessionConfig = Required<
+	Pick<
+		RuntimeIdentityProjection,
+		| "model"
+		| "provider"
+		| "workflowPath"
+		| "tickIntervalMs"
+		| "maxConcurrentRuns"
+		| "maxRunDurationMs"
+	>
+> &
+	Pick<RuntimeIdentityProjection, "cwd" | "skills"> & {
+		readonly workflow: string;
+	};
 
 export interface SessionHeaderState {
 	readonly place: string;

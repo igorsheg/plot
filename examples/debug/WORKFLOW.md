@@ -1,6 +1,6 @@
 ---
 name: plot-debug-lab
-description: Three realistic long-running synthetic work streams for debugging Plot TUI and web behavior without stress-testing every edge state.
+description: Three realistic long-running synthetic work streams for debugging terminal and web behavior without stress-testing every edge state.
 version: 2.0.0
 plot:
   tickIntervalMs: 5000

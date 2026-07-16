@@ -13,6 +13,7 @@ export const docNames = [
 	"guide",
 	"workflows",
 	"extensions",
+	"programmatic",
 	"cli",
 	"tui",
 	"web",
@@ -25,7 +26,7 @@ export const isDocName = (value: string): value is DocName =>
 const firstExisting = (paths: readonly string[]): string | undefined =>
 	paths.find(existsSync);
 
-export const readPlotDoc = async (name: DocName): Promise<string> => {
+export const readDoc = async (name: DocName): Promise<string> => {
 	const file = `${name}.md`;
 	const path = firstExisting(getDocsDirs().map((dir) => join(dir, file)));
 	if (path === undefined) throw new Error(`Plot docs file not found: ${file}`);
@@ -42,7 +43,7 @@ export const readSdkReference = async (): Promise<string> => {
 		readFile(candidate.sdk, "utf8"),
 		readFile(candidate.workContract, "utf8"),
 	]);
-	return `// plot-ai/sdk — the authoritative Plot extension contract.\n// Prose semantics: plot docs extensions\n\n${sdk}\n// ${candidate.workContract.split("/").pop()}\n\n${workContract}`;
+	return `// plot-ai/sdk — the authoritative extension contract.\n// Prose semantics: plot docs extensions\n\n${sdk}\n// ${candidate.workContract.split("/").pop()}\n\n${workContract}`;
 };
 
 const entry = (label: string, value: string | undefined, note: string) =>

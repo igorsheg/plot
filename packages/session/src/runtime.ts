@@ -1,69 +1,64 @@
 import { EventHub } from "@plot/common/event-stream";
 import { isRecord } from "@plot/common/primitives";
-import { makePlotAgent, type PlotAgent } from "@plot/agent/agent";
-import type { PlotAgentEvent, SourceRecord } from "@plot/agent/model";
+import { createAgent, type Agent } from "@plot/agent/agent";
+import type { AgentEvent, SourceRecord } from "@plot/agent/model";
 import type { WorkRunner } from "@plot/agent/work-runner";
+import type { WorkflowConfig } from "@plot/sdk";
+import type { OperatorObservationInput } from "@plot/sdk/work-contract";
 import type {
-	PlotExtensionSourceBundle,
-	SourceActionEvents,
+	SourceActionInput,
 	SourceActionStartResult,
+	SourceActionState,
+} from "@plot/sdk/runtime-contract";
+import type {
+	ExtensionSource,
+	SourceActionEvents,
 } from "./extension-source.js";
-import { createSessionEventLogWriter } from "./history.js";
 
 const LIVE_EVENT_CAPACITY = 256;
 
+type SourceActionRunIdentity = Pick<SourceActionState, "actionRunId">;
+type SourceActionSourceIdentity = SourceActionRunIdentity &
+	Pick<SourceActionInput, "sourceId">;
+
 export type SessionEvent =
-	| PlotAgentEvent
+	| AgentEvent
 	| { readonly type: "session_started" }
 	| { readonly type: "session_shutdown" }
-	| {
-			readonly type: "source_action_started";
-			readonly actionRunId: string;
-			readonly sourceId: string;
-			readonly requirementId: string;
-			readonly actionId: string;
-	  }
-	| {
+	| ({ readonly type: "source_action_started" } & SourceActionRunIdentity &
+			SourceActionInput)
+	| ({
 			readonly type: "source_action_progress";
-			readonly actionRunId: string;
 			readonly message: string;
-	  }
-	| {
+	  } & SourceActionRunIdentity)
+	| ({
 			readonly type: "source_interaction_open_url";
-			readonly actionRunId: string;
 			readonly url: string;
 			readonly fallbackText?: string;
-	  }
-	| {
+	  } & SourceActionRunIdentity)
+	| ({
 			readonly type: "source_action_completed";
-			readonly actionRunId: string;
 			readonly source: SourceRecord;
-	  }
-	| {
+	  } & SourceActionRunIdentity)
+	| ({
 			readonly type: "source_action_failed";
-			readonly actionRunId: string;
-			readonly sourceId: string;
 			readonly message: string;
-	  }
-	| {
-			readonly type: "source_action_cancelled";
-			readonly actionRunId: string;
-			readonly sourceId: string;
-	  };
+	  } & SourceActionSourceIdentity)
+	| ({ readonly type: "source_action_cancelled" } & SourceActionSourceIdentity);
 
-export interface SessionEventRecord {
-	readonly kind: "session_event";
+interface RuntimeEventRecord {
 	readonly sessionId: string;
 	readonly sequence: number;
 	readonly timestamp: string;
+}
+
+export interface SessionEventRecord extends RuntimeEventRecord {
+	readonly kind: "session_event";
 	readonly event: SessionEvent;
 }
 
-export interface AgentEventRecord {
+export interface AgentEventRecord extends RuntimeEventRecord {
 	readonly kind: "agent_event";
-	readonly sessionId: string;
-	readonly sequence: number;
-	readonly timestamp: string;
 	readonly sourceId: string;
 	readonly runId: string;
 	readonly workKey: string;
@@ -71,6 +66,13 @@ export interface AgentEventRecord {
 }
 
 export type RuntimeEvent = SessionEventRecord | AgentEventRecord;
+
+export interface SessionEventStore {
+	readonly append: (event: RuntimeEvent) => Promise<void>;
+	readonly read: (after?: number) => AsyncIterable<RuntimeEvent>;
+	readonly close: () => Promise<void>;
+}
+
 type UnsequencedRuntimeEvent = Omit<RuntimeEvent, "sequence">;
 
 export type AgentEventInput = Omit<
@@ -78,23 +80,11 @@ export type AgentEventInput = Omit<
 	"kind" | "sessionId" | "sequence" | "timestamp"
 >;
 
-export interface SourceActionInput {
-	readonly sourceId: string;
-	readonly requirementId: string;
-	readonly actionId: string;
-}
-
-export type { SourceActionStartResult } from "./extension-source.js";
-
-export interface OperatorObservationInput {
-	readonly sourceId: string;
-	readonly workKey: string;
-	readonly actionId: string;
-	readonly actionLabel: string;
-	readonly comment?: string;
-	readonly clientId?: string;
-	readonly actor?: string;
-}
+export type { OperatorObservationInput } from "@plot/sdk/work-contract";
+export type {
+	SourceActionInput,
+	SourceActionStartResult,
+} from "@plot/sdk/runtime-contract";
 
 type EventOwnerLifecycle =
 	| { readonly state: "open" }
@@ -103,10 +93,10 @@ type EventOwnerLifecycle =
 
 export const makeSessionEventOwner = (input: {
 	readonly id: string;
-	readonly sessionFile: string;
+	readonly store: SessionEventStore;
 }) => {
 	const live = new EventHub<RuntimeEvent>(LIVE_EVENT_CAPACITY);
-	const history = createSessionEventLogWriter(input.sessionFile);
+	const listeners = new Set<(event: RuntimeEvent) => void>();
 	let sequence = 0;
 	let appends: Promise<unknown> = Promise.resolve();
 	let lifecycle: EventOwnerLifecycle = { state: "open" };
@@ -115,7 +105,8 @@ export const makeSessionEventOwner = (input: {
 			return Promise.reject(new Error("Session event owner is closed"));
 		const operation = appends.then(async () => {
 			const event = { ...record, sequence: ++sequence } as RuntimeEvent;
-			await history.append(event);
+			await input.store.append(event);
+			for (const listener of listeners) listener(event);
 			live.publish(event);
 			return event;
 		});
@@ -124,7 +115,11 @@ export const makeSessionEventOwner = (input: {
 	};
 	return {
 		id: input.id,
-		sessionFile: input.sessionFile,
+		store: input.store,
+		subscribe: (listener: (event: RuntimeEvent) => void) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
 		appendSessionEvent: (event: SessionEvent) =>
 			append({
 				kind: "session_event",
@@ -145,7 +140,8 @@ export const makeSessionEventOwner = (input: {
 			if (lifecycle.state === "closing") return lifecycle.done;
 			const done = (async () => {
 				await appends;
-				await history.close();
+				await input.store.close();
+				listeners.clear();
 				live.close();
 				lifecycle = { state: "closed" };
 			})();
@@ -158,14 +154,18 @@ export const makeSessionEventOwner = (input: {
 export type SessionEventOwner = ReturnType<typeof makeSessionEventOwner>;
 
 export type SessionSource = Pick<
-	PlotExtensionSourceBundle,
-	"source" | "startAction" | "cancelAction" | "shutdown"
+	ExtensionSource,
+	| "source"
+	| "startAction"
+	| "cancelAction"
+	| "resolveOperatorAction"
+	| "shutdown"
 >;
 
 export interface SessionRuntime {
 	readonly id: string;
 	readonly start: () => Promise<void>;
-	readonly tickOnce: PlotAgent["tickOnce"];
+	readonly tickOnce: Agent["tickOnce"];
 	readonly recordOperatorObservation: (
 		input: OperatorObservationInput,
 	) => boolean;
@@ -177,13 +177,10 @@ export interface SessionRuntime {
 	readonly shutdown: () => Promise<void>;
 }
 
-export interface SessionRuntimeOptions {
+export interface SessionRuntimeOptions extends WorkflowConfig {
 	readonly events: SessionEventOwner;
 	readonly source: SessionSource;
 	readonly runner: WorkRunner;
-	readonly tickIntervalMs?: number | undefined;
-	readonly maxRunDurationMs?: number | undefined;
-	readonly stallTimeoutMs?: number | undefined;
 }
 
 type RuntimeLifecycle =
@@ -196,7 +193,7 @@ export const makeSessionRuntime = (
 	options: SessionRuntimeOptions,
 ): SessionRuntime => {
 	let lifecycle: RuntimeLifecycle = { state: "new" };
-	const agent: PlotAgent = makePlotAgent({
+	const agent: Agent = createAgent({
 		source: options.source.source,
 		runner: options.runner,
 		event: options.events.appendSessionEvent,
@@ -278,8 +275,10 @@ export const makeSessionRuntime = (
 		},
 		recordOperatorObservation: (input) => {
 			assertRunning("record an operator observation");
+			const observation = options.source.resolveOperatorAction(input);
+			if (observation === undefined) return false;
 			return agent.offerOperatorObservation({
-				...input,
+				...observation,
 				timestamp: new Date().toISOString(),
 			});
 		},
@@ -356,7 +355,6 @@ export const decodeOperatorObservation = (
 		sourceId: string;
 		workKey: string;
 		actionId: string;
-		actionLabel: string;
 		comment?: string;
 		clientId?: string;
 		actor?: string;
@@ -364,7 +362,6 @@ export const decodeOperatorObservation = (
 		sourceId: text(value["sourceId"], "sourceId"),
 		workKey: text(value["workKey"], "workKey"),
 		actionId: text(value["actionId"], "actionId"),
-		actionLabel: text(value["actionLabel"], "actionLabel"),
 	};
 	for (const key of ["comment", "clientId", "actor"] as const) {
 		const field = value[key];

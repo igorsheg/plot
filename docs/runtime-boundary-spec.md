@@ -4,7 +4,7 @@ Status: implemented on 2026-07-13.
 
 ## Summary
 
-Plot's public model is intentionally small: a Workflow has at most one Active Plot Session, Plot manages that Session durably, and operators attach through the TUI or Web Console. The internal process and lifecycle boundaries must make those promises exact even when authored Extension code logs unexpectedly, commands race with shutdown, workers hang, storage fails, or the Session Manager is reached through IPC.
+Plot's public model is intentionally small: a Workflow has at most one Active Session, Plot manages that Session durably, and operators attach through the TUI or Web Console. The internal process and lifecycle boundaries must make those promises exact even when authored Extension code logs unexpectedly, commands race with shutdown, workers hang, storage fails, or the Session Manager is reached through IPC.
 
 This spec hardens seven internal contracts without adding public commands, compatibility layers, or a scheduling DSL:
 
@@ -67,9 +67,9 @@ The release build recursively copies documentation and examples with a small den
 - No public worker or Session Manager protocol.
 - No compatibility adapters for private worker or manager transports.
 - No new CLI commands or invocation-time runtime flags.
-- No hot reload of an Active Plot Session.
+- No hot reload of an Active Session.
 - No automatic continuation of an Agent Run after process loss.
-- No promise that an Active Plot Session survives a Session Manager restart.
+- No promise that an Active Session survives a Session Manager restart.
 - No sandboxing of trusted Extension code.
 - No generalized workflow engine, grant graph, or lifecycle DSL.
 - No public remote Session Manager.
@@ -88,7 +88,7 @@ The release build recursively copies documentation and examples with a small den
 
 ### Workflow lifecycle invariants
 
-1. A canonical Workflow key owns at most one Active Plot Session.
+1. A canonical Workflow key owns at most one Active Session.
 2. One ordered lifecycle slot owns start and stop transitions for that Workflow.
 3. Concurrent starts produce one worker and one `started: true` result.
 4. A stop arriving during start executes after startup reaches a terminal result; if start succeeds, that Session is stopped.
@@ -211,7 +211,7 @@ Start remains transactional:
 
 1. canonicalize the existing Workflow path;
 2. enter the Workflow lifecycle slot;
-3. reject or return an existing Active Plot Session;
+3. reject or return an existing Active Session;
 4. spawn the worker;
 5. wait for shared Workflow preparation and worker `ready`;
 6. install the live process;
@@ -339,7 +339,7 @@ Existing owner-specific errors such as `WorkflowBoundaryError` and `SessionManag
 - The worker encodes owner errors to records.
 - `SessionProcess` decodes records into typed local errors.
 - Manager IPC preserves the record unchanged.
-- The IPC client reconstructs the appropriate owner error where known and a generic `PlotBoundaryError` otherwise.
+- The IPC client reconstructs the appropriate owner error where known and a generic `BoundaryError` otherwise.
 - CLI, TUI, and Web make decisions from code/context and render message text once.
 
 Tests assert error class, code, and context. Tests do not pin full prose unless prose itself is the user-facing contract under test.
@@ -383,7 +383,7 @@ Run one small suite against memory and file stores:
 - insert and replacement by Session id;
 - Workflow aliases round-trip;
 - serialized concurrent upserts do not corrupt storage;
-- restart recovery marks only Active Plot Sessions errored;
+- restart recovery marks only Active Sessions errored;
 - terminal Sessions remain unchanged;
 - malformed/truncated file behavior matches the documented recovery policy.
 
@@ -532,6 +532,6 @@ No public CLI command or compatibility shim was added.
 
 ## Future work requiring a product decision
 
-Resuming an Active Plot Session after Session Manager or worker loss is intentionally outside this spec. Before implementing it, Plot needs a product decision defining what “durable active execution” promises across process loss.
+Resuming an Active Session after Session Manager or worker loss is intentionally outside this spec. Before implementing it, Plot needs a product decision defining what “durable active execution” promises across process loss.
 
 If that promise is adopted, recovery must be derived from durable Session History through a pure classifier. An uncertain, possibly side-effecting Agent Run must not be blindly replayed. Plot should reconcile Source facts first and decide whether work is done, continued, retried, or replaced.

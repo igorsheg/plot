@@ -64,6 +64,21 @@
       "name": "@plot/projection",
       "dependencies": {
         "@plot/common": "workspace:*",
+        "@plot/sdk": "workspace:*",
+        "@plot/session": "workspace:*",
+      },
+      "devDependencies": {
+        "@repo/tsconfig": "workspace:*",
+      },
+    },
+    "packages/runtime": {
+      "name": "@plot/runtime",
+      "dependencies": {
+        "@earendil-works/pi-coding-agent": "0.80.6",
+        "@plot/agent": "workspace:*",
+        "@plot/common": "workspace:*",
+        "@plot/projection": "workspace:*",
+        "@plot/sdk": "workspace:*",
         "@plot/session": "workspace:*",
       },
       "devDependencies": {
@@ -96,6 +111,7 @@
       "name": "@plot/session-manager",
       "dependencies": {
         "@plot/common": "workspace:*",
+        "@plot/sdk": "workspace:*",
         "@plot/session": "workspace:*",
       },
       "devDependencies": {
@@ -107,6 +123,7 @@
       "dependencies": {
         "@plot/common": "workspace:*",
         "@plot/projection": "workspace:*",
+        "@plot/sdk": "workspace:*",
         "@plot/session": "workspace:*",
         "@plot/session-manager": "workspace:*",
         "get-east-asian-width": "1.6.0",
@@ -125,6 +142,7 @@
         "@phosphor-icons/react": "^2.1.10",
         "@plot/common": "workspace:*",
         "@plot/projection": "workspace:*",
+        "@plot/sdk": "workspace:*",
         "@plot/session": "workspace:*",
         "@plot/session-manager": "workspace:*",
         "@tailwindcss/vite": "^4.3.1",
@@ -552,6 +570,8 @@
     "@plot/gateway": ["@plot/gateway@workspace:packages/gateway"],
 
     "@plot/projection": ["@plot/projection@workspace:packages/projection"],
+
+    "@plot/runtime": ["@plot/runtime@workspace:packages/runtime"],
 
     "@plot/sdk": ["@plot/sdk@workspace:packages/sdk"],
 

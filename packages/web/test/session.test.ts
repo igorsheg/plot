@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parsePlotSessions } from "../src/data/session.js";
+import { parseSessions } from "../src/data/session.js";
 
 const summary = (id: string) => ({
 	id,
@@ -16,7 +16,7 @@ const summary = (id: string) => ({
 
 describe("Web Session parser", () => {
 	test("drops invalid rows but preserves future fields", () => {
-		const sessions = parsePlotSessions({
+		const sessions = parseSessions({
 			sessions: [
 				{ ...summary("one"), fieldFromTheFuture: true },
 				{ id: "broken" },

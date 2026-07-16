@@ -36,9 +36,9 @@ Multiple Workflow files may reference the same Extension. Different files can su
 
 ## Identity and lifecycle
 
-The canonical Workflow file path identifies a Workflow. Equivalent path spellings select the same Active Plot Session. Moving the file creates a different Workflow identity; editing it does not.
+The canonical Workflow file path identifies a Workflow. Equivalent path spellings select the same Active Session. Moving the file creates a different Workflow identity; editing it does not.
 
-An Active Plot Session retains the Workflow and Extension code loaded at start. Stop and restart to apply changes. Plot does not hot-reload them.
+An Active Session retains the Workflow and Extension code loaded at start. Stop and restart to apply changes. Plot does not hot-reload them.
 
 ## Front matter
 

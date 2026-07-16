@@ -8,6 +8,10 @@
 			"types": "./src/auth.ts",
 			"import": "./src/auth.ts"
 		},
+		"./extension-credentials": {
+			"types": "./src/extension-credentials.ts",
+			"import": "./src/extension-credentials.ts"
+		},
 		"./host": {
 			"types": "./src/host.ts",
 			"import": "./src/host.ts"
@@ -15,6 +19,10 @@
 		"./history": {
 			"types": "./src/history.ts",
 			"import": "./src/history.ts"
+		},
+		"./history-memory": {
+			"types": "./src/history-memory.ts",
+			"import": "./src/history-memory.ts"
 		},
 		"./interaction": {
 			"types": "./src/interaction.ts",
@@ -24,17 +32,25 @@
 			"types": "./src/paths.ts",
 			"import": "./src/paths.ts"
 		},
-		"./pi-runner": {
-			"types": "./src/pi-runner.ts",
-			"import": "./src/pi-runner.ts"
+		"./agent-runner": {
+			"types": "./src/agent-runner.ts",
+			"import": "./src/agent-runner.ts"
 		},
-		"./pi-session": {
-			"types": "./src/pi-session.ts",
-			"import": "./src/pi-session.ts"
+		"./agent-session": {
+			"types": "./src/agent-session.ts",
+			"import": "./src/agent-session.ts"
+		},
+		"./owner": {
+			"types": "./src/owner.ts",
+			"import": "./src/owner.ts"
 		},
 		"./preparation": {
 			"types": "./src/preparation.ts",
 			"import": "./src/preparation.ts"
+		},
+		"./workflow-value": {
+			"types": "./src/workflow-value.ts",
+			"import": "./src/workflow-value.ts"
 		},
 		"./runtime": {
 			"types": "./src/runtime.ts",

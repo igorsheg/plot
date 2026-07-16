@@ -35,7 +35,6 @@ export function DecisionActions({
 			sourceId: target.sourceId,
 			workKey: target.workKey,
 			actionId: action.id,
-			actionLabel: action.label,
 		};
 		actions.act(trimmed === "" ? input : { ...input, comment: trimmed });
 		setConfirmingId(undefined);

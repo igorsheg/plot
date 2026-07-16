@@ -11,6 +11,10 @@
 		"./work-contract": {
 			"types": "./src/work-contract.ts",
 			"import": "./src/work-contract.ts"
+		},
+		"./runtime-contract": {
+			"types": "./src/runtime-contract.ts",
+			"import": "./src/runtime-contract.ts"
 		}
 	},
 	"scripts": {

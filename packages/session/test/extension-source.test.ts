@@ -10,18 +10,18 @@ import {
 	DiscoveryUnavailableError,
 	defineTool,
 	type ExtensionRequirementState,
-	type PlotExtension,
-	type PlotExtensionRuntime,
-	type PlotExtensionWork,
+	type Extension,
+	type ExtensionRuntime,
+	type ExtensionWork,
 } from "@plot/sdk";
 import {
-	makePlotExtensionSourceBundle,
+	makeExtensionSource,
 	templateContextForWork,
 	workKeyForExtensionWork,
 	type SourceActionEvents,
 } from "../src/extension-source.js";
 import type { SessionPaths } from "../src/paths.js";
-import type { WorkflowDefinition } from "../src/workflow.js";
+import type { LoadedWorkflow } from "../src/workflow.js";
 
 const paths: SessionPaths = {
 	cwd: "/tmp/project",
@@ -33,7 +33,7 @@ const paths: SessionPaths = {
 	promptsDir: "/tmp/agent/prompts",
 };
 
-const workflow: WorkflowDefinition = {
+const workflow: LoadedWorkflow = {
 	config: {},
 	runtime: {
 		agent: { provider: "test", model: "test" },
@@ -42,13 +42,13 @@ const workflow: WorkflowDefinition = {
 	prompt: "{{ work.id }}",
 };
 
-const extension: PlotExtension = {
+const extension: Extension = {
 	id: "test",
 	create: () => ({ discover: () => [] }),
 };
 
-const bundleFor = (runtime: PlotExtensionRuntime) =>
-	makePlotExtensionSourceBundle({
+const bundleFor = (runtime: ExtensionRuntime) =>
+	makeExtensionSource({
 		extension,
 		runtime,
 		workflow,
@@ -78,10 +78,7 @@ const tick = async (
 	});
 };
 
-const selected = (
-	work: PlotExtensionWork,
-	runId = "run-1",
-): SourceActiveRun => {
+const selected = (work: ExtensionWork, runId = "run-1"): SourceActiveRun => {
 	const item: WorkItem = {
 		workKey: workKeyForExtensionWork(extension, work),
 		sourceData: work,
@@ -129,7 +126,7 @@ const waitFor = async (condition: () => boolean) => {
 
 describe("Extension Source", () => {
 	test("validates discovery and returns exact Source work and dispatch", async () => {
-		const work: PlotExtensionWork = {
+		const work: ExtensionWork = {
 			id: "issue:1",
 			version: "v2",
 			title: "Issue",
@@ -247,11 +244,87 @@ describe("Extension Source", () => {
 		await bundle.shutdown();
 	});
 
+	test("admits only current Operator actions and owns their metadata", async () => {
+		const work: ExtensionWork = {
+			id: "issue:1",
+			status: "blocked",
+			operatorActions: [
+				{
+					id: "approve",
+					label: "Approve current state",
+					requiresComment: true,
+				},
+				{ id: "disabled", label: "Disabled", disabledReason: "Not now" },
+			],
+		};
+		let received:
+			| Parameters<NonNullable<ExtensionRuntime["operatorAction"]>>[0]
+			| undefined;
+		const bundle = bundleFor({
+			discover: () => [work],
+			operatorAction: (event) => {
+				received = event;
+			},
+		});
+		await tick(bundle);
+		const workKey = workKeyForExtensionWork(extension, work);
+		expect(
+			bundle.resolveOperatorAction({
+				sourceId: "extension:test",
+				workKey,
+				actionId: "approve",
+			}),
+		).toBeUndefined();
+		expect(
+			bundle.resolveOperatorAction({
+				sourceId: "extension:test",
+				workKey,
+				actionId: "disabled",
+			}),
+		).toBeUndefined();
+		const resolved = bundle.resolveOperatorAction({
+			sourceId: "extension:test",
+			workKey,
+			actionId: "approve",
+			comment: "ship it",
+		});
+		expect(resolved).toMatchObject({
+			actionId: "approve",
+			actionLabel: "Approve current state",
+			comment: "ship it",
+		});
+		if (resolved === undefined) throw new Error("action was not resolved");
+		const reconciled = await tick(bundle, {
+			operatorObservations: [
+				{
+					...resolved,
+					actionLabel: "spoofed",
+					timestamp: "2026-01-01T00:00:00.000Z",
+				},
+			],
+		});
+		expect(reconciled.wakes).toContainEqual({
+			delayMs: 0,
+			reason: "reconcile after Operator action",
+		});
+		expect(received).toMatchObject({
+			work,
+			actionId: "approve",
+			actionLabel: "Approve current state",
+			comment: "ship it",
+			timestamp: "2026-01-01T00:00:00.000Z",
+		});
+		await bundle.shutdown();
+	});
+
 	test("owns requirement action admission and completion", async () => {
 		let state: ExtensionRequirementState = {
 			status: "action-required",
 			message: "Connect",
-			actions: [{ id: "connect", label: "Connect" }],
+			actions: [
+				{ id: "disabled", label: "Disabled", disabledReason: "Not now" },
+				{ id: "connect", label: "Connect" },
+			],
 		};
 		const bundle = bundleFor({
 			requirements: [
@@ -278,6 +351,13 @@ describe("Extension Source", () => {
 		});
 		await tick(bundle);
 		const observed = events();
+		expect(
+			await bundle.startAction({
+				requirementId: "auth",
+				actionId: "disabled",
+				events: observed.callbacks,
+			}),
+		).toEqual({ accepted: false });
 		const accepted = await bundle.startAction({
 			requirementId: "auth",
 			actionId: "connect",

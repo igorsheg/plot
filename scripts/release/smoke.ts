@@ -93,8 +93,9 @@ try {
 	assertUsageFailure(plot, ["wat"], "Unknown command: wat");
 	assertUsageFailure(plot, ["docs", "wat"], "Unknown docs topic: wat");
 	runPlot(plot, ["docs", "cli"]);
-	await assertLoggingWorkerIpc(plot);
-	await $`node --input-type=module -e ${"import { definePlotExtension } from 'plot-ai/sdk'; if (typeof definePlotExtension !== 'function') process.exit(1);"}`.cwd(
+	await assertLoggingWorkerIpc(join(platformRoot, "bin", "plot"));
+	await assertProgrammaticRuntime();
+	await $`node --input-type=module -e ${"import { defineExtension } from 'plot-ai/sdk'; if (typeof defineExtension !== 'function') process.exit(1);"}`.cwd(
 		tempDir,
 	);
 } finally {
@@ -125,6 +126,71 @@ async function assertPackagePayload(root: string): Promise<void> {
 		throw new Error(
 			`release docs do not match docs.json: ${JSON.stringify([...actualDocs])}`,
 		);
+}
+
+async function assertProgrammaticRuntime(): Promise<void> {
+	const cwd = join(tempDir, "programmatic");
+	const programmaticHome = join(tempDir, "programmatic-home");
+	mkdirSync(join(cwd, ".plot"), { recursive: true });
+	writeFileSync(join(cwd, "WORKFLOW.md"), "not a valid Workflow");
+	writeFileSync(join(cwd, ".plot", "settings.json"), "not json");
+	const script = join(cwd, "run.mjs");
+	writeFileSync(
+		script,
+		`import { createPlot } from "plot-ai";
+import { defineExtension, defineWorkflow } from "plot-ai/sdk";
+
+const extension = defineExtension({
+  id: "release-programmatic",
+  create: () => ({ discover: () => [] }),
+});
+const workflow = defineWorkflow({
+  name: "release-programmatic",
+  agent: { provider: "anthropic", model: "claude-sonnet-4-6" },
+  resources: { systemPrompt: "./literal-not-a-file.md" },
+  extension: { use: extension },
+  plot: { tickIntervalMs: 60000 },
+  prompt: "No work",
+});
+const plot = await createPlot({
+  cwd: ${JSON.stringify(cwd)},
+  credentials: { anthropic: { type: "api-key", apiKey: "release-test" } },
+});
+const session = await plot.start(workflow);
+const observation = session.observe();
+try {
+  if (observation.getSnapshot().status !== "idle") {
+    await Promise.race([
+      new Promise((resolve) => {
+        const unsubscribe = observation.subscribe(() => {
+          if (observation.getSnapshot().status !== "idle") return;
+          unsubscribe();
+          resolve();
+        });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("automatic tick timed out")), 5000)),
+    ]);
+  }
+  if (await session.performOperatorAction({ sourceId: "missing", workKey: "missing", actionId: "missing" }))
+    throw new Error("stale Operator action was accepted");
+  if ((await session.startSourceAction({ sourceId: "missing", requirementId: "missing", actionId: "missing" })).accepted)
+    throw new Error("stale Source action was accepted");
+  if (await session.cancelSourceAction("missing"))
+    throw new Error("unknown Source action was cancelled");
+} finally {
+  observation.close();
+  await plot.dispose();
+}
+`,
+	);
+	await $`node ${script}`.cwd(cwd).env({
+		...process.env,
+		HOME: programmaticHome,
+	});
+	if (existsSync(join(cwd, ".plot", "sessions")))
+		throw new Error("programmatic runtime created Session History");
+	if (existsSync(join(programmaticHome, ".plot")))
+		throw new Error("programmatic runtime read or created CLI state");
 }
 
 async function assertLoggingWorkerIpc(plot: string): Promise<void> {

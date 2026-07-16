@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import { hasErrnoCode, isRecord } from "@plot/common/primitives";
 import { jsonlLines, parseJsonl } from "@plot/common/jsonl";
 
-/** One display block of an Agent Transcript, flattened from pi's session store. */
+/** One display block flattened from an Agent Transcript. */
 export interface TranscriptEntry {
 	readonly at?: string | undefined;
 	readonly role: "user" | "assistant" | "tool";
@@ -56,7 +56,7 @@ const blockEntry = (
 	return undefined;
 };
 
-/** Read a pi transcript file into display entries (empty when missing). */
+/** Read an Agent Transcript into display entries (empty when missing). */
 export const readAgentTranscript = async (
 	path: string,
 ): Promise<readonly TranscriptEntry[]> => {

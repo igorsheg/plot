@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { parseWorkflowText } from "../src/workflow.js";
@@ -9,10 +9,11 @@ const examplesDir = resolve(import.meta.dir, "../../../examples");
 
 const exampleWorkflows = readdirSync(examplesDir)
 	.filter((name) => statSync(join(examplesDir, name)).isDirectory())
-	.map((name) => join(examplesDir, name, "WORKFLOW.md"));
+	.map((name) => join(examplesDir, name, "WORKFLOW.md"))
+	.filter(existsSync);
 
 describe("shipped example workflows", () => {
-	test("every example directory has a WORKFLOW.md", () => {
+	test("ships file-backed Workflow examples", () => {
 		expect(exampleWorkflows.length).toBeGreaterThan(0);
 	});
 

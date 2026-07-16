@@ -53,6 +53,7 @@ writeFileSync(
 				noUnusedLocals: false,
 				noUnusedParameters: false,
 				paths: {
+					"plot-ai": [join(repoDir, "packages/runtime/src/index.ts")],
 					"plot-ai/sdk": [join(repoDir, "packages/sdk/src/sdk.ts")],
 				},
 			},

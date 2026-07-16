@@ -16,6 +16,7 @@
 	},
 	"dependencies": {
 		"@plot/common": "workspace:*",
+		"@plot/sdk": "workspace:*",
 		"@plot/session": "workspace:*"
 	},
 	"devDependencies": {

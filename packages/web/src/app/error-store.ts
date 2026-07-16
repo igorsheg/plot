@@ -6,7 +6,7 @@ import { actionError } from "./actions-store.js";
 const errorText = (caught: unknown): string =>
 	caught instanceof Error ? caught.message : String(caught);
 
-export const $plotError = computed(
+export const $applicationError = computed(
 	[$sessionsQuery, $projectionBaselineQuery, actionError],
 	(sessions, projection, action): string | undefined =>
 		sessions.error !== undefined

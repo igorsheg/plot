@@ -12,6 +12,7 @@ export const cliEntrypoint = join(repoDir, "packages/cli/src/main.ts");
 export const cliTsconfig = join(repoDir, "packages/cli/tsconfig.json");
 export const npmPackageDir = join(repoDir, "packages/npm/plot-ai");
 export const sessionPackageDir = join(repoDir, "packages/session");
+export const runtimePackageDir = join(repoDir, "packages/runtime");
 export const sdkPackageDir = join(repoDir, "packages/sdk");
 
 export const packageTemplate = readJson(
@@ -28,6 +29,7 @@ export const packageTemplate = readJson(
 	engines: { node: string };
 	publishConfig?: { access?: string };
 	exports?: Record<string, unknown>;
+	dependencies?: Record<string, string>;
 };
 
 export const version = process.env["PLOT_VERSION"] ?? packageTemplate.version;

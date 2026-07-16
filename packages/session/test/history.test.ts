@@ -6,6 +6,7 @@ import {
 	createSessionEventLogWriter,
 	readSessionEvents,
 } from "../src/history.js";
+import { createMemorySessionEventStore } from "../src/history-memory.js";
 import type { RuntimeEvent } from "../src/runtime.js";
 
 const event = (): RuntimeEvent => ({
@@ -17,7 +18,7 @@ const event = (): RuntimeEvent => ({
 });
 
 test("session event replay skips structurally invalid records", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-history-replay-"));
+	const dir = await mkdtemp(join(tmpdir(), "history-replay-"));
 	const path = join(dir, "events.jsonl");
 	await writeFile(
 		path,
@@ -29,7 +30,7 @@ test("session event replay skips structurally invalid records", async () => {
 });
 
 test("session history retains every sequenced event", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-history-complete-"));
+	const dir = await mkdtemp(join(tmpdir(), "history-complete-"));
 	const path = join(dir, "events.jsonl");
 	const agentEvent: RuntimeEvent = {
 		kind: "agent_event",
@@ -50,7 +51,7 @@ test("session history retains every sequenced event", async () => {
 });
 
 test("session event log writer rejects existing logs", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-history-existing-"));
+	const dir = await mkdtemp(join(tmpdir(), "history-existing-"));
 	const path = join(dir, "events.jsonl");
 	const first = createSessionEventLogWriter(path);
 	await first.append(event());
@@ -62,8 +63,21 @@ test("session event log writer rejects existing logs", async () => {
 	});
 });
 
+test("memory event store replays a suffix and closes admission", async () => {
+	const store = createMemorySessionEventStore(2);
+	const first = event();
+	const second = { ...first, sequence: 2 };
+	await store.append(first);
+	await store.append(second);
+	const replayed = [];
+	for await (const record of store.read(1)) replayed.push(record);
+	expect(replayed).toEqual([second]);
+	await store.close();
+	await expect(store.append(first)).rejects.toThrow("closed");
+});
+
 test("session event log writer rejects durable write failures", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "plot-history-"));
+	const dir = await mkdtemp(join(tmpdir(), "history-"));
 	const notDirectory = join(dir, "file");
 	await writeFile(notDirectory, "not a directory");
 	const writer = createSessionEventLogWriter(

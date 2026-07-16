@@ -8,10 +8,10 @@ import {
 	type DashboardProjection,
 } from "@plot/projection";
 import { basename } from "node:path";
-import { PlotDashboard } from "./dashboard.js";
+import { Dashboard } from "./dashboard.js";
 import { ProcessTerminal, TUI, matchesKey } from "./terminal-ui.js";
 
-export interface PlotTuiOptions {
+export interface TuiOptions {
 	readonly manager: SessionManagerClient;
 	readonly session: SessionSummary;
 	readonly terminal?: ProcessTerminal;
@@ -30,7 +30,7 @@ const shellArgument = (value: string): string =>
 		? JSON.stringify(value)
 		: `'${value.replaceAll("'", `'\\''`)}'`;
 
-export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
+export const runTui = async (options: TuiOptions): Promise<void> => {
 	let projection = initialProjection(options.session);
 	let exitReason: "detached" | "stopped" | undefined;
 	let resolveExit!: () => void;
@@ -100,7 +100,7 @@ export const runPlotTui = async (options: PlotTuiOptions): Promise<void> => {
 				fail(error);
 			});
 	};
-	const dashboard = new PlotDashboard(projection, {
+	const dashboard = new Dashboard(projection, {
 		tick: () => {
 			void options.manager.tick(options.session.id).catch(fail);
 		},

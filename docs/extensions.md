@@ -1,13 +1,13 @@
 # Extensions
 
-> Plot extensions are written by coding agents. Point yours at `npx plot-ai docs guide` and describe what you want observed.
+> Extensions are written by coding agents. Point yours at `npx plot-ai docs guide` and describe what you want observed.
 
 An extension is trusted TypeScript that observes an external system and returns Work Items; optionally it registers safe integration tools. That is the whole job. Plot owns scheduling, retries, concurrency, and durability; the Workflow prompt owns how the agent investigates and judges. Extensions run with the user's process permissions and are not sandboxed.
 
 Everything Plot-related is imported from one place:
 
 ```ts
-import { definePlotExtension, defineTool } from "plot-ai/sdk";
+import { defineExtension, defineTool } from "plot-ai/sdk";
 ```
 
 Do not import Plot internals. Other API clients (`octokit`, a database driver, `node:` builtins) are ordinary application dependencies.
@@ -29,11 +29,11 @@ import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	DiscoveryUnavailableError,
-	definePlotExtension,
+	defineExtension,
 	defineTool,
 } from "plot-ai/sdk";
 
-export default definePlotExtension<{ dir: string }>({
+export default defineExtension<{ dir: string }>({
 	id: "todo-files",
 
 	parseConfig(input) {
@@ -128,7 +128,7 @@ Plot's work key is the extension `id` plus the Work Item `id` and `version`. Eve
 Declare prerequisites in `runtime.requirements` when a Source cannot discover work until authentication, configuration, a binary, VPN access, or another local condition is satisfied. Requirements are Source state, not synthetic Work Items.
 
 ```ts
-import { definePlotExtension } from "plot-ai/sdk";
+import { defineExtension } from "plot-ai/sdk";
 
 const beginAuthorization = async (redirectUri: string) => ({
 	url: `https://example.com/oauth?redirect_uri=${encodeURIComponent(redirectUri)}`,
@@ -136,7 +136,7 @@ const beginAuthorization = async (redirectUri: string) => ({
 });
 const readJiraWork = async () => ({ id: "jira:1", version: "v1" });
 
-export default definePlotExtension({
+export default defineExtension({
 	id: "wix-jira",
 	label: "Wix Jira",
 	create({ credentials }) {
@@ -215,9 +215,9 @@ Statuses like `waiting` and `blocked` decide _whether_ an agent runs; tools deci
 Use `waiting` when the world must move and `blocked` when a person must choose. Blocked work may expose choices:
 
 ```ts
-import { definePlotExtension } from "plot-ai/sdk";
+import { defineExtension } from "plot-ai/sdk";
 
-export default definePlotExtension({
+export default defineExtension({
 	id: "release",
 	create() {
 		return {

@@ -2,7 +2,7 @@ import { PassThrough } from "node:stream";
 import { expect, test } from "bun:test";
 import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
-import { runPlotTui } from "../src/plot-tui.js";
+import { runTui } from "../src/tui.js";
 import { ProcessTerminal } from "../src/terminal-ui.js";
 
 const session: SessionSummary = {
@@ -81,7 +81,7 @@ const harness = () => {
 test("q and Ctrl-C confirm before stopping the Session", async () => {
 	for (const key of ["q", "\u0003"]) {
 		const state = harness();
-		const running = runPlotTui({
+		const running = runTui({
 			manager: state.manager,
 			session,
 			terminal: state.terminal,
@@ -105,7 +105,7 @@ test("q and Ctrl-C confirm before stopping the Session", async () => {
 
 test("d explicitly detaches and prints a copyable stop command", async () => {
 	const state = harness();
-	const running = runPlotTui({
+	const running = runTui({
 		manager: state.manager,
 		session,
 		terminal: state.terminal,

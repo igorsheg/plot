@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { isRecord } from "@plot/common/primitives";
 import type { ExtensionCredentials } from "@plot/sdk";
 import type { SessionPaths } from "./paths.js";
-import type { WorkflowDefinition } from "./workflow.js";
+import type { LoadedWorkflow } from "./workflow.js";
 
 const credentialKey = (key: string): string => {
 	if (key.length === 0) throw new Error("credential key must be non-empty");
@@ -20,7 +20,7 @@ const credentialKey = (key: string): string => {
 
 const credentialPath = (input: {
 	readonly extensionId: string;
-	readonly workflow: WorkflowDefinition;
+	readonly workflow: LoadedWorkflow;
 	readonly paths: SessionPaths;
 }): string => {
 	const workflow = input.workflow.path ?? input.paths.cwd;
@@ -53,7 +53,7 @@ const readCredentials = async (
 
 export const createExtensionCredentials = (input: {
 	readonly extensionId: string;
-	readonly workflow: WorkflowDefinition;
+	readonly workflow: LoadedWorkflow;
 	readonly paths: SessionPaths;
 }): ExtensionCredentials => {
 	const path = credentialPath(input);

@@ -6,20 +6,33 @@
  * unit-tested in isolation.
  */
 
+import type { OperatorActionTone } from "@plot/sdk/work-contract";
 import {
 	workLabel,
+	type CompletedWorkProjection,
 	type SerializedDashboardProjection,
+	type SourceActionProjection,
+	type SourceReadiness,
 } from "@plot/projection";
 import { asRecord, asString } from "../../data/parse.js";
 
 export interface OperatorActionView {
 	readonly id: string;
 	readonly label: string;
-	readonly tone: "primary" | "secondary" | "danger";
+	readonly tone: OperatorActionTone;
 	readonly disabledReason?: string | undefined;
 	readonly requiresComment: boolean;
 	readonly confirmTitle?: string | undefined;
 }
+
+type AttentionSourceStatus = Extract<
+	SourceReadiness,
+	"action-required" | "unavailable"
+>;
+type ActiveSourceActionStatus = Extract<
+	SourceActionProjection["status"],
+	"running" | "failed"
+>;
 
 export type AttentionItem =
 	| {
@@ -27,8 +40,8 @@ export type AttentionItem =
 			readonly key: string;
 			readonly sourceId: string;
 			readonly title: string;
-			readonly status: "action-required" | "unavailable";
-			readonly actionStatus?: "running" | "failed" | undefined;
+			readonly status: AttentionSourceStatus;
+			readonly actionStatus?: ActiveSourceActionStatus | undefined;
 			readonly message?: string | undefined;
 			readonly progress?: string | undefined;
 			readonly sinceMs?: number | undefined;
@@ -94,13 +107,12 @@ export type MotionItem =
 			readonly actions: readonly OperatorActionView[];
 	  };
 
-export interface SettledItem {
+export interface SettledItem extends Pick<
+	CompletedWorkProjection,
+	"label" | "message" | "atMs" | "durationMs"
+> {
 	readonly key: string;
-	readonly label: string;
-	readonly message: string;
 	readonly failed: boolean;
-	readonly atMs: number;
-	readonly durationMs?: number | undefined;
 }
 
 const attemptFor = (

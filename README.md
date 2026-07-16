@@ -12,8 +12,8 @@ world -> Extension/Source -> Work Item -> Plot -> Agent Run
 
 - An **Extension** implements reusable integration behavior.
 - A **Workflow** configures an Extension for one use: system, prompt, model, and runtime policy.
-- A **Plot Session** is the durable execution of one Workflow.
-- A Workflow has at most one Active Plot Session.
+- A **Session** is the durable execution of one Workflow.
+- A Workflow has at most one Active Session.
 - The same Extension can back many concurrent Workflows.
 
 For example, two repository-specific PR-review Workflows can share one PR-review Extension while using different repository configuration and prompts.
@@ -60,12 +60,41 @@ Inspect the diff and callers, run relevant checks, and post a review only after 
 
 A Workflow must reference an Extension. Plot has one continuous, Source-driven scheduler mode.
 
+## Programmatic runtime
+
+Application code can own Plot directly without a Workflow file, daemon, worker, or native executable:
+
+```ts
+import { createPlot } from "plot-ai";
+import { defineWorkflow } from "plot-ai/sdk";
+import extension from "./reviewer.extension.ts";
+
+const workflow = defineWorkflow({
+	name: "review-acme",
+	agent: { provider: "anthropic", model: "claude-sonnet-4-6" },
+	extension: { use: extension, config: { repository: "acme/web" } },
+	prompt: "Review {{ work.title }} and verify every finding.",
+});
+const plot = await createPlot({
+	cwd: process.cwd(),
+	credentials: {
+		anthropic: { type: "api-key", apiKey: process.env["ANTHROPIC_API_KEY"]! },
+	},
+});
+const session = await plot.start(workflow); // automatic ticking starts here
+
+// Later: await session.stop(), or dispose every owned Session.
+await plot.dispose();
+```
+
+Programmatic configuration is value-only and memory-owned. `cwd` is an Agent tool execution root, not a configuration-discovery root. See [Programmatic Plot](docs/programmatic.md).
+
 ## Extension
 
 ```ts
-import { definePlotExtension } from "plot-ai/sdk";
+import { defineExtension } from "plot-ai/sdk";
 
-export default definePlotExtension({
+export default defineExtension({
 	id: "github-pr-reviewer",
 	create: ({ config, work }) => ({
 		async discover() {
@@ -92,11 +121,12 @@ plot docs quickstart
 plot docs guide
 plot docs workflows
 plot docs extensions
+plot docs programmatic
 plot docs sdk
 plot docs --paths
 ```
 
-[Quickstart](docs/quickstart.md) · [Workflows](docs/workflows.md) · [Extensions](docs/extensions.md) · [CLI](docs/cli.md) · [TUI](docs/tui.md) · [Web Console](docs/web.md)
+[Quickstart](docs/quickstart.md) · [Workflows](docs/workflows.md) · [Extensions](docs/extensions.md) · [Programmatic](docs/programmatic.md) · [CLI](docs/cli.md) · [TUI](docs/tui.md) · [Web Console](docs/web.md)
 
 ## Development and release
 

@@ -65,7 +65,7 @@ const statusStyle = (status: DashboardStatus) => {
 	}
 };
 
-export class PlotDashboard implements Component {
+export class Dashboard implements Component {
 	private projection: DashboardProjection;
 	private mode: ViewMode = "process-table";
 	private selectedIndex = 0;

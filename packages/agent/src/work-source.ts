@@ -8,10 +8,12 @@ import type {
 	WorkRun,
 } from "./model.js";
 
-export interface SourceActiveRun {
+export interface SourceRunContext {
 	readonly run: WorkRun;
 	readonly work: WorkItem;
 }
+
+export type SourceActiveRun = SourceRunContext;
 
 export interface SourceReconcileContext {
 	readonly tickId: number;
@@ -29,11 +31,6 @@ export interface SourceReconciliation {
 		readonly reason: string;
 	}[];
 	readonly wakes: readonly WakeRequest[];
-}
-
-export interface SourceRunContext {
-	readonly run: WorkRun;
-	readonly work: WorkItem;
 }
 
 export interface SourceRunFinishedContext extends SourceRunContext {

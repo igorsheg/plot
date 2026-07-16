@@ -8,37 +8,27 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type {
-	CreatePiAgentSession,
-	PiAgentSessionRunOptions,
-} from "./pi-runner.js";
+	CreateAgentSession,
+	AgentSessionRunOptions,
+} from "./agent-runner.js";
 import type { SessionPaths } from "./paths.js";
-import type {
-	WorkflowAgentConfig,
-	WorkflowDefinition,
-	WorkflowResourcesConfig,
-} from "./workflow.js";
+import { configuredModel, resolveNoTools } from "./agent-policy.js";
+import type { LoadedWorkflow, WorkflowResourcesConfig } from "./workflow.js";
 
-type AgentToolMode = NonNullable<WorkflowAgentConfig["noTools"]>;
 type ResourceLoaderOptions = NonNullable<
 	Parameters<typeof createAgentSessionServices>[0]["resourceLoaderOptions"]
 >;
 
 export interface AgentSessionFactoryOptions {
-	readonly workflow: WorkflowDefinition;
+	readonly workflow: LoadedWorkflow;
 	readonly paths: SessionPaths;
 }
 
-const toPiNoTools = (mode: AgentToolMode | undefined) => {
-	if (mode === undefined || mode === false) return undefined;
-	if (mode === true) return "all";
-	return mode;
-};
-
-const workflowDirectory = (workflow: WorkflowDefinition, paths: SessionPaths) =>
+const workflowDirectory = (workflow: LoadedWorkflow, paths: SessionPaths) =>
 	workflow.path === undefined ? paths.cwd : dirname(workflow.path);
 
 const workflowPaths = (
-	workflow: WorkflowDefinition,
+	workflow: LoadedWorkflow,
 	paths: SessionPaths,
 	values: readonly string[] | undefined,
 ) =>
@@ -47,7 +37,7 @@ const workflowPaths = (
 	);
 
 const resourceOptions = (
-	workflow: WorkflowDefinition,
+	workflow: LoadedWorkflow,
 	paths: SessionPaths,
 	resources: WorkflowResourcesConfig,
 ): ResourceLoaderOptions => {
@@ -73,18 +63,8 @@ const resourceOptions = (
 	return options;
 };
 
-const configuredModel = (
-	registry: ModelRegistry,
-	agent: WorkflowAgentConfig,
-) => {
-	const model = registry.find(agent.provider, agent.model);
-	if (model === undefined)
-		throw new Error(`Model not found: ${agent.provider}/${agent.model}`);
-	return model;
-};
-
 export const assertWorkflowAgentReady = (
-	workflow: WorkflowDefinition,
+	workflow: LoadedWorkflow,
 	paths: SessionPaths,
 ): void => {
 	const agent = workflow.runtime.agent;
@@ -94,18 +74,17 @@ export const assertWorkflowAgentReady = (
 		join(paths.agentDir, "models.json"),
 	);
 	const model = configuredModel(modelRegistry, agent);
-	const auth = modelRegistry.getProviderAuthStatus(model.provider);
-	if (!auth.configured)
+	if (!modelRegistry.hasConfiguredAuth(model))
 		throw new Error(
 			`Provider ${model.provider} is not authenticated; run plot auth login ${model.provider}`,
 		);
 };
 
-export const makeCreatePiAgentSession = (
+export const makeCreateAgentSession = (
 	options: AgentSessionFactoryOptions,
-): CreatePiAgentSession => {
+): CreateAgentSession => {
 	const { workflow, paths } = options;
-	return async (perRun: PiAgentSessionRunOptions) => {
+	return async (perRun: AgentSessionRunOptions) => {
 		const agent = workflow.runtime.agent;
 		const resources = workflow.runtime.resources ?? {};
 		const authStorage = AuthStorage.create(join(paths.agentDir, "auth.json"));
@@ -137,7 +116,7 @@ export const makeCreatePiAgentSession = (
 			thinkingLevel: agent.thinking,
 			tools: agent.tools,
 			excludeTools: agent.excludeTools,
-			noTools: toPiNoTools(agent.noTools),
+			noTools: resolveNoTools(agent.noTools),
 			customTools: perRun.customTools,
 		} as Parameters<typeof createAgentSessionFromServices>[0]);
 	};

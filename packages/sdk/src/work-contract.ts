@@ -14,10 +14,38 @@ export interface WorkDisplay {
 	readonly labels?: readonly string[];
 }
 
+export type WorkStatus =
+	| "pending"
+	| "waiting"
+	| "blocked"
+	| "cancelled"
+	| "running"
+	| "draining";
+
+export type AgentRunOutcome =
+	| "succeeded"
+	| "failed"
+	| "interrupted"
+	| "timed_out";
+
+export interface OperatorActionInput {
+	readonly sourceId: string;
+	readonly workKey: string;
+	readonly actionId: string;
+	readonly comment?: string;
+}
+
+export interface OperatorObservationInput extends OperatorActionInput {
+	readonly clientId?: string;
+	readonly actor?: unknown;
+}
+
+export type OperatorActionTone = "primary" | "secondary" | "danger";
+
 /** Confirmation dialog shown before an Operator Action runs. */
 export interface OperatorActionConfirm {
 	readonly title: string;
-	readonly message?: string;
+	readonly message?: string | undefined;
 }
 
 /**
@@ -31,7 +59,7 @@ export interface OperatorAction {
 	readonly id: string;
 	/** Button label. */
 	readonly label: string;
-	readonly tone?: "primary" | "secondary" | "danger";
+	readonly tone?: OperatorActionTone;
 	/** Renders the action disabled with this explanation. */
 	readonly disabledReason?: string;
 	/** Require a free-text comment with the choice. */

@@ -13,9 +13,7 @@ const parseSession = (value: unknown): SessionSummary | undefined => {
 	}
 };
 
-export const parsePlotSessions = (
-	value: unknown,
-): readonly SessionSummary[] => {
+export const parseSessions = (value: unknown): readonly SessionSummary[] => {
 	const record = asRecord(value);
 	const rows = Array.isArray(value)
 		? value

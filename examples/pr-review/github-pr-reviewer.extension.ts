@@ -3,15 +3,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { definePlotExtension, defineTool } from "plot-ai/sdk";
+import { defineExtension, defineTool } from "plot-ai/sdk";
 import { parseDiffContext } from "./diff-context.ts";
 import { evaluatePr, firstSeenSeedMs } from "./eligibility.ts";
 import type { PrEligibility } from "./eligibility.ts";
-import type {
-	OperatorAction,
-	PlotExtensionTool,
-	PlotExtensionWork,
-} from "plot-ai/sdk";
+import type { OperatorAction, ExtensionTool, ExtensionWork } from "plot-ai/sdk";
 
 const execFileAsync = promisify(execFile);
 
@@ -577,7 +573,7 @@ const contextBlock = (values: {
 	return lines.join("\n");
 };
 
-const targetFromWork = (work: PlotExtensionWork): GitHubTarget => {
+const targetFromWork = (work: ExtensionWork): GitHubTarget => {
 	if (!isRecord(work.context))
 		throw new Error("work is missing GitHub context");
 	const github = work.context["github"];
@@ -590,7 +586,7 @@ const targetFromWork = (work: PlotExtensionWork): GitHubTarget => {
 	return { repo, prNumber, head };
 };
 
-const authorFromWork = (work: PlotExtensionWork): string | undefined => {
+const authorFromWork = (work: ExtensionWork): string | undefined => {
 	if (!isRecord(work.context)) return undefined;
 	const github = work.context["github"];
 	return isRecord(github) ? stringField(github, "authorLogin") : undefined;
@@ -688,11 +684,11 @@ const operatorActionsFor = (
 	return [];
 };
 
-export default definePlotExtension<GitHubPrReviewerConfig>({
+export default defineExtension<GitHubPrReviewerConfig>({
 	id: "github-pr-reviewer",
 	parseConfig,
 	create: ({ config, paths }) => {
-		const tools: PlotExtensionTool<GitHubPrReviewerConfig>[] = [];
+		const tools: ExtensionTool<GitHubPrReviewerConfig>[] = [];
 		let pinnedRepo: string | undefined = config.repo;
 		const resolveRepo = async (cwd: string) => {
 			if (pinnedRepo === undefined)
@@ -892,7 +888,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 
 		return {
 			tools,
-			discover: async (): Promise<readonly PlotExtensionWork[]> => {
+			discover: async (): Promise<readonly ExtensionWork[]> => {
 				const cwd = paths.cwd;
 				const repo = await resolveRepo(cwd);
 				const prs = await loadOpenPullRequests(cwd, repo, config.maxOpenPrs);
@@ -936,7 +932,7 @@ export default definePlotExtension<GitHubPrReviewerConfig>({
 						anchor: await findAnchorComment(cwd, repo, pr.number),
 					})),
 				);
-				const works: PlotExtensionWork[] = [];
+				const works: ExtensionWork[] = [];
 				for (const { pr, anchor } of prsWithAnchors) {
 					const id = prId(pr.number);
 					const head = pr.headRefOid ?? pr.headRefName;

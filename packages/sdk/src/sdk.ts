@@ -1,5 +1,5 @@
 /**
- * Public authoring surface for Plot extensions.
+ * Public authoring surface for extensions.
  *
  * This module is the authoritative API reference. The published package ships
  * it as `plot-ai/lib/sdk.d.ts`, and `plot docs sdk` prints it verbatim.
@@ -10,24 +10,33 @@
  * permissions and is not sandboxed. Import only from `plot-ai/sdk`; Plot
  * internals are not part of this contract.
  */
-import type { OperatorAction, WorkDisplay } from "./work-contract.js";
+import type {
+	AgentRunOutcome,
+	OperatorAction,
+	OperatorObservationInput,
+	WorkDisplay,
+	WorkStatus,
+} from "./work-contract.js";
 
 export type {
+	AgentRunOutcome,
 	OperatorAction,
 	OperatorActionConfirm,
+	OperatorActionInput,
+	OperatorActionTone,
+	OperatorObservationInput,
 	WorkDisplay,
+	WorkStatus,
 } from "./work-contract.js";
 
 export type MaybePromise<A> = A | Promise<A>;
-
-export type ExtensionAction = OperatorAction;
 
 export type ExtensionRequirementState =
 	| { readonly status: "ready" }
 	| {
 			readonly status: "action-required";
 			readonly message: string;
-			readonly actions: readonly ExtensionAction[];
+			readonly actions: readonly OperatorAction[];
 	  }
 	| {
 			readonly status: "unavailable";
@@ -59,16 +68,17 @@ export interface ExtensionInteraction {
 	readonly reportProgress: (message: string) => MaybePromise<void>;
 }
 
-export interface ExtensionRequirementCheckContext {
-	/** Aborted when the tick or Plot Session stops. */
+export interface ExtensionRuntimeContext {
 	readonly signal: AbortSignal;
+}
+
+export interface ExtensionRequirementCheckContext extends ExtensionRuntimeContext {
+	/** Aborted when the tick or Session stops. */
 	readonly credentials: ExtensionCredentials;
 }
 
-export interface ExtensionRequirementActionContext {
+export interface ExtensionRequirementActionContext extends ExtensionRequirementCheckContext {
 	readonly actionId: string;
-	readonly signal: AbortSignal;
-	readonly credentials: ExtensionCredentials;
 	readonly interaction: ExtensionInteraction;
 }
 
@@ -87,13 +97,13 @@ export interface ExtensionRequirement {
 	) => MaybePromise<void>;
 }
 
-export interface PlotToolTextContent {
+export interface ToolTextContent {
 	readonly type: "text";
 	readonly text: string;
 }
 
-export interface PlotToolResult<Details = unknown> {
-	readonly content: readonly PlotToolTextContent[];
+export interface ToolResult<Details = unknown> {
+	readonly content: readonly ToolTextContent[];
 	readonly details?: Details;
 	/**
 	 * When true, asks the Agent Session to stop after this call. Use for
@@ -102,7 +112,7 @@ export interface PlotToolResult<Details = unknown> {
 	readonly terminate?: boolean;
 }
 
-export interface PlotToolExecutionContext {
+export interface ToolExecutionContext {
 	/**
 	 * Aborted on interruption, timeout, and shutdown. Pass it to network and
 	 * subprocess calls so cancelled runs stop doing I/O.
@@ -114,7 +124,7 @@ export interface PlotToolExecutionContext {
  * `sequential` tools are serialized with other tool calls; `parallel` tools
  * may run concurrently within one agent turn.
  */
-export type PlotToolExecutionMode = "sequential" | "parallel";
+export type ToolExecutionMode = "sequential" | "parallel";
 
 /**
  * Supported JSON-schema subset for tool parameters.
@@ -124,18 +134,18 @@ export type PlotToolExecutionMode = "sequential" | "parallel";
  * objects and typed arrays); undeclared keys are dropped. Values are not
  * type-coerced — validate types inside `execute`.
  */
-export type PlotJsonSchema =
+export type JsonSchema =
 	| { readonly type: "string"; readonly enum?: readonly string[] }
 	| { readonly type: "number" }
 	| { readonly type: "integer" }
 	| { readonly type: "boolean" }
 	| {
 			readonly type: "array";
-			readonly items?: PlotJsonSchema;
+			readonly items?: JsonSchema;
 	  }
 	| {
 			readonly type: "object";
-			readonly properties?: Readonly<Record<string, PlotJsonSchema>>;
+			readonly properties?: Readonly<Record<string, JsonSchema>>;
 			readonly required?: readonly string[];
 	  };
 
@@ -147,7 +157,7 @@ export type PlotJsonSchema =
  * identity/version before writing, because a stale run may still call a tool
  * after the world has moved on.
  */
-export interface PlotToolDefinition<
+export interface ToolDefinition<
 	Params = Record<string, unknown>,
 	Details = unknown,
 > {
@@ -160,15 +170,15 @@ export interface PlotToolDefinition<
 	readonly description: string;
 	readonly promptSnippet?: string;
 	readonly promptGuidelines?: readonly string[];
-	readonly parameters: PlotJsonSchema;
-	readonly executionMode?: PlotToolExecutionMode;
+	readonly parameters: JsonSchema;
+	readonly executionMode?: ToolExecutionMode;
 	readonly execute: (
 		params: Params,
-		context: PlotToolExecutionContext,
-	) => MaybePromise<PlotToolResult<Details>>;
+		context: ToolExecutionContext,
+	) => MaybePromise<ToolResult<Details>>;
 }
 
-export const defineTool = <T extends PlotToolDefinition>(tool: T): T => tool;
+export const defineTool = <T extends ToolDefinition>(tool: T): T => tool;
 
 /**
  * Source-owned scheduling state for a discovered Work Item.
@@ -184,11 +194,10 @@ export const defineTool = <T extends PlotToolDefinition>(tool: T): T => tool;
  * finishes its current turn, receives no continuation, and releases its claim
  * without redispatch.
  */
-export type PlotExtensionWorkStatus =
-	| "pending"
-	| "waiting"
-	| "blocked"
-	| "cancelled";
+export type ExtensionWorkStatus = Extract<
+	WorkStatus,
+	"pending" | "waiting" | "blocked" | "cancelled"
+>;
 
 /**
  * One unit of discovered domain work.
@@ -196,7 +205,7 @@ export type PlotExtensionWorkStatus =
  * Plot's internal work key is the extension `id` plus the Work Item `id` and
  * `version`. Two items in one discovery result must not share a key.
  */
-export interface PlotExtensionWork {
+export interface ExtensionWork {
 	/**
 	 * Stable domain identity, e.g. `github:acme/web:pr:42`. Never derive ids
 	 * from timestamps or randomness — an id that changes between discoveries
@@ -217,8 +226,8 @@ export interface PlotExtensionWork {
 	 * together. Defaults to `id`.
 	 */
 	readonly subject?: string;
-	/** Scheduling state; see {@link PlotExtensionWorkStatus}. Default: `pending`. */
-	readonly status?: PlotExtensionWorkStatus;
+	/** Scheduling state; see {@link ExtensionWorkStatus}. Default: `pending`. */
+	readonly status?: ExtensionWorkStatus;
 	/** Why held work is `waiting` or `blocked`, shown to operators. */
 	readonly blockedReason?: string;
 	/**
@@ -241,21 +250,23 @@ export interface PlotExtensionWork {
 /**
  * Binding context passed to tool factories, resolved once per Agent Run.
  */
-export interface PlotToolContext<Config = unknown> {
+export interface ExtensionPaths {
+	readonly cwd: string;
+	readonly plotDir: string;
+	readonly agentDir: string;
+	readonly sessionDir: string;
+	readonly skillsDir: string;
+	readonly extensionsDir: string;
+	readonly promptsDir: string;
+}
+
+export interface ToolContext<Config = unknown> {
 	/** Parsed Workflow definition. */
 	readonly workflow: unknown;
-	readonly paths: {
-		readonly cwd: string;
-		readonly plotDir: string;
-		readonly agentDir: string;
-		readonly sessionDir: string;
-		readonly skillsDir: string;
-		readonly extensionsDir: string;
-		readonly promptsDir: string;
-	};
+	readonly paths: ExtensionPaths;
 	/** Extension config after `parseConfig`. */
 	readonly config: Config;
-	readonly work: PlotExtensionWork;
+	readonly work: ExtensionWork;
 	readonly runId: string;
 }
 
@@ -265,46 +276,57 @@ export interface PlotToolContext<Config = unknown> {
  * scoped to one item — closing over `work` lets `execute` re-check identity
  * and version before writing.
  */
-export type PlotExtensionTool<Config = unknown> =
-	| PlotToolDefinition
-	| ((context: PlotToolContext<Config>) => MaybePromise<PlotToolDefinition>);
+export type ExtensionTool<Config = unknown> =
+	| ToolDefinition
+	| ((context: ToolContext<Config>) => MaybePromise<ToolDefinition>);
 
-export interface PlotExtensionSetupContext<Config = unknown> {
+export interface ExtensionSetupContext<Config = unknown> {
 	/** Parsed Workflow definition. */
 	readonly workflow: unknown;
-	readonly paths: PlotToolContext<Config>["paths"];
+	readonly paths: ToolContext<Config>["paths"];
 	/** Extension config after `parseConfig`. */
 	readonly config: Config;
 	readonly credentials: ExtensionCredentials;
 }
 
-export interface PlotExtensionWorkEvent {
-	readonly work: PlotExtensionWork;
+export interface ExtensionWorkEvent {
+	readonly work: ExtensionWork;
 	readonly runId: string;
 }
 
 export type ExtensionRunCompletion =
-	| { readonly status: "succeeded"; readonly output?: unknown }
-	| { readonly status: "failed"; readonly error: unknown }
-	| { readonly status: "interrupted"; readonly reason?: string }
-	| { readonly status: "timed_out"; readonly reason?: string };
+	| {
+			readonly status: Extract<AgentRunOutcome, "succeeded">;
+			readonly output?: unknown;
+	  }
+	| {
+			readonly status: Extract<AgentRunOutcome, "failed">;
+			readonly error: unknown;
+	  }
+	| {
+			readonly status: Extract<AgentRunOutcome, "interrupted">;
+			readonly reason?: string;
+	  }
+	| {
+			readonly status: Extract<AgentRunOutcome, "timed_out">;
+			readonly reason?: string;
+	  };
+
+export interface ExtensionRunFinishedEvent extends ExtensionWorkEvent {
+	readonly completion: ExtensionRunCompletion;
+}
 
 /**
  * A recorded human decision on a Work Item. The hook is bookkeeping — a later
  * `discover` remains the authority on what the decision means for the work.
  */
-export interface PlotExtensionOperatorActionEvent {
-	readonly work: PlotExtensionWork;
-	readonly actionId: string;
+export interface OperatorActionEvent extends Pick<
+	OperatorObservationInput,
+	"actionId" | "comment" | "actor" | "clientId"
+> {
+	readonly work: ExtensionWork;
 	readonly actionLabel: string;
 	readonly timestamp: string;
-	readonly comment?: string;
-	readonly actor?: unknown;
-	readonly clientId?: string;
-}
-
-export interface PlotExtensionRuntimeContext {
-	readonly signal: AbortSignal;
 }
 
 /**
@@ -333,7 +355,7 @@ export class ExtensionActionRequiredError extends Error {
 }
 
 /**
- * The per-session runtime returned by {@link PlotExtension.create}.
+ * The per-session runtime returned by {@link Extension.create}.
  *
  * Plot owns scheduling around this runtime: it polls `discover` once per
  * tick, claims and dispatches eligible work, drains superseded or absent
@@ -342,14 +364,14 @@ export class ExtensionActionRequiredError extends Error {
  * are bookkeeping around that Plot-owned lifecycle — do not launch agents or
  * implement a second scheduler from them.
  */
-export interface PlotExtensionRuntime<Config = unknown> {
+export interface ExtensionRuntime<Config = unknown> {
 	/**
 	 * Source prerequisites. Plot checks all of them before every discovery
 	 * tick and preserves last-known Work Items while any is non-ready.
 	 */
 	readonly requirements?: readonly ExtensionRequirement[];
 	/** Tools and per-run tool factories exposed by this Source. */
-	readonly tools?: readonly PlotExtensionTool<Config>[];
+	readonly tools?: readonly ExtensionTool<Config>[];
 	/**
 	 * Observe the domain and return every currently-relevant Work Item.
 	 *
@@ -360,34 +382,26 @@ export interface PlotExtensionRuntime<Config = unknown> {
 	 * in one result are rejected.
 	 */
 	readonly discover: (
-		context: PlotExtensionRuntimeContext,
-	) => MaybePromise<readonly PlotExtensionWork[]>;
+		context: ExtensionRuntimeContext,
+	) => MaybePromise<readonly ExtensionWork[]>;
 	/** Called after Plot claims work, before the Agent Run starts. */
-	readonly started?: (event: PlotExtensionWorkEvent) => MaybePromise<void>;
+	readonly started?: (event: ExtensionWorkEvent) => MaybePromise<void>;
 	/** Called exactly once after an admitted Agent Run completion. */
-	readonly finished?: (event: {
-		readonly work: PlotExtensionWork;
-		readonly runId: string;
-		readonly completion: ExtensionRunCompletion;
-	}) => MaybePromise<void>;
+	readonly finished?: (event: ExtensionRunFinishedEvent) => MaybePromise<void>;
 	/** Called after a human takes an Operator Action on this Source's work. */
-	readonly operatorAction?: (
-		event: PlotExtensionOperatorActionEvent,
-	) => MaybePromise<void>;
+	readonly operatorAction?: (event: OperatorActionEvent) => MaybePromise<void>;
 	/**
 	 * Runs once at session end, after active runs receive interruption
 	 * bookkeeping. Cleanup is protected even when other hooks fail.
 	 */
-	readonly shutdown?: (
-		context: PlotExtensionRuntimeContext,
-	) => MaybePromise<void>;
+	readonly shutdown?: (context: ExtensionRuntimeContext) => MaybePromise<void>;
 }
 
 /**
- * A Plot extension module exports this as `default` or as named export
+ * An extension module exports this as `default` or as named export
  * `extension`.
  */
-export interface PlotExtension<Config = unknown> {
+export interface Extension<Config = unknown> {
 	/**
 	 * Stable Source id, part of every work key. Keep it constant across
 	 * sessions and versions of the extension.
@@ -401,14 +415,80 @@ export interface PlotExtension<Config = unknown> {
 	 */
 	readonly parseConfig?: (input: unknown) => MaybePromise<Config>;
 	/**
-	 * Setup, run once per Plot Session. Build clients and return the runtime,
+	 * Setup, run once per Session. Build clients and return the runtime,
 	 * including any tools. Do not start Agent Sessions or schedulers here.
 	 */
 	readonly create: (
-		context: PlotExtensionSetupContext<Config>,
-	) => MaybePromise<PlotExtensionRuntime<Config>>;
+		context: ExtensionSetupContext<Config>,
+	) => MaybePromise<ExtensionRuntime<Config>>;
 }
 
-export const definePlotExtension = <Config>(
-	extension: PlotExtension<Config>,
-): PlotExtension<Config> => extension;
+export const defineExtension = <Config>(
+	extension: Extension<Config>,
+): Extension<Config> => extension;
+
+export type AgentThinkingLevel =
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh";
+
+export interface AgentConfig {
+	readonly provider: string;
+	readonly model: string;
+	readonly thinking?: AgentThinkingLevel;
+	readonly tools?: readonly string[];
+	readonly excludeTools?: readonly string[];
+	readonly noTools?: boolean | "all" | "builtin";
+	readonly allowProjectConfig?: boolean;
+	readonly maxTurns?: number;
+}
+
+export interface WorkflowConfig {
+	/** Scheduler poll cadence. Default: 30s. */
+	readonly tickIntervalMs?: number | undefined;
+	readonly maxRunDurationMs?: number | undefined;
+	/** Interrupt an Agent Run after this much time without activity. */
+	readonly stallTimeoutMs?: number | undefined;
+}
+
+export interface WorkflowResources {
+	readonly systemPrompt?: string;
+	readonly appendSystemPrompt?: readonly string[];
+}
+
+export interface WorkflowExtensionOptions {
+	readonly config?: unknown;
+	readonly maxConcurrentRuns?: number | undefined;
+}
+
+export interface WorkflowExtensionBinding<
+	Config = unknown,
+> extends WorkflowExtensionOptions {
+	readonly use: Extension<Config>;
+}
+
+export interface WorkflowDefinition<Config = unknown> {
+	readonly name: string;
+	readonly agent: AgentConfig;
+	readonly plot?: WorkflowConfig;
+	readonly resources?: WorkflowResources;
+	readonly extension: WorkflowExtensionBinding<Config>;
+	readonly prompt: string;
+}
+
+const workflowBrand: unique symbol = Symbol("plot-ai.workflow");
+
+export type Workflow<Config = unknown> = WorkflowDefinition<Config> & {
+	readonly [workflowBrand]: true;
+};
+
+export const defineWorkflow = <Config>(
+	workflow: WorkflowDefinition<Config>,
+): Workflow<Config> =>
+	Object.freeze({
+		...workflow,
+		[workflowBrand]: true,
+	}) as Workflow<Config>;

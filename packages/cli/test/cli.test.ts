@@ -3,10 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { SessionAuth } from "@plot/session/auth";
-import type { SessionManagerClient } from "@plot/session-manager/manager";
+import type {
+	SessionManagerClient,
+	StartWorkflow,
+} from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import type { CliHost } from "../src/cli-host.js";
-import { runPlotCli } from "../src/cli.js";
+import { runCli } from "../src/cli.js";
 import { docNames } from "../src/docs.js";
 import { VERSION } from "../src/package.js";
 
@@ -27,7 +30,7 @@ const fakeManager = (input?: {
 	started?: boolean;
 	stopped?: SessionSummary;
 	failure?: Error;
-	onStart?: (value: { cwd: string; workflowPath?: string }) => void;
+	onStart?: (value: StartWorkflow) => void;
 }): SessionManagerClient =>
 	({
 		start: async (value) => {
@@ -94,7 +97,7 @@ const invoke = async (args: readonly string[], options: InvokeOptions = {}) => {
 		startWebGateway: async () => ({ url: "http://plot/", stop: () => {} }),
 		waitForTermination: async (stop) => stop(),
 	};
-	const code = await runPlotCli(args, host);
+	const code = await runCli(args, host);
 	return {
 		code,
 		stdout: stdout.join(""),
@@ -256,7 +259,7 @@ describe("plot CLI", () => {
 	});
 
 	test("check failure does not touch the Session Manager", async () => {
-		const cwd = await mkdtemp(join(tmpdir(), "plot-check-"));
+		const cwd = await mkdtemp(join(tmpdir(), "cli-check-"));
 		await writeFile(join(cwd, "WORKFLOW.md"), "Do it.\n");
 		try {
 			const result = await invoke(["check"], { cwd });

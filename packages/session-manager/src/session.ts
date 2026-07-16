@@ -1,23 +1,20 @@
 import { isRecord } from "@plot/common/primitives";
+import type { SessionState } from "@plot/sdk/runtime-contract";
+import type { SessionHostMetadata } from "@plot/session/host";
 
-export type SessionState =
-	| "starting"
-	| "online"
-	| "stopping"
-	| "stopped"
-	| "error";
+export type { SessionState } from "@plot/sdk/runtime-contract";
 
-export interface SessionSummary {
+export interface SessionSummary extends Pick<
+	SessionHostMetadata,
+	"workflowName" | "workflowPath" | "historyPath"
+> {
 	readonly id: string;
 	readonly workflowKey: string;
-	readonly workflowName: string;
-	readonly workflowPath: string;
 	readonly workflowAliases: readonly string[];
 	readonly projectPath: string;
 	readonly state: SessionState;
 	readonly createdAt: string;
 	readonly updatedAt: string;
-	readonly historyPath: string;
 	readonly diagnostic?: string;
 }
 

@@ -23,7 +23,12 @@ import { webAssets, type WebAsset } from "./web-assets.generated.js";
 
 const assets: Readonly<Record<string, WebAsset>> = webAssets;
 
-export interface PlotWebGatewayOptions {
+export interface GatewayHandle {
+	readonly url: string;
+	readonly stop: () => void;
+}
+
+export interface GatewayOptions {
 	readonly host?: string;
 	readonly port?: number;
 	readonly writeStderr?: (text: string) => Promise<void> | void;
@@ -180,9 +185,9 @@ const sessionTranscriptResponse = async (
 	return Response.json({ entries: await readAgentTranscript(path) });
 };
 
-export const startPlotWebGateway = async (
-	options: PlotWebGatewayOptions,
-): Promise<{ readonly url: string; readonly stop: () => void }> => {
+export const startWebGateway = async (
+	options: GatewayOptions,
+): Promise<GatewayHandle> => {
 	const manager = options.manager;
 	const server = Bun.serve({
 		hostname: options.host ?? "127.0.0.1",

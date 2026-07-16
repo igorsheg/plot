@@ -290,7 +290,7 @@ test("attempt timeline is a rolling tail, not a frozen head", () => {
 	expect(timeline.at(-1)?.text).toContain("step-39");
 });
 
-test("plot_transcript agent event attaches the transcript reference", () => {
+test("agent_transcript agent event attaches the transcript reference", () => {
 	let projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),
 		sessionEvent(1, {
@@ -301,13 +301,13 @@ test("plot_transcript agent event attaches the transcript reference", () => {
 	projection = reduceProjectableEvent(
 		projection,
 		agentEvent(2, "run-1", {
-			type: "plot_transcript",
+			type: "agent_transcript",
 			sessionFile: "/tmp/transcript.jsonl",
-			sessionId: "pi-1",
+			sessionId: "agent-1",
 		}),
 	);
 	expect(projection.attempts.get("run-1")?.transcript).toEqual({
 		path: "/tmp/transcript.jsonl",
-		id: "pi-1",
+		id: "agent-1",
 	});
 });

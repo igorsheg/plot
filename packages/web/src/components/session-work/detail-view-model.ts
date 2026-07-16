@@ -10,12 +10,15 @@ import {
 	workLabel,
 	type CompletedWorkProjection,
 	type SerializedDashboardProjection,
+	type SourceActionProjection,
 	type SourceProjection,
 	type SourceReadiness,
+	type SourceRequirementProjection,
 	type TimelineEntry,
 	type TokenUsageProjection,
 	type WorkCheck,
 } from "@plot/projection";
+import type { OperatorActionInput } from "@plot/sdk/work-contract";
 import { formatDuration, formatShortAge } from "../../lib/relative-time.js";
 import {
 	parseOperatorActions,
@@ -32,22 +35,27 @@ export type DetailRef =
 	| { readonly kind: "source"; readonly sourceId: string };
 
 /** The minimal slice `DecisionActions` needs in the drawer. */
-export interface DecisionActionTarget {
-	readonly sourceId: string;
-	readonly workKey: string;
+export interface DecisionActionTarget extends Pick<
+	OperatorActionInput,
+	"sourceId" | "workKey"
+> {
 	readonly actions: readonly OperatorActionView[];
 }
 
 /** One requirement in a source drawer — its own status, message, and actions. */
-export interface SourceRequirementView {
-	readonly id: string;
-	readonly label: string;
-	readonly status: SourceReadiness;
-	readonly message?: string | undefined;
+export interface SourceRequirementView extends Pick<
+	SourceRequirementProjection,
+	"id" | "label" | "status" | "message"
+> {
 	readonly actions: readonly OperatorActionView[];
 }
 
 /** The footer ledger — turn, tokens, cost, elapsed; each part is optional. */
+type SourceActionView = Pick<
+	SourceActionProjection,
+	"actionRunId" | "requirementId" | "status" | "progress"
+>;
+
 export interface DetailMetrics {
 	readonly turn: number;
 	readonly tokens: number | undefined;
@@ -89,17 +97,13 @@ export type DetailView =
 			readonly ref: DetailRef;
 			readonly sourceId: string;
 			readonly title: string;
-			readonly status: "action-required" | "unavailable";
+			readonly status: Extract<
+				SourceReadiness,
+				"action-required" | "unavailable"
+			>;
 			readonly requirements: readonly SourceRequirementView[];
 			readonly diagnostics: readonly string[];
-			readonly action?:
-				| {
-						readonly actionRunId: string;
-						readonly requirementId: string;
-						readonly status: "running" | "failed" | "cancelled";
-						readonly progress?: string | undefined;
-				  }
-				| undefined;
+			readonly action?: SourceActionView | undefined;
 	  };
 
 const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });

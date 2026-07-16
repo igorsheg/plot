@@ -10,7 +10,7 @@ import type {
 } from "@plot/session/runtime";
 import type { TranscriptEntry } from "@plot/session/transcript";
 import { asRecord, asString } from "./parse.js";
-import { parsePlotSessions } from "./session.js";
+import { parseSessions } from "./session.js";
 
 const httpError = (response: Response): Error =>
 	new Error(`HTTP ${response.status}`);
@@ -25,7 +25,7 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<unknown> =>
 	(await fetchOk(url, init)).json();
 
 export const fetchSessions = async (): Promise<readonly SessionSummary[]> =>
-	parsePlotSessions(await fetchJson("/api/sessions"));
+	parseSessions(await fetchJson("/api/sessions"));
 
 export const recordObservation = async (
 	sessionId: string,

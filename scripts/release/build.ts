@@ -21,6 +21,7 @@ import {
 	npmPackageDir,
 	packageTemplate,
 	repoDir,
+	runtimePackageDir,
 	sdkPackageDir,
 	releaseDir,
 	releaseTargets,
@@ -32,9 +33,39 @@ mkdirSync(releaseDir, { recursive: true });
 
 await $`bun --filter @plot/web build`.cwd(repoDir);
 await $`bun run scripts/web-assets.ts`.cwd(repoDir);
-await $`bun run build:sdk`.cwd(sdkPackageDir);
+await Promise.all([
+	$`bun run build:runtime`.cwd(runtimePackageDir),
+	$`bun run build:sdk`.cwd(sdkPackageDir),
+]);
+assertProgrammaticBundle();
 await Promise.all(releaseTargets.map((target) => buildPlatformPackage(target)));
 await buildUmbrellaPackage();
+
+function assertProgrammaticBundle() {
+	const bundle = readFileSync(
+		join(runtimePackageDir, "dist", "index.js"),
+		"utf8",
+	);
+	for (const forbidden of [
+		"createJiti",
+		"DefaultResourceLoader",
+		"createAgentSessionServices",
+		"SessionManagerClient",
+		"resolveInstalledBinary",
+	])
+		if (bundle.includes(forbidden))
+			throw new Error(`programmatic bundle includes ${forbidden}`);
+	for (const declaration of ["index.d.ts", "observation.d.ts"])
+		if (
+			readFileSync(
+				join(runtimePackageDir, "dist", declaration),
+				"utf8",
+			).includes('"@plot/')
+		)
+			throw new Error(
+				`programmatic declaration leaks workspace types: ${declaration}`,
+			);
+}
 
 async function buildPlatformPackage(target: (typeof releaseTargets)[number]) {
 	const packageDir = join(releaseDir, target.dirName);
@@ -92,6 +123,18 @@ async function buildUmbrellaPackage() {
 		recursive: true,
 	});
 	cpSync(
+		join(runtimePackageDir, "dist", "index.js"),
+		join(packageDir, "lib", "index.js"),
+	);
+	cpSync(
+		join(runtimePackageDir, "dist", "index.d.ts"),
+		join(packageDir, "lib", "index.d.ts"),
+	);
+	cpSync(
+		join(runtimePackageDir, "dist", "observation.d.ts"),
+		join(packageDir, "lib", "observation.d.ts"),
+	);
+	cpSync(
 		join(sdkPackageDir, "dist", "sdk.js"),
 		join(packageDir, "lib", "sdk.js"),
 	);
@@ -102,6 +145,10 @@ async function buildUmbrellaPackage() {
 	cpSync(
 		join(sdkPackageDir, "dist", "work-contract.d.ts"),
 		join(packageDir, "lib", "work-contract.d.ts"),
+	);
+	cpSync(
+		join(sdkPackageDir, "dist", "runtime-contract.d.ts"),
+		join(packageDir, "lib", "runtime-contract.d.ts"),
 	);
 	cpSync(
 		join(npmPackageDir, "postinstall.mjs"),
@@ -136,6 +183,7 @@ async function buildUmbrellaPackage() {
 			...(existsSync(readmeSrc) ? ["README.md"] : []),
 		],
 		exports: packageTemplate.exports,
+		dependencies: packageTemplate.dependencies,
 		scripts: {
 			postinstall: "node ./postinstall.mjs",
 		},
@@ -239,6 +287,10 @@ function copySdkDeclarations(packageDir: string) {
 	cpSync(
 		join(sdkPackageDir, "dist", "work-contract.d.ts"),
 		join(libDir, "work-contract.d.ts"),
+	);
+	cpSync(
+		join(sdkPackageDir, "dist", "runtime-contract.d.ts"),
+		join(libDir, "runtime-contract.d.ts"),
 	);
 }
 

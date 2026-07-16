@@ -140,6 +140,11 @@ export const reduceEvent = (
 				action: {
 					...action,
 					progress: `${event.fallbackText ?? "Open this URL to continue:"} ${event.url}`,
+					interaction: {
+						type: "open-url",
+						url: event.url,
+						fallbackText: event.fallbackText,
+					},
 				},
 			}),
 		};

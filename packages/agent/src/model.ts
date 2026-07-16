@@ -1,4 +1,14 @@
-import type { OperatorAction, WorkDisplay } from "@plot/sdk/work-contract";
+import type {
+	AgentRunOutcome,
+	OperatorAction,
+	OperatorObservationInput,
+	WorkDisplay,
+} from "@plot/sdk/work-contract";
+import type {
+	DiagnosticMessage,
+	ObservedWorkStatus,
+	SourceReadiness,
+} from "@plot/sdk/runtime-contract";
 
 export type {
 	OperatorAction,
@@ -6,42 +16,35 @@ export type {
 	WorkDisplay,
 } from "@plot/sdk/work-contract";
 
-export interface OperatorObservation {
-	readonly sourceId: string;
-	readonly workKey: string;
-	readonly actionId: string;
+export interface OperatorObservation extends OperatorObservationInput {
 	readonly actionLabel: string;
 	readonly timestamp: string;
-	readonly comment?: string;
-	readonly clientId?: string;
-	readonly actor?: unknown;
+}
+
+interface SourceRequirementIdentity {
+	readonly id: string;
+	readonly label: string;
 }
 
 export type SourceRequirementRecord =
-	| {
-			readonly id: string;
-			readonly label: string;
-			readonly status: "checking" | "ready";
-	  }
-	| {
-			readonly id: string;
-			readonly label: string;
-			readonly status: "action-required";
+	| (SourceRequirementIdentity & {
+			readonly status: Extract<SourceReadiness, "checking" | "ready">;
+	  })
+	| (SourceRequirementIdentity & {
+			readonly status: Extract<SourceReadiness, "action-required">;
 			readonly message: string;
 			readonly actions: readonly OperatorAction[];
-	  }
-	| {
-			readonly id: string;
-			readonly label: string;
-			readonly status: "unavailable";
+	  })
+	| (SourceRequirementIdentity & {
+			readonly status: Extract<SourceReadiness, "unavailable">;
 			readonly message: string;
 			readonly retryAfterMs?: number | undefined;
-	  };
+	  });
 
 export interface SourceRecord {
 	readonly sourceId: string;
 	readonly label: string;
-	readonly readiness: SourceRequirementRecord["status"];
+	readonly readiness: SourceReadiness;
 	readonly message?: string | undefined;
 	readonly requirements: readonly SourceRequirementRecord[];
 }
@@ -55,16 +58,16 @@ interface WorkIdentity {
 
 export type SourceWorkRecord =
 	| (WorkIdentity & {
-			readonly status: "pending";
+			readonly status: Extract<ObservedWorkStatus, "pending">;
 			readonly operatorActions?: readonly OperatorAction[] | undefined;
 	  })
 	| (WorkIdentity & {
-			readonly status: "waiting";
+			readonly status: Extract<ObservedWorkStatus, "waiting">;
 			readonly reason?: string | undefined;
 			readonly operatorActions?: readonly OperatorAction[] | undefined;
 	  })
 	| (WorkIdentity & {
-			readonly status: "blocked";
+			readonly status: Extract<ObservedWorkStatus, "blocked">;
 			readonly reason: string;
 			readonly operatorActions: readonly OperatorAction[];
 	  });
@@ -72,7 +75,7 @@ export type SourceWorkRecord =
 export type WorkRecord =
 	| SourceWorkRecord
 	| (WorkIdentity & {
-			readonly status: "running" | "draining";
+			readonly status: Extract<ObservedWorkStatus, "running" | "draining">;
 			readonly runId: string;
 			readonly operatorActions?: readonly OperatorAction[] | undefined;
 	  });
@@ -87,47 +90,40 @@ export interface WorkItem {
 	readonly operatorActions?: readonly OperatorAction[] | undefined;
 }
 
-export interface WorkRun {
+export interface WorkRun extends WorkIdentity {
 	readonly runId: string;
-	readonly sourceId: string;
-	readonly workKey: string;
-	readonly subject?: string | undefined;
-	readonly display?: WorkDisplay | undefined;
 }
 
 export interface WorkResult {
 	readonly output?: unknown;
 }
 
-interface CompletionIdentity {
-	readonly runId: string;
-	readonly sourceId: string;
-	readonly workKey: string;
-	readonly subject?: string | undefined;
-}
+type CompletionIdentity = Pick<
+	WorkRun,
+	"runId" | "sourceId" | "workKey" | "subject"
+>;
 
 export type Completion =
 	| (CompletionIdentity & {
-			readonly status: "succeeded";
+			readonly status: Extract<AgentRunOutcome, "succeeded">;
 			readonly output?: unknown;
 	  })
 	| (CompletionIdentity & {
-			readonly status: "failed";
+			readonly status: Extract<AgentRunOutcome, "failed">;
 			readonly error: string;
 	  })
 	| (CompletionIdentity & {
-			readonly status: "interrupted";
+			readonly status: Extract<AgentRunOutcome, "interrupted">;
 			readonly reason: string;
 	  })
 	| (CompletionIdentity & {
-			readonly status: "timed_out";
+			readonly status: Extract<AgentRunOutcome, "timed_out">;
 			readonly reason: string;
 	  });
 
-export interface Diagnostic {
+export interface Diagnostic extends DiagnosticMessage {
 	readonly level: "info" | "warning" | "error";
 	readonly phase: "reconcile" | "act";
-	readonly message: string;
 	readonly sourceId?: string;
 	readonly runId?: string;
 	readonly workKey?: string;
@@ -149,18 +145,12 @@ export interface TickResult {
 	readonly diagnostics: readonly Diagnostic[];
 }
 
-export type PlotAgentEvent =
+export type AgentEvent =
 	| { readonly type: "tick_started"; readonly tickId: number }
 	| { readonly type: "tick_completed"; readonly result: TickResult }
 	| { readonly type: "source_observed"; readonly source: SourceRecord }
 	| { readonly type: "work_observed"; readonly work: WorkRecord }
 	| { readonly type: "work_removed"; readonly workKey: string }
-	| {
-			readonly type: "wake_scheduled";
-			readonly delayMs: number;
-			readonly reason?: string | undefined;
-			readonly workKey?: string | undefined;
-			readonly attempt?: number | undefined;
-	  }
+	| ({ readonly type: "wake_scheduled" } & WakeRequest)
 	| { readonly type: "attempt_started"; readonly run: WorkRun }
 	| { readonly type: "attempt_completed"; readonly completion: Completion };

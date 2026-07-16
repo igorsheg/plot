@@ -61,7 +61,7 @@ function EmptyBoardLayout() {
 		<Stack className={appShellClass()} direction="column">
 			<SessionNav.Root>
 				<SessionNav.Identity>
-					<SessionNav.Title>Plot workflows</SessionNav.Title>
+					<SessionNav.Title>Workflows</SessionNav.Title>
 					<SessionNav.Meta>No active sessions</SessionNav.Meta>
 				</SessionNav.Identity>
 				<SessionNav.Actions>
@@ -142,7 +142,7 @@ function BoardLayout() {
 	);
 }
 
-export function PlotApp() {
+export function App() {
 	const layout = useStore($layoutMode);
 	return layout === "river" ? <RiverLayout /> : <BoardLayout />;
 }

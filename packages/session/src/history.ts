@@ -3,7 +3,7 @@ import { mkdir, open, stat, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 import { jsonlLines, parseJsonl, stringifyJsonl } from "@plot/common/jsonl";
 import { hasErrnoCode, isRecord } from "@plot/common/primitives";
-import type { RuntimeEvent } from "./runtime.js";
+import type { RuntimeEvent, SessionEventStore } from "./runtime.js";
 
 const historyLimits = { maxLineBytes: 2 * 1024 * 1024 } as const;
 
@@ -50,7 +50,9 @@ export async function* readSessionEvents(
 /** Create a new durable log. Existing paths are rejected rather than resumed. */
 export const createSessionEventLogWriter = (path: string) => {
 	let file: FileHandle | undefined;
+	let closed = false;
 	const getFile = async (): Promise<FileHandle> => {
+		if (closed) throw new Error("Session event store is closed");
 		if (file !== undefined) return file;
 		await mkdir(dirname(path), { recursive: true });
 		file = await open(path, "wx", 0o600);
@@ -62,8 +64,25 @@ export const createSessionEventLogWriter = (path: string) => {
 			await target.writeFile(stringifyJsonl(event, historyLimits));
 		},
 		close: async () => {
+			closed = true;
 			await file?.close();
 			file = undefined;
 		},
+	};
+};
+
+export const createJsonlSessionEventStore = (
+	path: string,
+): SessionEventStore => {
+	const writer = createSessionEventLogWriter(path);
+	return {
+		append: writer.append,
+		read: (after = 0) => ({
+			async *[Symbol.asyncIterator]() {
+				for await (const event of readSessionEvents(path))
+					if (event.sequence > after) yield event;
+			},
+		}),
+		close: writer.close,
 	};
 };

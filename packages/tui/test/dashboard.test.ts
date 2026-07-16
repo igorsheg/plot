@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PlotDashboard } from "../src/dashboard.js";
+import { Dashboard } from "../src/dashboard.js";
 import { emptyProjection, type DashboardProjection } from "@plot/projection";
 
 const actions = () => {
@@ -58,9 +58,9 @@ const withWork = (
 	...patch,
 });
 
-describe("PlotDashboard", () => {
+describe("Dashboard", () => {
 	test("renders active work", () => {
-		const rendered = new PlotDashboard(withWork(), actions().actions)
+		const rendered = new Dashboard(withWork(), actions().actions)
 			.render(100)
 			.join("\n");
 		expect(rendered).toContain("PLOT");
@@ -92,7 +92,7 @@ describe("PlotDashboard", () => {
 				],
 			]),
 		};
-		const rendered = new PlotDashboard(projection, actions().actions)
+		const rendered = new Dashboard(projection, actions().actions)
 			.render(100)
 			.join("\n");
 
@@ -126,7 +126,7 @@ describe("PlotDashboard", () => {
 				],
 			]),
 		};
-		const dashboard = new PlotDashboard(projection, {
+		const dashboard = new Dashboard(projection, {
 			...state.actions,
 			sourceAction: (input) => started.push(input),
 		});
@@ -143,7 +143,7 @@ describe("PlotDashboard", () => {
 	});
 
 	test("renders streaming status as one terminal row", () => {
-		const rendered = new PlotDashboard(
+		const rendered = new Dashboard(
 			withWork({
 				work: new Map([
 					[
@@ -202,7 +202,7 @@ describe("PlotDashboard", () => {
 
 	test("q confirms before stopping while d explicitly detaches", () => {
 		const a = actions();
-		const dashboard = new PlotDashboard(withWork(), a.actions);
+		const dashboard = new Dashboard(withWork(), a.actions);
 		dashboard.handleInput("o");
 		dashboard.handleInput("q");
 
@@ -214,13 +214,13 @@ describe("PlotDashboard", () => {
 		expect(a.stopCount).toBe(1);
 
 		const detached = actions();
-		new PlotDashboard(withWork(), detached.actions).handleInput("d");
+		new Dashboard(withWork(), detached.actions).handleInput("d");
 		expect(detached.detachCount).toBe(1);
 	});
 
 	test("escape cancels stop confirmation", () => {
 		const a = actions();
-		const dashboard = new PlotDashboard(withWork(), a.actions);
+		const dashboard = new Dashboard(withWork(), a.actions);
 		dashboard.handleInput("q");
 		dashboard.handleInput("\u001b");
 		dashboard.handleInput("q");
@@ -231,7 +231,7 @@ describe("PlotDashboard", () => {
 
 	test("live render clock only runs while active", async () => {
 		const a = actions();
-		const dashboard = new PlotDashboard(
+		const dashboard = new Dashboard(
 			{
 				...withWork(),
 				attempts: new Map([

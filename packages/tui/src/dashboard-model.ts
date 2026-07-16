@@ -1,8 +1,12 @@
+import type { OperatorAction } from "@plot/sdk/work-contract";
 import {
 	workLabel,
 	type ActivityTone,
 	type AgentAttemptProjection,
+	type CompletedWorkProjection,
 	type DashboardProjection,
+	type ScheduledWakeProjection,
+	type SourceProjection,
 	type WorkItemProjection,
 	type WorkStatus,
 } from "@plot/projection";
@@ -18,12 +22,14 @@ export interface PulseNextWakeModel {
 	readonly kind?: "wake" | "retry";
 	readonly reason?: string | undefined;
 }
-export interface PulseModel {
+export interface PulseModel extends Pick<
+	DashboardProjection["runtime"],
+	"maxConcurrentRuns"
+> {
 	readonly tick?: PulseTickModel | undefined;
 	readonly nextTick?: PulseNextWakeModel | undefined;
 	readonly nextWake?: PulseNextWakeModel | undefined;
 	readonly runningCount: number;
-	readonly maxConcurrentRuns?: number | undefined;
 	readonly totalTokens: string;
 	readonly totalCost?: string | undefined;
 	readonly throughput: string;
@@ -33,17 +39,17 @@ export interface AttentionItemModel {
 	readonly workKey?: string | undefined;
 	readonly text: string;
 }
-export interface SourceActionModel {
-	readonly id: string;
-	readonly label: string;
+export interface SourceActionModel extends Pick<
+	OperatorAction,
+	"id" | "label"
+> {
 	readonly disabled: boolean;
 }
-export interface SourceRowModel {
-	readonly sourceId: string;
+export interface SourceRowModel extends Pick<
+	SourceProjection,
+	"sourceId" | "label" | "readiness" | "message"
+> {
 	readonly requirementId?: string | undefined;
-	readonly label: string;
-	readonly readiness: "checking" | "ready" | "action-required" | "unavailable";
-	readonly message?: string | undefined;
 	readonly actions: readonly SourceActionModel[];
 	readonly actionRunId?: string | undefined;
 	readonly progress?: string | undefined;
@@ -59,21 +65,20 @@ export interface WorkRowModel {
 	readonly stale: boolean;
 	readonly attention: boolean;
 }
-export interface ScheduledRowModel {
+export interface ScheduledRowModel extends Pick<
+	ScheduledWakeProjection,
+	"reason" | "workKey" | "attempt"
+> {
 	readonly inSeconds: number;
-	readonly reason?: string | undefined;
-	readonly workKey?: string | undefined;
 	readonly label?: string | undefined;
-	readonly attempt?: number | undefined;
 }
-export interface CompletedRowModel {
-	readonly label: string;
-	readonly status: string;
-	readonly message: string;
+export interface CompletedRowModel extends Pick<
+	CompletedWorkProjection,
+	"label" | "status" | "message" | "url"
+> {
 	readonly ago: string;
 	readonly meta?: string | undefined;
 	readonly tone: ActivityTone;
-	readonly url?: string | undefined;
 }
 export interface DashboardModel {
 	readonly pulse: PulseModel;

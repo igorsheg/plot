@@ -8,6 +8,7 @@
 		"./manager": "./src/manager.ts",
 		"./session": "./src/session.ts",
 		"./session-store": "./src/session-store.ts",
+		"./session-process": "./src/session-process.ts",
 		"./events": "./src/events.ts"
 	},
 	"scripts": {
@@ -17,6 +18,7 @@
 	},
 	"dependencies": {
 		"@plot/common": "workspace:*",
+		"@plot/sdk": "workspace:*",
 		"@plot/session": "workspace:*"
 	},
 	"devDependencies": {

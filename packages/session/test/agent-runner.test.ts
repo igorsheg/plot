@@ -4,9 +4,9 @@ import type {
 	PromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { WorkRunnerContext } from "@plot/agent/work-runner";
-import { makePiWorkRunner, type PiAgentSessionPort } from "../src/pi-runner.js";
+import { createAgentRunner, type AgentSession } from "../src/agent-runner.js";
 
-class FakePiSession implements PiAgentSessionPort {
+class FakeAgentSession implements AgentSession {
 	readonly prompts: {
 		readonly text: string;
 		readonly options?: PromptOptions;
@@ -60,11 +60,11 @@ const context = (
 	return result;
 };
 
-test("pi runner renders prompt, streams events, and disposes", async () => {
-	const session = new FakePiSession();
+test("agent runner renders prompt, streams events, and disposes", async () => {
+	const session = new FakeAgentSession();
 	const events: AgentSessionEvent[] = [];
 	let activityReports = 0;
-	const runner = makePiWorkRunner({
+	const runner = createAgentRunner({
 		createAgentSession: async () => ({ session }),
 		prompt: "Hello {{ name }}",
 		create: async () => ({}),
@@ -88,13 +88,13 @@ test("pi runner renders prompt, streams events, and disposes", async () => {
 	expect(session.disposed).toBe(true);
 });
 
-test("pi runner reports every streamed event as activity", async () => {
-	const session = new FakePiSession(
+test("agent runner reports every streamed event as activity", async () => {
+	const session = new FakeAgentSession(
 		{ type: "queue_update", steering: [], followUp: [] },
 		3,
 	);
 	let activityReports = 0;
-	const runner = makePiWorkRunner({
+	const runner = createAgentRunner({
 		createAgentSession: async () => ({ session }),
 		prompt: "Start",
 		create: async () => ({}),
@@ -113,9 +113,9 @@ test("pi runner reports every streamed event as activity", async () => {
 	expect(activityReports).toBe(3);
 });
 
-test("pi runner validates continuation turn bounds", async () => {
-	const session = new FakePiSession();
-	const runner = makePiWorkRunner({
+test("agent runner validates continuation turn bounds", async () => {
+	const session = new FakeAgentSession();
+	const runner = createAgentRunner({
 		createAgentSession: async () => ({ session }),
 		prompt: "Start",
 		create: async () => ({}),
@@ -134,9 +134,9 @@ test("pi runner validates continuation turn bounds", async () => {
 	expect(session.prompts[1]?.text).toContain("Continuation guidance");
 });
 
-test("pi runner rejects invalid turn bounds", async () => {
-	const runner = makePiWorkRunner({
-		createAgentSession: async () => ({ session: new FakePiSession() }),
+test("agent runner rejects invalid turn bounds", async () => {
+	const runner = createAgentRunner({
+		createAgentSession: async () => ({ session: new FakeAgentSession() }),
 		prompt: "Start",
 		create: async () => ({}),
 		maxTurns: 0,

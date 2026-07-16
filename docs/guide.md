@@ -1,4 +1,4 @@
-# Agent guide: build a Plot extension
+# Agent guide: build an extension
 
 You are a coding agent asked to automate work with Plot. Your deliverable is a **Workflow Bundle**: a `WORKFLOW.md` and its referenced TypeScript Extension. Plot then runs the loop for you — it discovers work, dispatches an agent per Work Item, retries failures, drains superseded work, and gives the human durable dashboards.
 
@@ -18,6 +18,8 @@ Read these fully, in order. `plot docs --paths` prints where they live on disk s
    - `examples/pr-review/` when the user wants something production-shaped (durable state, guarded writes, operator overrides).
    - `examples/debug/` for a compact tour of every lifecycle hook and `parseConfig`.
 4. `plot docs workflows` — the complete `WORKFLOW.md` front-matter reference.
+
+For an embedded, process-owned integration, read `plot docs programmatic`. That path uses a branded Workflow value, a direct Extension value, literal prompt resources, and explicit in-memory credentials. Do not generate a temporary `WORKFLOW.md` or route it through the CLI loader.
 
 ## Division of labor — do not blur it
 

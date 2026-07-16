@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import {
 	boundaryErrorFromRecord,
 	parseBoundaryErrorRecord,
-	PlotBoundaryError,
+	BoundaryError,
 	toBoundaryErrorRecord,
 	type BoundaryErrorRecord,
 } from "@plot/common/boundary-error";
@@ -27,6 +27,7 @@ import {
 	type SessionManagerClient,
 	type StartWorkflow,
 } from "./manager.js";
+import type { ProcessCommand } from "./session-process.js";
 import { createFileSessionStore } from "./session-store.js";
 import {
 	parseSessionSummary,
@@ -38,7 +39,7 @@ export const sessionManagerProtocolVersion = 4;
 
 export interface SessionManagerIpcOptions {
 	readonly managerDir?: string;
-	readonly cli?: { readonly command: string; readonly args: readonly string[] };
+	readonly cli?: ProcessCommand;
 	readonly identity?: string;
 }
 
@@ -47,7 +48,7 @@ interface SessionManagerIdentity {
 	readonly build: string;
 }
 
-export class SessionManagerIdentityError extends PlotBoundaryError {
+export class SessionManagerIdentityError extends BoundaryError {
 	override readonly name = "SessionManagerIdentityError";
 
 	constructor(input: {
@@ -111,7 +112,7 @@ const assertRequestIdentity = (
 		options,
 	);
 
-const boundaryError = (error: BoundaryErrorRecord): PlotBoundaryError => {
+const boundaryError = (error: BoundaryErrorRecord): BoundaryError => {
 	if (
 		error.code === "manager_identity_mismatch" &&
 		typeof error.context?.["clientProtocol"] === "number" &&

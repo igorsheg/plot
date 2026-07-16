@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { makePlotAgent } from "../src/agent.js";
+import { createAgent } from "../src/agent.js";
 import type {
 	Completion,
-	PlotAgentEvent,
+	AgentEvent,
 	SourceRecord,
 	SourceWorkRecord,
 	WorkItem,
@@ -77,11 +77,11 @@ const source = (input: {
 const agentFor = (input: {
 	source: WorkSource;
 	runner: WorkRunner;
-	events?: PlotAgentEvent[];
+	events?: AgentEvent[];
 	maxRunDurationMs?: number;
 	stallTimeoutMs?: number;
 }) => {
-	return makePlotAgent({
+	return createAgent({
 		source: input.source,
 		runner: input.runner,
 		event: (event) => {
@@ -93,7 +93,7 @@ const agentFor = (input: {
 	});
 };
 
-describe("Plot Agent owner", () => {
+describe("Agent owner", () => {
 	test("reconciles, records, then launches without awaiting the run", async () => {
 		const log: string[] = [];
 		const blocked = deferred<WorkResult>();
@@ -116,7 +116,7 @@ describe("Plot Agent owner", () => {
 	test("admits one completion and ignores the stale duplicate", async () => {
 		let work: readonly WorkItem[] = [item("one")];
 		const run = deferred<WorkResult>();
-		const events: PlotAgentEvent[] = [];
+		const events: AgentEvent[] = [];
 		const finished: Completion[] = [];
 		const agent = agentFor({
 			source: source({
@@ -144,7 +144,7 @@ describe("Plot Agent owner", () => {
 	test("missing work drains its active run and stops continuation", async () => {
 		let work: readonly WorkItem[] = [item("one")];
 		let continueRun: ((turn: number) => boolean | Promise<boolean>) | undefined;
-		const events: PlotAgentEvent[] = [];
+		const events: AgentEvent[] = [];
 		const agent = agentFor({
 			source: source({ work: () => work }),
 			runner: {

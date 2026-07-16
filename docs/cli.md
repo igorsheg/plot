@@ -7,7 +7,7 @@ The npm package is `plot-ai`; its binary is `plot`.
 ```txt
 plot [workflow]          start or attach, then open the terminal dashboard
 plot start [workflow]    start without attaching
-plot stop [workflow]     stop the Workflow's Active Plot Session
+plot stop [workflow]     stop the Workflow's Active Session
 plot web                 open the Fleet Web Console
 plot check [workflow]    validate Workflow and readiness
 plot docs [topic]        print bundled documentation
@@ -23,7 +23,7 @@ The Workflow defaults to `WORKFLOW.md` in the current directory.
 
 ### `plot [workflow]`
 
-Plot canonicalizes the Workflow file path and starts or gets its Active Plot Session. Equivalent paths to the same file attach to the same Session.
+Plot canonicalizes the Workflow file path and starts or gets its Active Session. Equivalent paths to the same file attach to the same Session.
 
 The terminal dashboard reconstructs its projection from durable Session History and follows live events. `q` or Ctrl-C asks for confirmation before stopping. `d` explicitly detaches; terminal loss cannot be treated as a confirmed stop, so the durable Session remains active.
 

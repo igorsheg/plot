@@ -1,6 +1,6 @@
 import {
 	boundaryErrorFromRecord,
-	PlotBoundaryError,
+	BoundaryError,
 } from "@plot/common/boundary-error";
 import type {
 	OperatorObservationInput,
@@ -17,6 +17,11 @@ import {
 import { workflowBoundaryErrorFromRecord } from "@plot/session/workflow";
 
 const PENDING_COMMAND_CAPACITY = 64;
+
+export interface ProcessCommand {
+	readonly command: string;
+	readonly args: readonly string[];
+}
 
 export interface SessionChildExit {
 	readonly code?: number | null;
@@ -69,7 +74,7 @@ type ProcessState =
 			readonly exit?: SessionChildExit;
 	  };
 
-export class WorkerCommandTimeoutError extends PlotBoundaryError {
+export class WorkerCommandTimeoutError extends BoundaryError {
 	override readonly name = "WorkerCommandTimeoutError";
 
 	constructor(action: SessionWorkerAction, timeoutMs: number) {
@@ -82,7 +87,7 @@ export class WorkerCommandTimeoutError extends PlotBoundaryError {
 	}
 }
 
-export class WorkerExitedError extends PlotBoundaryError {
+export class WorkerExitedError extends BoundaryError {
 	override readonly name = "WorkerExitedError";
 
 	constructor(input: {
@@ -111,7 +116,7 @@ const asError = (error: unknown): Error =>
 
 const workerBoundaryError = (
 	record: Parameters<typeof boundaryErrorFromRecord>[0],
-): PlotBoundaryError => {
+): BoundaryError => {
 	const workflow = workflowBoundaryErrorFromRecord(record);
 	if (workflow !== undefined) return workflow;
 	if (
@@ -146,11 +151,9 @@ const safeDiagnostic = (value: string): string => {
 	return result;
 };
 
-export const createSessionChildProcess = (input: {
-	readonly command: string;
-	readonly args: readonly string[];
-	readonly cwd: string;
-}): SessionChildProcess => {
+export const createSessionChildProcess = (
+	input: ProcessCommand & { readonly cwd: string },
+): SessionChildProcess => {
 	let listener: ((message: unknown) => void) | undefined;
 	const earlyMessages: unknown[] = [];
 	const child = Bun.spawn([input.command, ...input.args], {

@@ -2,12 +2,19 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
-	PlotBoundaryError,
+	BoundaryError,
 	type BoundaryErrorRecord,
 } from "@plot/common/boundary-error";
 import { errorMessage } from "@plot/common/primitives";
+import type {
+	AgentConfig,
+	AgentThinkingLevel,
+	WorkflowConfig,
+	WorkflowExtensionOptions,
+	WorkflowResources,
+} from "@plot/sdk";
 
-export class WorkflowBoundaryError extends PlotBoundaryError {
+export class WorkflowBoundaryError extends BoundaryError {
 	override readonly name = "WorkflowBoundaryError";
 	readonly phase: "read" | "parse" | "prepare";
 	readonly path?: string | undefined;
@@ -49,9 +56,9 @@ export const workflowBoundaryErrorFromRecord = (
 	return new WorkflowBoundaryError(input);
 };
 
-export interface WorkflowDefinition {
+export interface LoadedWorkflow {
 	readonly config: Record<string, unknown>;
-	readonly runtime: WorkflowRuntimeConfig;
+	readonly runtime: WorkflowFileConfig;
 	readonly prompt: string;
 	readonly path?: string | undefined;
 }
@@ -76,54 +83,27 @@ const workflowKeys = [
 	"extension",
 ] as const;
 
-export type WorkflowThinkingLevel =
-	| "off"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh";
-
-export type WorkflowAgentToolMode = boolean | "all" | "builtin";
-
-export interface WorkflowAgentConfig {
-	readonly provider: string;
-	readonly model: string;
-	readonly thinking?: WorkflowThinkingLevel;
-	readonly tools?: readonly string[];
-	readonly excludeTools?: readonly string[];
-	readonly noTools?: WorkflowAgentToolMode;
-	readonly allowProjectConfig?: boolean;
-	readonly maxTurns?: number;
-}
-
-export interface WorkflowPlotConfig {
-	readonly tickIntervalMs?: number;
-	readonly maxRunDurationMs?: number;
-	readonly stallTimeoutMs?: number;
-}
-
-export interface WorkflowResourcesConfig {
+export interface WorkflowResourcesConfig extends WorkflowResources {
 	readonly skills?: readonly string[];
 	readonly prompts?: readonly string[];
 	readonly contextFiles?: boolean;
-	readonly systemPrompt?: string;
-	readonly appendSystemPrompt?: readonly string[];
 }
 
-export interface WorkflowExtensionConfig {
+export interface WorkflowFileExtension extends WorkflowExtensionOptions {
 	readonly source: string;
-	readonly maxConcurrentRuns?: number;
-	readonly config?: unknown;
 }
 
-export interface WorkflowRuntimeConfig {
+export interface WorkflowFileConfig {
 	readonly name?: string;
-	readonly plot?: WorkflowPlotConfig;
-	readonly agent: WorkflowAgentConfig;
+	readonly plot?: WorkflowConfig;
+	readonly agent: AgentConfig;
 	readonly resources?: WorkflowResourcesConfig;
-	readonly extension: WorkflowExtensionConfig;
+	readonly extension: WorkflowFileExtension;
 }
+
+type Mutable<Value> = {
+	-readonly [Key in keyof Value]: Value[Key];
+};
 
 const mapping = (value: unknown, name: string): Record<string, unknown> => {
 	if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -167,7 +147,7 @@ const strings = (value: unknown, name: string): readonly string[] => {
 	return value.map((item, index) => string(item, `${name}[${index}]`));
 };
 
-const decodePlot = (value: unknown): WorkflowPlotConfig => {
+const decodeSchedulingConfig = (value: unknown): WorkflowConfig => {
 	const keys = [
 		"tickIntervalMs",
 		"maxRunDurationMs",
@@ -183,7 +163,7 @@ const decodePlot = (value: unknown): WorkflowPlotConfig => {
 	);
 };
 
-const thinkingLevels = new Set<WorkflowThinkingLevel>([
+const thinkingLevels = new Set<AgentThinkingLevel>([
 	"off",
 	"minimal",
 	"low",
@@ -192,7 +172,7 @@ const thinkingLevels = new Set<WorkflowThinkingLevel>([
 	"xhigh",
 ]);
 
-const decodeAgent = (value: unknown): WorkflowAgentConfig => {
+const decodeAgent = (value: unknown): AgentConfig => {
 	const record = fields(value, "agent", [
 		"provider",
 		"model",
@@ -203,24 +183,15 @@ const decodeAgent = (value: unknown): WorkflowAgentConfig => {
 		"allowProjectConfig",
 		"maxTurns",
 	]);
-	const config: {
-		provider: string;
-		model: string;
-		thinking?: WorkflowThinkingLevel;
-		tools?: readonly string[];
-		excludeTools?: readonly string[];
-		noTools?: WorkflowAgentToolMode;
-		allowProjectConfig?: boolean;
-		maxTurns?: number;
-	} = {
+	const config: Mutable<AgentConfig> = {
 		provider: string(record["provider"], "agent.provider"),
 		model: string(record["model"], "agent.model"),
 	};
 	if (record["thinking"] !== undefined) {
 		const thinking = string(record["thinking"], "agent.thinking");
-		if (!thinkingLevels.has(thinking as WorkflowThinkingLevel))
+		if (!thinkingLevels.has(thinking as AgentThinkingLevel))
 			throw new Error(`agent.thinking is not recognized`);
-		config.thinking = thinking as WorkflowThinkingLevel;
+		config.thinking = thinking as AgentThinkingLevel;
 	}
 	if (record["tools"] !== undefined)
 		config.tools = strings(record["tools"], "agent.tools");
@@ -250,13 +221,7 @@ const decodeResources = (value: unknown): WorkflowResourcesConfig => {
 		"systemPrompt",
 		"appendSystemPrompt",
 	]);
-	const config: {
-		skills?: readonly string[];
-		prompts?: readonly string[];
-		contextFiles?: boolean;
-		systemPrompt?: string;
-		appendSystemPrompt?: readonly string[];
-	} = {};
+	const config: Mutable<WorkflowResourcesConfig> = {};
 	if (record["skills"] !== undefined)
 		config.skills = strings(record["skills"], "resources.skills");
 	if (record["prompts"] !== undefined)
@@ -280,17 +245,13 @@ const decodeResources = (value: unknown): WorkflowResourcesConfig => {
 	return config;
 };
 
-const decodeExtension = (value: unknown): WorkflowExtensionConfig => {
+const decodeExtension = (value: unknown): WorkflowFileExtension => {
 	const record = fields(value, "extension", [
 		"source",
 		"maxConcurrentRuns",
 		"config",
 	]);
-	const config: {
-		source: string;
-		maxConcurrentRuns?: number;
-		config?: unknown;
-	} = {
+	const config: Mutable<WorkflowFileExtension> = {
 		source: string(record["source"], "extension.source"),
 	};
 	if (record["maxConcurrentRuns"] !== undefined)
@@ -302,17 +263,11 @@ const decodeExtension = (value: unknown): WorkflowExtensionConfig => {
 	return config;
 };
 
-export const decodeWorkflowRuntimeConfig = (
+export const decodeWorkflowFileConfig = (
 	value: Record<string, unknown>,
-): WorkflowRuntimeConfig => {
+): WorkflowFileConfig => {
 	const record = fields(value, "WORKFLOW", workflowKeys);
-	let config: {
-		name?: string;
-		plot?: WorkflowPlotConfig;
-		agent: WorkflowAgentConfig;
-		resources?: WorkflowResourcesConfig;
-		extension: WorkflowExtensionConfig;
-	};
+	let config: Mutable<WorkflowFileConfig>;
 	if (record["extension"] === undefined)
 		throw new Error(
 			"WORKFLOW.md requires an extension with at least one Source.",
@@ -325,7 +280,8 @@ export const decodeWorkflowRuntimeConfig = (
 	};
 	if (record["name"] !== undefined)
 		config.name = string(record["name"], "name");
-	if (record["plot"] !== undefined) config.plot = decodePlot(record["plot"]);
+	if (record["plot"] !== undefined)
+		config.plot = decodeSchedulingConfig(record["plot"]);
 	if (record["resources"] !== undefined)
 		config.resources = decodeResources(record["resources"]);
 	return config;
@@ -371,17 +327,17 @@ const parseFrontMatter = (
 export const parseWorkflowText = (
 	text: string,
 	path?: string,
-): WorkflowDefinition => {
+): LoadedWorkflow => {
 	const match = frontMatterPattern.exec(text);
 	const config = parseFrontMatter(match?.[1] ?? "", path);
-	let runtime: WorkflowRuntimeConfig;
+	let runtime: WorkflowFileConfig;
 	try {
 		const runtimeConfig = Object.fromEntries(
 			workflowKeys.flatMap((key) =>
 				config[key] === undefined ? [] : [[key, config[key]]],
 			),
 		);
-		runtime = decodeWorkflowRuntimeConfig(runtimeConfig);
+		runtime = decodeWorkflowFileConfig(runtimeConfig);
 	} catch (error) {
 		throw new WorkflowBoundaryError({
 			phase: "parse",
@@ -407,5 +363,5 @@ export const resolveWorkflowPath = (
 export const loadWorkflow = async (
 	path = DEFAULT_WORKFLOW_PATH,
 	fileSystem: WorkflowFileSystem = nodeFileSystem,
-): Promise<WorkflowDefinition> =>
+): Promise<LoadedWorkflow> =>
 	parseWorkflowText(await fileSystem.readFileString(path), path);

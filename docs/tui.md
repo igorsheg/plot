@@ -4,11 +4,11 @@
 plot WORKFLOW.md
 ```
 
-The terminal dashboard is an attached operator view of one durable Plot Session.
+The terminal dashboard is an attached operator view of one durable Session.
 
 ## Lifecycle
 
-- If the Workflow has no Active Plot Session, Plot starts one.
+- If the Workflow has no Active Session, Plot starts one.
 - Otherwise Plot attaches to the existing Session.
 - Durable Session History reconstructs the current projection before live continuation.
 - `q` or Ctrl-C opens a stop confirmation. `Enter`, `q`, `y`, or Ctrl-C again confirms.

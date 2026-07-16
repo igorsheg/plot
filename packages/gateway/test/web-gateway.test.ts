@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { SessionManagerClient } from "@plot/session-manager/manager";
 import type { SessionSummary } from "@plot/session-manager/session";
 import type { RuntimeEvent } from "@plot/session/runtime";
-import { startPlotWebGateway } from "../src/gateway.js";
+import { startWebGateway } from "../src/gateway.js";
 
 const session: SessionSummary = {
 	id: "session-1",
@@ -58,7 +58,7 @@ const fakeManager = () => {
 
 test("Web Console lists and explicitly stops Sessions", async () => {
 	const fake = fakeManager();
-	const gateway = await startPlotWebGateway({ manager: fake.manager });
+	const gateway = await startWebGateway({ manager: fake.manager });
 	try {
 		const listed = await fetch(new URL("/api/sessions", gateway.url));
 		expect(listed.status).toBe(200);
@@ -112,7 +112,7 @@ test("SSE pulls ordered Session events from the requested frontier", async () =>
 		timestamp: "2026-01-01T00:00:00.000Z",
 		event: { type: "tick_started", tickId: 1 },
 	});
-	const gateway = await startPlotWebGateway({ manager: fake.manager });
+	const gateway = await startWebGateway({ manager: fake.manager });
 	try {
 		const response = await fetch(
 			new URL(`/api/sessions/${session.id}/events?after=4`, gateway.url),
@@ -130,7 +130,7 @@ test("SSE pulls ordered Session events from the requested frontier", async () =>
 
 test("stopping the Web Console does not stop managed Sessions", async () => {
 	const fake = fakeManager();
-	const gateway = await startPlotWebGateway({ manager: fake.manager });
+	const gateway = await startWebGateway({ manager: fake.manager });
 
 	gateway.stop();
 

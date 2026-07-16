@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { PlotBoundaryError } from "@plot/common/boundary-error";
+import { BoundaryError } from "@plot/common/boundary-error";
 import { createSessionEventLogWriter } from "@plot/session/history";
 import type { RuntimeEvent } from "@plot/session/runtime";
 import type { SessionWorkerRecord } from "@plot/session/worker";
@@ -333,9 +333,7 @@ const defineManagerContract = (name: string, connect: ConnectManager) => {
 		});
 
 		test("replays history then follows live events without duplicates", async () => {
-			const dir = await mkdtemp(
-				join(tmpdir(), "plot-manager-events-contract-"),
-			);
+			const dir = await mkdtemp(join(tmpdir(), "manager-events-contract-"));
 			const workflowPath = join(dir, "WORKFLOW.md");
 			let worker!: FakeWorker;
 			const owner = manager({
@@ -379,7 +377,7 @@ const defineManagerContract = (name: string, connect: ConnectManager) => {
 				} catch (error) {
 					failure = error;
 				}
-				expect(failure).toBeInstanceOf(PlotBoundaryError);
+				expect(failure).toBeInstanceOf(BoundaryError);
 				expect(failure).toBeInstanceOf(SessionNotFoundError);
 				expect(failure).toMatchObject({
 					code: "session_not_found",
@@ -398,7 +396,7 @@ defineManagerContract("direct", async (owner) => ({
 }));
 
 defineManagerContract("IPC", async (owner) => {
-	const managerDir = await mkdtemp(join(tmpdir(), "plot-manager-contract-"));
+	const managerDir = await mkdtemp(join(tmpdir(), "manager-contract-"));
 	const server = await startSessionManagerServer({
 		options: { managerDir },
 		manager: owner,
@@ -474,7 +472,7 @@ test("stop still finds a Session after its Workflow alias disappears", async () 
 });
 
 test("an idle IPC continuation survives Bun's default timeout and releases on abort", async () => {
-	const managerDir = await mkdtemp(join(tmpdir(), "plot-manager-ipc-"));
+	const managerDir = await mkdtemp(join(tmpdir(), "manager-ipc-"));
 	const sessions = manager();
 	const active = await sessions.start({
 		cwd: "/repo",
@@ -511,7 +509,7 @@ test("an idle IPC continuation survives Bun's default timeout and releases on ab
 }, 15_000);
 
 test("unknown event streams preserve session_not_found through IPC", async () => {
-	const managerDir = await mkdtemp(join(tmpdir(), "plot-manager-events-"));
+	const managerDir = await mkdtemp(join(tmpdir(), "manager-events-"));
 	const sessions = manager();
 	const server = await startSessionManagerServer({
 		options: { managerDir },
@@ -531,7 +529,7 @@ test("unknown event streams preserve session_not_found through IPC", async () =>
 });
 
 test("a client rejects a Session Manager from another Plot build", async () => {
-	const managerDir = await mkdtemp(join(tmpdir(), "plot-manager-identity-"));
+	const managerDir = await mkdtemp(join(tmpdir(), "manager-identity-"));
 	const sessions = manager();
 	const server = await startSessionManagerServer({
 		options: { managerDir, identity: "daemon-build" },
@@ -583,9 +581,7 @@ test("an errored worker releases its Workflow and preserves its summary", async 
 });
 
 test("IPC preserves session_not_controllable after stop", async () => {
-	const managerDir = await mkdtemp(
-		join(tmpdir(), "plot-manager-control-error-"),
-	);
+	const managerDir = await mkdtemp(join(tmpdir(), "manager-control-error-"));
 	const sessions = manager();
 	const server = await startSessionManagerServer({
 		options: { managerDir },

@@ -266,7 +266,7 @@ function SourceStatus({ view }: { readonly view: SourceView }) {
 
 /** Off-ready requirement statuses, humanized to the stage-word voice. */
 const REQUIREMENT_WORD: Record<
-	"action-required" | "unavailable" | "checking",
+	Exclude<SourceView["requirements"][number]["status"], "ready">,
 	string
 > = {
 	"action-required": "needs setup",

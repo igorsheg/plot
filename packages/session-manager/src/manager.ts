@@ -1,21 +1,34 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
-import { PlotBoundaryError } from "@plot/common/boundary-error";
+import { BoundaryError } from "@plot/common/boundary-error";
 import { EventHub } from "@plot/common/event-stream";
 import { errorMessage } from "@plot/common/primitives";
+import {
+	createOwner,
+	type Owner,
+	type OwnedSession,
+	type SessionCloseContext,
+	type SessionIdentity,
+	type SessionTarget,
+} from "@plot/session/owner";
 import type {
 	OperatorObservationInput,
 	RuntimeEvent,
 	SourceActionInput,
 	SourceActionStartResult,
 } from "@plot/session/runtime";
-import { resolveWorkflowPath } from "@plot/session/workflow";
+import type { SessionWorkerAction } from "@plot/session/worker";
+import {
+	resolveWorkflowPath,
+	type WorkflowDiscoveryOptions,
+} from "@plot/session/workflow";
 import { sessionEvents } from "./events.js";
 import {
 	SessionProcess,
 	createSessionChildProcess,
 	trimDiagnostic,
+	type ProcessCommand,
 	type SessionChildProcess,
 	type SessionProcessShutdownOptions,
 } from "./session-process.js";
@@ -29,23 +42,19 @@ const KILL_SHUTDOWN_MS = 2_000;
 const DIAGNOSTIC_LIMIT_BYTES = 16 * 1024;
 const now = () => new Date().toISOString();
 
-export interface StartWorkflow {
-	readonly cwd: string;
-	readonly workflowPath?: string;
-}
+export type StartWorkflow = WorkflowDiscoveryOptions;
 
 export interface StartSessionResult {
 	readonly session: SessionSummary;
 	readonly started: boolean;
 }
 
-export type SessionControlOperation =
-	| "tick"
-	| "observe"
-	| "source-action"
-	| "source-action-cancel";
+export type SessionControlOperation = Exclude<
+	SessionWorkerAction,
+	"start" | "shutdown"
+>;
 
-export class SessionNotFoundError extends PlotBoundaryError {
+export class SessionNotFoundError extends BoundaryError {
 	override readonly name = "SessionNotFoundError";
 	readonly sessionId: string;
 
@@ -60,7 +69,7 @@ export class SessionNotFoundError extends PlotBoundaryError {
 	}
 }
 
-export class SessionNotControllableError extends PlotBoundaryError {
+export class SessionNotControllableError extends BoundaryError {
 	override readonly name = "SessionNotControllableError";
 	readonly sessionId: string;
 	readonly state: SessionState;
@@ -83,7 +92,7 @@ export class SessionNotControllableError extends PlotBoundaryError {
 	}
 }
 
-export class SessionManagerShuttingDownError extends PlotBoundaryError {
+export class SessionManagerShuttingDownError extends BoundaryError {
 	override readonly name = "SessionManagerShuttingDownError";
 
 	constructor() {
@@ -126,19 +135,17 @@ export interface SessionManagerClient {
 
 export interface SessionManagerOptions {
 	readonly store: SessionStore;
-	readonly cli: { readonly command: string; readonly args: readonly string[] };
-	readonly spawnChild?: (input: {
-		readonly command: string;
-		readonly args: readonly string[];
-		readonly cwd: string;
-	}) => SessionChildProcess;
+	readonly cli: ProcessCommand;
+	readonly spawnChild?: (
+		input: ProcessCommand & { readonly cwd: string },
+	) => SessionChildProcess;
 	readonly readyTimeoutMs?: number;
 	readonly gracefulShutdownMs?: number;
 	readonly canonicalize?: (path: string) => Promise<string>;
 }
 
-interface LiveSession {
-	readonly owner: WorkflowOwner;
+interface LiveSession extends OwnedSession {
+	readonly identity: SessionIdentity<string>;
 	readonly id: string;
 	readonly createdAt: string;
 	updatedAt: string;
@@ -150,29 +157,12 @@ interface LiveSession {
 	readonly events: EventHub<RuntimeEvent>;
 	readonly unsubscribeRecord: () => void;
 	readonly unsubscribeExit: () => void;
+	state: SessionState;
 	diagnostic?: string;
 }
 
-type CloseReason = "stop" | "failure";
-
-type WorkflowState =
-	| { readonly state: "idle" }
-	| {
-			readonly state: "starting";
-			readonly operation: Promise<StartSessionResult>;
-	  }
-	| { readonly state: "online"; readonly session: LiveSession }
-	| {
-			readonly state: "closing";
-			readonly reason: CloseReason;
-			readonly session: LiveSession;
-			readonly operation: Promise<SessionSummary>;
-	  };
-
-interface WorkflowOwner {
-	readonly workflowKey: string;
-	readonly aliases: Set<string>;
-	state: WorkflowState;
+interface ManagedSessionTarget {
+	readonly projectPath: string;
 }
 
 const workerArgs = (input: {
@@ -193,9 +183,7 @@ const workerArgs = (input: {
 
 export class SessionManager implements SessionManagerClient {
 	private readonly live = new Map<string, LiveSession>();
-	private readonly workflows = new Map<string, WorkflowOwner>();
-	private accepting = true;
-	private shutdownOperation: Promise<void> | undefined;
+	private readonly owner: Owner<string, ManagedSessionTarget, LiveSession>;
 	private readonly options: SessionManagerOptions &
 		Required<
 			Pick<
@@ -211,6 +199,11 @@ export class SessionManager implements SessionManagerClient {
 			gracefulShutdownMs: options.gracefulShutdownMs ?? 30_000,
 			canonicalize: options.canonicalize ?? realpath,
 		};
+		this.owner = createOwner(
+			({ target, identity }) =>
+				this.createManagedSession(identity, target.projectPath),
+			() => new SessionManagerShuttingDownError(),
+		);
 	}
 
 	async recoverAfterRestart(): Promise<void> {
@@ -225,21 +218,15 @@ export class SessionManager implements SessionManagerClient {
 		};
 	}
 
-	private summary(live: LiveSession, state?: SessionState): SessionSummary {
-		const ownerState = live.owner.state;
-		let actualState = state ?? "starting";
-		if (state === undefined && ownerState.state === "online")
-			actualState = "online";
-		if (state === undefined && ownerState.state === "closing")
-			actualState = ownerState.reason === "stop" ? "stopping" : "error";
+	private summary(live: LiveSession, state = live.state): SessionSummary {
 		const summary: SessionSummary = {
 			id: live.id,
-			workflowKey: live.owner.workflowKey,
+			workflowKey: live.identity.key,
 			workflowName: live.workflowName,
 			workflowPath: live.workflowPath,
-			workflowAliases: [...live.owner.aliases],
+			workflowAliases: [...live.identity.aliases],
 			projectPath: live.projectPath,
-			state: actualState,
+			state,
 			createdAt: live.createdAt,
 			updatedAt: live.updatedAt,
 			historyPath: live.historyPath,
@@ -254,32 +241,15 @@ export class SessionManager implements SessionManagerClient {
 		return { ...summary, diagnostic };
 	}
 
-	private ownerFor(workflowKey: string, aliases: readonly string[]) {
-		const found = [workflowKey, ...aliases]
-			.map((key) => this.workflows.get(key))
-			.find((owner) => owner !== undefined);
-		const owner: WorkflowOwner = found ?? {
-			workflowKey,
-			aliases: new Set(),
-			state: { state: "idle" },
+	private async workflowTarget(
+		input: StartWorkflow,
+	): Promise<SessionTarget<string, ManagedSessionTarget>> {
+		const workflowPath = resolveWorkflowPath(input);
+		return {
+			key: await this.options.canonicalize(workflowPath),
+			aliases: [resolve(workflowPath)],
+			target: { projectPath: resolve(input.cwd) },
 		};
-		for (const alias of [workflowKey, ...aliases]) {
-			const conflict = this.workflows.get(alias);
-			if (conflict !== undefined && conflict !== owner)
-				throw new Error(`Conflicting Workflow lifecycle identity: ${alias}`);
-			owner.aliases.add(alias);
-			this.workflows.set(alias, owner);
-		}
-		return owner;
-	}
-
-	private release(owner: WorkflowOwner): void {
-		for (const alias of owner.aliases)
-			if (this.workflows.get(alias) === owner) this.workflows.delete(alias);
-	}
-
-	private async workflowKey(input: StartWorkflow): Promise<string> {
-		return this.options.canonicalize(resolveWorkflowPath(input));
 	}
 
 	private async workflowLookupKeys(path: string): Promise<Set<string>> {
@@ -294,49 +264,19 @@ export class SessionManager implements SessionManagerClient {
 	}
 
 	async start(input: StartWorkflow): Promise<StartSessionResult> {
-		if (!this.accepting) throw new SessionManagerShuttingDownError();
-		const alias = resolve(resolveWorkflowPath(input));
-		const owner = this.ownerFor(await this.workflowKey(input), [alias]);
-		for (;;) {
-			if (!this.accepting) throw new SessionManagerShuttingDownError();
-			const state = owner.state;
-			if (state.state === "idle")
-				return this.beginStart(owner, resolve(input.cwd));
-			if (state.state === "starting") {
-				const result = await state.operation;
-				return { session: result.session, started: false };
-			}
-			if (state.state === "online") {
-				state.session.updatedAt = now();
-				const session = this.summary(state.session, "online");
-				await this.options.store.upsert(session);
-				return { session, started: false };
-			}
-			await state.operation.catch(() => undefined);
+		const result = await this.owner.start(await this.workflowTarget(input));
+		if (!result.started) {
+			result.session.updatedAt = now();
+			await this.options.store.upsert(this.summary(result.session));
 		}
+		return {
+			session: this.summary(result.session),
+			started: result.started,
+		};
 	}
 
-	private beginStart(
-		owner: WorkflowOwner,
-		projectPath: string,
-	): Promise<StartSessionResult> {
-		const operation = this.startSession(owner, projectPath).then(
-			(live) => {
-				owner.state = { state: "online", session: live };
-				return { session: this.summary(live, "online"), started: true };
-			},
-			(error: unknown) => {
-				owner.state = { state: "idle" };
-				this.release(owner);
-				throw error;
-			},
-		);
-		owner.state = { state: "starting", operation };
-		return operation;
-	}
-
-	private async startSession(
-		owner: WorkflowOwner,
+	private async createManagedSession(
+		identity: SessionIdentity<string>,
 		projectPath: string,
 	): Promise<LiveSession> {
 		const id = `session-${randomUUID()}`;
@@ -346,7 +286,7 @@ export class SessionManager implements SessionManagerClient {
 				cliArgs: this.options.cli.args,
 				cwd: projectPath,
 				sessionId: id,
-				workflowPath: owner.workflowKey,
+				workflowPath: identity.key,
 			}),
 			cwd: projectPath,
 		});
@@ -360,15 +300,17 @@ export class SessionManager implements SessionManagerClient {
 		});
 		const unsubscribeExit = process.onExit((error) => {
 			const live = this.live.get(id);
-			if (live?.process === process) void this.fail(live.owner, live, error);
+			if (live?.process === process)
+				void this.owner.fail(live.identity, live, error);
 		});
 		let live: LiveSession | undefined;
 		try {
 			const ready = await process.waitUntilReady(this.options.readyTimeoutMs);
 			const createdAt = now();
 			live = {
-				owner,
+				identity,
 				id,
+				state: "starting",
 				createdAt,
 				updatedAt: createdAt,
 				workflowName: ready.workflowName,
@@ -379,12 +321,18 @@ export class SessionManager implements SessionManagerClient {
 				events,
 				unsubscribeRecord,
 				unsubscribeExit,
+				close: async (context) => {
+					if (live === undefined)
+						throw new Error("Managed Session closed before creation");
+					await this.closeLive(live, context);
+				},
 			};
 			this.live.set(id, live);
 			await this.options.store.upsert(this.summary(live, "starting"));
 			await process.command("start");
+			live.state = "online";
 			live.updatedAt = now();
-			await this.options.store.upsert(this.summary(live, "online"));
+			await this.options.store.upsert(this.summary(live));
 			return live;
 		} catch (error) {
 			if (live !== undefined) {
@@ -402,8 +350,9 @@ export class SessionManager implements SessionManagerClient {
 				unsubscribeExit();
 				events.close();
 			} else {
+				live.state = "error";
 				await this.options.store
-					.upsert(this.summary(live, "error"))
+					.upsert(this.summary(live))
 					.catch(() => undefined);
 				this.releaseLive(live);
 			}
@@ -427,27 +376,9 @@ export class SessionManager implements SessionManagerClient {
 		if (this.live.get(live.id) === live) this.live.delete(live.id);
 	}
 
-	private fail(
-		owner: WorkflowOwner,
-		live: LiveSession,
-		error: unknown,
-	): Promise<SessionSummary | undefined> {
-		const state = owner.state;
-		if (state.state === "closing" && state.session === live)
-			return state.operation;
-		if (state.state !== "online" || state.session !== live)
-			return Promise.resolve(undefined);
-		return this.beginClose(owner, live, "failure", error);
-	}
-
 	async find(path: string): Promise<SessionSummary | undefined> {
-		const keys = await this.workflowLookupKeys(path);
-		for (const key of keys) {
-			const owner = this.workflows.get(key);
-			if (owner?.state.state === "online")
-				return this.summary(owner.state.session, "online");
-		}
-		return;
+		const live = this.owner.find(await this.workflowLookupKeys(path));
+		return live === undefined ? undefined : this.summary(live);
 	}
 
 	async get(id: string): Promise<SessionSummary | undefined> {
@@ -457,15 +388,8 @@ export class SessionManager implements SessionManagerClient {
 
 	async stop(path: string): Promise<SessionSummary | undefined> {
 		const keys = await this.workflowLookupKeys(path);
-		const owners = new Set(
-			[...keys]
-				.map((key) => this.workflows.get(key))
-				.filter((owner) => owner !== undefined),
-		);
-		if (owners.size > 1)
-			throw new Error(`Conflicting Workflow lifecycle identity: ${path}`);
-		const owner = owners.values().next().value as WorkflowOwner | undefined;
-		if (owner !== undefined) return this.stopOwner(owner);
+		const stopped = await this.owner.stop(keys);
+		if (stopped !== undefined) return this.summary(stopped);
 		return (await this.options.store.list()).find(
 			(session) =>
 				keys.has(session.workflowKey) ||
@@ -475,58 +399,21 @@ export class SessionManager implements SessionManagerClient {
 
 	async stopSession(id: string): Promise<SessionSummary | undefined> {
 		const live = this.live.get(id);
-		return live === undefined
-			? this.options.store.get(id)
-			: this.stopOwner(live.owner, id);
-	}
-
-	private async stopOwner(
-		owner: WorkflowOwner,
-		id?: string,
-	): Promise<SessionSummary | undefined> {
-		for (;;) {
-			const state = owner.state;
-			if (state.state === "idle") return;
-			if (state.state === "starting") {
-				try {
-					await state.operation;
-				} catch {
-					return;
-				}
-				continue;
-			}
-			if (state.state === "closing")
-				return id === undefined || state.session.id === id
-					? state.operation
-					: undefined;
-			if (id !== undefined && state.session.id !== id) return;
-			return this.beginClose(owner, state.session, "stop");
-		}
-	}
-
-	private beginClose(
-		owner: WorkflowOwner,
-		live: LiveSession,
-		reason: CloseReason,
-		failure?: unknown,
-	): Promise<SessionSummary> {
-		const operation = this.closeLive(live, reason, failure).finally(() => {
-			owner.state = { state: "idle" };
-			this.release(owner);
-		});
-		owner.state = { state: "closing", reason, session: live, operation };
-		return operation;
+		if (live === undefined) return this.options.store.get(id);
+		const stopped = await this.owner.stopOwned(live.identity, live);
+		return stopped === undefined ? undefined : this.summary(stopped);
 	}
 
 	private async closeLive(
 		live: LiveSession,
-		reason: CloseReason,
-		failure: unknown,
-	): Promise<SessionSummary> {
-		if (reason === "failure")
+		context: SessionCloseContext,
+	): Promise<void> {
+		const failedByOwner = context.reason === "failure";
+		live.state = failedByOwner ? "error" : "stopping";
+		if (failedByOwner)
 			live.diagnostic = this.appendDiagnostic(
 				live.diagnostic,
-				errorMessage(failure),
+				errorMessage(context.error),
 			);
 		let shutdownFailure: unknown;
 		try {
@@ -544,16 +431,15 @@ export class SessionManager implements SessionManagerClient {
 			);
 		}
 		live.updatedAt = now();
-		const failed = reason === "failure" || shutdownFailure !== undefined;
-		const summary = this.summary(live, failed ? "error" : "stopped");
+		const failed = failedByOwner || shutdownFailure !== undefined;
+		live.state = failed ? "error" : "stopped";
+		const summary = this.summary(live);
 		try {
 			await this.options.store.upsert(summary);
 		} finally {
 			this.releaseLive(live);
 		}
-		if (reason === "stop" && shutdownFailure !== undefined)
-			throw shutdownFailure;
-		return summary;
+		if (!failedByOwner && shutdownFailure !== undefined) throw shutdownFailure;
 	}
 
 	async list(): Promise<readonly SessionSummary[]> {
@@ -599,12 +485,7 @@ export class SessionManager implements SessionManagerClient {
 				? await this.options.store.get(id)
 				: this.summary(live);
 		if (session === undefined) throw new SessionNotFoundError(id);
-		if (
-			!this.accepting ||
-			live === undefined ||
-			live.owner.state.state !== "online" ||
-			live.owner.state.session !== live
-		)
+		if (live === undefined || !this.owner.isControllable(live.identity, live))
 			throw new SessionNotControllableError({
 				sessionId: id,
 				state: session.state,
@@ -642,19 +523,11 @@ export class SessionManager implements SessionManagerClient {
 	}
 
 	forceClose(): void {
-		this.accepting = false;
+		this.owner.stopAccepting();
 		for (const live of this.live.values()) live.process.forceClose();
 	}
 
 	shutdown(): Promise<void> {
-		this.shutdownOperation ??= (async () => {
-			this.accepting = false;
-			await Promise.all(
-				[...new Set(this.workflows.values())].map((owner) =>
-					this.stopOwner(owner),
-				),
-			);
-		})();
-		return this.shutdownOperation;
+		return this.owner.dispose();
 	}
 }

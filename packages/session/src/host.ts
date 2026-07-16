@@ -1,77 +1,74 @@
 import { basename } from "node:path";
-import { loadPlotExtensionRuntimeFromWorkflow } from "./extension-loader.js";
-import { makePlotExtensionSourceBundle } from "./extension-source.js";
+import { makeExtensionSource } from "./extension-source.js";
 import { sessionEventLogPath, type SessionPaths } from "./paths.js";
-import { makeCreatePiAgentSession } from "./pi-session.js";
-import { makePiWorkRunner, type CreatePiAgentSession } from "./pi-runner.js";
-import { loadWorkflowForSession } from "./preparation.js";
+import { createAgentRunner } from "./agent-runner.js";
 import {
 	makeSessionEventOwner,
 	makeSessionRuntime,
+	type SessionEventOwner,
+	type SessionEventStore,
 	type SessionRuntime,
 } from "./runtime.js";
-import type { WorkflowDefinition } from "./workflow.js";
+import type { PreparedWorkflow, WorkflowPlan } from "./workflow-plan.js";
 
-export interface SessionHostMetadata {
+export interface SessionHostMetadata extends Pick<
+	SessionPaths,
+	"cwd" | "sessionDir"
+> {
 	readonly workflowName: string;
 	readonly workflowPath: string;
-	readonly cwd: string;
 	readonly cwdName: string;
-	readonly sessionDir: string;
 	readonly historyPath: string;
 }
 
 export interface SessionHost {
 	readonly runtime: SessionRuntime;
+	readonly events: SessionEventOwner;
 	readonly paths: SessionPaths;
-	readonly workflow: WorkflowDefinition;
+	readonly plan: WorkflowPlan;
 	readonly metadata: SessionHostMetadata;
 	readonly shutdown: () => Promise<void>;
 }
 
-export interface CreateSessionHostOptions {
-	readonly cwd: string;
-	readonly workflowPath?: string;
+export const createSessionHost = async (options: {
+	readonly prepared: PreparedWorkflow;
 	readonly sessionId?: string;
-	readonly plotDir?: string;
-	readonly agentDir?: string;
-	readonly sessionDir?: string;
-	readonly createAgentSession?: CreatePiAgentSession;
-}
-
-export const createSessionHost = async (
-	options: CreateSessionHostOptions,
-): Promise<SessionHost> => {
-	const { paths, workflow } = await loadWorkflowForSession({
-		...options,
-		skipAgentReadiness: options.createAgentSession !== undefined,
-	});
-	const loaded = await loadPlotExtensionRuntimeFromWorkflow({
-		workflow,
+	readonly createEventStore: (sessionId: string) => SessionEventStore;
+}): Promise<SessionHost> => {
+	const { prepared } = options;
+	const { plan, paths } = prepared;
+	let extensionRuntime;
+	try {
+		extensionRuntime = await plan.extension.create({
+			workflow: plan.definition,
+			paths,
+			config: plan.extensionConfig,
+			credentials: prepared.credentials,
+		});
+	} catch (error) {
+		await prepared.dispose();
+		throw error;
+	}
+	const source = makeExtensionSource({
+		extension: plan.extension,
+		runtime: extensionRuntime,
+		credentials: prepared.credentials,
+		workflow: plan.definition,
 		paths,
-	});
-	const bundle = makePlotExtensionSourceBundle({
-		extension: loaded.extension,
-		runtime: loaded.runtime,
-		credentials: loaded.credentials,
-		workflow,
-		paths,
-		config: loaded.config,
-		maxConcurrentRuns: workflow.runtime.extension.maxConcurrentRuns ?? 1,
+		config: plan.extensionConfig,
+		maxConcurrentRuns: plan.maxConcurrentRuns,
 	});
 	const sessionId = options.sessionId ?? crypto.randomUUID();
 	const historyPath = sessionEventLogPath(paths.sessionDir, sessionId);
 	const events = makeSessionEventOwner({
 		id: sessionId,
-		sessionFile: historyPath,
+		store: options.createEventStore(sessionId),
 	});
-	const runner = makePiWorkRunner({
-		createAgentSession:
-			options.createAgentSession ??
-			makeCreatePiAgentSession({ workflow, paths }),
-		prompt: workflow.prompt,
-		create: bundle.createOptions,
-		maxTurns: workflow.runtime.agent.maxTurns ?? 20,
+	const runner = createAgentRunner({
+		createAgentSession: prepared.createAgentSession,
+		prompt: plan.prompt,
+		create: source.createOptions,
+		maxTurns: plan.agent.maxTurns ?? 20,
 		onEvent: ({ context, event }) =>
 			events.appendAgentEvent({
 				sourceId: context.sourceId,
@@ -82,26 +79,40 @@ export const createSessionHost = async (
 	});
 	const runtime = makeSessionRuntime({
 		events,
-		source: bundle,
+		source,
 		runner,
-		tickIntervalMs: workflow.runtime.plot?.tickIntervalMs,
-		maxRunDurationMs: workflow.runtime.plot?.maxRunDurationMs,
-		stallTimeoutMs: workflow.runtime.plot?.stallTimeoutMs,
+		tickIntervalMs: plan.plot?.tickIntervalMs,
+		maxRunDurationMs: plan.plot?.maxRunDurationMs,
+		stallTimeoutMs: plan.plot?.stallTimeoutMs,
 	});
+	const workflowPath =
+		typeof prepared.identity === "string"
+			? prepared.identity
+			: "<programmatic>";
+	let shutdownOperation: Promise<void> | undefined;
+	const shutdown = () => {
+		shutdownOperation ??= (async () => {
+			try {
+				await runtime.shutdown();
+			} finally {
+				await prepared.dispose();
+			}
+		})();
+		return shutdownOperation;
+	};
 	return {
 		runtime,
+		events,
 		paths,
-		workflow,
+		plan,
 		metadata: {
-			workflowName:
-				workflow.runtime.name ??
-				(workflow.path ? basename(workflow.path) : "workflow"),
-			workflowPath: workflow.path ?? "WORKFLOW.md",
+			workflowName: plan.name,
+			workflowPath,
 			cwd: paths.cwd,
 			cwdName: basename(paths.cwd),
 			sessionDir: paths.sessionDir,
 			historyPath,
 		},
-		shutdown: runtime.shutdown,
+		shutdown,
 	};
 };

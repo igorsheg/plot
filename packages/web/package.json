@@ -21,6 +21,7 @@
 		"@phosphor-icons/react": "^2.1.10",
 		"@plot/common": "workspace:*",
 		"@plot/projection": "workspace:*",
+		"@plot/sdk": "workspace:*",
 		"@plot/session": "workspace:*",
 		"@plot/session-manager": "workspace:*",
 		"@tailwindcss/vite": "^4.3.1",

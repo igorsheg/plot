@@ -4,13 +4,13 @@
 plot web
 ```
 
-The Web Console is a fleet-wide operator surface. It lists Active and historical Plot Sessions, reconstructs projections from Session History, follows live changes, exposes Agent Transcripts, and submits Operator Actions.
+The Web Console is a fleet-wide operator surface. It lists Active and historical Sessions, reconstructs projections from Session History, follows live changes, exposes Agent Transcripts, and submits Operator Actions.
 
 Unlike the terminal dashboard, `plot web` is not scoped to one Workflow and does not silently start one. Start from a terminal with `plot start WORKFLOW.md` or select a configured Workflow in the console when that UI is available.
 
 ## Lifecycle
 
-The Web Console and Plot Sessions have independent lifecycles:
+The Web Console and Sessions have independent lifecycles:
 
 - closing the browser does not stop Sessions;
 - stopping the Web Console gateway does not stop Sessions;

@@ -60,7 +60,7 @@ USAGE
   plot docs --paths
 
 TOPICS
-  index quickstart guide workflows extensions sdk tui web cli
+  index quickstart guide workflows extensions programmatic sdk tui web cli
 `,
 	auth: `Manage provider authentication.
 

@@ -160,7 +160,7 @@ Every worker RuntimeEvent updates `lastSequence`, and every diagnostic chunk upd
 
 ### Owner
 
-One Plot Agent instance owns:
+One Agent instance owns:
 
 - Agent lifecycle;
 - the current tick resource;
@@ -385,7 +385,7 @@ When work disappears or is superseded, Agent changes its ActiveRun to draining. 
 
 ### Run lifecycle hooks
 
-Agent retains the selected WorkItem and reports run transitions back to its Source. Extension Source can therefore invoke Extension lifecycle hooks with the original `PlotExtensionWork` without `selectedWork` and `activeRuns` mirrors or non-null assertions.
+Agent retains the selected WorkItem and reports run transitions back to its Source. Extension Source can therefore invoke Extension lifecycle hooks with the original `ExtensionWork` without `selectedWork` and `activeRuns` mirrors or non-null assertions.
 
 ### Requirement actions
 
@@ -408,9 +408,9 @@ Delete the `work: (work) => work` identity callback. Authors can return a typed 
 Replace `registerTool()` mutation during `create()` with tools returned as part of the Extension runtime:
 
 ```txt
-interface PlotExtensionRuntime {
+interface ExtensionRuntime {
 	readonly requirements?: readonly ExtensionRequirement[];
-	readonly tools?: readonly PlotExtensionTool[];
+	readonly tools?: readonly ExtensionTool[];
 	// ...
 }
 ```
@@ -428,14 +428,14 @@ type ExtensionRunCompletion =
 	| { readonly status: "interrupted"; readonly reason?: string }
 	| { readonly status: "timed_out"; readonly reason?: string };
 
-interface PlotExtensionRuntime {
+interface ExtensionRuntime {
 	started?(event: {
-		readonly work: PlotExtensionWork;
+		readonly work: ExtensionWork;
 		readonly runId: string;
 	}): MaybePromise<void>;
 
 	finished?(event: {
-		readonly work: PlotExtensionWork;
+		readonly work: ExtensionWork;
 		readonly runId: string;
 		readonly completion: ExtensionRunCompletion;
 	}): MaybePromise<void>;
@@ -481,7 +481,7 @@ One Session runtime event owner holds:
 - lifecycle state;
 - close state.
 
-Agent transitions and Pi AgentSession events report directly to this owner.
+Agent transitions and AgentSession events report directly to this owner.
 
 ### Event path
 
@@ -541,7 +541,7 @@ A small amount of duplicated orchestration is preferable to a transferable resou
 
 ### Host wiring
 
-Remove circular initialization in which Pi runner event callbacks close over a SessionRuntime variable assigned later. Create the Session event owner first and pass its concrete sinks to Agent and Pi runner construction.
+Remove circular initialization in which Agent runner event callbacks close over a SessionRuntime variable assigned later. Create the Session event owner first and pass its concrete sinks to Agent and Agent runner construction.
 
 Host shutdown owns one ordered sequence and one failure policy. It does not coordinate two optional resources through catch branches.
 
@@ -673,7 +673,7 @@ The Session Manager serves a concrete `Bun.serve({ unix, routes })` table. Clien
 
 Native HTTP methods and path parameters select operations. JSON bodies are decoded by the Session or Manager owner. Event requests return a pull-driven NDJSON body until cancellation. There is no socket request envelope, JSONL command dispatcher, middleware stack, or compatibility protocol.
 
-Known boundary errors are reconstructed once through owner-provided decoding. Unknown errors remain bounded `PlotBoundaryError` records.
+Known boundary errors are reconstructed once through owner-provided decoding. Unknown errors remain bounded `BoundaryError` records.
 
 ## 9. Gapless bounded event continuation
 
@@ -712,7 +712,7 @@ The first implementation slice deletes the following vertical capabilities and r
 
 ### Agent
 
-- exported `PlotAgent` symbol;
+- exported `Agent` symbol;
 - public `run()` method;
 - `AgentPolicy.validate`;
 - global/per-Source policy split;
@@ -726,7 +726,7 @@ The first implementation slice deletes the following vertical capabilities and r
 
 - `packages/session/src/readiness.ts`;
 - `loadDiscoveredWorkflow()`;
-- `makePlotExtensionSourceBundleFromWorkflow()`;
+- `makeExtensionSourceFromWorkflow()`;
 - runtime `state()` and `schedulerSnapshot()`;
 - worker `state`, `pause`, `resume`, and direct `interrupt` commands;
 - `SessionRuntimeState` fields that duplicate host metadata;
@@ -766,7 +766,7 @@ The refactor must preserve or add explicit bounds for:
 - active Agent Runs;
 - pending run completions;
 - scheduled wakes;
-- Pi AgentSession event buffering;
+- AgentSession event buffering;
 - Session live subscribers;
 - manager replay/live continuation buffering;
 - diagnostic bytes;
@@ -867,7 +867,7 @@ Exit condition: no production transport or interface mentions state, pause, resu
 
 Exit condition: active work cannot exist without one ActiveRun owner, accepted actions always have ids, and completion payloads match status without casts.
 
-### Phase 3: rewrite Plot Agent
+### Phase 3: rewrite Agent
 
 - Replace mailbox plus tick-chain serialization with one mechanism.
 - Establish one ActiveRun map and one tick path.
@@ -891,7 +891,7 @@ Exit condition: Extension Source state is represented once and `extension-source
 
 ### Phase 5: simplify Session ownership
 
-- Create Session event ownership before Agent and Pi runner construction.
+- Create Session event ownership before Agent and Agent runner construction.
 - Delete the Agent event pump and tick waiters.
 - Split pure Workflow inspection from owned Session host construction.
 - Remove transferable preparation state.
@@ -927,7 +927,7 @@ These searches should return no production matches after their owning phase:
 rg 'schedulerSnapshot|pauseDispatch|resumeDispatch|interruptAgentRun' \
   packages/agent packages/session packages/session-manager
 rg '"state"|"pause"|"resume"|"interrupt"' packages/session/src/worker.ts
-rg 'loadDiscoveredWorkflow|makePlotExtensionSourceBundleFromWorkflow' packages/session
+rg 'loadDiscoveredWorkflow|makeExtensionSourceFromWorkflow' packages/session
 rg 'queueCapacity|eventCapacity' examples docs/workflows.md packages/session/src/workflow.ts
 rg 'pendingStart|pendingStop|didExit|readyRecord|resolveStopped' \
   packages/agent/src packages/session-manager/src
