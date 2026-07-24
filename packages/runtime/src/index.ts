@@ -47,6 +47,7 @@ export type {
 	SourceSnapshot,
 	UsageSnapshot,
 	WorkItemSnapshot,
+	WorkSubjectSnapshot,
 } from "./observation.js";
 
 export interface ProviderCredential {

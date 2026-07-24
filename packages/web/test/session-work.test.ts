@@ -101,6 +101,7 @@ const projection = (
 	tokenSamples: [],
 	sources: {},
 	work: {},
+	subjects: {},
 	attempts: {},
 	completed: [],
 	diagnostics: [],

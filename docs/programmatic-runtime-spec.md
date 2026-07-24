@@ -467,6 +467,7 @@ export interface SessionSnapshot {
 		| "stopped"
 		| "error";
 	readonly sources: readonly SourceSnapshot[];
+	readonly subjects: readonly WorkSubjectSnapshot[];
 	readonly workItems: readonly WorkItemSnapshot[];
 	readonly agentRuns: readonly AgentRunSnapshot[];
 	readonly completedWork: readonly CompletedWorkSnapshot[];
@@ -475,7 +476,7 @@ export interface SessionSnapshot {
 }
 ```
 
-The concrete snapshot types use arrays and readonly plain objects, not mutable Maps. They use the glossary's Source, Work Item, Agent Run, and Session terms. They omit:
+The concrete snapshot types use arrays and readonly plain objects, not mutable Maps. They use the glossary's Source, Subject, Work Item, Agent Run, and Session terms. Subject snapshots correlate related Work Items for clients but do not expose or imply scheduler dependencies. They omit:
 
 - Session history and transcript filesystem paths;
 - manager and worker identity;

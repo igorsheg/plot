@@ -8,6 +8,7 @@ import {
 	type ScheduledWakeProjection,
 	type SourceProjection,
 	type WorkItemProjection,
+	type WorkSubjectProjection,
 	type WorkStatus,
 } from "@plot/projection";
 
@@ -65,6 +66,16 @@ export interface WorkRowModel {
 	readonly stale: boolean;
 	readonly attention: boolean;
 }
+export interface WorkSubjectModel {
+	readonly subject: WorkSubjectProjection;
+	readonly label: string;
+	readonly meta: string;
+	readonly work: readonly WorkRowModel[];
+}
+export interface WorkGroupModel {
+	readonly subject?: WorkSubjectModel | undefined;
+	readonly work: readonly WorkRowModel[];
+}
 export interface ScheduledRowModel extends Pick<
 	ScheduledWakeProjection,
 	"reason" | "workKey" | "attempt"
@@ -85,6 +96,7 @@ export interface DashboardModel {
 	readonly sources: readonly SourceRowModel[];
 	readonly attention: readonly AttentionItemModel[];
 	readonly work: readonly WorkRowModel[];
+	readonly workGroups: readonly WorkGroupModel[];
 	readonly scheduled: readonly ScheduledRowModel[];
 	readonly completed: readonly CompletedRowModel[];
 }
@@ -237,11 +249,73 @@ const shortRunId = (runId: string | undefined) =>
 			? runId
 			: `${runId.slice(0, 8)}…${runId.slice(-4)}`;
 
+const showSubject = (subject: WorkSubjectProjection): boolean =>
+	subject.display !== undefined ||
+	subject.progress !== undefined ||
+	subject.workKeys.length > 1;
+
+const subjectModel = (
+	subject: WorkSubjectProjection,
+	work: readonly WorkRowModel[],
+): WorkSubjectModel => {
+	const progress = subject.progress;
+	return {
+		subject,
+		label: workLabel({
+			primary: subject.display?.primary,
+			title: subject.display?.title ?? subject.id,
+		}),
+		meta: [
+			subject.display?.subtitle,
+			progress === undefined
+				? `${work.length} work items`
+				: `${progress.completed}/${progress.total} complete`,
+			progress?.phase,
+		]
+			.filter(Boolean)
+			.join(" · "),
+		work,
+	};
+};
+
+const groupWork = (
+	projection: DashboardProjection,
+	rows: readonly WorkRowModel[],
+): readonly WorkGroupModel[] => {
+	const groups: { subject?: WorkSubjectProjection; work: WorkRowModel[] }[] =
+		[];
+	const bySubject = new Map<string, (typeof groups)[number]>();
+	for (const row of rows) {
+		const key = row.work.subjectKey;
+		const subject =
+			key === undefined ? undefined : projection.subjects.get(key);
+		if (subject === undefined || !showSubject(subject)) {
+			groups.push({ work: [row] });
+			continue;
+		}
+		const existing = bySubject.get(subject.subjectKey);
+		if (existing !== undefined) {
+			existing.work.push(row);
+			continue;
+		}
+		const group = { subject, work: [row] };
+		groups.push(group);
+		bySubject.set(subject.subjectKey, group);
+	}
+	return groups.map((group) => ({
+		work: group.work,
+		subject:
+			group.subject === undefined
+				? undefined
+				: subjectModel(group.subject, group.work),
+	}));
+};
+
 export const dashboardModelFrom = (
 	projection: DashboardProjection,
 	nowMs = Date.now(),
 ): DashboardModel => {
-	const work = [...projection.work.values()]
+	const sortedWork = [...projection.work.values()]
 		.map((w) =>
 			workRow(
 				w,
@@ -254,6 +328,8 @@ export const dashboardModelFrom = (
 				Number(b.attention) - Number(a.attention) ||
 				(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
 		);
+	const workGroups = groupWork(projection, sortedWork);
+	const work = workGroups.flatMap((group) => group.work);
 	const tickIntervalMs = projection.runtime.tickIntervalMs;
 	const nextWake = projection.scheduledWakes[0];
 	const tokenThroughput = throughput(projection, nowMs);
@@ -352,6 +428,7 @@ export const dashboardModelFrom = (
 			...projection.diagnostics.map((text) => ({ text })),
 		],
 		work,
+		workGroups,
 		scheduled: projection.scheduledWakes.slice(0, 5).map((wake) => {
 			const item = wake.workKey ? projection.work.get(wake.workKey) : undefined;
 			return {

@@ -121,7 +121,27 @@ Plot's work key is the extension `id` plus the Work Item `id` and `version`. Eve
 
 - `id` is stable domain identity (`github:acme/web:pr:42`). Never derive it from timestamps or randomness — an id that changes between discoveries is a different Work Item. Duplicate identities in one discovery result are rejected.
 - `version` is the domain revision that should trigger a rerun: a head SHA, an update token, a dependency version. A changed version supersedes the old one — Plot lets an active run for the old version drain (it is never killed for succeeding) and dispatches the new version fresh. Omit `version` only when identity alone is sufficient.
-- `subject` groups versions of the same domain item; it defaults to `id`.
+- `subject` identifies the stable domain object for which related Work Items exist; it defaults to `id`.
+
+A string Subject supplies identity only. The structured form adds dashboard presentation and authoritative progress:
+
+```ts
+const reviewUnit = {
+	id: "github:acme/web:pr:42:unit:checkout",
+	subject: {
+		id: "github:acme/web:pr:42",
+		display: {
+			primary: "#42",
+			title: "Repair checkout",
+			subtitle: "acme/web",
+			url: "https://github.com/acme/web/pull/42",
+		},
+		progress: { completed: 2, total: 4, phase: "reviewing" },
+	},
+};
+```
+
+Subject metadata is correlation and presentation only. It does not make a parent Work Item, gate dispatch, or create a dependency graph. The Source remains authoritative: return child Work Items while they are relevant and return later-phase work only when the observed domain state makes it ready.
 
 ## Source readiness and setup
 

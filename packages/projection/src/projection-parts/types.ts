@@ -1,5 +1,9 @@
 import type { WorkflowConfig, WorkflowExtensionOptions } from "@plot/sdk";
-import type { OperatorAction } from "@plot/sdk/work-contract";
+import type {
+	OperatorAction,
+	WorkDisplay,
+	WorkSubjectProgress,
+} from "@plot/sdk/work-contract";
 import type {
 	AgentRunStage,
 	AgentRunState,
@@ -100,8 +104,17 @@ export interface SourceProjection extends SourceState {
 }
 export interface WorkItemProjection extends ObservedWorkItemState {
 	readonly primary?: string | undefined;
+	readonly subjectKey?: string | undefined;
 	readonly operatorActions?: readonly OperatorAction[] | undefined;
 	readonly currentRunId?: string | undefined;
+}
+export interface WorkSubjectProjection {
+	readonly subjectKey: string;
+	readonly sourceId: string;
+	readonly id: string;
+	readonly display?: WorkDisplay | undefined;
+	readonly progress?: WorkSubjectProgress | undefined;
+	readonly workKeys: readonly string[];
 }
 export interface AgentAttemptProjection extends AgentRunState {
 	readonly runId: string;
@@ -169,6 +182,7 @@ export interface DashboardProjection {
 	readonly tokenSamples: readonly TokenSample[];
 	readonly sources: ReadonlyMap<string, SourceProjection>;
 	readonly work: ReadonlyMap<string, WorkItemProjection>;
+	readonly subjects: ReadonlyMap<string, WorkSubjectProjection>;
 	readonly attempts: ReadonlyMap<string, AgentAttemptProjection>;
 	readonly completed: readonly CompletedWorkProjection[];
 	readonly diagnostics: readonly string[];

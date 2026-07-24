@@ -14,6 +14,25 @@ export interface WorkDisplay {
 	readonly labels?: readonly string[];
 }
 
+/** Source-observed progress for all Work Items belonging to one Subject. */
+export interface WorkSubjectProgress {
+	readonly completed: number;
+	readonly total: number;
+	readonly phase?: string;
+}
+
+/**
+ * A stable domain object for which one or more Work Items may exist.
+ *
+ * Subjects are presentation and correlation metadata. They never create
+ * scheduler dependencies or determine whether a Work Item may run.
+ */
+export interface WorkSubject {
+	readonly id: string;
+	readonly display?: WorkDisplay;
+	readonly progress?: WorkSubjectProgress;
+}
+
 export type WorkStatus =
 	| "pending"
 	| "waiting"

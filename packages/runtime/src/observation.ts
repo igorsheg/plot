@@ -3,7 +3,12 @@ import {
 	reduceProjectableEvent,
 	type DashboardProjection,
 } from "@plot/projection";
-import type { OperatorAction, OperatorActionConfirm } from "@plot/sdk";
+import type {
+	OperatorAction,
+	OperatorActionConfirm,
+	WorkDisplay,
+	WorkSubjectProgress,
+} from "@plot/sdk";
 import type {
 	AgentRunState,
 	CompletedWorkState,
@@ -34,6 +39,15 @@ export interface WorkItemSnapshot extends ObservedWorkItemState {
 	readonly actions?: readonly ActionSnapshot[] | undefined;
 }
 
+export interface WorkSubjectSnapshot {
+	readonly subjectKey: string;
+	readonly sourceId: string;
+	readonly id: string;
+	readonly display?: WorkDisplay | undefined;
+	readonly progress?: WorkSubjectProgress | undefined;
+	readonly workKeys: readonly string[];
+}
+
 export interface AgentRunSnapshot extends AgentRunState {
 	readonly agentRunId: string;
 	readonly startedAt?: number | undefined;
@@ -59,6 +73,7 @@ export interface SessionSnapshot {
 		| "stopped"
 		| "error";
 	readonly sources: readonly SourceSnapshot[];
+	readonly subjects: readonly WorkSubjectSnapshot[];
 	readonly workItems: readonly WorkItemSnapshot[];
 	readonly agentRuns: readonly AgentRunSnapshot[];
 	readonly completedWork: readonly CompletedWorkSnapshot[];
@@ -119,6 +134,10 @@ const snapshot = (
 				: sourceActionSnapshot(source.action),
 		diagnostics: source.diagnostics.map((message) => ({ message })),
 	})),
+	subjects: [...projection.subjects.values()].map((subject) => ({
+		...subject,
+		workKeys: [...subject.workKeys],
+	})),
 	workItems: [...projection.work.values()].map((work) => ({
 		workKey: work.workKey,
 		sourceId: work.sourceId,
@@ -146,6 +165,7 @@ const snapshot = (
 	})),
 	completedWork: projection.completed.map((work) => ({
 		workKey: work.workKey,
+		subject: work.subject,
 		agentRunId: work.runId,
 		label: work.label,
 		status: work.status,

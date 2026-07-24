@@ -136,7 +136,10 @@ describe("Extension Source", () => {
 		const result = await tick(bundle);
 		expect(result.source.readiness).toBe("ready");
 		expect(result.work).toEqual([
-			expect.objectContaining({ status: "pending", subject: "issue:1" }),
+			expect.objectContaining({
+				status: "pending",
+				subject: { id: "issue:1" },
+			}),
 		]);
 		expect(result.dispatch[0]).toMatchObject({
 			workKey: workKeyForExtensionWork(extension, work),
@@ -147,6 +150,48 @@ describe("Extension Source", () => {
 			work: { id: "issue:1", version: "v2", title: "Issue" },
 			priority: "high",
 		});
+		await bundle.shutdown();
+	});
+
+	test("normalizes structured Subject presentation without affecting dispatch", async () => {
+		const subject = {
+			id: "github:acme/web:pr:42",
+			display: { primary: "#42", title: "Repair checkout" },
+			progress: { completed: 2, total: 4, phase: "reviewing" },
+		};
+		const work: ExtensionWork = { id: "unit:checkout", subject };
+		const bundle = bundleFor({ discover: () => [work] });
+
+		const result = await tick(bundle);
+
+		expect(result.work[0]?.subject).toEqual(subject);
+		expect(result.dispatch[0]?.subject).toEqual(subject);
+		await bundle.shutdown();
+	});
+
+	test("rejects conflicting presentation for one Subject", async () => {
+		const bundle = bundleFor({
+			discover: () => [
+				{
+					id: "unit:one",
+					subject: {
+						id: "pr:42",
+						display: { title: "First title" },
+					},
+				},
+				{
+					id: "unit:two",
+					subject: {
+						id: "pr:42",
+						display: { title: "Different title" },
+					},
+				},
+			],
+		});
+
+		await expect(tick(bundle)).rejects.toThrow(
+			"subject pr:42 has conflicting presentation",
+		);
 		await bundle.shutdown();
 	});
 

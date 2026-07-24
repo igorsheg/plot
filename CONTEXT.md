@@ -20,6 +20,10 @@ _Avoid_: Live run, active run, process
 A unit of work discovered by a Source and eligible for agent execution.
 _Avoid_: Task, job, issue
 
+**Subject**:
+A stable domain object for which one or more related Work Items may exist, such as a pull request split into review units. Subjects provide dashboard identity and progress; they never create scheduler dependencies.
+_Avoid_: Parent task, pipeline, job group
+
 **Agent Run**:
 One agent attempt to handle one Work Item inside a Plot Session.
 _Avoid_: Run, session, task, subagent

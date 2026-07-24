@@ -105,6 +105,10 @@ work       id, version?, title?, url?, subject?, workspace?,
            display?, operatorActions?
 ```
 
+`subject` is either a stable string id or `{ id, display?, progress? }` for
+related Work Items that dashboards should group. Subject metadata does not
+affect scheduling.
+
 Object `work.context` fields merge into the template top level. A non-object context is available as `value`. Keep context factual and compact; investigation strategy belongs in the Markdown prompt.
 
 ## Paths and durability

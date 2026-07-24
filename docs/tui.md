@@ -40,3 +40,7 @@ The dashboard displays its current key map in the footer. Core controls include:
 - `Esc` — return to the Process Table or cancel stop confirmation
 
 The TUI consumes Plot concepts and direct RuntimeEvents through the internal Session Manager. It does not own child process lifecycle or expose transport records.
+
+Related active Work Items with a shared Subject render as one Subject row with
+indented Work Item rows. Structured Subject presentation and progress come
+from the Source and are never inferred as scheduler dependencies by the TUI.

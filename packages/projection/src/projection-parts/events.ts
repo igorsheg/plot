@@ -7,7 +7,7 @@ import type {
 	DashboardProjection,
 	ProjectableEvent,
 } from "./types.js";
-import { displayWork, workLabel } from "./work.js";
+import { displayWork, subjectsFromWork, workLabel } from "./work.js";
 
 const debugEventName = (e: ProjectableEvent) =>
 	e.kind === "session_event"
@@ -34,6 +34,15 @@ const completionMessage = (completion: {
 	return `run ${completion.status}`;
 };
 
+const withWork = (
+	projection: DashboardProjection,
+	work: ReadonlyMap<string, ReturnType<typeof displayWork>>,
+): DashboardProjection => ({
+	...projection,
+	work,
+	subjects: subjectsFromWork(work),
+});
+
 export const reduceEvent = (
 	p0: DashboardProjection,
 	e: ProjectableEvent,
@@ -50,6 +59,7 @@ export const reduceEvent = (
 			tokenSamples: [],
 			sources: new Map(),
 			work: new Map(),
+			subjects: new Map(),
 			attempts: new Map(),
 			completed: [],
 			diagnostics: [],
@@ -182,18 +192,20 @@ export const reduceEvent = (
 	}
 	if (event.type === "work_observed") {
 		const item = displayWork(event.work, p.work.get(event.work.workKey));
-		return { ...p, work: new Map(p.work).set(item.workKey, item) };
+		return withWork(p, new Map(p.work).set(item.workKey, item));
 	}
 	if (event.type === "work_removed") {
 		const work = new Map(p.work);
 		work.delete(event.workKey);
-		return {
-			...p,
+		return withWork(
+			{
+				...p,
+				scheduledWakes: p.scheduledWakes.filter(
+					(w) => w.workKey !== event.workKey,
+				),
+			},
 			work,
-			scheduledWakes: p.scheduledWakes.filter(
-				(w) => w.workKey !== event.workKey,
-			),
-		};
+		);
 	}
 	if (event.type === "attempt_started") {
 		const run = event.run;
@@ -231,12 +243,14 @@ export const reduceEvent = (
 			phases: [],
 			timeline: [],
 		};
-		return {
-			...p,
-			status: "running",
-			work: new Map(p.work).set(run.workKey, item),
-			attempts: new Map(p.attempts).set(run.runId, attempt),
-		};
+		return withWork(
+			{
+				...p,
+				status: "running",
+				attempts: new Map(p.attempts).set(run.runId, attempt),
+			},
+			new Map(p.work).set(run.workKey, item),
+		);
 	}
 	if (event.type === "attempt_completed") {
 		const c = event.completion;
@@ -255,6 +269,9 @@ export const reduceEvent = (
 			});
 		const completed: CompletedWorkProjection = {
 			workKey: key,
+			subject:
+				item?.subject ??
+				(typeof c.subject === "string" ? c.subject : c.subject?.id),
 			runId,
 			label: item ? workLabel(item) : key,
 			status: c.status,
@@ -266,24 +283,26 @@ export const reduceEvent = (
 			labels: item?.labels.length ? item.labels : undefined,
 			tokens: a?.tokens,
 		};
-		return {
-			...p,
-			status: attempts.size > 0 ? "running" : "idle",
-			attempts,
+		return withWork(
+			{
+				...p,
+				status: attempts.size > 0 ? "running" : "idle",
+				attempts,
+				completed: cap([completed, ...p.completed], 20),
+				activity: cap(
+					[
+						{
+							atMs: at(e),
+							tone: completed.status === "succeeded" ? "ok" : "bad",
+							text: `${completed.label} ${completed.status}`,
+						},
+						...p.activity,
+					],
+					20,
+				),
+			},
 			work,
-			completed: cap([completed, ...p.completed], 20),
-			activity: cap(
-				[
-					{
-						atMs: at(e),
-						tone: completed.status === "succeeded" ? "ok" : "bad",
-						text: `${completed.label} ${completed.status}`,
-					},
-					...p.activity,
-				],
-				20,
-			),
-		};
+		);
 	}
 	if (event.type === "wake_scheduled") {
 		return {

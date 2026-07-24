@@ -26,6 +26,7 @@ import type {
 	Extension,
 	ExtensionRuntime,
 	ExtensionWork,
+	WorkSubject,
 } from "@plot/sdk";
 import type { OperatorObservationInput } from "@plot/sdk/work-contract";
 import type { SourceActionStartResult } from "@plot/sdk/runtime-contract";
@@ -70,6 +71,66 @@ export const templateContextForWork = (
 
 const retryDelayMs = (attempt: number) =>
 	Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS);
+
+const subjectFor = (work: ExtensionWork): WorkSubject =>
+	typeof work.subject === "string"
+		? { id: work.subject }
+		: (work.subject ?? { id: work.id });
+
+const subjectPresentation = (subject: WorkSubject): string =>
+	JSON.stringify([
+		subject.display?.kind ?? null,
+		subject.display?.primary ?? null,
+		subject.display?.title ?? null,
+		subject.display?.subtitle ?? null,
+		subject.display?.url ?? null,
+		subject.display?.version ?? null,
+		subject.display?.labels ?? [],
+		subject.progress?.completed ?? null,
+		subject.progress?.total ?? null,
+		subject.progress?.phase ?? null,
+	]);
+
+const validateSubject = (work: ExtensionWork): void => {
+	const subject = work.subject;
+	if (subject === undefined) return;
+	if (typeof subject === "string") {
+		if (subject.length === 0)
+			throw new Error(`work ${work.id} subject must be a non-empty string`);
+		return;
+	}
+	if (
+		!isRecord(subject) ||
+		typeof subject.id !== "string" ||
+		subject.id.length === 0
+	)
+		throw new Error(`work ${work.id} subject id must be a non-empty string`);
+	const progress = subject.progress;
+	if (progress === undefined) return;
+	if (!isRecord(progress))
+		throw new Error(
+			`work ${work.id} subject progress must satisfy 0 <= completed <= total`,
+		);
+	const completed = progress.completed;
+	const total = progress.total;
+	if (
+		typeof completed !== "number" ||
+		!Number.isInteger(completed) ||
+		completed < 0 ||
+		typeof total !== "number" ||
+		!Number.isInteger(total) ||
+		total < 0 ||
+		completed > total
+	)
+		throw new Error(
+			`work ${work.id} subject progress must satisfy 0 <= completed <= total`,
+		);
+	if (
+		progress.phase !== undefined &&
+		(typeof progress.phase !== "string" || progress.phase.length === 0)
+	)
+		throw new Error(`work ${work.id} subject progress phase must be non-empty`);
+};
 
 const requirementRecord = (
 	requirement: ExtensionRequirement,
@@ -160,11 +221,22 @@ const discover = async (input: {
 			`discover returned more than ${DISCOVERED_WORK_CAPACITY} Work Items`,
 		);
 	const keys = new Set<string>();
+	const subjectPresentations = new Map<string, string>();
 	for (const work of value) {
 		if (typeof work.id !== "string" || work.id.length === 0)
 			throw new Error("extension work id must be a non-empty string");
 		if (work.workspace !== undefined && !isAbsolute(work.workspace))
 			throw new Error(`work ${work.id} workspace must be an absolute path`);
+		validateSubject(work);
+		if (typeof work.subject === "object" && work.subject !== null) {
+			const presentation = subjectPresentation(work.subject);
+			const previous = subjectPresentations.get(work.subject.id);
+			if (previous !== undefined && previous !== presentation)
+				throw new Error(
+					`subject ${work.subject.id} has conflicting presentation`,
+				);
+			subjectPresentations.set(work.subject.id, presentation);
+		}
 		if (
 			work.status !== undefined &&
 			work.status !== "pending" &&
@@ -203,7 +275,7 @@ const workRecord = (
 	const identity = {
 		workKey: workKeyForExtensionWork(extension, work),
 		sourceId,
-		subject: work.subject ?? work.id,
+		subject: subjectFor(work),
 		display: work.display,
 	};
 	if (work.status === "blocked")
@@ -234,7 +306,7 @@ const workItem = (
 ): WorkItem => {
 	return {
 		workKey: workKeyForExtensionWork(extension, work),
-		subject: work.subject ?? work.id,
+		subject: subjectFor(work),
 		templateContext: templateContextForWork(workflow, work),
 		sourceData: work,
 		display: work.display,

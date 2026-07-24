@@ -28,8 +28,13 @@ const workRowLines = (
 	selected: boolean,
 	nowMs: number,
 	width: number,
+	branch?: "middle" | "last",
 ): readonly DashboardLine[] => {
 	const marker = selected ? style.label("›") : " ";
+	const tree =
+		branch === undefined
+			? ""
+			: `${style.border(branch === "last" ? "└─" : "├─")} `;
 	const label = row.stale ? style.row.stale(row.label) : style.text(row.label);
 	const meta = row.meta.length === 0 ? "" : style.dim(row.meta);
 	const activity = quoteActivity(row.activity);
@@ -38,10 +43,53 @@ const workRowLines = (
 			? shimmerText(activity, nowMs)
 			: style.muted(activity);
 	return [
-		spread(`${marker} ${rowGlyph(row)} ${label}`, meta, width),
-		item(`    ${live}`),
+		spread(`${marker} ${tree}${rowGlyph(row)} ${label}`, meta, width),
+		item(`${branch === undefined ? "    " : "      "}${live}`),
 		blank(),
 	];
+};
+
+const renderedWork = (
+	model: DashboardModel,
+	selectedIndex: number,
+	nowMs: number,
+	width: number,
+): {
+	readonly lines: readonly DashboardLine[];
+	readonly selectedStart: number;
+} => {
+	const lines: DashboardLine[] = [];
+	let workIndex = 0;
+	let selectedStart = 0;
+	for (const group of model.workGroups) {
+		if (group.subject !== undefined) {
+			lines.push(
+				spread(
+					`  ${style.label("◆")} ${style.text(group.subject.label)}`,
+					style.muted(group.subject.meta),
+					width,
+				),
+			);
+		}
+		for (const [index, row] of group.work.entries()) {
+			if (workIndex === selectedIndex) selectedStart = lines.length;
+			lines.push(
+				...workRowLines(
+					row,
+					workIndex === selectedIndex,
+					nowMs,
+					width,
+					group.subject === undefined
+						? undefined
+						: index === group.work.length - 1
+							? "last"
+							: "middle",
+				),
+			);
+			workIndex++;
+		}
+	}
+	return { lines, selectedStart };
 };
 
 const scheduledRowLine = (
@@ -88,11 +136,10 @@ const emptyWorkLine = (): DashboardLine =>
 
 const clampWorkViewport = (
 	workLines: readonly DashboardLine[],
-	selectedIndex: number,
+	selectedStart: number,
 	availableRows: number,
 ): readonly DashboardLine[] => {
 	if (workLines.length <= availableRows) return workLines;
-	const selectedStart = Math.max(0, selectedIndex * 3);
 	if (availableRows <= 3)
 		return workLines.slice(selectedStart, selectedStart + availableRows);
 	const selectedEnd = Math.min(workLines.length - 1, selectedStart + 2);
@@ -166,6 +213,7 @@ export const processTableViewLines = (input: {
 		model.work.length === 0
 			? model.scheduled.filter((wake) => wake.reason !== undefined)
 			: [];
+	const rendered = renderedWork(model, input.selectedIndex, nowMs, input.width);
 	const workLines =
 		model.work.length === 0
 			? [
@@ -181,9 +229,7 @@ export const processTableViewLines = (input: {
 					),
 					blank(),
 				]
-			: model.work.flatMap((row, index) =>
-					workRowLines(row, index === input.selectedIndex, nowMs, input.width),
-				);
+			: rendered.lines;
 	const lastRun = model.completed[0];
 	const completionBlock =
 		model.work.length === 0 && lastRun !== undefined
@@ -208,7 +254,7 @@ export const processTableViewLines = (input: {
 			: Math.max(1, input.maxRows - chromeRows);
 	const visibleWorkLines = clampWorkViewport(
 		workLines,
-		input.selectedIndex,
+		rendered.selectedStart,
 		availableWorkRows,
 	);
 	return [

@@ -3,6 +3,7 @@ import type {
 	OperatorAction,
 	OperatorObservationInput,
 	WorkDisplay,
+	WorkSubject,
 } from "@plot/sdk/work-contract";
 import type {
 	DiagnosticMessage,
@@ -52,7 +53,7 @@ export interface SourceRecord {
 interface WorkIdentity {
 	readonly workKey: string;
 	readonly sourceId: string;
-	readonly subject?: string | undefined;
+	readonly subject?: WorkSubject | undefined;
 	readonly display?: WorkDisplay | undefined;
 }
 
@@ -82,7 +83,7 @@ export type WorkRecord =
 
 export interface WorkItem {
 	readonly workKey: string;
-	readonly subject?: string | undefined;
+	readonly subject?: WorkSubject | undefined;
 	readonly templateContext?: unknown;
 	/** Source-owned data retained with the selected item for lifecycle hooks. */
 	readonly sourceData?: unknown;

@@ -15,6 +15,7 @@ import type {
 	OperatorAction,
 	OperatorObservationInput,
 	WorkDisplay,
+	WorkSubject,
 	WorkStatus,
 } from "./work-contract.js";
 
@@ -26,6 +27,8 @@ export type {
 	OperatorActionTone,
 	OperatorObservationInput,
 	WorkDisplay,
+	WorkSubject,
+	WorkSubjectProgress,
 	WorkStatus,
 } from "./work-contract.js";
 
@@ -222,10 +225,14 @@ export interface ExtensionWork {
 	readonly title?: string;
 	readonly url?: string;
 	/**
-	 * Optional grouping key that ties versions of the same domain item
-	 * together. Defaults to `id`.
+	 * Domain Subject shared by related Work Items. A string is the stable
+	 * Subject id. Use the structured form when dashboards should show Subject
+	 * presentation or authoritative progress. Defaults to `{ id }`.
+	 *
+	 * Subjects do not create scheduling dependencies. `discover` remains the
+	 * authority on which related Work Items are dispatchable.
 	 */
-	readonly subject?: string;
+	readonly subject?: string | WorkSubject;
 	/** Scheduling state; see {@link ExtensionWorkStatus}. Default: `pending`. */
 	readonly status?: ExtensionWorkStatus;
 	/** Why held work is `waiting` or `blocked`, shown to operators. */

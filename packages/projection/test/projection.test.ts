@@ -244,6 +244,87 @@ test("completed work keeps source display labels", () => {
 	expect(completed.completed[0]?.message).toBe("run succeeded");
 });
 
+test("projection groups Work Items by Subject and preserves completion identity", () => {
+	const subject = {
+		id: "github:acme/web:pr:42",
+		display: { primary: "#42", title: "Repair checkout" },
+		progress: { completed: 1, total: 3, phase: "reviewing" },
+	};
+	let projection = reduceProjectableEvent(
+		emptyProjection("session-1", "workflow"),
+		sessionEvent(1, {
+			type: "work_observed",
+			work: {
+				workKey: "unit-1",
+				sourceId: "source-1",
+				status: "pending",
+				subject,
+			},
+		}),
+	);
+	projection = reduceProjectableEvent(
+		projection,
+		sessionEvent(2, {
+			type: "work_observed",
+			work: {
+				workKey: "unit-2",
+				sourceId: "source-1",
+				status: "pending",
+				subject,
+			},
+		}),
+	);
+
+	const grouped = [...projection.subjects.values()];
+	expect(grouped).toHaveLength(1);
+	expect(grouped[0]).toMatchObject({
+		id: subject.id,
+		display: subject.display,
+		progress: subject.progress,
+		workKeys: ["unit-1", "unit-2"],
+	});
+
+	projection = reduceProjectableEvent(
+		projection,
+		sessionEvent(3, {
+			type: "attempt_started",
+			run: {
+				runId: "run-1",
+				workKey: "unit-1",
+				sourceId: "source-1",
+				subject,
+			},
+		}),
+	);
+	projection = reduceProjectableEvent(
+		projection,
+		sessionEvent(4, {
+			type: "attempt_completed",
+			completion: {
+				runId: "run-1",
+				workKey: "unit-1",
+				sourceId: "source-1",
+				subject,
+				status: "succeeded",
+			},
+		}),
+	);
+	expect(projection.completed[0]?.subject).toBe(subject.id);
+
+	projection = reduceProjectableEvent(
+		projection,
+		sessionEvent(5, { type: "work_removed", workKey: "unit-1" }),
+	);
+	expect([...projection.subjects.values()][0]?.workKeys).toEqual(["unit-2"]);
+
+	const hydrated = hydrateDashboardProjection(
+		serializeDashboardProjection(projection),
+	);
+	expect([...hydrated.subjects.values()][0]?.display?.title).toBe(
+		"Repair checkout",
+	);
+});
+
 test("debug events name agent event payloads", () => {
 	const projection = reduceProjectableEvent(
 		emptyProjection("session-1", "workflow"),

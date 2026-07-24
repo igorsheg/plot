@@ -1,4 +1,9 @@
-import type { OperatorAction, WorkStatus } from "./work-contract.js";
+import type {
+	OperatorAction,
+	WorkDisplay,
+	WorkSubjectProgress,
+	WorkStatus,
+} from "./work-contract.js";
 
 export type SessionState =
 	| "starting"
@@ -56,6 +61,8 @@ export interface ObservedWorkItemState {
 	readonly title: string;
 	readonly status: ObservedWorkStatus;
 	readonly subject?: string | undefined;
+	readonly subjectDisplay?: WorkDisplay | undefined;
+	readonly subjectProgress?: WorkSubjectProgress | undefined;
 	readonly subtitle?: string | undefined;
 	readonly url?: string | undefined;
 	readonly version?: string | undefined;
@@ -78,6 +85,7 @@ export interface DiagnosticMessage {
 
 export interface CompletedWorkState {
 	readonly workKey: string;
+	readonly subject?: string | undefined;
 	readonly label: string;
 	readonly status: string;
 	readonly message: string;

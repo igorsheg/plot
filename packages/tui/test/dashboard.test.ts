@@ -67,6 +67,65 @@ describe("Dashboard", () => {
 		expect(rendered).toContain("Do thing");
 	});
 
+	test("groups related Work Items under their Subject", () => {
+		const subjectKey = JSON.stringify(["source", "github:acme/web:pr:42"]);
+		const projection = withWork({
+			work: new Map([
+				[
+					"unit-1",
+					{
+						workKey: "unit-1",
+						sourceId: "source",
+						subject: "github:acme/web:pr:42",
+						subjectKey,
+						title: "checkout.ts",
+						labels: [],
+						status: "running",
+					},
+				],
+				[
+					"unit-2",
+					{
+						workKey: "unit-2",
+						sourceId: "source",
+						subject: "github:acme/web:pr:42",
+						subjectKey,
+						title: "pricing.ts",
+						labels: [],
+						status: "pending",
+					},
+				],
+			]),
+			subjects: new Map([
+				[
+					subjectKey,
+					{
+						subjectKey,
+						sourceId: "source",
+						id: "github:acme/web:pr:42",
+						display: {
+							primary: "#42",
+							title: "Repair checkout",
+							subtitle: "acme/web",
+						},
+						progress: { completed: 2, total: 4, phase: "reviewing" },
+						workKeys: ["unit-1", "unit-2"],
+					},
+				],
+			]),
+		});
+
+		const rendered = new Dashboard(projection, actions().actions)
+			.render(100)
+			.join("\n")
+			.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+
+		expect(rendered).toContain("#42 Repair checkout");
+		expect(rendered).toContain("acme/web · 2/4 complete · reviewing");
+		expect(rendered).toContain("├─ ● checkout.ts");
+		expect(rendered).toContain("└─ ◌ pricing.ts");
+	});
+
 	test("renders Source setup before any work exists", () => {
 		const projection: DashboardProjection = {
 			...emptyProjection("default", "workflow"),

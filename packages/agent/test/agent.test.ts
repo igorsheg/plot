@@ -20,14 +20,14 @@ const ready: SourceRecord = {
 
 const item = (key: string): WorkItem => ({
 	workKey: key,
-	subject: key,
+	subject: { id: key },
 });
 
 const record = (key: string): SourceWorkRecord => ({
 	workKey: key,
 	sourceId: "source",
 	status: "pending",
-	subject: key,
+	subject: { id: key },
 });
 
 const deferred = <A>() => {

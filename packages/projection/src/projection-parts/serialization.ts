@@ -10,7 +10,9 @@ import type {
 	SourceProjection,
 	TokenSample,
 	WorkItemProjection,
+	WorkSubjectProjection,
 } from "./types.js";
+import { subjectsFromWork } from "./work.js";
 
 export interface SerializedAgentAttemptProjection extends Omit<
 	AgentAttemptProjection,
@@ -21,10 +23,11 @@ export interface SerializedAgentAttemptProjection extends Omit<
 
 export interface SerializedDashboardProjection extends Omit<
 	DashboardProjection,
-	"sources" | "work" | "attempts"
+	"sources" | "work" | "subjects" | "attempts"
 > {
 	readonly sources: Record<string, SourceProjection>;
 	readonly work: Record<string, WorkItemProjection>;
+	readonly subjects: Record<string, WorkSubjectProjection>;
 	readonly attempts: Record<string, SerializedAgentAttemptProjection>;
 }
 
@@ -138,6 +141,9 @@ export const parseSerializedDashboardProjection = (
 			string,
 			WorkItemProjection
 		>,
+		subjects: (isRecord(record["subjects"])
+			? record["subjects"]
+			: {}) as Record<string, WorkSubjectProjection>,
 		attempts: (isRecord(record["attempts"])
 			? record["attempts"]
 			: {}) as Record<string, SerializedAgentAttemptProjection>,
@@ -192,6 +198,7 @@ export const serializeDashboardProjection = (
 	...projection,
 	sources: Object.fromEntries(projection.sources),
 	work: Object.fromEntries(projection.work),
+	subjects: Object.fromEntries(projection.subjects),
 	attempts: Object.fromEntries(
 		[...projection.attempts].map(([key, attempt]) => [
 			key,
@@ -202,14 +209,19 @@ export const serializeDashboardProjection = (
 
 export const hydrateDashboardProjection = (
 	projection: SerializedDashboardProjection,
-): DashboardProjection => ({
-	...projection,
-	sources: new Map(Object.entries(projection.sources)),
-	work: new Map(Object.entries(projection.work)),
-	attempts: new Map(
-		Object.entries(projection.attempts).map(([key, attempt]) => [
-			key,
-			hydrateAttempt(attempt),
-		]),
-	),
-});
+): DashboardProjection => {
+	const work = new Map(Object.entries(projection.work));
+	const subjects = new Map(Object.entries(projection.subjects));
+	return {
+		...projection,
+		sources: new Map(Object.entries(projection.sources)),
+		work,
+		subjects: subjects.size === 0 ? subjectsFromWork(work) : subjects,
+		attempts: new Map(
+			Object.entries(projection.attempts).map(([key, attempt]) => [
+				key,
+				hydrateAttempt(attempt),
+			]),
+		),
+	};
+};

@@ -42,6 +42,7 @@ export type {
 	UsageTotals,
 	WorkCheck,
 	WorkItemProjection,
+	WorkSubjectProjection,
 	WorkStatus,
 } from "./projection-parts/types.js";
 export {
@@ -71,6 +72,7 @@ export const emptyProjection = (
 	tokenSamples: [],
 	sources: new Map(),
 	work: new Map(),
+	subjects: new Map(),
 	attempts: new Map(),
 	completed: [],
 	diagnostics: [],
