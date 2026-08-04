@@ -1,8 +1,10 @@
-import type {
-	CompletedRowModel,
-	DashboardModel,
-	ScheduledRowModel,
-	WorkRowModel,
+import {
+	maxGroupChildren,
+	type CompletedRowModel,
+	type DashboardModel,
+	type ScheduledRowModel,
+	type Selection,
+	type WorkRowModel,
 } from "./dashboard-model.js";
 import {
 	blank,
@@ -23,35 +25,60 @@ const rowGlyph = (row: WorkRowModel) => {
 	return style.ok("●");
 };
 
+const liveActivity = (row: WorkRowModel, nowMs: number): string => {
+	const activity = quoteActivity(row.activity);
+	return row.attempt?.stage === "working" && !row.stale && !row.attention
+		? shimmerText(activity, nowMs)
+		: style.muted(activity);
+};
+
 const workRowLines = (
 	row: WorkRowModel,
 	selected: boolean,
 	nowMs: number,
 	width: number,
-	branch?: "middle" | "last",
 ): readonly DashboardLine[] => {
+	const marker = selected ? style.label("›") : " ";
+	const label = row.stale ? style.row.stale(row.label) : style.text(row.label);
+	const meta = row.meta.length === 0 ? "" : style.dim(row.meta);
+	return [
+		spread(`${marker} ${rowGlyph(row)} ${label}`, meta, width),
+		item(`    ${liveActivity(row, nowMs)}`),
+		blank(),
+	];
+};
+
+/** One-line child row used inside Subject groups and the Subject drill-down. */
+export const denseWorkRowLine = (
+	row: WorkRowModel,
+	selected: boolean,
+	width: number,
+	nowMs: number,
+	branch?: "middle" | "last",
+): DashboardLine => {
 	const marker = selected ? style.label("›") : " ";
 	const tree =
 		branch === undefined
 			? ""
 			: `${style.border(branch === "last" ? "└─" : "├─")} `;
 	const label = row.stale ? style.row.stale(row.label) : style.text(row.label);
-	const meta = row.meta.length === 0 ? "" : style.dim(row.meta);
-	const activity = quoteActivity(row.activity);
-	const live =
-		row.attempt?.stage === "working" && !row.stale && !row.attention
-			? shimmerText(activity, nowMs)
-			: style.muted(activity);
-	return [
-		spread(`${marker} ${tree}${rowGlyph(row)} ${label}`, meta, width),
-		item(`${branch === undefined ? "    " : "      "}${live}`),
-		blank(),
-	];
+	return spread(
+		`${marker} ${tree}${rowGlyph(row)} ${label}`,
+		liveActivity(row, nowMs),
+		width,
+		selected,
+	);
 };
+
+const rowSelected = (
+	selection: Selection | undefined,
+	row: WorkRowModel,
+): boolean =>
+	selection?.kind === "work" && selection.workKey === row.work.workKey;
 
 const renderedWork = (
 	model: DashboardModel,
-	selectedIndex: number,
+	selection: Selection | undefined,
 	nowMs: number,
 	width: number,
 ): {
@@ -59,35 +86,50 @@ const renderedWork = (
 	readonly selectedStart: number;
 } => {
 	const lines: DashboardLine[] = [];
-	let workIndex = 0;
 	let selectedStart = 0;
 	for (const group of model.workGroups) {
-		if (group.subject !== undefined) {
-			lines.push(
-				spread(
-					`  ${style.label("◆")} ${style.text(group.subject.label)}`,
-					style.muted(group.subject.meta),
-					width,
-				),
-			);
+		if (group.subject === undefined) {
+			for (const row of group.work) {
+				const selected = rowSelected(selection, row);
+				if (selected) selectedStart = lines.length;
+				lines.push(...workRowLines(row, selected, nowMs, width));
+			}
+			continue;
 		}
-		for (const [index, row] of group.work.entries()) {
-			if (workIndex === selectedIndex) selectedStart = lines.length;
+		const subjectSelected =
+			selection?.kind === "subject" &&
+			selection.subjectKey === group.subject.key;
+		if (subjectSelected) selectedStart = lines.length;
+		const marker = subjectSelected ? style.label("›") : " ";
+		lines.push(
+			spread(
+				`${marker} ${style.label("◆")} ${style.text(group.subject.label)}`,
+				style.muted(group.subject.meta),
+				width,
+				subjectSelected,
+			),
+		);
+		const visible = group.work.slice(0, maxGroupChildren);
+		const hidden = group.work.length - visible.length;
+		for (const [index, row] of visible.entries()) {
+			const selected = rowSelected(selection, row);
+			if (selected) selectedStart = lines.length;
 			lines.push(
-				...workRowLines(
+				denseWorkRowLine(
 					row,
-					workIndex === selectedIndex,
-					nowMs,
+					selected,
 					width,
-					group.subject === undefined
-						? undefined
-						: index === group.work.length - 1
-							? "last"
-							: "middle",
+					nowMs,
+					index === visible.length - 1 && hidden === 0 ? "last" : "middle",
 				),
 			);
-			workIndex++;
 		}
+		if (hidden > 0)
+			lines.push(
+				item(
+					`  ${style.border("└─")} ${style.muted(`… +${hidden} more · enter on subject to view all`)}`,
+				),
+			);
 	}
 	return { lines, selectedStart };
 };
@@ -134,7 +176,7 @@ const completionRowLine = (
 const emptyWorkLine = (): DashboardLine =>
 	item("  no active work", style.muted);
 
-const clampWorkViewport = (
+export const clampWorkViewport = (
 	workLines: readonly DashboardLine[],
 	selectedStart: number,
 	availableRows: number,
@@ -163,7 +205,7 @@ const clampWorkViewport = (
 export const processTableViewLines = (input: {
 	readonly header: readonly DashboardLine[];
 	readonly model: DashboardModel;
-	readonly selectedIndex: number;
+	readonly selection?: Selection | undefined;
 	readonly width: number;
 	readonly footerText: string;
 	readonly footerStyle?: (value: string) => string;
@@ -213,7 +255,7 @@ export const processTableViewLines = (input: {
 		model.work.length === 0
 			? model.scheduled.filter((wake) => wake.reason !== undefined)
 			: [];
-	const rendered = renderedWork(model, input.selectedIndex, nowMs, input.width);
+	const rendered = renderedWork(model, input.selection, nowMs, input.width);
 	const workLines =
 		model.work.length === 0
 			? [

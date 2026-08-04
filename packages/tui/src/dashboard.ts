@@ -1,6 +1,16 @@
 import { matchesKey, parseKey, type Component } from "./terminal-ui.js";
 import { configViewLines } from "./config-view.js";
-import { dashboardModelFrom, type DashboardModel } from "./dashboard-model.js";
+import {
+	dashboardModelFrom,
+	entryMatchesSelection,
+	entrySelection,
+	tableEntries,
+	type DashboardModel,
+	type Selection,
+	type TableEntry,
+	type WorkRowModel,
+	type WorkSubjectModel,
+} from "./dashboard-model.js";
 import {
 	renderLines,
 	asLine,
@@ -11,6 +21,7 @@ import {
 import { debugViewLines } from "./debug-view.js";
 import { detailBodyLines, detailViewLines } from "./detail-view.js";
 import { processTableViewLines } from "./process-table-view.js";
+import { subjectViewLines } from "./subject-view.js";
 import type { DashboardProjection, DashboardStatus } from "@plot/projection";
 import { style } from "./style.js";
 
@@ -31,7 +42,7 @@ export interface DashboardActions {
 	readonly requestRender?: () => void;
 }
 
-type ViewMode = "process-table" | "debug" | "config" | "detail";
+type ViewMode = "process-table" | "debug" | "config" | "detail" | "subject";
 
 const statusGlyph = (status: DashboardStatus) => {
 	switch (status) {
@@ -68,7 +79,10 @@ const statusStyle = (status: DashboardStatus) => {
 export class Dashboard implements Component {
 	private projection: DashboardProjection;
 	private mode: ViewMode = "process-table";
-	private selectedIndex = 0;
+	private selection: Selection | undefined;
+	private lastEntryIndex = 0;
+	private subjectViewKey: string | undefined;
+	private detailReturn: "process-table" | "subject" = "process-table";
 	private scrollOffset = 0;
 	private showHelp = false;
 	private confirmingStop = false;
@@ -143,54 +157,71 @@ export class Dashboard implements Component {
 			this.changeMode(this.mode === "debug" ? "process-table" : "debug");
 		} else if (key === "c")
 			this.changeMode(this.mode === "config" ? "process-table" : "config");
-		else if (key === "enter" || key === "return") this.changeMode("detail");
-		else if (key === "escape" || key === "esc")
-			this.changeMode("process-table");
+		else if (key === "enter" || key === "return") this.drill();
+		else if (key === "escape" || key === "esc") this.goBack();
 		else if (key === "j" || key === "down") this.moveDown();
 		else if (key === "k" || key === "up") this.moveUp();
 	}
 
 	render(width: number): string[] {
 		const model = dashboardModelFrom(this.projection);
-		this.selectedIndex = Math.min(
-			this.selectedIndex,
-			Math.max(0, model.work.length - 1),
-		);
+		// Resolve the keyed selection against the fresh rows so it survives
+		// re-sorts; heals to a nearby entry when the selected row is gone. Only
+		// the table windows rows, so only its selection heals against entries —
+		// detail/subject modes legitimately point at rows outside the window.
+		if (this.mode === "process-table") this.selectedEntry(tableEntries(model));
 		const header = this.header(model);
-		const selected = model.work[this.selectedIndex];
 		const viewportRows = this.viewportRows();
-		const lines =
-			this.mode === "config"
-				? this.scrolled(
-						configViewLines(this.projection, header),
-						header.length,
+		const maxRows = Math.max(1, (this.actions.height?.() ?? 24) - 1);
+		let lines: readonly DashboardLine[];
+		switch (this.mode) {
+			case "config":
+				lines = this.scrolled(
+					configViewLines(this.projection, header),
+					header.length,
+					viewportRows,
+				);
+				break;
+			case "detail": {
+				const selected = this.detailRow(model);
+				lines = detailViewLines({
+					header,
+					selected,
+					scrollOffset: this.clampedDetailScroll(selected, viewportRows),
+					viewportRows,
+				});
+				break;
+			}
+			case "subject":
+				lines = subjectViewLines({
+					subject: this.subjectModel(model),
+					selectedIndex: this.subjectChildIndex(model),
+					width,
+					maxRows,
+				});
+				break;
+			case "debug":
+				lines = debugViewLines({
+					projection: this.projection,
+					header,
+					scrollOffset: this.clampedFeedScroll(
+						this.projection.debugEvents,
 						viewportRows,
-					)
-				: this.mode === "detail"
-					? detailViewLines({
-							header,
-							selected,
-							scrollOffset: this.clampedDetailScroll(selected, viewportRows),
-							viewportRows,
-						})
-					: this.mode === "debug"
-						? debugViewLines({
-								projection: this.projection,
-								header,
-								scrollOffset: this.clampedFeedScroll(
-									this.projection.debugEvents,
-									viewportRows,
-								),
-								viewportRows,
-							})
-						: processTableViewLines({
-								header,
-								model,
-								selectedIndex: this.selectedIndex,
-								width,
-								maxRows: Math.max(1, (this.actions.height?.() ?? 24) - 1),
-								...this.processTableFooter(),
-							});
+					),
+					viewportRows,
+				});
+				break;
+			case "process-table":
+				lines = processTableViewLines({
+					header,
+					model,
+					selection: this.selection,
+					width,
+					maxRows,
+					...this.processTableFooter(),
+				});
+				break;
+		}
 		const visibleLines = this.confirmingStop
 			? [
 					...lines.slice(0, -1),
@@ -243,12 +274,19 @@ export class Dashboard implements Component {
 
 	private openSelectedUrl(): void {
 		const model = dashboardModelFrom(this.projection);
-		if (model.work.length > 0) {
-			this.selectedIndex = Math.min(this.selectedIndex, model.work.length - 1);
-			const url = model.work[this.selectedIndex]?.work.url;
-			if (url !== undefined) this.actions.openUrl?.(url);
+		// Resolve against every row, not the windowed table entries: a child
+		// selected in the Subject view may be outside the table window. Before
+		// the first render no selection exists yet; fall back to the first row.
+		const row =
+			this.detailRow(model) ??
+			(this.selection === undefined ? model.work[0] : undefined);
+		if (row !== undefined) {
+			if (row.work.url !== undefined) this.actions.openUrl?.(row.work.url);
 			return;
 		}
+		// A Subject has no URL of its own; with no rows at all, fall back to
+		// the latest completed run.
+		if (this.selection !== undefined || model.work.length > 0) return;
 		const url =
 			this.mode === "process-table" ? model.completed[0]?.url : undefined;
 		if (url !== undefined) this.actions.openUrl?.(url);
@@ -294,14 +332,157 @@ export class Dashboard implements Component {
 	}
 
 	private moveDown(): void {
-		if (this.mode === "process-table") this.selectedIndex++;
+		if (this.mode === "process-table") this.moveTableSelection(1);
+		else if (this.mode === "subject") this.moveSubjectSelection(1);
 		else this.scrollOffset++;
 	}
 
 	private moveUp(): void {
-		if (this.mode === "process-table")
-			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+		if (this.mode === "process-table") this.moveTableSelection(-1);
+		else if (this.mode === "subject") this.moveSubjectSelection(-1);
 		else this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+	}
+
+	/** Heals `selection` against the current entries and returns its match. */
+	private selectedEntry(
+		entries: readonly TableEntry[],
+	): { readonly entry: TableEntry; readonly index: number } | undefined {
+		if (entries.length === 0) {
+			this.selection = undefined;
+			this.lastEntryIndex = 0;
+			return undefined;
+		}
+		const selection = this.selection;
+		let index =
+			selection === undefined
+				? -1
+				: entries.findIndex((entry) => entryMatchesSelection(entry, selection));
+		if (index < 0) index = Math.min(this.lastEntryIndex, entries.length - 1);
+		const entry = entries[index];
+		if (entry === undefined) return undefined;
+		this.selection = entrySelection(entry);
+		this.lastEntryIndex = index;
+		return { entry, index };
+	}
+
+	private moveTableSelection(delta: number): void {
+		const entries = tableEntries(dashboardModelFrom(this.projection));
+		const selected = this.selectedEntry(entries);
+		if (selected === undefined) return;
+		const index = Math.min(
+			entries.length - 1,
+			Math.max(0, selected.index + delta),
+		);
+		const next = entries[index];
+		if (next === undefined) return;
+		this.selection = entrySelection(next);
+		this.lastEntryIndex = index;
+	}
+
+	private moveSubjectSelection(delta: number): void {
+		const model = dashboardModelFrom(this.projection);
+		const subject = this.subjectModel(model);
+		if (subject === undefined || subject.work.length === 0) return;
+		const index = Math.min(
+			subject.work.length - 1,
+			Math.max(0, this.subjectChildIndex(model) + delta),
+		);
+		const row = subject.work[index];
+		if (row !== undefined)
+			this.selection = { kind: "work", workKey: row.work.workKey };
+	}
+
+	/** enter: Subject header drills into its children, Work opens details. */
+	private drill(): void {
+		if (this.mode === "process-table") {
+			const selected = this.selectedEntry(
+				tableEntries(dashboardModelFrom(this.projection)),
+			);
+			if (selected === undefined) return;
+			if (selected.entry.kind === "subject") {
+				this.subjectViewKey = selected.entry.subject.key;
+				const first = selected.entry.subject.work[0];
+				if (first !== undefined)
+					this.selection = { kind: "work", workKey: first.work.workKey };
+				this.changeMode("subject");
+				return;
+			}
+			this.detailReturn = "process-table";
+			this.changeMode("detail");
+			return;
+		}
+		if (
+			this.mode === "subject" &&
+			this.subjectModel(dashboardModelFrom(this.projection)) !== undefined
+		) {
+			this.detailReturn = "subject";
+			this.changeMode("detail");
+		}
+	}
+
+	/** esc: detail returns to its origin, Subject view returns to the table. */
+	private goBack(): void {
+		if (
+			this.mode === "detail" &&
+			this.detailReturn === "subject" &&
+			this.subjectViewKey !== undefined
+		) {
+			this.changeMode("subject");
+			return;
+		}
+		if (this.mode === "subject" && this.subjectViewKey !== undefined)
+			this.selection = { kind: "subject", subjectKey: this.subjectViewKey };
+		if (this.mode === "detail") this.reselectVisibleEntry();
+		this.changeMode("process-table");
+	}
+
+	/** A child opened from the table may be windowed out on return; select its Subject instead. */
+	private reselectVisibleEntry(): void {
+		const selection = this.selection;
+		if (selection?.kind !== "work") return;
+		const model = dashboardModelFrom(this.projection);
+		if (
+			tableEntries(model).some((entry) =>
+				entryMatchesSelection(entry, selection),
+			)
+		)
+			return;
+		const group = model.workGroups.find((candidate) =>
+			candidate.work.some((row) => row.work.workKey === selection.workKey),
+		);
+		this.selection =
+			group?.subject === undefined
+				? undefined
+				: { kind: "subject", subjectKey: group.subject.key };
+	}
+
+	private detailRow(model: DashboardModel): WorkRowModel | undefined {
+		const selection = this.selection;
+		if (selection?.kind !== "work") return undefined;
+		return model.work.find((row) => row.work.workKey === selection.workKey);
+	}
+
+	private subjectModel(model: DashboardModel): WorkSubjectModel | undefined {
+		return model.workGroups.find(
+			(group) => group.subject?.key === this.subjectViewKey,
+		)?.subject;
+	}
+
+	private subjectChildIndex(model: DashboardModel): number {
+		const subject = this.subjectModel(model);
+		if (subject === undefined) return 0;
+		const selection = this.selection;
+		const found =
+			selection?.kind === "work"
+				? subject.work.findIndex(
+						(row) => row.work.workKey === selection.workKey,
+					)
+				: -1;
+		const index = Math.max(0, found);
+		const row = subject.work[index];
+		if (row !== undefined)
+			this.selection = { kind: "work", workKey: row.work.workKey };
+		return index;
 	}
 
 	private header(model: DashboardModel): readonly DashboardLine[] {
