@@ -233,6 +233,56 @@ describe("Dashboard", () => {
 		expect(plain([selectedLine ?? ""])).toContain("first task");
 	});
 
+	test("children with a live Attempt sort ahead of idle children", () => {
+		const base = withSubjectChildren(3);
+		const running = base.work.get("unit-2");
+		const observed = base.work.get("unit-3");
+		if (running === undefined || observed === undefined)
+			throw new Error("missing child rows");
+		const work = new Map(base.work);
+		work.set("unit-2", {
+			...running,
+			status: "running",
+			currentRunId: "run-2",
+		});
+		// Observed running can precede its Attempt projection by a render.
+		work.set("unit-3", {
+			...observed,
+			status: "running",
+			currentRunId: "run-3",
+		});
+		const attempts = new Map(base.attempts);
+		attempts.set("run-2", {
+			runId: "run-2",
+			workKey: "unit-2",
+			sourceId: "source",
+			stage: "working",
+			startedAtSeq: 1,
+			lastEventSeq: 1,
+			turnCount: 0,
+			eventCount: 0,
+			meaningfulCount: 0,
+			toolUpdateCount: 0,
+			messageCount: 0,
+			activity: "working",
+			activityKind: "run",
+			streaming: false,
+			lastDisplay: "working",
+			check: "not-run",
+			commands: [],
+			observations: [],
+			streams: {},
+			phases: [],
+			timeline: [],
+		});
+
+		const text = plain(
+			new Dashboard({ ...base, work, attempts }, actions().actions).render(100),
+		);
+		expect(text.indexOf("task-2")).toBeLessThan(text.indexOf("task-1"));
+		expect(text.indexOf("task-3")).toBeLessThan(text.indexOf("task-1"));
+	});
+
 	test("renders Source setup before any work exists", () => {
 		const projection: DashboardProjection = {
 			...emptyProjection("default", "workflow"),

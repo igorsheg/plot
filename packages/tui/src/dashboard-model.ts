@@ -318,6 +318,11 @@ const subjectModel = (
 	};
 };
 
+const liveRow = (row: WorkRowModel) =>
+	row.attempt !== undefined ||
+	row.status === "running" ||
+	row.status === "draining";
+
 const groupWork = (
 	projection: DashboardProjection,
 	rows: readonly WorkRowModel[],
@@ -366,10 +371,11 @@ export const dashboardModelFrom = (
 		.toSorted(
 			(a, b) =>
 				Number(b.attention) - Number(a.attention) ||
-				// Rows with a live Attempt before idle ones: the group window keeps
-				// the first rows visible, so the front of the list must be what is
-				// actually happening.
-				Number(a.attempt === undefined) - Number(b.attempt === undefined) ||
+				// Live rows before idle ones: the group window keeps the first rows
+				// visible, so the front of the list must be what is actually
+				// happening. A row observed running may precede its Attempt
+				// projection, so liveness keys off the status too.
+				Number(!liveRow(a)) - Number(!liveRow(b)) ||
 				(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
 		);
 	const workGroups = groupWork(projection, sortedWork);
