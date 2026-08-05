@@ -275,6 +275,7 @@ export const storyWorkDetail = (
 	state: { open: view !== undefined, view, nowMs: STORY_NOW },
 	actions: {
 		open: noop,
+		back: noop,
 		close: noop,
 		step: noop,
 		act: noop,

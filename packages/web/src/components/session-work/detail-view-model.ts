@@ -21,18 +21,25 @@ import {
 import type { OperatorActionInput } from "@plot/sdk/work-contract";
 import { formatDuration, formatShortAge } from "../../lib/relative-time.js";
 import {
+	attemptFor,
+	attemptsByWorkKey,
+	childStateOf,
+	liveLine,
 	parseOperatorActions,
+	subjectTitle,
 	type AttentionItem,
 	type LiveLine,
 	type MotionItem,
 	type OperatorActionView,
 	type SettledItem,
+	type SubjectChildState,
 } from "./view-model.js";
 
 export type DetailRef =
 	| { readonly kind: "work"; readonly workKey: string }
 	| { readonly kind: "settled"; readonly key: string }
-	| { readonly kind: "source"; readonly sourceId: string };
+	| { readonly kind: "source"; readonly sourceId: string }
+	| { readonly kind: "subject"; readonly subjectKey: string };
 
 /** The minimal slice `DecisionActions` needs in the drawer. */
 export interface DecisionActionTarget extends Pick<
@@ -75,6 +82,14 @@ interface DetailCommon {
 	readonly events: readonly TimelineEntry[];
 }
 
+export interface SubjectChildView {
+	readonly workKey: string;
+	readonly title: string;
+	readonly state: SubjectChildState;
+	readonly line?: LiveLine | undefined;
+	readonly sinceMs?: number | undefined;
+}
+
 export type DetailView =
 	| (DetailCommon & {
 			readonly kind: "decision";
@@ -90,6 +105,7 @@ export type DetailView =
 			readonly kind: "active";
 			readonly narrative: LiveLine | undefined;
 	  })
+	| (DetailCommon & { readonly kind: "queued" })
 	| (DetailCommon & { readonly kind: "settled"; readonly message: string })
 	| (DetailCommon & { readonly kind: "failed"; readonly message: string })
 	| {
@@ -104,6 +120,16 @@ export type DetailView =
 			readonly requirements: readonly SourceRequirementView[];
 			readonly diagnostics: readonly string[];
 			readonly action?: SourceActionView | undefined;
+	  }
+	| {
+			readonly kind: "subject";
+			readonly ref: DetailRef;
+			readonly subjectKey: string;
+			readonly title: string;
+			readonly subtitle: string | undefined;
+			readonly labels: readonly string[];
+			readonly stage: string;
+			readonly children: readonly SubjectChildView[];
 	  };
 
 const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
@@ -200,7 +226,7 @@ const buildWorkDetail = (
 	work: SerializedDashboardProjection["work"][string],
 	nowMs: number,
 ): DetailView | undefined => {
-	const attempt = attemptOf(projection, work.currentRunId);
+	const attempt = attemptFor(projection, work);
 	const title = workLabel(work);
 	const events = timelineOf(attempt);
 	const identity = identityOf(work);
@@ -277,6 +303,18 @@ const buildWorkDetail = (
 						},
 		};
 	}
+	if (work.status === "pending") {
+		return {
+			kind: "queued",
+			ref,
+			title,
+			...identity,
+			stage: "queued",
+			check,
+			metrics: metricsOf({ turn, tokens, cost, elapsed: undefined }),
+			events,
+		};
+	}
 	return undefined;
 };
 
@@ -344,6 +382,60 @@ const buildSourceDetail = (source: SourceProjection): DetailView => ({
 				},
 });
 
+const childRank: Record<SubjectChildState, number> = {
+	attention: 0,
+	active: 1,
+	queued: 2,
+	held: 3,
+};
+
+const buildSubjectDetail = (
+	projection: SerializedDashboardProjection,
+	subject: SerializedDashboardProjection["subjects"][string],
+): Extract<DetailView, { kind: "subject" }> => {
+	const attempts = attemptsByWorkKey(projection);
+	const children: SubjectChildView[] = [];
+	for (const workKey of subject.workKeys) {
+		const work = projection.work[workKey];
+		if (work === undefined) continue;
+		const attempt = attemptFor(projection, work, attempts);
+		const state = childStateOf(work);
+		let line: LiveLine | undefined;
+		if (state === "active") line = liveLine(work, attempt);
+		else if (work.blockedReason !== undefined)
+			line = { text: work.blockedReason, llm: false };
+		else if (work.subtitle !== undefined)
+			line = { text: work.subtitle, llm: false };
+		children.push({
+			workKey,
+			title: workLabel(work),
+			state,
+			line,
+			sinceMs: attempt?.lastEventAtMs ?? attempt?.startedAtMs,
+		});
+	}
+	const orderedChildren = children.toSorted(
+		(a, b) =>
+			childRank[a.state] - childRank[b.state] ||
+			(a.sinceMs ?? Infinity) - (b.sinceMs ?? Infinity) ||
+			a.title.localeCompare(b.title),
+	);
+	const progress = subject.progress;
+	return {
+		kind: "subject",
+		ref: { kind: "subject", subjectKey: subject.subjectKey },
+		subjectKey: subject.subjectKey,
+		title: subjectTitle(subject),
+		subtitle: subject.display?.subtitle,
+		labels: subject.display?.labels ?? [],
+		stage:
+			progress === undefined
+				? `${children.length} work items`
+				: `${progress.completed}/${progress.total} complete${progress.phase === undefined ? "" : ` · ${progress.phase}`}`,
+		children: orderedChildren,
+	};
+};
+
 /**
  * Resolve an open reference into a detail view. A `work` reference that has
  * settled out of the live map is followed into `completed` by its workKey, so
@@ -354,6 +446,12 @@ export const buildDetail = (
 	ref: DetailRef,
 	nowMs: number,
 ): DetailView | undefined => {
+	if (ref.kind === "subject") {
+		const subject = projection.subjects[ref.subjectKey];
+		return subject === undefined
+			? undefined
+			: buildSubjectDetail(projection, subject);
+	}
 	if (ref.kind === "source") {
 		const source = projection.sources[ref.sourceId];
 		return source === undefined ? undefined : buildSourceDetail(source);
@@ -375,6 +473,8 @@ export const refEquals = (a: DetailRef, b: DetailRef): boolean => {
 	if (a.kind === "settled" && b.kind === "settled") return a.key === b.key;
 	if (a.kind === "source" && b.kind === "source")
 		return a.sourceId === b.sourceId;
+	if (a.kind === "subject" && b.kind === "subject")
+		return a.subjectKey === b.subjectKey;
 	return false;
 };
 
@@ -396,6 +496,10 @@ export const openableRefs = (input: {
 			refs.push(workRef(item.key));
 	}
 	for (const item of input.motion) {
+		if (item.kind === "subject-group") {
+			refs.push({ kind: "subject", subjectKey: item.subjectKey });
+			continue;
+		}
 		if (
 			item.kind === "active" ||
 			(item.kind === "held" && item.actions.length > 0)

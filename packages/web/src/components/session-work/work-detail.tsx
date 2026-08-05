@@ -16,7 +16,7 @@ import { Button } from "../ui/button.js";
 import Stack, { VStack } from "../ui/stack.js";
 import { ScrollArea } from "../ui/scroll-area.js";
 import { useStickToBottom } from "../ui/stick-to-bottom.js";
-import { StreamedProse } from "../ui/streamed.js";
+import { StreamedLine, StreamedProse } from "../ui/streamed.js";
 import { Text } from "../ui/text.js";
 import { StateIcon } from "./atoms.js";
 import { DecisionActions } from "./decision-actions.js";
@@ -26,17 +26,21 @@ import {
 	formatTokens,
 	type DetailMetrics,
 	type DetailView,
+	type SubjectChildView,
 } from "./detail-view-model.js";
-import { drawerBodyClass } from "./styles.js";
+import { drawerBodyClass, groupClass } from "./styles.js";
+import { WorkItem } from "./work-item.js";
 
-/** Every drawer view but a source carries the work masthead + log sections. */
-type WorkView = Exclude<DetailView, { kind: "source" }>;
+/** Run detail views carry the work masthead + log sections. */
+type WorkView = Exclude<DetailView, { kind: "source" } | { kind: "subject" }>;
 type SourceView = Extract<DetailView, { kind: "source" }>;
+type SubjectView = Extract<DetailView, { kind: "subject" }>;
 
 const HEADER_STATE: Record<WorkView["kind"], WorkState> = {
 	decision: "attention",
 	held: "held",
 	active: "active",
+	queued: "queued",
 	settled: "history",
 	failed: "history",
 };
@@ -47,6 +51,13 @@ const allConnected = (view: SourceView): boolean =>
 
 /** The masthead glyph: sources swing red → half-circle → muted with state. */
 const headerStateOf = (view: DetailView): WorkState => {
+	if (view.kind === "subject") {
+		if (view.children.some((child) => child.state === "active"))
+			return "active";
+		if (view.children.some((child) => child.state === "attention"))
+			return "attention";
+		return "queued";
+	}
 	if (view.kind !== "source") return HEADER_STATE[view.kind];
 	if (view.action?.status === "running") return "active";
 	if (allConnected(view)) return "history";
@@ -98,6 +109,17 @@ function Identity({ view }: { readonly view: WorkView }) {
 					<ArrowUpRightIcon className="size-3.5" />
 				</a>
 			)}
+		</Stack>
+	);
+}
+
+function SubjectIdentity({ view }: { readonly view: SubjectView }) {
+	return (
+		<Stack align="center" gap={8} wrap>
+			{view.subtitle !== undefined && <Rail>{view.subtitle}</Rail>}
+			{view.labels.map((label) => (
+				<Badge key={label}>{label}</Badge>
+			))}
 		</Stack>
 	);
 }
@@ -212,11 +234,22 @@ function Narrative({ view }: { readonly view: WorkView }) {
 			return <StreamedProse text={view.message} tone="danger" />;
 		case "active":
 			return <ActiveNarrative view={view} />;
+		case "queued":
+			return null;
 	}
+}
+
+function SubjectStatus({ view }: { readonly view: SubjectView }) {
+	return (
+		<div className="flex items-baseline gap-2">
+			<Rail>{view.stage}</Rail>
+		</div>
+	);
 }
 
 function NarrativePane({ view }: { readonly view: WorkView }) {
 	const stick = useStickToBottom({ resize: "auto", initial: "auto" });
+	if (view.kind === "queued") return null;
 	if (
 		(view.kind === "decision" || view.kind === "held") &&
 		view.reason === undefined
@@ -349,6 +382,56 @@ function SourceBody({ view }: { readonly view: SourceView }) {
 	);
 }
 
+function SubjectChildRow({ child }: { readonly child: SubjectChildView }) {
+	const { state, actions } = useWorkDetail();
+	const ref = { kind: "work", workKey: child.workKey } as const;
+	const edge =
+		child.sinceMs === undefined
+			? undefined
+			: formatShortAge(state.nowMs - child.sinceMs);
+	return (
+		<WorkItem.Root>
+			<WorkItem.Frame
+				interactive
+				onClick={() => actions.open(ref)}
+				open={
+					state.view?.ref.kind === "work" &&
+					state.view.ref.workKey === child.workKey
+				}
+			>
+				<WorkItem.Line>
+					<WorkItem.Icon state={child.state} />
+					<WorkItem.Title>{child.title}</WorkItem.Title>
+					{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+				</WorkItem.Line>
+				{child.line === undefined ? (
+					<WorkItem.Subline empty />
+				) : (
+					<WorkItem.Subline tone="secondary">
+						{child.line.llm ? (
+							<StreamedLine text={child.line.text} tone="secondary" />
+						) : (
+							child.line.text
+						)}
+					</WorkItem.Subline>
+				)}
+			</WorkItem.Frame>
+		</WorkItem.Root>
+	);
+}
+
+function SubjectBody({ view }: { readonly view: SubjectView }) {
+	return (
+		<div className={drawerBodyClass()}>
+			<VStack as="ul" className={groupClass()} gap={4}>
+				{view.children.map((child) => (
+					<SubjectChildRow child={child} key={child.workKey} />
+				))}
+			</VStack>
+		</div>
+	);
+}
+
 const isEditableTarget = (): boolean => {
 	const focused = document.activeElement;
 	return (
@@ -368,7 +451,8 @@ export function WorkDetail() {
 		if (view === undefined) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
-				actions.close();
+				if (state.returnRef === undefined) actions.close();
+				else actions.back();
 				return;
 			}
 			if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -380,7 +464,7 @@ export function WorkDetail() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [view, actions]);
+	}, [view, state.returnRef, actions]);
 
 	if (view === undefined) return null;
 	return (
@@ -394,6 +478,11 @@ export function WorkDetail() {
 					borderBottom: "1px solid var(--border)",
 				}}
 			>
+				{state.returnRef !== undefined && (
+					<Button onClick={actions.back} size="sm" variant="ghost">
+						‹ {state.returnTitle ?? "subject"}
+					</Button>
+				)}
 				<Stack align="flex-start" gap={12} justify="space-between">
 					<Stack align="center" gap={8} style={{ minWidth: 0 }}>
 						<StateIcon state={headerStateOf(view)} />
@@ -413,6 +502,11 @@ export function WorkDetail() {
 				{/* metadata pair — subtitle/labels and status sit tight together */}
 				{view.kind === "source" ? (
 					<SourceStatus view={view} />
+				) : view.kind === "subject" ? (
+					<VStack gap={8}>
+						<SubjectIdentity view={view} />
+						<SubjectStatus view={view} />
+					</VStack>
 				) : (
 					<>
 						<VStack gap={8}>
@@ -430,6 +524,23 @@ export function WorkDetail() {
 			</VStack>
 			{view.kind === "source" ? (
 				<SourceBody view={view} />
+			) : view.kind === "subject" ? (
+				<>
+					<SubjectBody view={view} />
+					<Stack
+						align="center"
+						gap={12}
+						justify="flex-end"
+						style={{
+							padding: "16px 24px",
+							borderTop: "1px solid var(--border)",
+						}}
+					>
+						<Text as="span" size="sm" variant="mono-secondary">
+							esc to close
+						</Text>
+					</Stack>
+				</>
 			) : (
 				<>
 					{/* log — narrative and ticker share the rest, free to grow and scroll */}
@@ -452,7 +563,9 @@ export function WorkDetail() {
 					>
 						<Metrics metrics={view.metrics} />
 						<Text as="span" size="sm" variant="mono-secondary">
-							esc to close
+							{state.returnRef === undefined
+								? "esc to close"
+								: "esc to subject"}
 						</Text>
 					</Stack>
 				</>

@@ -21,6 +21,8 @@ import {
 import { buildAttention, buildMotion, buildSettled } from "./view-model.js";
 
 export const $openDetail = atom<DetailRef | undefined>(undefined);
+/** One-step parent when a Subject drawer opens one of its children. */
+export const $detailReturn = atom<DetailRef | undefined>(undefined);
 
 export const $detailView = computed(
 	[$selectedProjection, $openDetail, $nowMs],
@@ -31,10 +33,22 @@ export const $detailView = computed(
 );
 
 export const openDetail = (ref: DetailRef): void => {
+	const current = $openDetail.get();
+	$detailReturn.set(
+		current?.kind === "subject" && ref.kind === "work" ? current : undefined,
+	);
+	$openDetail.set(ref);
+};
+
+export const backDetail = (): void => {
+	const ref = $detailReturn.get();
+	if (ref === undefined) return;
+	$detailReturn.set(undefined);
 	$openDetail.set(ref);
 };
 
 export const closeDetail = (): void => {
+	$detailReturn.set(undefined);
 	$openDetail.set(undefined);
 };
 
@@ -47,7 +61,9 @@ export const stepDetail = (direction: 1 | -1): void => {
 		settled: buildSettled(projection),
 	});
 	const next = stepRef(refs, $openDetail.get(), direction);
-	if (next !== undefined) openDetail(next);
+	if (next === undefined) return;
+	$detailReturn.set(undefined);
+	$openDetail.set(next);
 };
 
 // Switching sessions closes the drawer; transient unresolved projection state does

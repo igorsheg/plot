@@ -12,10 +12,13 @@ export interface WorkDetailState {
 	readonly view: DetailView | undefined;
 	readonly open: boolean;
 	readonly nowMs: number;
+	readonly returnRef?: DetailRef | undefined;
+	readonly returnTitle?: string | undefined;
 }
 
 export interface WorkDetailActions {
 	readonly open: (ref: DetailRef) => void;
+	readonly back: () => void;
 	readonly close: () => void;
 	readonly step: (direction: 1 | -1) => void;
 	readonly act: (input: Omit<OperatorObservationInput, "actor">) => void;

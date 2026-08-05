@@ -45,9 +45,11 @@ import {
 	type WorkDetailContextValue,
 } from "./detail-context.js";
 import {
+	backDetail,
 	closeDetail,
 	openDetail,
 	stepDetail,
+	$detailReturn,
 	$detailView,
 	$openDetail,
 } from "./detail-store.js";
@@ -62,6 +64,8 @@ import {
 	buildMotion,
 	buildSettled,
 	decisionCount,
+	subjectCountsText,
+	subjectTitle,
 	verifyingLine,
 	type AttentionItem,
 	type MotionItem,
@@ -75,6 +79,7 @@ type DiagnosticItem = Extract<AttentionItem, { kind: "diagnostic" }>;
 type ActiveItem = Extract<MotionItem, { kind: "active" }>;
 type QueuedItem = Extract<MotionItem, { kind: "queued" }>;
 type HeldItem = Extract<MotionItem, { kind: "held" }>;
+type SubjectItem = Extract<MotionItem, { kind: "subject-group" }>;
 
 const isOpen = (view: DetailView | undefined, ref: DetailRef): boolean =>
 	view !== undefined && refEquals(view.ref, ref);
@@ -84,6 +89,11 @@ const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
 const sourceRef = (sourceId: string): DetailRef => ({
 	kind: "source",
 	sourceId,
+});
+
+const subjectRef = (subjectKey: string): DetailRef => ({
+	kind: "subject",
+	subjectKey,
 });
 
 function EmptySubline() {
@@ -342,6 +352,43 @@ function AttentionRow({ item }: { readonly item: AttentionItem }) {
 	}
 }
 
+function SubjectRow({ item }: { readonly item: SubjectItem }) {
+	const { state } = useSessionWork();
+	const detail = useWorkDetail();
+	const ref = subjectRef(item.subjectKey);
+	const edge =
+		item.progress === undefined
+			? ageEdge(state.nowMs, item.sinceMs)
+			: `${item.progress.completed}/${item.progress.total}`;
+	const spotlight = item.spotlight;
+	const line =
+		spotlight === undefined
+			? subjectCountsText(item.counts)
+			: `${spotlight.title} — ${spotlight.line.text}`;
+	return (
+		<WorkItem.Root>
+			<WorkItem.Frame
+				interactive
+				onClick={() => detail.actions.open(ref)}
+				open={isOpen(detail.state.view, ref)}
+			>
+				<WorkItem.Line>
+					<WorkItem.Icon state={item.live ? "active" : "queued"} />
+					<WorkItem.Title>{item.title}</WorkItem.Title>
+					{edge !== undefined && <WorkItem.Edge>{edge}</WorkItem.Edge>}
+				</WorkItem.Line>
+				<WorkItem.Subline tone="secondary">
+					{spotlight?.line.llm === true ? (
+						<StreamedLine text={line} tone="secondary" />
+					) : (
+						line
+					)}
+				</WorkItem.Subline>
+			</WorkItem.Frame>
+		</WorkItem.Root>
+	);
+}
+
 function MotionRow({ item }: { readonly item: MotionItem }) {
 	switch (item.kind) {
 		case "active":
@@ -350,6 +397,8 @@ function MotionRow({ item }: { readonly item: MotionItem }) {
 			return <QueuedRow item={item} />;
 		case "held":
 			return <HeldRow item={item} />;
+		case "subject-group":
+			return <SubjectRow item={item} />;
 	}
 }
 
@@ -461,6 +510,7 @@ export function StoreSessionWorkProvider({
 	const sourceCancelState = useStore($cancelSourceAction);
 	const detailView = useStore($detailView);
 	const openDetailRef = useStore($openDetail);
+	const detailReturn = useStore($detailReturn);
 	if (session === undefined) return null;
 	const attention = projection === undefined ? [] : buildAttention(projection);
 	const acting = actState.loading ?? false;
@@ -484,10 +534,22 @@ export function StoreSessionWorkProvider({
 				(sourceCancelState.loading ?? false),
 		},
 	};
+	const returnSubject =
+		detailReturn?.kind === "subject" && projection !== undefined
+			? projection.subjects[detailReturn.subjectKey]
+			: undefined;
 	const detailValue: WorkDetailContextValue = {
-		state: { open: openDetailRef !== undefined, view: detailView, nowMs },
+		state: {
+			open: openDetailRef !== undefined,
+			view: detailView,
+			nowMs,
+			returnRef: detailReturn,
+			returnTitle:
+				returnSubject === undefined ? undefined : subjectTitle(returnSubject),
+		},
 		actions: {
 			open: openDetail,
+			back: backDetail,
 			close: closeDetail,
 			step: stepDetail,
 			act,

@@ -36,10 +36,12 @@ import { WorkBoard } from "./work-board.js";
 import { WorkCard } from "./work-card.js";
 import {
 	buildBoardColumns,
+	subjectCountsText,
 	verifyingLine,
 	type AttentionItem,
 	type MotionItem,
 	type SettledItem,
+	type SubjectChildState,
 } from "./view-model.js";
 
 type SourceItem = Extract<AttentionItem, { kind: "source" }>;
@@ -49,6 +51,7 @@ type DiagnosticItem = Extract<AttentionItem, { kind: "diagnostic" }>;
 type ActiveItem = Extract<MotionItem, { kind: "active" }>;
 type QueuedItem = Extract<MotionItem, { kind: "queued" }>;
 type HeldItem = Extract<MotionItem, { kind: "held" }>;
+type SubjectItem = Extract<MotionItem, { kind: "subject-group" }>;
 
 const isOpen = (view: DetailView | undefined, ref: DetailRef): boolean =>
 	view !== undefined && refEquals(view.ref, ref);
@@ -58,6 +61,11 @@ const workRef = (workKey: string): DetailRef => ({ kind: "work", workKey });
 const sourceRef = (sourceId: string): DetailRef => ({
 	kind: "source",
 	sourceId,
+});
+
+const subjectRef = (subjectKey: string): DetailRef => ({
+	kind: "subject",
+	subjectKey,
 });
 
 const ageEdge = (
@@ -281,6 +289,71 @@ function ActiveCard({ item }: { readonly item: ActiveItem }) {
 	);
 }
 
+function SubjectDots({ item }: { readonly item: SubjectItem }) {
+	return (
+		<div className="flex min-w-0 items-center gap-1.5">
+			<span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
+				{item.dots.map((state: SubjectChildState, index) => (
+					<StateIcon
+						className="size-3"
+						key={`${state}:${index}`}
+						state={state}
+					/>
+				))}
+			</span>
+			{item.overflow > 0 && (
+				<Text as="span" size="sm" variant="secondary">
+					+{item.overflow}
+				</Text>
+			)}
+			<Text as="span" size="sm" truncate variant="secondary">
+				{subjectCountsText(item.counts)}
+			</Text>
+		</div>
+	);
+}
+
+function SubjectGroupCard({ item }: { readonly item: SubjectItem }) {
+	const detail = useWorkDetail();
+	const ref = subjectRef(item.subjectKey);
+	const edge =
+		item.progress === undefined
+			? undefined
+			: `${item.progress.completed}/${item.progress.total} done`;
+	const spotlight = item.spotlight;
+	const spotlightText =
+		spotlight === undefined
+			? undefined
+			: `${spotlight.title} — ${spotlight.line.text}`;
+	return (
+		<WorkCard.Root>
+			<WorkCard.Frame
+				interactive
+				onClick={() => detail.actions.open(ref)}
+				open={isOpen(detail.state.view, ref)}
+			>
+				<WorkCard.Body>
+					<WorkCard.Line>
+						<WorkCard.Icon state={item.live ? "active" : "queued"} />
+						<WorkCard.Title>{item.title}</WorkCard.Title>
+					</WorkCard.Line>
+					{spotlightText !== undefined && (
+						<WorkCard.Description>
+							{spotlight?.line.llm === true ? (
+								<StreamedLine text={spotlightText} tone="secondary" />
+							) : (
+								spotlightText
+							)}
+						</WorkCard.Description>
+					)}
+					<SubjectDots item={item} />
+				</WorkCard.Body>
+				<EdgeFooter edge={edge} />
+			</WorkCard.Frame>
+		</WorkCard.Root>
+	);
+}
+
 function QueuedCard({ item }: { readonly item: QueuedItem }) {
 	const { state } = useSessionWork();
 	const edge =
@@ -342,12 +415,14 @@ function HeldCard({ item }: { readonly item: HeldItem }) {
 	);
 }
 
-function QueuedCards({ item }: { readonly item: QueuedItem | HeldItem }) {
-	return item.kind === "queued" ? (
-		<QueuedCard item={item} />
-	) : (
-		<HeldCard item={item} />
-	);
+function QueuedCards({
+	item,
+}: {
+	readonly item: QueuedItem | HeldItem | SubjectItem;
+}) {
+	if (item.kind === "queued") return <QueuedCard item={item} />;
+	if (item.kind === "held") return <HeldCard item={item} />;
+	return <SubjectGroupCard item={item} />;
 }
 
 function SettledCard({ item }: { readonly item: SettledItem }) {
@@ -445,9 +520,13 @@ export function SessionBoard() {
 				))}
 			</Column>
 			<Column count={columns.active.length} state="active" title="In motion">
-				{columns.active.map((item) => (
-					<ActiveCard item={item} key={item.key} />
-				))}
+				{columns.active.map((item) =>
+					item.kind === "subject-group" ? (
+						<SubjectGroupCard item={item} key={item.key} />
+					) : (
+						<ActiveCard item={item} key={item.key} />
+					),
+				)}
 			</Column>
 			<Column count={columns.queued.length} state="queued" title="Queued">
 				{columns.queued.map((item) => (

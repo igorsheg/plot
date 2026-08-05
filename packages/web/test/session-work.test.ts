@@ -25,6 +25,9 @@ import {
 	type DetailRef,
 } from "../src/components/session-work/detail-view-model.js";
 import {
+	backDetail,
+	openDetail,
+	$detailReturn,
 	$detailView,
 	$openDetail,
 } from "../src/components/session-work/detail-store.js";
@@ -43,6 +46,22 @@ test("detail open ref survives transient unresolved projection state", () => {
 
 	expect($detailView.get()).toBeUndefined();
 	expect($openDetail.get()).toEqual(ref);
+
+	$openDetail.set(undefined);
+});
+
+test("a Subject drawer owns one child-detail return", () => {
+	const subject: DetailRef = { kind: "subject", subjectKey: "weather" };
+	$openDetail.set(subject);
+	$detailReturn.set(undefined);
+
+	openDetail({ kind: "work", workKey: "city" });
+	expect($openDetail.get()).toEqual({ kind: "work", workKey: "city" });
+	expect($detailReturn.get()).toEqual(subject);
+
+	backDetail();
+	expect($openDetail.get()).toEqual(subject);
+	expect($detailReturn.get()).toBeUndefined();
 
 	$openDetail.set(undefined);
 });
@@ -122,6 +141,55 @@ const source = (
 	diagnostics: [],
 	...overrides,
 });
+
+const subjectProjection = (): SerializedDashboardProjection => {
+	const subjectKey = "subject-weather";
+	return projection({
+		work: {
+			alpha: work("alpha", {
+				title: "Alpha",
+				subjectKey,
+				status: "running",
+			}),
+			beta: work("beta", { title: "Beta", subjectKey, status: "pending" }),
+			gamma: work("gamma", {
+				title: "Gamma",
+				subjectKey,
+				status: "waiting",
+				blockedReason: "station offline",
+			}),
+			atlantis: work("atlantis", {
+				title: "Atlantis",
+				subjectKey,
+				status: "blocked",
+				blockedReason: "no station in range",
+				operatorActions: [{ id: "skip", label: "Skip city" }],
+			}),
+		},
+		subjects: {
+			[subjectKey]: {
+				subjectKey,
+				sourceId: "source",
+				id: "weather:daily-digest",
+				display: {
+					primary: "WX",
+					title: "Daily weather digest",
+					subtitle: "12 cities",
+					labels: ["demo", "weather"],
+				},
+				progress: { completed: 3, total: 12, phase: "collecting" },
+				workKeys: ["alpha", "beta", "gamma", "atlantis"],
+			},
+		},
+		attempts: {
+			"run-alpha": attempt("run-alpha", "alpha", {
+				startedAtMs: 100,
+				lastEventAtMs: 900,
+				streams: { tool: "weather_write_report" },
+			}),
+		},
+	});
+};
 
 test("buildAttention maps an action-required source to an openable item", () => {
 	const attention = buildAttention(
@@ -483,6 +551,80 @@ test("buildMotion puts active work before queued work before held work", () => {
 		["active", "second"],
 		["queued", "a-queued"],
 		["held", "b-held"],
+	]);
+});
+
+test("buildMotion collapses a Subject fan-out with counts and spotlight", () => {
+	const input = subjectProjection();
+	const motion = buildMotion(input);
+	const group = motion[0];
+	expect(motion).toHaveLength(1);
+	expect(group?.kind).toBe("subject-group");
+	if (group?.kind !== "subject-group") return;
+	expect(group).toMatchObject({
+		key: "subject:subject-weather",
+		subjectKey: "subject-weather",
+		title: "WX Daily weather digest",
+		sub: "12 cities",
+		progress: { completed: 3, total: 12, phase: "collecting" },
+		counts: { active: 1, queued: 1, held: 1, attention: 1 },
+		live: true,
+		dots: ["attention", "active", "queued", "held"],
+		overflow: 0,
+		sinceMs: 100,
+		spotlight: {
+			title: "Alpha",
+			line: { text: "weather_write_report", llm: false },
+		},
+	});
+	// The blocked child remains independently actionable in Attention.
+	expect(buildAttention(input).map((item) => item.key)).toContain("atlantis");
+});
+
+test("a single Subject child stays a first-class motion row", () => {
+	const subjectKey = "subject-one";
+	const motion = buildMotion(
+		projection({
+			work: {
+				only: work("only", { status: "pending", subjectKey }),
+			},
+			subjects: {
+				[subjectKey]: {
+					subjectKey,
+					sourceId: "source",
+					id: "one",
+					workKeys: ["only"],
+				},
+			},
+		}),
+	);
+	expect(motion.map((item) => [item.kind, item.key])).toEqual([
+		["queued", "only"],
+	]);
+});
+
+test("buildBoardColumns routes live and idle Subject cards by aggregate state", () => {
+	const live = buildMotion(subjectProjection());
+	const idleProjection = subjectProjection();
+	const idle = buildMotion({
+		...idleProjection,
+		work: {
+			...idleProjection.work,
+			alpha: work("alpha", {
+				title: "Alpha",
+				subjectKey: "subject-weather",
+				status: "pending",
+			}),
+		},
+		attempts: {},
+	});
+	const liveColumns = buildBoardColumns(live, [], []);
+	const idleColumns = buildBoardColumns(idle, [], []);
+	expect(liveColumns.active.map((item) => item.kind)).toEqual([
+		"subject-group",
+	]);
+	expect(idleColumns.queued.map((item) => item.kind)).toEqual([
+		"subject-group",
 	]);
 });
 
@@ -880,7 +1022,7 @@ test("buildDetail active narrative prefers live prose and retains the last prose
 	}
 });
 
-test("buildDetail does not turn failed attempts into current work detail", () => {
+test("buildDetail keeps a current queued retry ahead of its failed attempt", () => {
 	const view = buildDetail(
 		projection({
 			work: {
@@ -900,7 +1042,7 @@ test("buildDetail does not turn failed attempts into current work detail", () =>
 		workRef("broken"),
 		NOW,
 	);
-	expect(view).toBeUndefined();
+	expect(view?.kind).toBe("queued");
 });
 
 test("buildDetail resolves a settled ref, reading timeline via the runId", () => {
@@ -978,14 +1120,14 @@ test("buildDetail follows a work ref into completed when it settles out", () => 
 	if (view?.kind === "settled") expect(view.title).toBe("gone");
 });
 
-test("buildDetail maps waiting work to held while queued remains closed", () => {
+test("buildDetail maps waiting work to held and pending work to queued", () => {
 	expect(
 		buildDetail(
 			projection({ work: { q: work("q", { status: "pending" }) } }),
 			workRef("q"),
 			NOW,
-		),
-	).toBeUndefined();
+		)?.kind,
+	).toBe("queued");
 	expect(
 		buildDetail(
 			projection({ work: { h: work("h", { status: "waiting" }) } }),
@@ -996,6 +1138,42 @@ test("buildDetail maps waiting work to held while queued remains closed", () => 
 	expect(buildDetail(projection({}), workRef("nope"), NOW)).toBeUndefined();
 	expect(
 		buildDetail(projection({}), { kind: "settled", key: "x" }, NOW),
+	).toBeUndefined();
+});
+
+test("buildDetail resolves a Subject into salience-ordered child rows", () => {
+	const view = buildDetail(
+		subjectProjection(),
+		{ kind: "subject", subjectKey: "subject-weather" },
+		NOW,
+	);
+	expect(view?.kind).toBe("subject");
+	if (view?.kind !== "subject") return;
+	expect(view).toMatchObject({
+		title: "WX Daily weather digest",
+		subtitle: "12 cities",
+		labels: ["demo", "weather"],
+		stage: "3/12 complete · collecting",
+	});
+	expect(view.children.map((child) => [child.title, child.state])).toEqual([
+		["Atlantis", "attention"],
+		["Alpha", "active"],
+		["Beta", "queued"],
+		["Gamma", "held"],
+	]);
+	expect(view.children[0]?.line).toEqual({
+		text: "no station in range",
+		llm: false,
+	});
+	expect(view.children[1]?.line).toEqual({
+		text: "weather_write_report",
+		llm: false,
+	});
+});
+
+test("buildDetail returns undefined when a Subject is gone", () => {
+	expect(
+		buildDetail(projection({}), { kind: "subject", subjectKey: "gone" }, NOW),
 	).toBeUndefined();
 });
 
@@ -1093,6 +1271,21 @@ test("buildDetail keeps a ready source resolvable so the drawer survives", () =>
 		expect(view.requirements.every((r) => r.status === "ready")).toBe(true);
 });
 
+test("refEquals compares Subject refs by subjectKey", () => {
+	expect(
+		refEquals(
+			{ kind: "subject", subjectKey: "a" },
+			{ kind: "subject", subjectKey: "a" },
+		),
+	).toBe(true);
+	expect(
+		refEquals(
+			{ kind: "subject", subjectKey: "a" },
+			{ kind: "subject", subjectKey: "b" },
+		),
+	).toBe(false);
+});
+
 test("refEquals compares source refs by sourceId", () => {
 	expect(
 		refEquals(
@@ -1112,6 +1305,20 @@ test("refEquals compares source refs by sourceId", () => {
 			{ kind: "work", workKey: "a" },
 		),
 	).toBe(false);
+});
+
+test("openableRefs includes the collapsed Subject in motion order", () => {
+	const p = subjectProjection();
+	expect(
+		openableRefs({
+			attention: buildAttention(p),
+			motion: buildMotion(p),
+			settled: [],
+		}),
+	).toEqual([
+		{ kind: "work", workKey: "atlantis" },
+		{ kind: "subject", subjectKey: "subject-weather" },
+	]);
 });
 
 test("openableRefs lists source refs first, in river order", () => {
