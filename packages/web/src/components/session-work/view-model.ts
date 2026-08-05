@@ -13,6 +13,7 @@ import {
 	type SerializedDashboardProjection,
 	type SourceActionProjection,
 	type SourceReadiness,
+	type WorkSubjectProjection,
 } from "@plot/projection";
 import { asRecord, asString } from "../../data/parse.js";
 
@@ -79,6 +80,19 @@ export interface LiveLine {
 	readonly llm: boolean;
 }
 
+/** The work-state vocabulary a Subject group's children and dots speak. */
+export type SubjectChildState = "active" | "queued" | "held" | "attention";
+
+export interface SubjectCounts {
+	readonly active: number;
+	readonly queued: number;
+	readonly held: number;
+	readonly attention: number;
+}
+
+/** Dots render per child up to this bound; the rest roll into `overflow`. */
+export const subjectDotLimit = 10;
+
 export type MotionItem =
 	| {
 			readonly kind: "active";
@@ -105,6 +119,22 @@ export type MotionItem =
 			readonly sub?: string | undefined;
 			readonly reason?: string | undefined;
 			readonly actions: readonly OperatorActionView[];
+	  }
+	| {
+			readonly kind: "subject-group";
+			readonly key: string;
+			readonly subjectKey: string;
+			readonly title: string;
+			readonly sub?: string | undefined;
+			readonly progress?: WorkSubjectProjection["progress"];
+			readonly counts: SubjectCounts;
+			readonly live: boolean;
+			readonly dots: readonly SubjectChildState[];
+			readonly overflow: number;
+			readonly spotlight?:
+				| { readonly title: string; readonly line: LiveLine }
+				| undefined;
+			readonly sinceMs?: number | undefined;
 	  };
 
 export interface SettledItem extends Pick<
@@ -115,13 +145,36 @@ export interface SettledItem extends Pick<
 	readonly failed: boolean;
 }
 
-const attemptFor = (
+type Attempt = SerializedDashboardProjection["attempts"][string];
+
+export const attemptsByWorkKey = (
+	projection: SerializedDashboardProjection,
+): ReadonlyMap<string, Attempt> => {
+	const attempts = new Map<string, Attempt>();
+	for (const attempt of Object.values(projection.attempts))
+		attempts.set(attempt.workKey, attempt);
+	return attempts;
+};
+
+/**
+ * `work_observed` can refresh a running row without `currentRunId` while its
+ * Attempt remains active. Prefer the exact link, then recover by work identity.
+ */
+export const attemptFor = (
 	projection: SerializedDashboardProjection,
 	work: SerializedDashboardProjection["work"][string],
-): SerializedDashboardProjection["attempts"][string] | undefined =>
-	work.currentRunId === undefined
-		? undefined
-		: projection.attempts[work.currentRunId];
+	byWorkKey?: ReadonlyMap<string, Attempt>,
+): Attempt | undefined => {
+	const linked =
+		work.currentRunId === undefined
+			? undefined
+			: projection.attempts[work.currentRunId];
+	if (linked !== undefined) return linked;
+	if (byWorkKey !== undefined) return byWorkKey.get(work.workKey);
+	return Object.values(projection.attempts).find(
+		(attempt) => attempt.workKey === work.workKey,
+	);
+};
 
 /**
  * Live line resolution, mirroring the old `attemptActivity` chain minus the
@@ -130,7 +183,7 @@ const attemptFor = (
  * tool commands, the last display line, the activity label, and the subtitle
  * stay plain text.
  */
-const liveLine = (
+export const liveLine = (
 	work: SerializedDashboardProjection["work"][string],
 	attempt: SerializedDashboardProjection["attempts"][string] | undefined,
 ): LiveLine | undefined => {
@@ -185,6 +238,7 @@ export const parseOperatorActions = (
 export const buildAttention = (
 	projection: SerializedDashboardProjection,
 ): readonly AttentionItem[] => {
+	const attempts = attemptsByWorkKey(projection);
 	const sources: Extract<AttentionItem, { kind: "source" }>[] = [];
 	for (const source of Object.values(projection.sources)) {
 		// `checking` flashes at startup with nothing to act on; `ready` is settled.
@@ -214,7 +268,7 @@ export const buildAttention = (
 	}
 	const decisions: Extract<AttentionItem, { kind: "decision" }>[] = [];
 	for (const work of Object.values(projection.work)) {
-		const attempt = attemptFor(projection, work);
+		const attempt = attemptFor(projection, work, attempts);
 		const sinceMs = attempt?.lastEventAtMs;
 		if (work.status === "blocked") {
 			decisions.push({
@@ -241,49 +295,203 @@ export const buildAttention = (
 	return [...sources, ...decisions, ...diagnostics];
 };
 
+type WorkItem = SerializedDashboardProjection["work"][string];
+
+export const childStateOf = (work: WorkItem): SubjectChildState =>
+	work.status === "running" || work.status === "draining"
+		? "active"
+		: work.status === "blocked"
+			? "attention"
+			: work.status === "waiting"
+				? "held"
+				: "queued";
+
+const subjectWorkRank = (work: WorkItem) => {
+	if (work.status === "blocked") return 0;
+	if (work.status === "running" || work.status === "draining") return 1;
+	if (work.status === "pending") return 2;
+	return 3;
+};
+
+export const subjectTitle = (subject: WorkSubjectProjection): string =>
+	subject.display === undefined
+		? subject.id
+		: workLabel({
+				primary: subject.display.primary,
+				title: subject.display.title ?? subject.id,
+			});
+
+/** Children of one Subject currently in motion (blocked live in attention). */
+const subjectGroup = (
+	projection: SerializedDashboardProjection,
+	subject: WorkSubjectProjection,
+	children: readonly WorkItem[],
+	attempts: ReadonlyMap<string, Attempt>,
+): Extract<MotionItem, { kind: "subject-group" }> => {
+	const counts: {
+		active: number;
+		queued: number;
+		held: number;
+		attention: number;
+	} = {
+		active: 0,
+		queued: 0,
+		held: 0,
+		attention: 0,
+	};
+	const dots: SubjectChildState[] = [];
+	// Attention, then live, then idle: the strip is a bounded miniature of
+	// the same salience ordering used by the full Subject drawer.
+	const ordered = children.toSorted(
+		(a, b) =>
+			subjectWorkRank(a) - subjectWorkRank(b) || a.title.localeCompare(b.title),
+	);
+	for (const child of ordered) {
+		const state = childStateOf(child);
+		counts[state] += 1;
+		if (dots.length < subjectDotLimit) dots.push(state);
+	}
+	const liveChildren = ordered.filter(
+		(child) => child.status === "running" || child.status === "draining",
+	);
+	// The spotlight is the most recently active live child — the one line on
+	// the board that keeps a collapsed group feeling alive.
+	const spotlightChild = liveChildren
+		.flatMap((child) => {
+			const attempt = attemptFor(projection, child, attempts);
+			const line = liveLine(child, attempt);
+			return line === undefined ? [] : [{ child, attempt, line }];
+		})
+		.toSorted(
+			(a, b) =>
+				(b.attempt?.lastEventAtMs ?? 0) - (a.attempt?.lastEventAtMs ?? 0),
+		)[0];
+	const spotlight =
+		spotlightChild === undefined
+			? undefined
+			: {
+					title: workLabel(spotlightChild.child),
+					line: spotlightChild.line,
+				};
+	const starts = liveChildren
+		.map((child) => attemptFor(projection, child, attempts)?.startedAtMs)
+		.filter((value): value is number => value !== undefined);
+	return {
+		kind: "subject-group",
+		key: `subject:${subject.subjectKey}`,
+		subjectKey: subject.subjectKey,
+		title: subjectTitle(subject),
+		sub: subject.display?.subtitle,
+		progress: subject.progress,
+		counts,
+		live: liveChildren.length > 0,
+		dots,
+		overflow: Math.max(0, children.length - dots.length),
+		spotlight,
+		sinceMs: starts.length === 0 ? undefined : Math.min(...starts),
+	};
+};
+
+type StandaloneMotionItem = Exclude<
+	MotionItem,
+	{ readonly kind: "subject-group" }
+>;
+
+/** One standalone (ungrouped) Work Item as a motion row; blocked stay out. */
+const motionChild = (
+	projection: SerializedDashboardProjection,
+	work: WorkItem,
+	attempts: ReadonlyMap<string, Attempt>,
+): StandaloneMotionItem | undefined => {
+	if (work.status === "running" || work.status === "draining") {
+		const attempt = attemptFor(projection, work, attempts);
+		return {
+			kind: "active",
+			key: work.workKey,
+			title: workLabel(work),
+			sinceMs: attempt?.startedAtMs,
+			line: liveLine(work, attempt),
+			streaming: attempt?.streaming ?? false,
+			verifying: attempt?.stage === "verifying",
+		};
+	}
+	if (work.status === "pending")
+		return {
+			kind: "queued",
+			key: work.workKey,
+			title: workLabel(work),
+			sub: work.subtitle,
+			wakeDueAtMs: earliestWake(projection, work.workKey),
+		};
+	if (work.status === "waiting")
+		return {
+			kind: "held",
+			key: work.workKey,
+			workKey: work.workKey,
+			sourceId: work.sourceId,
+			title: workLabel(work),
+			sub: work.subtitle,
+			reason: work.blockedReason,
+			actions: parseOperatorActions(work.operatorActions),
+		};
+	return undefined;
+};
+
+type ActiveZoneItem = Extract<MotionItem, { kind: "active" | "subject-group" }>;
+type QueuedZoneItem = Extract<MotionItem, { kind: "queued" | "subject-group" }>;
+
 export const buildMotion = (
 	projection: SerializedDashboardProjection,
 ): readonly MotionItem[] => {
-	const active: Extract<MotionItem, { kind: "active" }>[] = [];
-	const queued: Extract<MotionItem, { kind: "queued" }>[] = [];
+	const attempts = attemptsByWorkKey(projection);
+	const activeZone: ActiveZoneItem[] = [];
+	const queuedZone: QueuedZoneItem[] = [];
 	const held: Extract<MotionItem, { kind: "held" }>[] = [];
+	const bySubject = new Map<string, WorkItem[]>();
 	for (const work of Object.values(projection.work)) {
-		if (work.status === "running" || work.status === "draining") {
-			const attempt = attemptFor(projection, work);
-			active.push({
-				kind: "active",
-				key: work.workKey,
-				title: workLabel(work),
-				sinceMs: attempt?.startedAtMs,
-				line: liveLine(work, attempt),
-				streaming: attempt?.streaming ?? false,
-				verifying: attempt?.stage === "verifying",
-			});
-		} else if (work.status === "pending") {
-			queued.push({
-				kind: "queued",
-				key: work.workKey,
-				title: workLabel(work),
-				sub: work.subtitle,
-				wakeDueAtMs: earliestWake(projection, work.workKey),
-			});
-		} else if (work.status === "waiting") {
-			held.push({
-				kind: "held",
-				key: work.workKey,
-				workKey: work.workKey,
-				sourceId: work.sourceId,
-				title: workLabel(work),
-				sub: work.subtitle,
-				reason: work.blockedReason,
-				actions: parseOperatorActions(work.operatorActions),
-			});
+		const subject =
+			work.subjectKey === undefined
+				? undefined
+				: projection.subjects[work.subjectKey];
+		if (subject !== undefined) {
+			const children = bySubject.get(subject.subjectKey) ?? [];
+			children.push(work);
+			bySubject.set(subject.subjectKey, children);
+			continue;
 		}
+		if (work.status === "blocked") continue; // attention owns decisions
+		const item = motionChild(projection, work, attempts);
+		if (item === undefined) continue;
+		if (item.kind === "active") activeZone.push(item);
+		else if (item.kind === "queued") queuedZone.push(item);
+		else held.push(item);
 	}
-	active.sort(byOldestSince);
-	queued.sort((a, b) => a.title.localeCompare(b.title));
+	// A Subject with a single child in motion renders as that child — a group
+	// card earns its place only when it actually collapses a fan-out.
+	for (const [subjectKey, children] of bySubject) {
+		const subject = projection.subjects[subjectKey];
+		if (subject === undefined) continue;
+		const motionChildren = children.filter(
+			(child) => child.status !== "blocked",
+		);
+		if (motionChildren.length < 2) {
+			for (const work of motionChildren) {
+				const item = motionChild(projection, work, attempts);
+				if (item === undefined) continue;
+				if (item.kind === "active") activeZone.push(item);
+				else if (item.kind === "queued") queuedZone.push(item);
+				else held.push(item);
+			}
+			continue;
+		}
+		const group = subjectGroup(projection, subject, children, attempts);
+		if (group.live) activeZone.push(group);
+		else queuedZone.push(group);
+	}
+	activeZone.sort(byOldestSince);
+	queuedZone.sort((a, b) => a.title.localeCompare(b.title));
 	held.sort((a, b) => a.title.localeCompare(b.title));
-	return [...active, ...queued, ...held];
+	return [...activeZone, ...queuedZone, ...held];
 };
 
 const earliestWake = (
@@ -319,8 +527,14 @@ export const buildSettled = (
  */
 export interface BoardColumns {
 	readonly attention: readonly AttentionItem[];
-	readonly active: readonly Extract<MotionItem, { kind: "active" }>[];
-	readonly queued: readonly Extract<MotionItem, { kind: "queued" | "held" }>[];
+	readonly active: readonly Extract<
+		MotionItem,
+		{ kind: "active" | "subject-group" }
+	>[];
+	readonly queued: readonly Extract<
+		MotionItem,
+		{ kind: "queued" | "held" | "subject-group" }
+	>[];
 	readonly settled: readonly SettledItem[];
 }
 
@@ -329,14 +543,26 @@ export const buildBoardColumns = (
 	attention: readonly AttentionItem[],
 	settled: readonly SettledItem[],
 ): BoardColumns => {
-	const active: Extract<MotionItem, { kind: "active" }>[] = [];
-	const queued: Extract<MotionItem, { kind: "queued" | "held" }>[] = [];
+	const active: BoardColumns["active"][number][] = [];
+	const queued: BoardColumns["queued"][number][] = [];
 	for (const item of motion) {
 		if (item.kind === "active") active.push(item);
+		else if (item.kind === "subject-group")
+			(item.live ? active : queued).push(item);
 		else queued.push(item);
 	}
 	return { attention, active, queued, settled };
 };
+
+export const subjectCountsText = (counts: SubjectCounts): string =>
+	[
+		counts.active === 0 ? undefined : `${counts.active} active`,
+		counts.queued === 0 ? undefined : `${counts.queued} queued`,
+		counts.held === 0 ? undefined : `${counts.held} held`,
+		counts.attention === 0 ? undefined : `${counts.attention} blocked`,
+	]
+		.filter((part): part is string => part !== undefined)
+		.join(" · ");
 
 /** Count of decisions in the attention list — dense at 3+. */
 export const decisionCount = (attention: readonly AttentionItem[]): number =>

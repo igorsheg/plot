@@ -67,6 +67,7 @@ export interface WorkRowModel {
 	readonly attention: boolean;
 }
 export interface WorkSubjectModel {
+	readonly key: string;
 	readonly subject: WorkSubjectProjection;
 	readonly label: string;
 	readonly meta: string;
@@ -91,6 +92,44 @@ export interface CompletedRowModel extends Pick<
 	readonly meta?: string | undefined;
 	readonly tone: ActivityTone;
 }
+/** Children shown per Subject group in the table; the rest drill down. */
+export const maxGroupChildren = 5;
+
+/** Stable identity of a selectable row, immune to re-sorts between renders. */
+export type Selection =
+	| { readonly kind: "subject"; readonly subjectKey: string }
+	| { readonly kind: "work"; readonly workKey: string };
+
+export type TableEntry =
+	| { readonly kind: "subject"; readonly subject: WorkSubjectModel }
+	| { readonly kind: "work"; readonly row: WorkRowModel };
+
+export const entrySelection = (entry: TableEntry): Selection =>
+	entry.kind === "subject"
+		? { kind: "subject", subjectKey: entry.subject.key }
+		: { kind: "work", workKey: entry.row.work.workKey };
+
+export const entryMatchesSelection = (
+	entry: TableEntry,
+	selection: Selection,
+): boolean =>
+	entry.kind === "subject"
+		? selection.kind === "subject" && entry.subject.key === selection.subjectKey
+		: selection.kind === "work" && entry.row.work.workKey === selection.workKey;
+
+/** Selectable rows in render order: Subject headers + windowed children. */
+export const tableEntries = (model: DashboardModel): readonly TableEntry[] =>
+	model.workGroups.flatMap((group): TableEntry[] => {
+		if (group.subject === undefined)
+			return group.work.map((row): TableEntry => ({ kind: "work", row }));
+		return [
+			{ kind: "subject", subject: group.subject },
+			...group.work
+				.slice(0, maxGroupChildren)
+				.map((row): TableEntry => ({ kind: "work", row })),
+		];
+	});
+
 export interface DashboardModel {
 	readonly pulse: PulseModel;
 	readonly sources: readonly SourceRowModel[];
@@ -260,6 +299,7 @@ const subjectModel = (
 ): WorkSubjectModel => {
 	const progress = subject.progress;
 	return {
+		key: subject.subjectKey,
 		subject,
 		label: workLabel({
 			primary: subject.display?.primary,
@@ -277,6 +317,11 @@ const subjectModel = (
 		work,
 	};
 };
+
+const liveRow = (row: WorkRowModel) =>
+	row.attempt !== undefined ||
+	row.status === "running" ||
+	row.status === "draining";
 
 const groupWork = (
 	projection: DashboardProjection,
@@ -326,6 +371,11 @@ export const dashboardModelFrom = (
 		.toSorted(
 			(a, b) =>
 				Number(b.attention) - Number(a.attention) ||
+				// Live rows before idle ones: the group window keeps the first rows
+				// visible, so the front of the list must be what is actually
+				// happening. A row observed running may precede its Attempt
+				// projection, so liveness keys off the status too.
+				Number(!liveRow(a)) - Number(!liveRow(b)) ||
 				(a.attempt?.startedAtSeq ?? 0) - (b.attempt?.startedAtSeq ?? 0),
 		);
 	const workGroups = groupWork(projection, sortedWork);

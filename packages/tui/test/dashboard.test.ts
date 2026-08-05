@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Dashboard } from "../src/dashboard.js";
-import { emptyProjection, type DashboardProjection } from "@plot/projection";
+import {
+	emptyProjection,
+	type DashboardProjection,
+	type WorkItemProjection,
+} from "@plot/projection";
 
 const actions = () => {
 	const opened: string[] = [];
@@ -57,6 +61,56 @@ const withWork = (
 	]),
 	...patch,
 });
+
+const plain = (lines: readonly string[]) =>
+	lines
+		.join("\n")
+		.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+
+const pendingRow = (
+	workKey: string,
+	title: string,
+	status: WorkItemProjection["status"],
+): WorkItemProjection => ({
+	workKey,
+	sourceId: "source",
+	title,
+	labels: [],
+	status,
+});
+
+const withSubjectChildren = (childCount: number): DashboardProjection => {
+	const subjectKey = JSON.stringify(["source", "github:acme/web:pr:42"]);
+	const work = new Map();
+	const workKeys: string[] = [];
+	for (let index = 1; index <= childCount; index++) {
+		workKeys.push(`unit-${index}`);
+		work.set(`unit-${index}`, {
+			workKey: `unit-${index}`,
+			sourceId: "source",
+			subject: "github:acme/web:pr:42",
+			subjectKey,
+			title: `task-${index}`,
+			labels: [],
+			status: "pending",
+		});
+	}
+	return withWork({
+		work,
+		subjects: new Map([
+			[
+				subjectKey,
+				{
+					subjectKey,
+					sourceId: "source",
+					id: "github:acme/web:pr:42",
+					display: { primary: "#42", title: "Repair checkout" },
+					workKeys,
+				},
+			],
+		]),
+	});
+};
 
 describe("Dashboard", () => {
 	test("renders active work", () => {
@@ -124,6 +178,109 @@ describe("Dashboard", () => {
 		expect(rendered).toContain("acme/web · 2/4 complete · reviewing");
 		expect(rendered).toContain("├─ ● checkout.ts");
 		expect(rendered).toContain("└─ ◌ pricing.ts");
+	});
+
+	test("bounds Subject children in the table with an overflow line", () => {
+		const text = plain(
+			new Dashboard(withSubjectChildren(8), actions().actions).render(100),
+		);
+		expect(text).toContain("task-5");
+		expect(text).not.toContain("task-6");
+		expect(text).toContain("… +3 more");
+	});
+
+	test("drills into a Subject to reach every child and walks back", () => {
+		const dashboard = new Dashboard(withSubjectChildren(8), actions().actions);
+		dashboard.render(100); // heal selection onto the Subject header
+
+		dashboard.handleInput("\r");
+		const subjectText = plain(dashboard.render(100));
+		expect(subjectText).toContain("task-6");
+		expect(subjectText).toContain("task-8");
+
+		for (let index = 0; index < 7; index++) dashboard.handleInput("j");
+		dashboard.handleInput("\r");
+		expect(plain(dashboard.render(100))).toContain("task-8");
+
+		dashboard.handleInput("\u001b"); // detail -> Subject view
+		expect(plain(dashboard.render(100))).toContain("task-8");
+		dashboard.handleInput("\u001b"); // Subject view -> table
+		expect(plain(dashboard.render(100))).toContain("… +3 more");
+	});
+
+	test("keeps the selected row when attention re-sorts the table", () => {
+		const projection = withWork({
+			work: new Map([
+				["w1", pendingRow("w1", "first task", "pending")],
+				["w2", pendingRow("w2", "second task", "pending")],
+			]),
+		});
+		const dashboard = new Dashboard(projection, actions().actions);
+		dashboard.render(100); // select "first task"
+
+		dashboard.setProjection({
+			...projection,
+			work: new Map([
+				["w1", pendingRow("w1", "first task", "pending")],
+				["w2", pendingRow("w2", "second task", "blocked")],
+			]),
+		});
+
+		const selectedLine = dashboard
+			.render(100)
+			.find((line) => line.includes("›"));
+		expect(selectedLine).toBeDefined();
+		expect(plain([selectedLine ?? ""])).toContain("first task");
+	});
+
+	test("children with a live Attempt sort ahead of idle children", () => {
+		const base = withSubjectChildren(3);
+		const running = base.work.get("unit-2");
+		const observed = base.work.get("unit-3");
+		if (running === undefined || observed === undefined)
+			throw new Error("missing child rows");
+		const work = new Map(base.work);
+		work.set("unit-2", {
+			...running,
+			status: "running",
+			currentRunId: "run-2",
+		});
+		// Observed running can precede its Attempt projection by a render.
+		work.set("unit-3", {
+			...observed,
+			status: "running",
+			currentRunId: "run-3",
+		});
+		const attempts = new Map(base.attempts);
+		attempts.set("run-2", {
+			runId: "run-2",
+			workKey: "unit-2",
+			sourceId: "source",
+			stage: "working",
+			startedAtSeq: 1,
+			lastEventSeq: 1,
+			turnCount: 0,
+			eventCount: 0,
+			meaningfulCount: 0,
+			toolUpdateCount: 0,
+			messageCount: 0,
+			activity: "working",
+			activityKind: "run",
+			streaming: false,
+			lastDisplay: "working",
+			check: "not-run",
+			commands: [],
+			observations: [],
+			streams: {},
+			phases: [],
+			timeline: [],
+		});
+
+		const text = plain(
+			new Dashboard({ ...base, work, attempts }, actions().actions).render(100),
+		);
+		expect(text.indexOf("task-2")).toBeLessThan(text.indexOf("task-1"));
+		expect(text.indexOf("task-3")).toBeLessThan(text.indexOf("task-1"));
 	});
 
 	test("renders Source setup before any work exists", () => {
